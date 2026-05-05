@@ -118,6 +118,7 @@ export default function ApplyPage() {
   const [financialClear, setFinancialClear] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submissionStep, setSubmissionStep] = useState("");
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
   const [paymentDeadlineTime, setPaymentDeadlineTime] = useState<number | null>(
@@ -546,6 +547,7 @@ export default function ApplyPage() {
     }
 
     setIsSubmitting(true);
+    setSubmissionStep("جاري فحص البيانات والتأكد من عدم وجود طلب مكرر...");
 
     try {
       const duplicateApplication = await checkDuplicateActiveApplication({
@@ -561,8 +563,11 @@ export default function ApplyPage() {
         );
 
         setIsSubmitting(false);
+        setSubmissionStep("");
         return;
       }
+
+      setSubmissionStep("جاري إنشاء طلب التمويل وحفظ البيانات...");
 
       const trackingId = "AM-" + Date.now();
       const deadlineMs = Date.now() + 60 * 60 * 1000;
@@ -624,7 +629,13 @@ export default function ApplyPage() {
 
       if (appError) throw appError;
 
-      for (const item of uploadTypes) {
+      setSubmissionStep("جاري رفع صور الهويات والوثائق...");
+
+      for (const [index, item] of uploadTypes.entries()) {
+        setSubmissionStep(
+          `جاري رفع الوثائق (${index + 1} من ${uploadTypes.length})...`
+        );
+
         const file = files[item.key];
 
         if (!file) continue;
@@ -642,6 +653,8 @@ export default function ApplyPage() {
         if (docError) throw docError;
       }
 
+      setSubmissionStep("جاري إرسال تنبيه الطلب للإدارة...");
+
       await sendApplicationCreatedDiscordNotification({
         trackingId,
         cleanPhone,
@@ -650,15 +663,19 @@ export default function ApplyPage() {
         eligibilityPath,
       });
 
+      setSubmissionStep("تم استلام الطلب بنجاح، جاري فتح صفحة الدفع...");
+
       setSuccessTrackingId(trackingId);
       setPaymentDeadlineTime(deadlineMs);
       setTimeLeft(60 * 60);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       console.error(error);
+      setSubmissionStep("");
       alert("صار خطأ أثناء حفظ الطلب أو رفع الصور. ابعتلي صورة الخطأ.");
     } finally {
       setIsSubmitting(false);
+      setSubmissionStep("");
     }
   }
 
@@ -877,6 +894,8 @@ export default function ApplyPage() {
       dir="rtl"
       className="min-h-screen bg-[radial-gradient(circle_at_top,#2b1607_0%,#050505_38%,#000_100%)] px-4 py-10 text-white"
     >
+      {isSubmitting && <SubmittingOverlay message={submissionStep} />}
+
       <div className="mx-auto max-w-5xl">
         <div className="mb-8 rounded-[2rem] border border-orange-500/20 bg-black/70 p-8 shadow-2xl backdrop-blur">
           <div className="mb-4 inline-flex rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-sm text-orange-300">
@@ -1361,10 +1380,40 @@ export default function ApplyPage() {
             disabled={isSubmitting}
             className="sticky bottom-4 w-full rounded-2xl bg-orange-500 p-5 text-lg font-black text-black shadow-2xl shadow-orange-500/20 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {isSubmitting ? "جاري إرسال الطلب..." : "إرسال الطلب الآن"}
+            {isSubmitting ? "جاري تقديم الطلب..." : "إرسال الطلب الآن"}
           </button>
         </form>
       </div>
     </main>
+  );
+}
+
+function SubmittingOverlay({ message }: { message: string }) {
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 px-4 backdrop-blur-md">
+      <div className="w-full max-w-md rounded-[2rem] border border-orange-500/30 bg-zinc-950 p-7 text-center shadow-2xl">
+        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/10">
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
+        </div>
+
+        <div className="mb-3 inline-flex rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-xs font-black text-orange-300">
+          لا تغلق الصفحة
+        </div>
+
+        <h2 className="text-2xl font-black text-white">جاري تقديم الطلب...</h2>
+
+        <p className="mt-4 min-h-[56px] text-sm font-bold leading-7 text-zinc-300">
+          {message || "يتم الآن معالجة الطلب ورفع الوثائق، يرجى الانتظار."}
+        </p>
+
+        <div className="mt-5 h-3 overflow-hidden rounded-full bg-zinc-800">
+          <div className="h-full w-2/3 animate-pulse rounded-full bg-orange-500" />
+        </div>
+
+        <p className="mt-4 text-xs font-bold leading-6 text-zinc-500">
+          قد تستغرق العملية عدة ثوانٍ حسب سرعة الإنترنت وحجم الصور.
+        </p>
+      </div>
+    </div>
   );
 }
