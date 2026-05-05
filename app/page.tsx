@@ -1,6 +1,9 @@
 import Image from "next/image";
 import Link from "next/link";
 
+const legalRegistrationText =
+  "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
+
 const featuredBenefits = [
   {
     title: "تقديم أونلاين بالكامل",
@@ -61,7 +64,10 @@ const featuredPhones = [
 
 export default function HomePage() {
   return (
-    <main dir="rtl" className="min-h-screen overflow-x-hidden bg-[#f6f3ee] text-[#111827]">
+    <main
+      dir="rtl"
+      className="min-h-screen overflow-x-hidden bg-[#f6f3ee] text-[#111827]"
+    >
       <header className="sticky top-0 z-40 border-b border-[#eadfce] bg-white/95 backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <Link href="/" className="flex min-w-0 items-center gap-3">
@@ -486,8 +492,8 @@ export default function HomePage() {
       </section>
 
       <footer className="border-t border-[#eadfce] bg-white">
-        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1fr_auto] md:items-center">
-          <div className="flex items-center gap-3">
+        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1fr_auto] md:items-start">
+          <div className="flex items-start gap-3">
             <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
               <Image
                 src="/logo.png"
@@ -506,6 +512,15 @@ export default function HomePage() {
               <p className="mt-1 text-xs font-bold text-gray-400">
                 Al-Madina Al-Monawara St 261, Amman 11953
               </p>
+
+              <div className="mt-4 max-w-3xl rounded-2xl border border-[#eadfce] bg-[#fbf6ee] p-4">
+                <p className="text-xs font-black text-[#9a7448]">
+                  بيانات التسجيل والملكية
+                </p>
+                <p className="mt-2 text-xs font-bold leading-7 text-gray-600">
+                  {legalRegistrationText}
+                </p>
+              </div>
             </div>
           </div>
 
