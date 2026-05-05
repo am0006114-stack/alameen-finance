@@ -61,11 +61,11 @@ const featuredPhones = [
 
 export default function HomePage() {
   return (
-    <main dir="rtl" className="min-h-screen bg-[#f6f3ee] text-[#111827]">
-      <header className="sticky top-0 z-40 border-b border-[#eadfce] bg-white/90 backdrop-blur-xl">
-        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
-          <Link href="/" className="flex items-center gap-3">
-            <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
+    <main dir="rtl" className="min-h-screen overflow-x-hidden bg-[#f6f3ee] text-[#111827]">
+      <header className="sticky top-0 z-40 border-b border-[#eadfce] bg-white/95 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
+          <Link href="/" className="flex min-w-0 items-center gap-3">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce] sm:h-14 sm:w-14">
               <Image
                 src="/logo.png"
                 alt="الأمين للأقساط"
@@ -76,9 +76,11 @@ export default function HomePage() {
               />
             </div>
 
-            <div>
-              <p className="text-lg font-black leading-6">الأمين للأقساط</p>
-              <p className="text-xs font-bold tracking-wide text-[#b28b5e]">
+            <div className="min-w-0">
+              <p className="truncate text-base font-black leading-6 sm:text-lg">
+                الأمين للأقساط
+              </p>
+              <p className="truncate text-[11px] font-bold tracking-wide text-[#b28b5e] sm:text-xs">
                 AL AMEEN FINANCE
               </p>
             </div>
@@ -95,7 +97,7 @@ export default function HomePage() {
             <Link href="/privacy">الخصوصية</Link>
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/whatsapp"
               className="hidden rounded-2xl border border-[#eadfce] bg-white px-4 py-3 text-sm font-black text-[#111827] shadow-sm transition hover:bg-[#fbf6ee] sm:inline-flex"
@@ -105,7 +107,7 @@ export default function HomePage() {
 
             <Link
               href="/products"
-              className="rounded-2xl bg-[#111827] px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-black"
+              className="rounded-2xl bg-[#111827] px-4 py-3 text-xs font-black text-white shadow-lg transition hover:bg-black sm:px-5 sm:text-sm"
             >
               تصفح الهواتف
             </Link>
@@ -113,29 +115,30 @@ export default function HomePage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl px-4 py-8 lg:py-12">
-        <div className="relative overflow-hidden rounded-[40px] border border-[#eadfce] bg-white shadow-2xl">
+      <section className="mx-auto max-w-7xl px-4 py-5 sm:py-8 lg:py-12">
+        <div className="relative overflow-hidden rounded-[30px] border border-[#eadfce] bg-white shadow-2xl sm:rounded-[40px]">
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#eadfce_0%,transparent_28%),radial-gradient(circle_at_80%_10%,#f6ead8_0%,transparent_25%)]" />
 
-          <div className="relative grid min-h-[680px] gap-8 p-6 sm:p-10 lg:grid-cols-[1.05fr_0.95fr] lg:p-14">
+          <div className="relative grid gap-8 p-5 sm:p-8 lg:min-h-[680px] lg:grid-cols-[1.05fr_0.95fr] lg:p-14">
             <div className="flex flex-col justify-center">
-              <p className="mb-5 inline-flex w-fit rounded-full border border-[#d8c09c] bg-[#fbf6ee] px-4 py-2 text-sm font-black text-[#9a7448]">
+              <p className="mb-4 inline-flex w-fit max-w-full rounded-full border border-[#d8c09c] bg-[#fbf6ee] px-3 py-2 text-xs font-black leading-6 text-[#9a7448] sm:mb-5 sm:px-4 sm:text-sm">
                 تقسيط هواتف فاخر — تقديم أونلاين واستلام من المعرض
               </p>
 
-              <h1 className="max-w-3xl text-4xl font-black leading-[1.25] tracking-tight sm:text-5xl lg:text-6xl">
+              <h1 className="max-w-full text-3xl font-black leading-[1.35] tracking-tight sm:text-5xl sm:leading-[1.25] lg:text-6xl">
                 قسط هاتفك بسهولة،
                 <br />
                 <span className="text-[#b28b5e]">بثقة وخطوات واضحة</span>
               </h1>
 
-              <p className="mt-6 max-w-2xl text-base font-medium leading-9 text-gray-600 sm:text-lg">
-                اختر جهاز iPhone أو Samsung، قدّم طلبك أونلاين خلال دقائق،
-                واحصل على دراسة للطلب خلال 24 إلى 72 ساعة عمل. بعد الموافقة،
-                يتم شراء الجهاز وتسليمه من المعرض مع توقيع العقد.
+              <p className="mt-5 max-w-full break-words text-sm font-bold leading-8 text-gray-600 sm:text-lg sm:leading-9">
+                اختر جهاز <span dir="ltr">iPhone</span> أو{" "}
+                <span dir="ltr">Samsung</span>، وقدّم طلبك أونلاين خلال دقائق.
+                تحصل على دراسة للطلب خلال 24 إلى 72 ساعة عمل، وبعد الموافقة يتم
+                شراء الجهاز وتسليمه من المعرض مع توقيع العقد.
               </p>
 
-              <div className="mt-8 grid gap-3 sm:flex">
+              <div className="mt-7 grid gap-3 sm:flex sm:flex-wrap">
                 <Link
                   href="/products"
                   className="rounded-2xl bg-[#111827] px-7 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-black"
@@ -158,7 +161,7 @@ export default function HomePage() {
                 </Link>
               </div>
 
-              <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
                 <TrustPill value="حتى 36" label="شهر تقسيط" />
                 <TrustPill value="5%" label="لكل 12 شهر" />
                 <TrustPill value="24-72" label="ساعة عمل للدراسة" />
@@ -166,7 +169,7 @@ export default function HomePage() {
               </div>
             </div>
 
-            <div className="relative flex items-center justify-center">
+            <div className="relative hidden items-center justify-center lg:flex">
               <div className="absolute h-[420px] w-[420px] rounded-full bg-[#eadfce]/70 blur-3xl" />
 
               <div className="relative w-full max-w-xl rounded-[36px] border border-white/70 bg-white/55 p-5 shadow-2xl backdrop-blur">
@@ -192,7 +195,7 @@ export default function HomePage() {
                 </div>
 
                 <div className="min-h-[430px] rounded-[30px] bg-gradient-to-br from-[#fbf6ee] to-white p-6">
-                  <div className="flex h-full min-h-[390px] items-end justify-center gap-3 sm:gap-5">
+                  <div className="flex h-full min-h-[390px] items-end justify-center gap-5">
                     <HeroPhone
                       image="/assets/iphone16pro.jpg"
                       name="iPhone 16 Pro"
@@ -235,7 +238,9 @@ export default function HomePage() {
             <p className="mb-2 text-sm font-black text-[#b28b5e]">
               أجهزة مختارة
             </p>
-            <h2 className="text-3xl font-black">ابدأ من الأجهزة الأكثر طلبًا</h2>
+            <h2 className="text-2xl font-black leading-tight sm:text-3xl">
+              ابدأ من الأجهزة الأكثر طلبًا
+            </h2>
           </div>
 
           <Link
@@ -251,25 +256,29 @@ export default function HomePage() {
             <Link
               key={phone.name}
               href={phone.href}
-              className="overflow-hidden rounded-[28px] border border-[#eadfce] bg-white shadow-lg transition hover:-translate-y-1 hover:shadow-xl"
+              className="overflow-hidden rounded-[24px] border border-[#eadfce] bg-white shadow-lg transition hover:-translate-y-1 hover:shadow-xl sm:rounded-[28px]"
             >
-              <div className="relative h-48 bg-white sm:h-64">
+              <div className="relative h-44 bg-white sm:h-64">
                 <Image
                   src={phone.image}
                   alt={phone.name}
                   fill
                   sizes="(max-width: 768px) 50vw, 33vw"
-                  className="object-contain p-4"
+                  className="object-contain p-3 sm:p-4"
                 />
               </div>
 
-              <div className="border-t border-[#f1e8dc] bg-[#111827] p-4 text-white">
-                <p className="text-xs font-black text-[#c49a63]">{phone.badge}</p>
-                <h3 className="mt-2 min-h-[48px] text-base font-black leading-6 sm:text-xl">
+              <div className="border-t border-[#f1e8dc] bg-[#111827] p-3 text-white sm:p-4">
+                <p className="text-[11px] font-black text-[#c49a63] sm:text-xs">
+                  {phone.badge}
+                </p>
+                <h3 className="mt-2 min-h-[42px] text-sm font-black leading-6 sm:min-h-[48px] sm:text-xl">
                   {phone.name}
                 </h3>
-                <p className="mt-3 text-lg font-black">{phone.price}</p>
-                <p className="mt-1 text-xs font-bold text-gray-300">
+                <p className="mt-3 text-base font-black sm:text-lg">
+                  {phone.price}
+                </p>
+                <p className="mt-1 text-[11px] font-bold leading-5 text-gray-300 sm:text-xs">
                   السعر النقدي قبل احتساب التقسيط
                 </p>
               </div>
@@ -305,7 +314,7 @@ export default function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="rounded-[40px] border border-[#eadfce] bg-white p-7 shadow-xl sm:p-10">
+        <div className="rounded-[30px] border border-[#eadfce] bg-white p-6 shadow-xl sm:rounded-[40px] sm:p-10">
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="mb-3 text-sm font-black text-[#b28b5e]">
@@ -349,7 +358,7 @@ export default function HomePage() {
 
       <section className="mx-auto max-w-7xl px-4 py-10">
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[40px] bg-[#111827] p-8 text-white shadow-2xl sm:p-10">
+          <div className="rounded-[30px] bg-[#111827] p-7 text-white shadow-2xl sm:rounded-[40px] sm:p-10">
             <p className="mb-3 text-sm font-black text-[#c49a63]">
               كفالات معتمدة
             </p>
@@ -371,7 +380,7 @@ export default function HomePage() {
             </div>
           </div>
 
-          <div className="rounded-[40px] border border-[#eadfce] bg-white p-8 shadow-xl sm:p-10">
+          <div className="rounded-[30px] border border-[#eadfce] bg-white p-7 shadow-xl sm:rounded-[40px] sm:p-10">
             <p className="mb-3 text-sm font-black text-[#b28b5e]">
               شروط مختصرة
             </p>
@@ -409,7 +418,7 @@ export default function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="rounded-[40px] border border-[#eadfce] bg-white p-7 shadow-xl sm:p-10">
+        <div className="rounded-[30px] border border-[#eadfce] bg-white p-6 shadow-xl sm:rounded-[40px] sm:p-10">
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="mb-3 text-sm font-black text-[#b28b5e]">
@@ -440,8 +449,8 @@ export default function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 pb-12">
-        <div className="overflow-hidden rounded-[40px] bg-[#111827] shadow-2xl">
-          <div className="grid gap-6 p-8 text-white sm:p-10 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="overflow-hidden rounded-[30px] bg-[#111827] shadow-2xl sm:rounded-[40px]">
+          <div className="grid gap-6 p-7 text-white sm:p-10 lg:grid-cols-[1fr_auto] lg:items-center">
             <div>
               <p className="mb-3 text-sm font-black text-[#c49a63]">
                 ابدأ الآن
@@ -479,7 +488,7 @@ export default function HomePage() {
       <footer className="border-t border-[#eadfce] bg-white">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1fr_auto] md:items-center">
           <div className="flex items-center gap-3">
-            <div className="relative h-12 w-12 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
               <Image
                 src="/logo.png"
                 alt="الأمين للأقساط"
@@ -516,7 +525,7 @@ export default function HomePage() {
 
 function TrustPill({ value, label }: { value: string; label: string }) {
   return (
-    <div className="rounded-2xl border border-[#eadfce] bg-white/80 p-4 shadow-sm">
+    <div className="rounded-2xl border border-[#eadfce] bg-white/90 p-4 shadow-sm">
       <p className="text-2xl font-black text-[#111827]">{value}</p>
       <p className="mt-1 text-xs font-bold text-gray-500">{label}</p>
     </div>
