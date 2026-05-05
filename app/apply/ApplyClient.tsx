@@ -22,6 +22,9 @@ type ExistingApplication = {
   full_name: string | null;
 };
 
+const legalRegistrationText =
+  "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
+
 const uploadTypes: { key: UploadKey; type: string; label: string }[] = [
   {
     key: "applicantIdFront",
@@ -899,7 +902,7 @@ export default function ApplyPage() {
       <div className="mx-auto max-w-5xl">
         <div className="mb-8 rounded-[2rem] border border-orange-500/20 bg-black/70 p-8 shadow-2xl backdrop-blur">
           <div className="mb-4 inline-flex rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-sm text-orange-300">
-            الأمين للتمويل — طلب تقسيط آمن وسريع
+            الأمين للأقساط والتمويل — طلب تقسيط آمن وسريع
           </div>
 
           <h1 className="text-4xl font-black leading-tight md:text-6xl">
@@ -910,6 +913,30 @@ export default function ApplyPage() {
             عبّئ البيانات بدقة، ارفع صور الهويات المطلوبة، وبعد تقديم الطلب يتم
             دفع رسوم معالجة 5 دنانير لاستكمال مراجعة الملف والتقييم الأولي.
           </p>
+
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            <TrustCard
+              title="جهة مسجلة"
+              text="Al Ameen for Financial Services"
+            />
+            <TrustCard
+              title="بياناتك للمراجعة فقط"
+              text="لا نستخدم صور الهوية لأي غرض تسويقي."
+            />
+            <TrustCard
+              title="تقديم أونلاين"
+              text="الاستلام من المعرض بعد الموافقة وتوقيع العقد."
+            />
+          </div>
+
+          <div className="mt-5 rounded-2xl border border-orange-500/20 bg-orange-950/20 p-4">
+            <p className="text-xs font-black text-orange-300">
+              بيانات التسجيل والملكية
+            </p>
+            <p className="mt-2 text-sm font-bold leading-7 text-zinc-300">
+              {legalRegistrationText}
+            </p>
+          </div>
         </div>
 
         {selectedProduct && selectedInstallment ? (
@@ -938,37 +965,17 @@ export default function ApplyPage() {
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-4">
-              <div className="rounded-2xl border border-zinc-800 bg-black/50 p-4">
-                <p className="text-xs text-zinc-400">السعر</p>
-
-                <p className="mt-1 text-lg font-black text-white">
-                  {formatJod(selectedProduct.price)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-black/50 p-4">
-                <p className="text-xs text-zinc-400">مدة التقسيط</p>
-
-                <p className="mt-1 text-lg font-black text-white">
-                  {selectedMonths} شهر
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-black/50 p-4">
-                <p className="text-xs text-zinc-400">الدفعة الأولى</p>
-
-                <p className="mt-1 text-lg font-black text-white">
-                  {formatJod(selectedInstallment.downPayment)}
-                </p>
-              </div>
-
-              <div className="rounded-2xl border border-zinc-800 bg-black/50 p-4">
-                <p className="text-xs text-zinc-400">القسط التقريبي</p>
-
-                <p className="mt-1 text-lg font-black text-orange-300">
-                  {formatJod(selectedInstallment.monthly)}
-                </p>
-              </div>
+              <InfoBox label="السعر" value={formatJod(selectedProduct.price)} />
+              <InfoBox label="مدة التقسيط" value={`${selectedMonths} شهر`} />
+              <InfoBox
+                label="الدفعة الأولى"
+                value={formatJod(selectedInstallment.downPayment)}
+              />
+              <InfoBox
+                label="القسط التقريبي"
+                value={formatJod(selectedInstallment.monthly)}
+                highlight
+              />
             </div>
           </section>
         ) : (
@@ -1218,9 +1225,34 @@ export default function ApplyPage() {
             <h2 className="mb-2 text-2xl font-bold">5. رفع صور الهويات</h2>
 
             <p className="mb-5 text-sm leading-7 text-zinc-300">
-              يمكنك تصوير الهوية مباشرة بالكاميرا أو اختيار صورة محفوظة من
-              الجهاز. تأكد أن الصورة واضحة وغير مقصوصة.
+              يمكنك اختيار صور الهويات من المعرض أو الملفات، أو تصويرها مباشرة
+              إذا رغبت. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
             </p>
+
+            <div className="mb-5 grid gap-3 md:grid-cols-3">
+              <TrustCard
+                title="لماذا نطلب الهوية؟"
+                text="للتحقق من بيانات مقدم الطلب والكفيل ودراسة أهلية التمويل فقط."
+              />
+              <TrustCard
+                title="استخدام محدود"
+                text="لا يتم استخدام صور الهوية لأي إعلان أو تسويق أو عرض عام."
+              />
+              <TrustCard
+                title="مراجعة داخلية فقط"
+                text="الوثائق تظهر فقط للإدارة المخولة بمراجعة الطلبات."
+              />
+            </div>
+
+            <div className="mb-5 rounded-2xl border border-green-700/40 bg-green-950/20 p-4">
+              <p className="text-sm font-black text-green-300">
+                تعهّد الخصوصية
+              </p>
+              <p className="mt-2 text-sm font-bold leading-7 text-zinc-300">
+                يتم استخدام صور الهويات والوثائق فقط لدراسة طلب التمويل والتحقق
+                من البيانات، ولا يتم نشرها أو بيعها أو استخدامها لأي غرض تسويقي.
+              </p>
+            </div>
 
             <div className="grid gap-4 md:grid-cols-2">
               {uploadTypes.map((item) => {
@@ -1239,17 +1271,17 @@ export default function ApplyPage() {
 
                     <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-orange-500/40 bg-black/50 p-5 text-center transition hover:bg-black">
                       <span className="text-base font-black text-orange-300">
-                        تصوير أو اختيار صورة
+                        اختيار صورة أو تصوير الهوية
                       </span>
 
                       <span className="mt-2 text-xs leading-6 text-zinc-400">
-                        على الموبايل سيظهر لك خيار الكاميرا أو المعرض حسب الجهاز.
+                        يمكنك اختيار صورة محفوظة من الجهاز أو تصوير الهوية حسب
+                        الخيارات المتاحة في هاتفك.
                       </span>
 
                       <input
                         type="file"
                         accept="image/png,image/jpeg"
-                        capture="environment"
                         onChange={(e) =>
                           handleFileChange(
                             item.key,
@@ -1321,7 +1353,8 @@ export default function ApplyPage() {
             <div className="mt-4 rounded-2xl border border-orange-700 bg-orange-950/40 p-5 leading-8">
               <strong>رسوم معالجة الطلب:</strong> 5 دنانير غير مستردة، تُدفع
               بعد تقديم الطلب عبر كليك أو إي فواتيركم أو محفظة إلكترونية
-              معتمدة، لاستكمال مراجعة الملف والتقييم الأولي.
+              معتمدة، لاستكمال مراجعة الملف والتقييم الأولي. دفع الرسوم لا يعني
+              الموافقة النهائية على طلب التقسيط.
             </div>
           </section>
 
@@ -1333,6 +1366,7 @@ export default function ApplyPage() {
 
               <div className="mt-5 max-h-72 overflow-y-auto rounded-2xl border border-zinc-800 bg-black p-5 text-sm leading-8 text-zinc-300">
                 <ul className="list-disc space-y-2 pr-5">
+                  <li>{legalRegistrationText}</li>
                   <li>
                     إذا كان مقدم الطلب مشتركًا بالضمان، يجب ألا يقل الراتب
                     الصافي عن 350 دينار أردني.
@@ -1353,6 +1387,10 @@ export default function ApplyPage() {
                     يجب تقديم هوية شخصية سارية لمقدم الطلب والكفيل، وجه أمامي
                     وخلفي.
                   </li>
+                  <li>
+                    صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق
+                    من البيانات.
+                  </li>
                   <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
                   <li>رسوم معالجة الطلب 5 دنانير غير مستردة.</li>
                   <li>دفع رسوم المعالجة لا يعني الموافقة على طلب التقسيط.</li>
@@ -1372,7 +1410,10 @@ export default function ApplyPage() {
                 className="mt-2"
               />
 
-              <span>أقرّ بأنني قرأت الشروط والأحكام وأوافق عليها.</span>
+              <span>
+                أقرّ بأنني قرأت الشروط والأحكام وأوافق عليها، وأوافق على
+                استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التمويل فقط.
+              </span>
             </label>
           </section>
 
@@ -1385,6 +1426,39 @@ export default function ApplyPage() {
         </form>
       </div>
     </main>
+  );
+}
+
+function InfoBox({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-black/50 p-4">
+      <p className="text-xs text-zinc-400">{label}</p>
+
+      <p
+        className={`mt-1 text-lg font-black ${
+          highlight ? "text-orange-300" : "text-white"
+        }`}
+      >
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function TrustCard({ title, text }: { title: string; text: string }) {
+  return (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
+      <p className="text-sm font-black text-orange-300">{title}</p>
+      <p className="mt-2 text-xs font-bold leading-6 text-zinc-400">{text}</p>
+    </div>
   );
 }
 
