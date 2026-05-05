@@ -4,6 +4,9 @@ const companyAddress =
   process.env.NEXT_PUBLIC_COMPANY_ADDRESS ||
   "Al-Madina Al-Monawara St 261, Amman 11953";
 
+const legalRegistrationText =
+  "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
+
 export default function TermsPage() {
   return (
     <main dir="rtl" className="min-h-screen bg-[#f6f3ee] px-4 py-10 text-[#111827]">
@@ -28,8 +31,21 @@ export default function TermsPage() {
             على التمويل.
           </p>
 
+          <div className="mt-6 rounded-3xl border border-[#eadfce] bg-[#fbf6ee] p-5">
+            <p className="mb-2 text-sm font-black text-[#9a7448]">
+              بيانات الجهة المالكة والمشغلة
+            </p>
+            <p className="text-sm font-bold leading-8 text-gray-700">
+              {legalRegistrationText}
+            </p>
+          </div>
+
           <div className="mt-8 space-y-6">
-            <Section title="1. طبيعة الخدمة">
+            <Section title="1. الجهة المالكة والمشغلة">
+              <p>{legalRegistrationText}</p>
+            </Section>
+
+            <Section title="2. طبيعة الخدمة">
               <p>
                 الأمين للأقساط يقدم خدمة استقبال ودراسة طلبات تمويل وتقسيط
                 الأجهزة إلكترونيًا. جميع خطوات تقديم الطلب ودراسة الملف تتم
@@ -37,7 +53,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section title="2. مدة دراسة الطلب">
+            <Section title="3. مدة دراسة الطلب">
               <p>
                 مدة دراسة الطلب من يوم إلى ثلاثة أيام عمل، أي تقريبًا من 24 إلى
                 72 ساعة عمل، وذلك بعد اكتمال البيانات والوثائق المطلوبة ودفع
@@ -45,7 +61,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section title="3. رسوم فتح الملف">
+            <Section title="4. رسوم فتح الملف">
               <p>
                 رسوم فتح الملف 5 دنانير أردنية غير مستردة. دفع الرسوم لا يعني
                 الموافقة على طلب التمويل، وإنما لاستكمال مراجعة الملف والتقييم
@@ -53,7 +69,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section title="4. شروط الأهلية الأساسية">
+            <Section title="5. شروط الأهلية الأساسية">
               <ul className="list-disc space-y-2 pr-5">
                 <li>
                   إذا كان مقدم الطلب مشتركًا بالضمان، يجب ألا يقل الراتب الصافي
@@ -74,7 +90,7 @@ export default function TermsPage() {
               </ul>
             </Section>
 
-            <Section title="5. الدفعة الأولى والتقسيط">
+            <Section title="6. الدفعة الأولى والتقسيط">
               <p>
                 الدفعة الأولى اختيارية حسب قدرة العميل، ويمكن تقديم طلب بدون
                 دفعة أولى. القسط الشهري الظاهر في الموقع تقريبي قبل دراسة الطلب
@@ -82,7 +98,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section title="6. شراء وتسليم الجهاز">
+            <Section title="7. شراء وتسليم الجهاز">
               <p>
                 لا يتم شراء الجهاز أو تجهيزه للتسليم إلا بعد الموافقة على طلب
                 التمويل واستكمال الإجراءات المطلوبة. بعد الموافقة، يتم شراء
@@ -90,14 +106,14 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section title="7. الكفالات">
+            <Section title="8. الكفالات">
               <p>
                 أجهزة iPhone تكون بكفالة iSYSTEMS الأردن. أجهزة Samsung تكون
                 بكفالة BMS Samsung حسب الجهاز والتوفر.
               </p>
             </Section>
 
-            <Section title="8. رفض أو إلغاء الطلب">
+            <Section title="9. رفض أو إلغاء الطلب">
               <p>
                 يحق للإدارة رفض أو إلغاء أي طلب في حال وجود نقص في البيانات،
                 معلومات غير صحيحة، عدم مطابقة الشروط، عدم دفع رسوم فتح الملف،
@@ -105,7 +121,7 @@ export default function TermsPage() {
               </p>
             </Section>
 
-            <Section title="9. العنوان">
+            <Section title="10. العنوان">
               <p>{companyAddress}</p>
             </Section>
           </div>
