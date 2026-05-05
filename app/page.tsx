@@ -1,65 +1,573 @@
 import Image from "next/image";
+import Link from "next/link";
 
-export default function Home() {
+const featuredBenefits = [
+  {
+    title: "تقديم أونلاين بالكامل",
+    description: "قدّم طلبك من البيت خلال دقائق بدون زيارة أولية للمعرض.",
+  },
+  {
+    title: "دراسة خلال 24 - 72 ساعة",
+    description: "بعد اكتمال البيانات والوثائق ودفع رسوم فتح الملف.",
+  },
+  {
+    title: "دفعة أولى اختيارية",
+    description: "يمكنك اختيار دفعة أولى حسب قدرتك أو التقديم بدون دفعة.",
+  },
+  {
+    title: "استلام من المعرض",
+    description: "بعد الموافقة، يتم شراء الجهاز وتسليمه مع توقيع العقد.",
+  },
+];
+
+const steps = [
+  ["1", "اختر الجهاز", "تصفح أجهزة iPhone و Samsung واختر الأنسب لك."],
+  ["2", "قدّم الطلب", "عبّئ البيانات وارفع صور الهويات المطلوبة."],
+  ["3", "ادفع رسوم الملف", "ادفع 5 دنانير وأدخل رقم الوصل/الحركة."],
+  ["4", "انتظر الدراسة", "تتم مراجعة الطلب خلال 24 إلى 72 ساعة عمل."],
+  ["5", "استلم من المعرض", "بعد الموافقة، يتم شراء الجهاز وتسليمه مع توقيع العقد."],
+];
+
+const faqItems = [
+  "هل التقديم أونلاين؟ نعم، التقديم ودراسة الطلب تتم أونلاين فقط.",
+  "كم مدة دراسة الطلب؟ من 24 إلى 72 ساعة عمل بعد اكتمال البيانات.",
+  "هل الدفعة الأولى إجبارية؟ لا، الدفعة الأولى اختيارية حسب قدرة العميل.",
+  "متى يتم شراء الجهاز؟ بعد الموافقة على طلب التمويل واستكمال الإجراءات.",
+];
+
+const featuredPhones = [
+  {
+    name: "iPhone 16 Pro",
+    price: "839 د.أ",
+    image: "/assets/iphone16pro.jpg",
+    href: "/products",
+    badge: "iSYSTEMS",
+  },
+  {
+    name: "iPhone 16 Pro Max",
+    price: "999 د.أ",
+    image: "/assets/iphone16promax.jpg",
+    href: "/products",
+    badge: "iSYSTEMS",
+  },
+  {
+    name: "S26 Ultra 5G",
+    price: "969 د.أ",
+    image: "/assets/s26ultra.jpg",
+    href: "/products",
+    badge: "BMS Samsung",
+  },
+];
+
+export default function HomePage() {
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
+    <main dir="rtl" className="min-h-screen bg-[#f6f3ee] text-[#111827]">
+      <header className="sticky top-0 z-40 border-b border-[#eadfce] bg-white/90 backdrop-blur-xl">
+        <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
+          <Link href="/" className="flex items-center gap-3">
+            <div className="relative h-14 w-14 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
+              <Image
+                src="/logo.png"
+                alt="الأمين للأقساط"
+                fill
+                priority
+                sizes="56px"
+                className="object-contain p-1"
+              />
+            </div>
+
+            <div>
+              <p className="text-lg font-black leading-6">الأمين للأقساط</p>
+              <p className="text-xs font-bold tracking-wide text-[#b28b5e]">
+                AL AMEEN FINANCE
+              </p>
+            </div>
+          </Link>
+
+          <nav className="hidden items-center gap-7 text-sm font-bold text-gray-600 lg:flex">
+            <Link href="/" className="text-[#111827]">
+              الرئيسية
+            </Link>
+            <Link href="/products">تصفح الهواتف</Link>
+            <Link href="/track">تتبع الطلب</Link>
+            <Link href="/faq">الأسئلة الشائعة</Link>
+            <Link href="/terms">الشروط</Link>
+            <Link href="/privacy">الخصوصية</Link>
+          </nav>
+
+          <div className="flex items-center gap-2">
+            <Link
+              href="/whatsapp"
+              className="hidden rounded-2xl border border-[#eadfce] bg-white px-4 py-3 text-sm font-black text-[#111827] shadow-sm transition hover:bg-[#fbf6ee] sm:inline-flex"
+            >
+              واتساب
+            </Link>
+
+            <Link
+              href="/products"
+              className="rounded-2xl bg-[#111827] px-5 py-3 text-sm font-black text-white shadow-lg transition hover:bg-black"
+            >
+              تصفح الهواتف
+            </Link>
+          </div>
+        </div>
+      </header>
+
+      <section className="mx-auto max-w-7xl px-4 py-8 lg:py-12">
+        <div className="relative overflow-hidden rounded-[40px] border border-[#eadfce] bg-white shadow-2xl">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#eadfce_0%,transparent_28%),radial-gradient(circle_at_80%_10%,#f6ead8_0%,transparent_25%)]" />
+
+          <div className="relative grid min-h-[680px] gap-8 p-6 sm:p-10 lg:grid-cols-[1.05fr_0.95fr] lg:p-14">
+            <div className="flex flex-col justify-center">
+              <p className="mb-5 inline-flex w-fit rounded-full border border-[#d8c09c] bg-[#fbf6ee] px-4 py-2 text-sm font-black text-[#9a7448]">
+                تقسيط هواتف فاخر — تقديم أونلاين واستلام من المعرض
+              </p>
+
+              <h1 className="max-w-3xl text-4xl font-black leading-[1.25] tracking-tight sm:text-5xl lg:text-6xl">
+                قسط هاتفك بسهولة،
+                <br />
+                <span className="text-[#b28b5e]">بثقة وخطوات واضحة</span>
+              </h1>
+
+              <p className="mt-6 max-w-2xl text-base font-medium leading-9 text-gray-600 sm:text-lg">
+                اختر جهاز iPhone أو Samsung، قدّم طلبك أونلاين خلال دقائق،
+                واحصل على دراسة للطلب خلال 24 إلى 72 ساعة عمل. بعد الموافقة،
+                يتم شراء الجهاز وتسليمه من المعرض مع توقيع العقد.
+              </p>
+
+              <div className="mt-8 grid gap-3 sm:flex">
+                <Link
+                  href="/products"
+                  className="rounded-2xl bg-[#111827] px-7 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-black"
+                >
+                  تصفح الهواتف
+                </Link>
+
+                <Link
+                  href="/apply"
+                  className="rounded-2xl bg-[#c49a63] px-7 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-[#b28b5e]"
+                >
+                  قدّم الآن
+                </Link>
+
+                <Link
+                  href="/track"
+                  className="rounded-2xl border border-[#111827] bg-white px-7 py-4 text-center text-base font-black text-[#111827] transition hover:bg-gray-50"
+                >
+                  تتبع الطلب
+                </Link>
+              </div>
+
+              <div className="mt-8 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <TrustPill value="حتى 36" label="شهر تقسيط" />
+                <TrustPill value="5%" label="لكل 12 شهر" />
+                <TrustPill value="24-72" label="ساعة عمل للدراسة" />
+                <TrustPill value="5 د.أ" label="رسوم فتح الملف" />
+              </div>
+            </div>
+
+            <div className="relative flex items-center justify-center">
+              <div className="absolute h-[420px] w-[420px] rounded-full bg-[#eadfce]/70 blur-3xl" />
+
+              <div className="relative w-full max-w-xl rounded-[36px] border border-white/70 bg-white/55 p-5 shadow-2xl backdrop-blur">
+                <div className="absolute -right-2 top-10 z-10 rounded-2xl border border-[#eadfce] bg-white px-4 py-3 shadow-xl">
+                  <p className="text-xs font-black text-gray-400">دراسة الطلب</p>
+                  <p className="mt-1 text-xl font-black text-[#111827]">
+                    24 - 72 ساعة
+                  </p>
+                </div>
+
+                <div className="absolute -left-2 top-32 z-10 rounded-2xl border border-[#eadfce] bg-white px-4 py-3 shadow-xl">
+                  <p className="text-xs font-black text-gray-400">دفعة أولى</p>
+                  <p className="mt-1 text-xl font-black text-[#b28b5e]">
+                    اختيارية
+                  </p>
+                </div>
+
+                <div className="absolute -right-2 bottom-16 z-10 rounded-2xl border border-[#eadfce] bg-white px-4 py-3 shadow-xl">
+                  <p className="text-xs font-black text-gray-400">الاستلام</p>
+                  <p className="mt-1 text-xl font-black text-[#111827]">
+                    من المعرض
+                  </p>
+                </div>
+
+                <div className="min-h-[430px] rounded-[30px] bg-gradient-to-br from-[#fbf6ee] to-white p-6">
+                  <div className="flex h-full min-h-[390px] items-end justify-center gap-3 sm:gap-5">
+                    <HeroPhone
+                      image="/assets/iphone16pro.jpg"
+                      name="iPhone 16 Pro"
+                      price="839 د.أ"
+                      className="mb-10"
+                    />
+
+                    <HeroPhone
+                      image="/assets/s26ultra.jpg"
+                      name="S26 Ultra"
+                      price="969 د.أ"
+                      dark
+                    />
+                  </div>
+                </div>
+
+                <div className="mt-5 grid grid-cols-2 gap-3">
+                  <Link
+                    href="/products"
+                    className="rounded-2xl bg-[#111827] px-4 py-3 text-center text-sm font-black text-white"
+                  >
+                    اختر جهازك
+                  </Link>
+                  <Link
+                    href="/whatsapp"
+                    className="rounded-2xl border border-[#eadfce] bg-white px-4 py-3 text-center text-sm font-black text-[#111827]"
+                  >
+                    استفسار واتساب
+                  </Link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      
+      <section className="mx-auto max-w-7xl px-4 py-4">
+        <div className="mb-5 flex items-end justify-between gap-4">
+          <div>
+            <p className="mb-2 text-sm font-black text-[#b28b5e]">
+              أجهزة مختارة
+            </p>
+            <h2 className="text-3xl font-black">ابدأ من الأجهزة الأكثر طلبًا</h2>
+          </div>
+
+          <Link
+            href="/products"
+            className="hidden rounded-2xl bg-[#111827] px-5 py-3 text-sm font-black text-white sm:inline-flex"
+          >
+            عرض كل الأجهزة
+          </Link>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+          {featuredPhones.map((phone) => (
+            <Link
+              key={phone.name}
+              href={phone.href}
+              className="overflow-hidden rounded-[28px] border border-[#eadfce] bg-white shadow-lg transition hover:-translate-y-1 hover:shadow-xl"
+            >
+              <div className="relative h-48 bg-white sm:h-64">
+                <Image
+                  src={phone.image}
+                  alt={phone.name}
+                  fill
+                  sizes="(max-width: 768px) 50vw, 33vw"
+                  className="object-contain p-4"
+                />
+              </div>
+
+              <div className="border-t border-[#f1e8dc] bg-[#111827] p-4 text-white">
+                <p className="text-xs font-black text-[#c49a63]">{phone.badge}</p>
+                <h3 className="mt-2 min-h-[48px] text-base font-black leading-6 sm:text-xl">
+                  {phone.name}
+                </h3>
+                <p className="mt-3 text-lg font-black">{phone.price}</p>
+                <p className="mt-1 text-xs font-bold text-gray-300">
+                  السعر النقدي قبل احتساب التقسيط
+                </p>
+              </div>
+            </Link>
+          ))}
+        </div>
+
+        <div className="mt-5 sm:hidden">
+          <Link
+            href="/products"
+            className="block rounded-2xl bg-[#111827] px-5 py-4 text-center text-sm font-black text-white"
+          >
+            عرض كل الأجهزة
+          </Link>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-6">
+        <div className="grid gap-4 md:grid-cols-4">
+          {featuredBenefits.map((benefit) => (
+            <div
+              key={benefit.title}
+              className="rounded-[28px] border border-[#eadfce] bg-white p-6 shadow-lg transition hover:-translate-y-1 hover:shadow-xl"
+            >
+              <div className="mb-5 h-10 w-10 rounded-2xl bg-[#fbf6ee] ring-1 ring-[#eadfce]" />
+              <h3 className="text-lg font-black">{benefit.title}</h3>
+              <p className="mt-3 text-sm font-medium leading-7 text-gray-500">
+                {benefit.description}
+              </p>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-10">
+        <div className="rounded-[40px] border border-[#eadfce] bg-white p-7 shadow-xl sm:p-10">
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="mb-3 text-sm font-black text-[#b28b5e]">
+                خطوات واضحة
+              </p>
+              <h2 className="text-3xl font-black sm:text-4xl">
+                كيف تعمل الخدمة؟
+              </h2>
+              <p className="mt-3 max-w-2xl text-sm font-medium leading-8 text-gray-500">
+                من اختيار الجهاز حتى الاستلام، كل خطوة واضحة ومتابعة من خلال
+                رقم التتبع.
+              </p>
+            </div>
+
+            <Link
+              href="/faq"
+              className="rounded-2xl border border-[#eadfce] bg-[#fbf6ee] px-5 py-3 text-center text-sm font-black text-[#9a7448]"
+            >
+              عرض الأسئلة الشائعة
+            </Link>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-5">
+            {steps.map((step) => (
+              <div
+                key={step[0]}
+                className="rounded-[28px] border border-gray-100 bg-gray-50 p-5 text-center"
+              >
+                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#111827] text-lg font-black text-white">
+                  {step[0]}
+                </div>
+                <h3 className="text-lg font-black">{step[1]}</h3>
+                <p className="mt-3 text-sm font-medium leading-7 text-gray-500">
+                  {step[2]}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-10">
+        <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
+          <div className="rounded-[40px] bg-[#111827] p-8 text-white shadow-2xl sm:p-10">
+            <p className="mb-3 text-sm font-black text-[#c49a63]">
+              كفالات معتمدة
+            </p>
+
+            <h2 className="text-3xl font-black leading-tight sm:text-4xl">
+              أجهزة أصلية، وكفالة واضحة
+            </h2>
+
+            <div className="mt-8 grid gap-4">
+              <WarrantyItem title="أجهزة iPhone" value="كفالة iSYSTEMS الأردن" />
+              <WarrantyItem
+                title="أجهزة Samsung"
+                value="كفالة BMS Samsung حسب الجهاز والتوفر"
+              />
+              <WarrantyItem
+                title="التسليم"
+                value="من المعرض بعد الموافقة وتوقيع العقد"
+              />
+            </div>
+          </div>
+
+          <div className="rounded-[40px] border border-[#eadfce] bg-white p-8 shadow-xl sm:p-10">
+            <p className="mb-3 text-sm font-black text-[#b28b5e]">
+              شروط مختصرة
+            </p>
+
+            <h2 className="text-3xl font-black">الأهلية الأساسية</h2>
+
+            <div className="mt-6 space-y-3 text-sm font-bold leading-8 text-gray-600">
+              <p>✓ للمشتركين بالضمان: الراتب الصافي لا يقل عن 350 د.أ.</p>
+              <p>
+                ✓ لغير المشتركين بالضمان: الراتب لا يقل عن 400 د.أ مع كفيل
+                مشترك بالضمان.
+              </p>
+              <p>✓ وجود كفيل ورفع صور الهوية المطلوبة لمقدم الطلب والكفيل.</p>
+              <p>✓ عدم وجود قضايا مالية مؤثرة حسب سياسة دراسة الطلب.</p>
+              <p>✓ الموافقة النهائية بعد مراجعة الإدارة وتوقيع العقد.</p>
+            </div>
+
+            <div className="mt-7 grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/terms"
+                className="rounded-2xl bg-[#111827] px-5 py-4 text-center text-sm font-black text-white"
+              >
+                قراءة الشروط
+              </Link>
+
+              <Link
+                href="/privacy"
+                className="rounded-2xl border border-[#eadfce] bg-[#fbf6ee] px-5 py-4 text-center text-sm font-black text-[#9a7448]"
+              >
+                سياسة الخصوصية
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-10">
+        <div className="rounded-[40px] border border-[#eadfce] bg-white p-7 shadow-xl sm:p-10">
+          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="mb-3 text-sm font-black text-[#b28b5e]">
+                أسئلة شائعة
+              </p>
+              <h2 className="text-3xl font-black">قبل ما تقدّم</h2>
+            </div>
+
+            <Link
+              href="/faq"
+              className="rounded-2xl bg-[#111827] px-5 py-3 text-center text-sm font-black text-white"
+            >
+              كل الأسئلة
+            </Link>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2">
+            {faqItems.map((item) => (
+              <div
+                key={item}
+                className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-sm font-bold leading-8 text-gray-700"
+              >
+                {item}
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 pb-12">
+        <div className="overflow-hidden rounded-[40px] bg-[#111827] shadow-2xl">
+          <div className="grid gap-6 p-8 text-white sm:p-10 lg:grid-cols-[1fr_auto] lg:items-center">
+            <div>
+              <p className="mb-3 text-sm font-black text-[#c49a63]">
+                ابدأ الآن
+              </p>
+
+              <h2 className="text-3xl font-black leading-tight sm:text-4xl">
+                جاهز تختار جهازك؟
+              </h2>
+
+              <p className="mt-3 max-w-2xl text-sm font-medium leading-8 text-gray-300">
+                تصفح الهواتف، اختر مدة التقسيط والدفعة الأولى، ثم أرسل الطلب
+                بخطوات واضحة وآمنة.
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/products"
+                className="rounded-2xl bg-[#c49a63] px-7 py-4 text-center text-base font-black text-white transition hover:bg-[#b28b5e]"
+              >
+                تصفح الهواتف
+              </Link>
+
+              <Link
+                href="/track"
+                className="rounded-2xl border border-white/20 bg-white/10 px-7 py-4 text-center text-base font-black text-white transition hover:bg-white/15"
+              >
+                تتبع الطلب
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer className="border-t border-[#eadfce] bg-white">
+        <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1fr_auto] md:items-center">
+          <div className="flex items-center gap-3">
+            <div className="relative h-12 w-12 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
+              <Image
+                src="/logo.png"
+                alt="الأمين للأقساط"
+                fill
+                sizes="48px"
+                className="object-contain p-1"
+              />
+            </div>
+
+            <div>
+              <p className="font-black">الأمين للأقساط</p>
+              <p className="mt-1 text-xs font-bold text-gray-500">
+                التقديم أونلاين فقط، والاستلام من المعرض بعد الموافقة.
+              </p>
+              <p className="mt-1 text-xs font-bold text-gray-400">
+                Al-Madina Al-Monawara St 261, Amman 11953
+              </p>
+            </div>
+          </div>
+
+          <div className="flex flex-wrap gap-3 text-sm font-bold text-gray-600">
+            <Link href="/products">الهواتف</Link>
+            <Link href="/track">تتبع الطلب</Link>
+            <Link href="/faq">FAQ</Link>
+            <Link href="/terms">الشروط</Link>
+            <Link href="/privacy">الخصوصية</Link>
+            <Link href="/whatsapp">واتساب</Link>
+          </div>
+        </div>
+      </footer>
+    </main>
+  );
+}
+
+function TrustPill({ value, label }: { value: string; label: string }) {
+  return (
+    <div className="rounded-2xl border border-[#eadfce] bg-white/80 p-4 shadow-sm">
+      <p className="text-2xl font-black text-[#111827]">{value}</p>
+      <p className="mt-1 text-xs font-bold text-gray-500">{label}</p>
+    </div>
+  );
+}
+
+function HeroPhone({
+  image,
+  name,
+  price,
+  dark,
+  className = "",
+}: {
+  image: string;
+  name: string;
+  price: string;
+  dark?: boolean;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`relative w-36 overflow-hidden rounded-[28px] border shadow-2xl sm:w-44 ${
+        dark
+          ? "border-[#111827] bg-[#111827]"
+          : "border-[#eadfce] bg-white"
+      } ${className}`}
+    >
+      <div className="relative h-52 bg-white sm:h-64">
         <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
+          src={image}
+          alt={name}
+          fill
+          sizes="176px"
+          className="object-contain p-3"
           priority
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      </div>
+
+      <div className={`p-3 ${dark ? "text-white" : "text-[#111827]"}`}>
+        <p className="text-sm font-black leading-5">{name}</p>
+        <p className="mt-2 text-base font-black text-[#c49a63]">{price}</p>
+      </div>
+    </div>
+  );
+}
+
+function WarrantyItem({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
+      <p className="text-sm font-black text-[#c49a63]">{title}</p>
+      <p className="mt-2 text-base font-black text-white">{value}</p>
     </div>
   );
 }
