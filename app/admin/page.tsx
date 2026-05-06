@@ -133,20 +133,20 @@ function statusClass(status: string | null | undefined) {
   switch (status) {
     case "approved":
     case "confirmed":
-      return "bg-green-50 text-green-700 border-green-200";
+      return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
-      return "bg-red-50 text-red-700 border-red-200";
+      return "border-red-400/30 bg-red-950/25 text-red-200";
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
     case "pending":
     case "pending_payment":
-      return "bg-amber-50 text-amber-700 border-amber-200";
+      return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
     case "under_review":
-      return "bg-blue-50 text-blue-700 border-blue-200";
+      return "border-sky-300/25 bg-sky-950/20 text-sky-200";
     case "cancelled":
-      return "bg-gray-100 text-gray-600 border-gray-200";
+      return "border-white/10 bg-white/5 text-[#c7d2c7]";
     default:
-      return "bg-gray-50 text-gray-700 border-gray-200";
+      return "border-white/10 bg-white/5 text-[#d7ddd5]";
   }
 }
 
@@ -202,36 +202,34 @@ function buildFilterHref(params: {
 
 function CompactMobileRequest({ app }: { app: Application }) {
   return (
-    <article className="rounded-2xl border border-[#eadfce] bg-white p-4 shadow-sm">
+    <article className="glass-panel gold-outline rounded-2xl p-4 shadow-sm">
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-[11px] font-bold text-gray-400">رقم التتبع</p>
-          <h3 className="truncate text-sm font-black text-[#111827]">
+          <p className="text-[11px] font-bold text-[#aeb9af]">رقم التتبع</p>
+          <h3 className="truncate text-sm font-black text-white">
             {app.tracking_id || app.id.slice(0, 8)}
           </h3>
         </div>
 
         <Link
           href={`/admin/applications/${app.id}`}
-          className="shrink-0 rounded-xl bg-[#111827] px-3 py-2 text-xs font-black text-white"
+          className="green-button shrink-0 rounded-xl px-3 py-2 text-xs font-black"
         >
           التفاصيل
         </Link>
       </div>
 
       <div className="grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-xl bg-gray-50 px-3 py-2">
-          <p className="mb-1 font-bold text-gray-400">الاسم</p>
-          <p className="truncate font-black text-gray-800">
+        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
+          <p className="mb-1 font-bold text-[#aeb9af]">الاسم</p>
+          <p className="truncate font-black text-white">
             {app.full_name || "—"}
           </p>
         </div>
 
-        <div className="rounded-xl bg-gray-50 px-3 py-2">
-          <p className="mb-1 font-bold text-gray-400">الهاتف</p>
-          <p className="truncate font-black text-gray-800">
-            {app.phone || "—"}
-          </p>
+        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
+          <p className="mb-1 font-bold text-[#aeb9af]">الهاتف</p>
+          <p className="truncate font-black text-white">{app.phone || "—"}</p>
         </div>
       </div>
 
@@ -311,35 +309,45 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   }
 
   return (
-    <main dir="rtl" className="min-h-screen bg-[#f6f3ee] px-3 py-5 sm:px-4 sm:py-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-6 rounded-[28px] border border-[#eadfce] bg-white p-5 shadow-xl sm:mb-8 sm:rounded-[32px] sm:p-6">
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-            <div>
-              <p className="mb-2 text-sm font-bold text-gray-400">لوحة تحكم</p>
+    <main dir="rtl" className="relative min-h-screen overflow-x-hidden px-3 py-5 text-[#f7f3e8] sm:px-4 sm:py-8">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-110px] top-[280px] h-[300px] w-[300px] rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[25%] h-[280px] w-[280px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+      </div>
 
-              <h1 className="text-2xl font-black text-[#111827] sm:text-3xl">
-                الأمين للأقساط
-              </h1>
+      <div className="relative mx-auto max-w-7xl">
+        <header className="site-shell pattern-lines mb-6 rounded-[28px] p-1 shadow-xl sm:mb-8 sm:rounded-[32px]">
+          <div className="rounded-[26px] border border-[rgba(214,181,107,0.14)] p-5 sm:rounded-[30px] sm:p-6">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="gold-chip mb-3 inline-flex rounded-full px-4 py-2 text-xs font-black">
+                  لوحة تحكم الإدارة
+                </p>
 
-              <p className="mt-2 text-sm leading-7 text-gray-500">
-                إدارة طلبات التمويل، متابعة الدفع، ومراجعة حالات العملاء.
-              </p>
+                <h1 className="text-2xl font-black text-white sm:text-3xl">
+                  الأمين للأقساط
+                </h1>
+
+                <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
+                  إدارة طلبات التمويل، متابعة الدفع، ومراجعة حالات العملاء.
+                </p>
+              </div>
+
+              <form action={logoutAction}>
+                <button
+                  type="submit"
+                  className="w-full rounded-2xl border border-red-400/30 bg-red-950/25 px-5 py-3 text-sm font-black text-red-200 transition hover:bg-red-950/40 md:w-auto"
+                >
+                  تسجيل خروج
+                </button>
+              </form>
             </div>
-
-            <form action={logoutAction}>
-              <button
-                type="submit"
-                className="w-full rounded-2xl border border-red-200 bg-red-50 px-5 py-3 text-sm font-black text-red-700 transition hover:bg-red-100 md:w-auto"
-              >
-                تسجيل خروج
-              </button>
-            </form>
           </div>
         </header>
 
         {error && (
-          <section className="mb-6 rounded-[24px] border border-red-200 bg-red-50 p-5 text-red-700">
+          <section className="mb-6 rounded-[24px] border border-red-400/30 bg-red-950/25 p-5 text-red-200">
             <h2 className="mb-2 text-lg font-black">
               صار خطأ أثناء جلب الطلبات
             </h2>
@@ -348,43 +356,16 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         )}
 
         <section className="grid gap-3 sm:gap-4 md:grid-cols-4">
-          <div className="rounded-[24px] border border-[#eadfce] bg-white p-5 shadow-lg sm:rounded-[28px] sm:p-6">
-            <p className="text-sm font-bold text-gray-400">إجمالي الطلبات</p>
-            <h2 className="mt-3 text-4xl font-black text-[#111827]">
-              {totalApplications}
-            </h2>
-          </div>
-
-          <div className="rounded-[24px] border border-[#eadfce] bg-white p-5 shadow-lg sm:rounded-[28px] sm:p-6">
-            <p className="text-sm font-bold text-gray-400">الطلبات الجديدة</p>
-            <h2 className="mt-3 text-4xl font-black text-[#111827]">
-              {newCount}
-            </h2>
-          </div>
-
-          <div className="rounded-[24px] border border-[#eadfce] bg-white p-5 shadow-lg sm:rounded-[28px] sm:p-6">
-            <p className="text-sm font-bold text-gray-400">
-              بانتظار تأكيد الدفع
-            </p>
-            <h2 className="mt-3 text-4xl font-black text-[#111827]">
-              {pendingPaymentCount}
-            </h2>
-          </div>
-
-          <div className="rounded-[24px] border border-[#eadfce] bg-white p-5 shadow-lg sm:rounded-[28px] sm:p-6">
-            <p className="text-sm font-bold text-gray-400">طلبات مقبولة</p>
-            <h2 className="mt-3 text-4xl font-black text-[#111827]">
-              {approvedCount}
-            </h2>
-          </div>
+          <StatBox label="إجمالي الطلبات" value={totalApplications} />
+          <StatBox label="الطلبات الجديدة" value={newCount} />
+          <StatBox label="بانتظار تأكيد الدفع" value={pendingPaymentCount} />
+          <StatBox label="طلبات مقبولة" value={approvedCount} />
         </section>
 
-        <section className="sticky top-3 z-20 mt-5 rounded-[28px] border border-[#eadfce] bg-white/95 p-4 shadow-xl backdrop-blur sm:mt-6 sm:rounded-[32px] sm:p-5">
+        <section className="glass-panel gold-outline sticky top-3 z-20 mt-5 rounded-[28px] p-4 shadow-xl backdrop-blur sm:mt-6 sm:rounded-[32px] sm:p-5">
           <div className="mb-4">
-            <h2 className="text-lg font-black text-[#111827]">
-              البحث والفلترة
-            </h2>
-            <p className="mt-1 text-xs leading-6 text-gray-500">
+            <h2 className="text-lg font-black text-white">البحث والفلترة</h2>
+            <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
               ابحث بالاسم، الهاتف، رقم التتبع، الرقم الوطني، الكفيل أو الجهاز.
             </p>
           </div>
@@ -394,13 +375,13 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               name="q"
               defaultValue={q}
               placeholder="بحث سريع..."
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-right text-sm font-bold outline-none transition focus:border-[#111827] focus:bg-white"
+              className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-3 text-right text-sm font-bold text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
             />
 
             <select
               name="status"
               defaultValue={selectedStatus}
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-[#111827] focus:bg-white"
+              className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
             >
               {STATUS_OPTIONS.map((option) => (
                 <option key={option.value || "all-status"} value={option.value}>
@@ -412,7 +393,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
             <select
               name="payment"
               defaultValue={selectedPayment}
-              className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-[#111827] focus:bg-white"
+              className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
             >
               {PAYMENT_OPTIONS.map((option) => (
                 <option key={option.value || "all-payment"} value={option.value}>
@@ -424,14 +405,14 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
             <div className="grid grid-cols-2 gap-2 lg:flex">
               <button
                 type="submit"
-                className="rounded-2xl bg-[#111827] px-5 py-3 text-sm font-black text-white transition hover:bg-black"
+                className="green-button rounded-2xl px-5 py-3 text-sm font-black transition"
               >
                 تطبيق
               </button>
 
               <Link
                 href="/admin"
-                className="rounded-2xl border border-gray-200 bg-gray-50 px-5 py-3 text-center text-sm font-black text-gray-700 transition hover:bg-gray-100"
+                className="soft-button rounded-2xl px-5 py-3 text-center text-sm font-black transition"
               >
                 مسح
               </Link>
@@ -439,64 +420,55 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           </form>
 
           <div className="mt-4 flex gap-2 overflow-x-auto pb-1">
-            <Link
-              href="/admin"
-              className="shrink-0 rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-xs font-black text-gray-700"
-            >
-              الكل
-            </Link>
+            <QuickFilter href="/admin" label="الكل" variant="neutral" />
 
-            <Link
+            <QuickFilter
               href={buildFilterHref({
                 q,
                 status: "pending_payment_confirmation",
                 payment: selectedPayment,
               })}
-              className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-4 py-2 text-xs font-black text-amber-700"
-            >
-              بانتظار التأكيد
-            </Link>
+              label="بانتظار التأكيد"
+              variant="gold"
+            />
 
-            <Link
+            <QuickFilter
               href={buildFilterHref({
                 q,
                 status: "under_review",
                 payment: selectedPayment,
               })}
-              className="shrink-0 rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-xs font-black text-blue-700"
-            >
-              قيد الدراسة
-            </Link>
+              label="قيد الدراسة"
+              variant="blue"
+            />
 
-            <Link
+            <QuickFilter
               href={buildFilterHref({
                 q,
                 status: "approved",
                 payment: selectedPayment,
               })}
-              className="shrink-0 rounded-full border border-green-200 bg-green-50 px-4 py-2 text-xs font-black text-green-700"
-            >
-              مقبولة
-            </Link>
+              label="مقبولة"
+              variant="green"
+            />
 
-            <Link
+            <QuickFilter
               href={buildFilterHref({
                 q,
                 status: "rejected",
                 payment: selectedPayment,
               })}
-              className="shrink-0 rounded-full border border-red-200 bg-red-50 px-4 py-2 text-xs font-black text-red-700"
-            >
-              مرفوضة
-            </Link>
+              label="مرفوضة"
+              variant="red"
+            />
           </div>
         </section>
 
-        <section className="mt-5 rounded-[28px] border border-[#eadfce] bg-white p-4 shadow-xl sm:mt-6 sm:rounded-[32px] sm:p-6">
+        <section className="glass-panel gold-outline mt-5 rounded-[28px] p-4 shadow-xl sm:mt-6 sm:rounded-[32px] sm:p-6">
           <div className="mb-5 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
             <div>
-              <h2 className="text-xl font-black text-[#111827]">آخر الطلبات</h2>
-              <p className="mt-2 text-sm text-gray-500">
+              <h2 className="text-xl font-black text-white">آخر الطلبات</h2>
+              <p className="mt-2 text-sm font-bold text-[#aeb9af]">
                 النتائج المعروضة: {filteredApplications.length} من أصل{" "}
                 {totalApplications}
               </p>
@@ -504,11 +476,11 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           </div>
 
           {filteredApplications.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-gray-200 bg-gray-50 p-10 text-center">
-              <h3 className="text-lg font-black text-gray-700">
+            <div className="rounded-3xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-10 text-center">
+              <h3 className="text-lg font-black text-white">
                 لا توجد نتائج مطابقة
               </h3>
-              <p className="mt-2 text-sm text-gray-500">
+              <p className="mt-2 text-sm font-bold text-[#aeb9af]">
                 جرّب تغيير كلمة البحث أو إزالة الفلاتر.
               </p>
             </div>
@@ -521,10 +493,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               </div>
 
               <div className="hidden md:block">
-                <div className="overflow-hidden rounded-3xl border border-gray-100">
+                <div className="overflow-hidden rounded-3xl border border-[rgba(214,181,107,0.14)]">
                   <div className="overflow-x-auto">
                     <table className="w-full min-w-[1100px] border-collapse text-right">
-                      <thead className="bg-[#111827] text-white">
+                      <thead className="bg-[rgba(3,18,14,0.86)] text-white">
                         <tr>
                           <th className="px-4 py-4 text-sm font-black">
                             رقم التتبع
@@ -563,29 +535,29 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                         {filteredApplications.map((app) => (
                           <tr
                             key={app.id}
-                            className="border-b border-gray-100 transition hover:bg-gray-50"
+                            className="border-b border-[rgba(214,181,107,0.10)] transition hover:bg-[rgba(255,255,255,0.04)]"
                           >
-                            <td className="px-4 py-4 text-sm font-black text-gray-900">
+                            <td className="px-4 py-4 text-sm font-black text-white">
                               {app.tracking_id || app.id.slice(0, 8)}
                             </td>
 
-                            <td className="px-4 py-4 text-sm font-bold text-gray-800">
+                            <td className="px-4 py-4 text-sm font-bold text-[#d7ddd5]">
                               {app.full_name || "—"}
                             </td>
 
-                            <td className="px-4 py-4 text-sm text-gray-600">
+                            <td className="px-4 py-4 text-sm text-[#cbd6cb]">
                               {app.phone || "—"}
                             </td>
 
-                            <td className="px-4 py-4 text-sm text-gray-600">
+                            <td className="px-4 py-4 text-sm text-[#cbd6cb]">
                               {app.city || app.area || "—"}
                             </td>
 
-                            <td className="px-4 py-4 text-sm font-bold text-gray-800">
+                            <td className="px-4 py-4 text-sm font-bold text-[#d7ddd5]">
                               {formatMoney(app.salary)}
                             </td>
 
-                            <td className="px-4 py-4 text-sm text-gray-600">
+                            <td className="px-4 py-4 text-sm text-[#cbd6cb]">
                               {app.device_name || "—"}
                             </td>
 
@@ -609,14 +581,14 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                               </span>
                             </td>
 
-                            <td className="px-4 py-4 text-sm text-gray-500">
+                            <td className="px-4 py-4 text-sm text-[#aeb9af]">
                               {formatDate(app.created_at)}
                             </td>
 
                             <td className="px-4 py-4 text-sm">
                               <Link
                                 href={`/admin/applications/${app.id}`}
-                                className="inline-flex rounded-2xl bg-[#111827] px-4 py-2 text-xs font-black text-white transition hover:bg-black"
+                                className="green-button inline-flex rounded-2xl px-4 py-2 text-xs font-black transition"
                               >
                                 التفاصيل
                               </Link>
@@ -633,5 +605,41 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         </section>
       </div>
     </main>
+  );
+}
+
+function StatBox({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="stat-chip rounded-[24px] p-5 shadow-lg sm:rounded-[28px] sm:p-6">
+      <p className="text-sm font-bold text-[#aeb9af]">{label}</p>
+      <h2 className="mt-3 text-4xl font-black text-white">{value}</h2>
+    </div>
+  );
+}
+
+function QuickFilter({
+  href,
+  label,
+  variant,
+}: {
+  href: string;
+  label: string;
+  variant: "neutral" | "gold" | "blue" | "green" | "red";
+}) {
+  const classes = {
+    neutral: "border-white/10 bg-white/5 text-[#d7ddd5]",
+    gold: "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]",
+    blue: "border-sky-300/25 bg-sky-950/20 text-sky-200",
+    green: "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]",
+    red: "border-red-400/30 bg-red-950/25 text-red-200",
+  };
+
+  return (
+    <Link
+      href={href}
+      className={`shrink-0 rounded-full border px-4 py-2 text-xs font-black ${classes[variant]}`}
+    >
+      {label}
+    </Link>
   );
 }

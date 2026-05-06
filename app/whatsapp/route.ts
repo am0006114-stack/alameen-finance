@@ -1,13 +1,16 @@
 import { redirect } from "next/navigation";
 
 export async function GET() {
-  const phone = process.env.COMPANY_WHATSAPP_PHONE;
+  const rawPhone = process.env.COMPANY_WHATSAPP_PHONE;
 
-  if (!phone) {
+  if (!rawPhone) {
     redirect("/");
   }
 
-  const message = `أهلًا، أريد الاستفسار عن خدمة التقسيط لدى الأمين للأقساط.`;
+  const phone = rawPhone.replace(/\D/g, "");
+
+  const message =
+    "أهلًا، أريد الاستفسار عن خدمة تقسيط الهواتف لدى الأمين للأقساط والتمويل. أود معرفة الشروط وطريقة التقديم.";
 
   redirect(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`);
 }

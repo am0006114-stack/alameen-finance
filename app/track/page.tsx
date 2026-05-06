@@ -123,7 +123,7 @@ function getCustomerMessage(app: Application) {
     case "under_review":
       return "طلبك قيد الدراسة حاليًا. سيتم التواصل معك عند صدور القرار.";
     case "approved":
-      return "تمت الموافقة المبدئية على طلبك. سيتم التواصل معك لاستكمال الإجراءات والتسليم في المعرض بعد توقيع العقد.";
+      return "تمت الموافقة المبدئية على طلبك. سيتم التواصل معك لاستكمال الإجراءات والتسليم من مكاتبنا بعد توقيع العقد.";
     case "rejected":
       return "نعتذر، لم تتم الموافقة على الطلب حاليًا. يمكنك مراجعة الإدارة لمعرفة التفاصيل العامة.";
     case "cancelled":
@@ -137,20 +137,20 @@ function badgeClass(status: string | null | undefined) {
   switch (status) {
     case "approved":
     case "confirmed":
-      return "border-green-200 bg-green-50 text-green-700";
+      return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
-      return "border-red-200 bg-red-50 text-red-700";
+      return "border-red-400/30 bg-red-950/25 text-red-200";
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
     case "pending_payment":
     case "pending":
-      return "border-amber-200 bg-amber-50 text-amber-700";
+      return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
     case "under_review":
-      return "border-blue-200 bg-blue-50 text-blue-700";
+      return "border-sky-300/25 bg-sky-950/20 text-sky-200";
     case "cancelled":
-      return "border-gray-200 bg-gray-100 text-gray-600";
+      return "border-white/10 bg-white/5 text-[#c7d2c7]";
     default:
-      return "border-gray-200 bg-gray-50 text-gray-700";
+      return "border-white/10 bg-white/5 text-[#d7ddd5]";
   }
 }
 
@@ -162,9 +162,10 @@ function InfoItem({
   value: string | number | null | undefined;
 }) {
   return (
-    <div className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-4">
-      <p className="mb-1 text-xs font-bold text-gray-400">{label}</p>
-      <p className="break-words text-sm font-black text-gray-800">
+    <div className="stat-chip rounded-2xl px-4 py-4">
+      <p className="mb-1 text-xs font-bold text-[#aeb9af]">{label}</p>
+
+      <p className="break-words text-sm font-black text-white">
         {value === null || value === undefined || value === "" ? "—" : value}
       </p>
     </div>
@@ -228,30 +229,47 @@ export default async function TrackPage({
   }
 
   return (
-    <main dir="rtl" className="min-h-screen bg-[#f6f3ee] px-4 py-10">
-      <div className="mx-auto max-w-4xl">
+    <main
+      dir="rtl"
+      className="relative min-h-screen overflow-x-hidden px-4 py-10 text-[#f7f3e8]"
+    >
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-110px] top-[260px] h-[300px] w-[300px] rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[22%] h-[280px] w-[280px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+      </div>
+
+      <div className="relative mx-auto max-w-4xl">
         <header className="mb-6 text-center">
           <Link
             href="/"
-            className="mb-5 inline-flex rounded-2xl border border-[#eadfce] bg-white px-4 py-2 text-sm font-black text-gray-700 shadow-sm transition hover:bg-gray-50"
+            className="soft-button mb-5 inline-flex rounded-2xl px-4 py-2 text-sm font-black shadow-sm transition"
           >
             الرجوع للرئيسية
           </Link>
 
-          <h1 className="text-4xl font-black text-[#111827]">
-            تتبع طلب التمويل
-          </h1>
+          <div className="site-shell pattern-lines rounded-[32px] p-1 shadow-2xl">
+            <div className="rounded-[30px] border border-[rgba(214,181,107,0.14)] px-6 py-8">
+              <p className="gold-chip mx-auto mb-4 inline-flex rounded-full px-4 py-2 text-xs font-black">
+                متابعة حالة الطلب خطوة بخطوة
+              </p>
 
-          <p className="mx-auto mt-4 max-w-2xl text-sm leading-8 text-gray-500">
-            أدخل رقم الهاتف المستخدم في الطلب مع رقم التتبع لمعرفة آخر حالة
-            للطلب.
-          </p>
+              <h1 className="text-4xl font-black text-white">
+                تتبع طلب التمويل
+              </h1>
+
+              <p className="mx-auto mt-4 max-w-2xl text-sm font-bold leading-8 text-[#cbd6cb]">
+                أدخل رقم الهاتف المستخدم في الطلب مع رقم التتبع لمعرفة آخر حالة
+                للطلب، حالة الدفع، وتفاصيل الجهاز والتقسيط.
+              </p>
+            </div>
+          </div>
         </header>
 
-        <section className="rounded-[32px] border border-[#eadfce] bg-white p-6 shadow-xl">
+        <section className="glass-panel gold-outline rounded-[32px] p-6 shadow-xl">
           <form className="grid gap-4 md:grid-cols-2">
             <div>
-              <label className="mb-2 block text-sm font-black text-gray-700">
+              <label className="mb-2 block text-sm font-black text-[#f3dfac]">
                 رقم الهاتف
               </label>
 
@@ -260,12 +278,12 @@ export default async function TrackPage({
                 defaultValue={phone}
                 inputMode="numeric"
                 placeholder="079XXXXXXX"
-                className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-right text-gray-900 outline-none transition focus:border-[#111827] focus:bg-white"
+                className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-4 text-right text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
               />
             </div>
 
             <div>
-              <label className="mb-2 block text-sm font-black text-gray-700">
+              <label className="mb-2 block text-sm font-black text-[#f3dfac]">
                 رقم التتبع
               </label>
 
@@ -273,14 +291,14 @@ export default async function TrackPage({
                 name="tracking"
                 defaultValue={tracking}
                 placeholder="AM-XXXXXXXXXXXX"
-                className="w-full rounded-2xl border border-gray-200 bg-gray-50 px-4 py-4 text-right text-gray-900 outline-none transition focus:border-[#111827] focus:bg-white"
+                className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-4 text-right text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
               />
             </div>
 
             <div className="md:col-span-2">
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[#111827] px-5 py-4 text-base font-black text-white shadow-lg transition hover:bg-black"
+                className="green-button w-full rounded-2xl px-5 py-4 text-base font-black shadow-lg transition"
               >
                 تتبع الطلب
               </button>
@@ -289,20 +307,20 @@ export default async function TrackPage({
         </section>
 
         {errorMessage && (
-          <section className="mt-5 rounded-[24px] border border-red-200 bg-red-50 p-5 text-sm font-bold leading-8 text-red-700">
+          <section className="mt-5 rounded-[24px] border border-red-400/30 bg-red-950/25 p-5 text-sm font-bold leading-8 text-red-200">
             {errorMessage}
           </section>
         )}
 
         {application && (
-          <section className="mt-6 rounded-[32px] border border-[#eadfce] bg-white p-6 shadow-xl">
+          <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="mb-1 text-sm font-bold text-gray-400">
+                <p className="gold-text mb-1 text-sm font-black">
                   نتيجة التتبع
                 </p>
 
-                <h2 className="text-2xl font-black text-[#111827]">
+                <h2 className="break-words text-2xl font-black text-white">
                   {application.tracking_id}
                 </h2>
               </div>
@@ -318,30 +336,42 @@ export default async function TrackPage({
 
             <div className="grid gap-4 md:grid-cols-2">
               <InfoItem label="الاسم" value={maskName(application.full_name)} />
-              <InfoItem label="تاريخ الطلب" value={formatDate(application.created_at)} />
-              <InfoItem label="حالة الطلب" value={translateStatus(application.status)} />
-              <InfoItem label="حالة الدفع" value={translatePaymentStatus(application.payment_status)} />
+              <InfoItem
+                label="تاريخ الطلب"
+                value={formatDate(application.created_at)}
+              />
+              <InfoItem
+                label="حالة الطلب"
+                value={translateStatus(application.status)}
+              />
+              <InfoItem
+                label="حالة الدفع"
+                value={translatePaymentStatus(application.payment_status)}
+              />
             </div>
 
-            <div className="mt-5 rounded-3xl border border-blue-100 bg-blue-50 p-5">
-              <h3 className="mb-2 text-base font-black text-blue-800">
+            <div className="mt-5 rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-5">
+              <h3 className="gold-text mb-2 text-base font-black">
                 ملاحظة الحالة
               </h3>
 
-              <p className="text-sm font-bold leading-8 text-blue-700">
+              <p className="text-sm font-bold leading-8 text-[#d7ddd5]">
                 {getCustomerMessage(application)}
               </p>
             </div>
 
-            <div className="mt-6 rounded-[28px] border border-[#eadfce] bg-white p-5 shadow-sm">
-              <h3 className="mb-4 text-xl font-black text-[#111827]">
+            <div className="glass-panel-strong mt-6 rounded-[28px] p-5 shadow-sm">
+              <h3 className="gold-text mb-4 text-xl font-black">
                 تفاصيل الجهاز والتقسيط
               </h3>
 
               {application.device_name ? (
                 <div className="grid gap-4 md:grid-cols-2">
                   <InfoItem label="الجهاز" value={application.device_name} />
-                  <InfoItem label="سعر الجهاز" value={formatMoney(application.device_price)} />
+                  <InfoItem
+                    label="سعر الجهاز"
+                    value={formatMoney(application.device_price)}
+                  />
                   <InfoItem
                     label="مدة التقسيط"
                     value={
@@ -350,19 +380,28 @@ export default async function TrackPage({
                         : "—"
                     }
                   />
-                  <InfoItem label="الدفعة الأولى" value={formatMoney(application.down_payment)} />
-                  <InfoItem label="القسط الشهري التقريبي" value={formatMoney(application.monthly_payment)} />
-                  <InfoItem label="الإجمالي مع الفائدة" value={formatMoney(application.total_with_interest)} />
+                  <InfoItem
+                    label="الدفعة الأولى"
+                    value={formatMoney(application.down_payment)}
+                  />
+                  <InfoItem
+                    label="القسط الشهري التقريبي"
+                    value={formatMoney(application.monthly_payment)}
+                  />
+                  <InfoItem
+                    label="الإجمالي مع الفائدة"
+                    value={formatMoney(application.total_with_interest)}
+                  />
                 </div>
               ) : (
-                <div className="rounded-2xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center">
-                  <p className="text-sm font-bold leading-7 text-gray-500">
+                <div className="rounded-2xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-6 text-center">
+                  <p className="text-sm font-bold leading-7 text-[#cbd6cb]">
                     هذا الطلب لا يحتوي على جهاز محدد من صفحة المنتجات.
                   </p>
 
                   <Link
                     href="/products"
-                    className="mt-4 inline-flex rounded-2xl bg-[#111827] px-5 py-3 text-sm font-black text-white"
+                    className="gold-button mt-4 inline-flex rounded-2xl px-5 py-3 text-sm font-black transition"
                   >
                     تصفح المنتجات
                   </Link>
@@ -370,8 +409,8 @@ export default async function TrackPage({
               )}
             </div>
 
-            <div className="mt-6 rounded-[28px] border border-[#eadfce] bg-white p-5 shadow-sm">
-              <h3 className="mb-4 text-xl font-black text-[#111827]">
+            <div className="glass-panel-strong mt-6 rounded-[28px] p-5 shadow-sm">
+              <h3 className="gold-text mb-4 text-xl font-black">
                 معلومات الدفع
               </h3>
 

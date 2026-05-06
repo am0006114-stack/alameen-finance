@@ -1,15 +1,22 @@
 import Link from "next/link";
 
+const legalRegistrationText =
+  "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
+
 const faqs = [
   {
-    question: "هل التقديم أونلاين أم داخل المعرض؟",
+    question: "هل الأمين للأقساط جهة مسجلة؟",
+    answer: legalRegistrationText,
+  },
+  {
+    question: "هل التقديم أونلاين أم داخل مكاتبكم؟",
     answer:
-      "التقديم ودراسة الطلب تتم أونلاين فقط. الاستلام من المعرض يكون بعد الموافقة على طلب التمويل وتوقيع العقد.",
+      "التقديم ودراسة الطلب تتم أونلاين فقط. الاستلام من مكاتبنا يكون بعد الموافقة على طلب التمويل وتوقيع العقد.",
   },
   {
     question: "متى يتم شراء الجهاز؟",
     answer:
-      "بعد الموافقة على طلب التمويل واستكمال الإجراءات المطلوبة، يتم شراء الجهاز وتجهيزه ثم تسليمه للعميل من المعرض.",
+      "بعد الموافقة على طلب التمويل واستكمال الإجراءات المطلوبة، يتم شراء الجهاز وتجهيزه ثم تسليمه للعميل من مكاتبنا.",
   },
   {
     question: "كم مدة دراسة الطلب؟",
@@ -53,58 +60,76 @@ const faqs = [
 
 export default function FaqPage() {
   return (
-    <main dir="rtl" className="min-h-screen bg-[#f6f3ee] px-4 py-10 text-[#111827]">
-      <div className="mx-auto max-w-4xl">
+    <main dir="rtl" className="relative min-h-screen overflow-x-hidden px-4 py-10 text-[#f7f3e8]">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-110px] top-[260px] h-[300px] w-[300px] rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[22%] h-[280px] w-[280px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+      </div>
+
+      <div className="relative mx-auto max-w-4xl">
         <Link
           href="/"
-          className="mb-6 inline-flex rounded-2xl border border-[#eadfce] bg-white px-4 py-2 text-sm font-black text-gray-700 shadow-sm"
+          className="soft-button mb-6 inline-flex rounded-2xl px-4 py-2 text-sm font-black shadow-sm transition"
         >
           الرجوع للرئيسية
         </Link>
 
-        <section className="rounded-[32px] border border-[#eadfce] bg-white p-7 shadow-xl sm:p-10">
-          <p className="mb-3 text-sm font-black text-[#b28b5e]">
-            الأمين للأقساط
-          </p>
+        <section className="site-shell pattern-lines rounded-[32px] p-1 shadow-2xl">
+          <div className="rounded-[30px] border border-[rgba(214,181,107,0.14)] p-7 sm:p-10">
+            <p className="gold-chip mb-4 inline-flex rounded-full px-4 py-2 text-xs font-black">
+              الأمين للأقساط والتمويل
+            </p>
 
-          <h1 className="text-4xl font-black">الأسئلة الشائعة</h1>
+            <h1 className="text-4xl font-black text-white">الأسئلة الشائعة</h1>
 
-          <p className="mt-5 leading-8 text-gray-600">
-            إجابات مختصرة على أكثر الأسئلة المتعلقة بالتقديم، التقسيط،
-            الكفالات، والاستلام.
-          </p>
+            <p className="mt-5 leading-8 text-[#cbd6cb]">
+              إجابات مختصرة على أكثر الأسئلة المتعلقة بالتقديم، التقسيط،
+              الكفالات، الاستلام، والجهة المالكة والمشغلة للموقع.
+            </p>
 
-          <div className="mt-8 space-y-4">
-            {faqs.map((faq) => (
-              <details
-                key={faq.question}
-                className="group rounded-3xl border border-gray-100 bg-gray-50 p-5"
+            <div className="mt-6 rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-5">
+              <p className="gold-text mb-2 text-sm font-black">
+                بيانات التسجيل والملكية
+              </p>
+
+              <p className="text-sm font-bold leading-8 text-[#d7ddd5]">
+                {legalRegistrationText}
+              </p>
+            </div>
+
+            <div className="mt-8 space-y-4">
+              {faqs.map((faq) => (
+                <details
+                  key={faq.question}
+                  className="glass-panel gold-outline group rounded-3xl p-5"
+                >
+                  <summary className="cursor-pointer select-none text-lg font-black text-white">
+                    {faq.question}
+                  </summary>
+
+                  <p className="mt-4 text-sm font-bold leading-8 text-[#d7ddd5]">
+                    {faq.answer}
+                  </p>
+                </details>
+              ))}
+            </div>
+
+            <div className="mt-8 grid gap-3 sm:grid-cols-2">
+              <Link
+                href="/products"
+                className="green-button rounded-2xl px-6 py-4 text-center text-sm font-black transition"
               >
-                <summary className="cursor-pointer select-none text-lg font-black text-[#111827]">
-                  {faq.question}
-                </summary>
+                تصفح المنتجات
+              </Link>
 
-                <p className="mt-4 text-sm font-bold leading-8 text-gray-600">
-                  {faq.answer}
-                </p>
-              </details>
-            ))}
-          </div>
-
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
-            <Link
-              href="/products"
-              className="rounded-2xl bg-[#111827] px-6 py-4 text-center text-sm font-black text-white"
-            >
-              تصفح المنتجات
-            </Link>
-
-            <Link
-              href="/whatsapp"
-              className="rounded-2xl border border-[#eadfce] bg-white px-6 py-4 text-center text-sm font-black text-gray-700"
-            >
-              تواصل واتساب
-            </Link>
+              <Link
+                href="/whatsapp"
+                className="soft-button rounded-2xl px-6 py-4 text-center text-sm font-black transition"
+              >
+                تواصل واتساب
+              </Link>
+            </div>
           </div>
         </section>
       </div>

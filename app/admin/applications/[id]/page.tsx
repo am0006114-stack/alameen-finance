@@ -196,20 +196,20 @@ function statusClass(status: string | null | undefined) {
   switch (status) {
     case "approved":
     case "confirmed":
-      return "border-green-200 bg-green-50 text-green-700";
+      return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
-      return "border-red-200 bg-red-50 text-red-700";
+      return "border-red-400/30 bg-red-950/25 text-red-200";
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
     case "pending":
     case "pending_payment":
-      return "border-amber-200 bg-amber-50 text-amber-700";
+      return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
     case "under_review":
-      return "border-blue-200 bg-blue-50 text-blue-700";
+      return "border-sky-300/25 bg-sky-950/20 text-sky-200";
     case "cancelled":
-      return "border-gray-200 bg-gray-100 text-gray-600";
+      return "border-white/10 bg-[rgba(255,255,255,0.04)]/5 text-[#c7d2c7]";
     default:
-      return "border-gray-200 bg-gray-50 text-gray-700";
+      return "border-white/10 bg-[rgba(255,255,255,0.04)]/5 text-[#d7ddd5]";
   }
 }
 
@@ -345,7 +345,7 @@ function approvedMessage(app: ApplicationRecord) {
 
 رقم التتبع: ${tracking}
 
-سيتم التواصل معك لاستكمال الإجراءات النهائية، ويكون التسليم في المعرض بعد توقيع العقد.
+سيتم التواصل معك لاستكمال الإجراءات النهائية، ويكون التسليم من مكاتبنا بعد توقيع العقد.
 
 رابط متابعة الطلب:
 ${trackUrl}
@@ -395,19 +395,19 @@ function InfoCard({
   items: { label: string; value: string | number | null | undefined }[];
 }) {
   return (
-    <section className="rounded-[28px] border border-[#eadfce] bg-white p-6 shadow-lg">
-      <h2 className="mb-5 text-xl font-black text-[#111827]">{title}</h2>
+    <section className="glass-panel gold-outline rounded-[28px] p-6 shadow-lg">
+      <h2 className="gold-text mb-5 text-xl font-black">{title}</h2>
 
       <div className="grid gap-4 md:grid-cols-2">
         {items.map((item) => (
           <div
             key={item.label}
-            className="rounded-2xl border border-gray-100 bg-gray-50 px-4 py-3"
+            className="stat-chip rounded-2xl px-4 py-3"
           >
-            <p className="mb-1 text-xs font-bold text-gray-400">
+            <p className="mb-1 text-xs font-bold text-[#aeb9af]">
               {item.label}
             </p>
-            <p className="break-words text-sm font-black text-gray-800">
+            <p className="break-words text-sm font-black text-white">
               {item.value === null ||
               item.value === undefined ||
               item.value === ""
@@ -515,27 +515,34 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   const employer = app.employer || app.employer_name || "—";
 
   return (
-    <main dir="rtl" className="min-h-screen bg-[#f6f3ee] px-4 py-8">
-      <div className="mx-auto max-w-7xl">
-        <header className="mb-6 rounded-[32px] border border-[#eadfce] bg-white p-6 shadow-xl">
+    <main dir="rtl" className="relative min-h-screen overflow-x-hidden px-4 py-8 text-[#f7f3e8]">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-110px] top-[280px] h-[300px] w-[300px] rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[25%] h-[280px] w-[280px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+      </div>
+
+      <div className="relative mx-auto max-w-7xl">
+        <header className="site-shell pattern-lines mb-6 rounded-[32px] p-1 shadow-xl">
+          <div className="rounded-[30px] border border-[rgba(214,181,107,0.14)] p-6">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div>
               <Link
                 href="/admin"
-                className="mb-4 inline-flex rounded-2xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm font-black text-gray-700 transition hover:bg-gray-100"
+                className="soft-button mb-4 inline-flex rounded-2xl px-4 py-2 text-sm font-black transition"
               >
                 رجوع للطلبات
               </Link>
 
-              <p className="mb-2 text-sm font-bold text-gray-400">
+              <p className="gold-text mb-2 text-sm font-black">
                 تفاصيل طلب التمويل
               </p>
 
-              <h1 className="text-3xl font-black text-[#111827]">
+              <h1 className="text-3xl font-black text-white">
                 {app.tracking_id || app.id}
               </h1>
 
-              <p className="mt-2 text-sm leading-7 text-gray-500">
+              <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
                 تاريخ التقديم: {formatDate(app.created_at)}
               </p>
             </div>
@@ -558,10 +565,11 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               </span>
             </div>
           </div>
+          </div>
         </header>
 
-        <section className="mb-6 rounded-[32px] border border-[#eadfce] bg-white p-6 shadow-xl">
-          <h2 className="mb-5 text-xl font-black text-[#111827]">
+        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
+          <h2 className="gold-text mb-5 text-xl font-black">
             إجراءات الإدارة
           </h2>
 
@@ -572,7 +580,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <input type="hidden" name="status" value="under_review" />
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-green-600 px-4 py-3 text-sm font-black text-white transition hover:bg-green-700"
+                className="green-button w-full rounded-2xl px-4 py-3 text-sm font-black transition"
               >
                 تأكيد دفع 5 دنانير
               </button>
@@ -583,7 +591,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <input type="hidden" name="status" value="under_review" />
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-sm font-black text-white transition hover:bg-blue-700"
+                className="w-full rounded-2xl border border-sky-300/25 bg-sky-950/30 px-4 py-3 text-sm font-black text-sky-100 transition hover:bg-sky-950/45"
               >
                 تحويل لقيد الدراسة
               </button>
@@ -594,7 +602,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <input type="hidden" name="status" value="approved" />
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-[#111827] px-4 py-3 text-sm font-black text-white transition hover:bg-black"
+                className="gold-button w-full rounded-2xl px-4 py-3 text-sm font-black transition"
               >
                 قبول الطلب
               </button>
@@ -605,7 +613,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <input type="hidden" name="status" value="rejected" />
               <button
                 type="submit"
-                className="w-full rounded-2xl bg-red-600 px-4 py-3 text-sm font-black text-white transition hover:bg-red-700"
+                className="w-full rounded-2xl border border-red-400/30 bg-red-950/25 px-4 py-3 text-sm font-black text-red-200 transition hover:bg-red-950/40"
               >
                 رفض الطلب
               </button>
@@ -616,7 +624,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <input type="hidden" name="status" value="cancelled" />
               <button
                 type="submit"
-                className="w-full rounded-2xl border border-gray-200 bg-gray-100 px-4 py-3 text-sm font-black text-gray-700 transition hover:bg-gray-200"
+                className="soft-button w-full rounded-2xl px-4 py-3 text-sm font-black transition"
               >
                 إلغاء الطلب
               </button>
@@ -624,19 +632,19 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           </div>
         </section>
 
-        <section className="mb-6 rounded-[32px] border border-[#eadfce] bg-white p-6 shadow-xl">
+        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
           <div className="mb-5">
-            <h2 className="text-xl font-black text-[#111827]">
+            <h2 className="gold-text text-xl font-black">
               رسائل واتساب للعميل
             </h2>
-            <p className="mt-2 text-sm leading-7 text-gray-500">
+            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
               الأزرار تفتح واتساب برسالة جاهزة للعميل. الموظف يراجع الرسالة ثم
               يضغط إرسال.
             </p>
           </div>
 
           {!hasWhatsAppPhone ? (
-            <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+            <div className="rounded-2xl border border-red-400/30 bg-red-950/25 px-4 py-3 text-sm font-bold text-red-200">
               رقم الهاتف غير صالح للإرسال عبر واتساب.
             </div>
           ) : (
@@ -644,37 +652,37 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, currentStatusMessage(app))}
                 label="إرسال الحالة الحالية"
-                className="bg-[#111827] text-white hover:bg-black"
+                className="border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.10)]"
               />
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, paymentReminderMessage(app))}
                 label="تذكير الدفع"
-                className="bg-amber-500 text-white hover:bg-amber-600"
+                className="border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.16)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.24)]"
               />
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, underReviewMessage(app))}
                 label="قيد الدراسة"
-                className="bg-blue-600 text-white hover:bg-blue-700"
+                className="border border-sky-300/25 bg-sky-950/30 text-sky-100 hover:bg-sky-950/45"
               />
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, salarySlipRequestMessage(app))}
                 label="طلب كشف راتب"
-                className="bg-purple-600 text-white hover:bg-purple-700"
+                className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
               />
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, approvedMessage(app))}
                 label="موافقة مبدئية"
-                className="bg-green-600 text-white hover:bg-green-700"
+                className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
               />
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, rejectedMessage(app))}
                 label="رفض الطلب"
-                className="bg-red-600 text-white hover:bg-red-700"
+                className="border border-red-400/30 bg-red-950/25 text-red-200 hover:bg-red-950/40"
               />
             </div>
           )}
@@ -772,8 +780,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           />
         </div>
 
-        <section className="mt-6 rounded-[32px] border border-[#eadfce] bg-white p-6 shadow-xl">
-          <h2 className="mb-5 text-xl font-black text-[#111827]">
+        <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
+          <h2 className="gold-text mb-5 text-xl font-black">
             الوثائق المرفوعة
           </h2>
 
@@ -784,11 +792,11 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           )}
 
           {safeDocuments.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-gray-200 bg-gray-50 p-10 text-center">
-              <h3 className="text-lg font-black text-gray-700">
+            <div className="rounded-3xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-10 text-center">
+              <h3 className="text-lg font-black text-white">
                 لا يوجد وثائق ظاهرة
               </h3>
-              <p className="mt-2 text-sm leading-7 text-gray-500">
+              <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
                 إذا أنت متأكد إن الصور مرفوعة، ممكن يكون اسم عمود الربط في جدول
                 documents مختلف عن application_id.
               </p>
@@ -807,10 +815,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 return (
                   <div
                     key={document.id || `${documentUrl}-${index}`}
-                    className="rounded-[28px] border border-gray-100 bg-gray-50 p-4"
+                    className="glass-panel gold-outline rounded-[28px] p-4"
                   >
                     <div className="mb-3 flex items-center justify-between gap-3">
-                      <h3 className="text-sm font-black text-gray-800">
+                      <h3 className="text-sm font-black text-white">
                         {title}
                       </h3>
 
@@ -819,7 +827,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                           href={documentUrl}
                           target="_blank"
                           rel="noreferrer"
-                          className="rounded-xl bg-[#111827] px-3 py-2 text-xs font-black text-white transition hover:bg-black"
+                          className="green-button rounded-xl px-3 py-2 text-xs font-black transition"
                         >
                           فتح
                         </a>
@@ -827,7 +835,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                     </div>
 
                     {documentUrl ? (
-                      <div className="relative h-80 overflow-hidden rounded-2xl border border-gray-200 bg-white">
+                      <div className="relative h-80 overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(3,18,14,0.42)]">
                         <Image
                           src={documentUrl}
                           alt={title}
@@ -837,7 +845,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                         />
                       </div>
                     ) : (
-                      <div className="rounded-2xl border border-dashed border-gray-200 bg-white p-8 text-center text-sm font-bold text-gray-500">
+                      <div className="rounded-2xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-8 text-center text-sm font-bold text-[#aeb9af]">
                         لا يوجد رابط ظاهر لهذه الوثيقة
                       </div>
                     )}
