@@ -122,6 +122,7 @@ export default function ApplyPage() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStep, setSubmissionStep] = useState("");
+  const [showPaymentTransition, setShowPaymentTransition] = useState(false);
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
   const [paymentDeadlineTime, setPaymentDeadlineTime] = useState<number | null>(
@@ -153,6 +154,16 @@ export default function ApplyPage() {
     guarantorIdFront: 0,
     guarantorIdBack: 0,
   });
+
+  useEffect(() => {
+    if (!successTrackingId || paymentCompleted) return;
+
+    const timeout = window.setTimeout(() => {
+      setShowPaymentTransition(false);
+    }, 900);
+
+    return () => window.clearTimeout(timeout);
+  }, [successTrackingId, paymentCompleted]);
 
   useEffect(() => {
     if (!paymentDeadlineTime) return;
@@ -207,15 +218,13 @@ export default function ApplyPage() {
   }
 
   function getEligibilityPath() {
-    if (applicantSocialSecurity) {
-      return "applicant_social_security";
-    }
-
-    return "guarantor_social_security_first_degree";
+    return applicantSocialSecurity
+      ? "applicant_social_security_optional"
+      : "standard_application_no_social_security_required";
   }
 
   function getRequiredSalaryMinimum() {
-    return applicantSocialSecurity ? 350 : 400;
+    return 290;
   }
 
   function isActiveApplication(status: string | null) {
@@ -226,19 +235,12 @@ export default function ApplyPage() {
     cleanNationalId: string;
     cleanGuarantorNationalId: string;
   }) {
-    const filters = [
-      `national_id.eq.${params.cleanNationalId}`,
-      `guarantor_national_id.eq.${params.cleanNationalId}`,
-      `national_id.eq.${params.cleanGuarantorNationalId}`,
-      `guarantor_national_id.eq.${params.cleanGuarantorNationalId}`,
-    ].join(",");
-
     const { data, error } = await supabase
       .from("applications")
       .select(
         "id, tracking_id, status, national_id, guarantor_national_id, full_name"
       )
-      .or(filters)
+      .eq("national_id", params.cleanNationalId)
       .limit(20);
 
     if (error) {
@@ -496,25 +498,7 @@ export default function ApplyPage() {
     }
 
     if (salaryNumber < requiredSalaryMinimum) {
-      return alert(
-        applicantSocialSecurity
-          ? "الراتب الصافي يجب ألا يقل عن 350 دينار للمشتركين بالضمان"
-          : "إذا مقدم الطلب غير مشترك بالضمان، يجب ألا يقل الراتب الصافي عن 400 دينار"
-      );
-    }
-
-    if (!applicantSocialSecurity) {
-      if (!guarantorSocialSecurity) {
-        return alert(
-          "إذا مقدم الطلب غير مشترك بالضمان، يجب أن يكون الكفيل مشتركًا بالضمان الاجتماعي"
-        );
-      }
-
-      if (!guarantorRelationship) {
-        return alert(
-          "إذا مقدم الطلب غير مشترك بالضمان، يجب اختيار صلة القرابة مع الكفيل"
-        );
-      }
+      return alert("الراتب الصافي يجب ألا يقل عن 290 دينار أردني");
     }
 
     if (guarantorName.trim().split(/\s+/).length < 4) {
@@ -546,7 +530,7 @@ export default function ApplyPage() {
     }
 
     if (!termsAccepted) {
-      return alert("يجب الموافقة على الشروط والأحكام");
+      return alert("يرجى قراءة الشروط والأحكام بعناية ثم الموافقة عليها قبل إرسال الطلب.");
     }
 
     setIsSubmitting(true);
@@ -560,7 +544,7 @@ export default function ApplyPage() {
 
       if (duplicateApplication) {
         alert(
-          `لا يمكن تقديم طلب جديد. يوجد طلب فعّال مرتبط بنفس الرقم الوطني أو رقم الكفيل.\nرقم التتبع: ${
+          `لا يمكن تقديم طلب جديد. يوجد طلب فعّال لنفس مقدم الطلب.\nرقم التتبع: ${
             duplicateApplication.tracking_id || duplicateApplication.id
           }\nالحالة الحالية: ${duplicateApplication.status || "قيد المتابعة"}`
         );
@@ -666,7 +650,8 @@ export default function ApplyPage() {
         eligibilityPath,
       });
 
-      setSubmissionStep("تم استلام الطلب بنجاح، جاري فتح صفحة الدفع...");
+      setSubmissionStep("تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع...");
+      setShowPaymentTransition(true);
 
       setSuccessTrackingId(trackingId);
       setPaymentDeadlineTime(deadlineMs);
@@ -690,8 +675,12 @@ export default function ApplyPage() {
     return (
       <main
         dir="rtl"
-        className="relative min-h-screen overflow-x-hidden px-4 py-10 text-white"
+        className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
       >
+        {showPaymentTransition && (
+          <SubmittingOverlay message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..." />
+        )}
+
         <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 text-center shadow-2xl">
           <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#69d97b] text-4xl text-black">
             ✓
@@ -757,8 +746,12 @@ export default function ApplyPage() {
     return (
       <main
         dir="rtl"
-        className="relative min-h-screen overflow-x-hidden px-4 py-10 text-white"
+        className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
       >
+        {showPaymentTransition && (
+          <SubmittingOverlay message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..." />
+        )}
+
         <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 shadow-2xl">
           <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-4 py-2 text-sm text-[#b8f3c0]">
             تم استلام الطلب بنجاح ✅
@@ -773,7 +766,7 @@ export default function ApplyPage() {
             <strong className="mx-2 text-[#f3dfac]">
               {successTrackingId}
             </strong>
-            يرجى دفع رسوم معالجة الطلب قبل انتهاء المهلة حتى لا يتم إلغاء الطلب
+            يرجى دفع رسوم فتح الملف قبل انتهاء المهلة حتى لا يتم إلغاء الطلب
             تلقائيًا.
           </p>
 
@@ -815,11 +808,11 @@ export default function ApplyPage() {
 
           <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5">
             <p className="text-xl font-black text-[#f3dfac]">
-              المبلغ المطلوب: 5 دنانير
+              رسوم فتح الملف: 5 دنانير
             </p>
 
             <p className="mt-2 text-sm text-[#d7ddd5]">
-              رسوم معالجة غير مستردة ولا تعني الموافقة النهائية على التقسيط.
+              يتم استرداد رسوم فتح الملف عند الموافقة على الطلب وتوقيع عقد الاستلام. دفع الرسوم لا يعني الموافقة النهائية على التقسيط.
             </p>
           </div>
 
@@ -895,7 +888,7 @@ export default function ApplyPage() {
   return (
     <main
       dir="rtl"
-      className="relative min-h-screen overflow-x-hidden px-4 py-10 text-white"
+      className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
     >
       {isSubmitting && <SubmittingOverlay message={submissionStep} />}
 
@@ -911,7 +904,7 @@ export default function ApplyPage() {
 
           <p className="mt-4 max-w-2xl text-[#d7ddd5]">
             عبّئ البيانات بدقة، ارفع صور الهويات المطلوبة، وبعد تقديم الطلب يتم
-            دفع رسوم معالجة 5 دنانير لاستكمال مراجعة الملف والتقييم الأولي.
+            دفع رسوم فتح الملف 5 دنانير لاستكمال مراجعة الملف والتقييم الأولي، ويتم استردادها عند الموافقة على الطلب وتوقيع عقد الاستلام.
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -1097,11 +1090,7 @@ export default function ApplyPage() {
 
               <input
                 className={inputClass}
-                placeholder={
-                  applicantSocialSecurity
-                    ? "الراتب الصافي بالدينار — الحد الأدنى 350"
-                    : "الراتب الصافي بالدينار — الحد الأدنى 400"
-                }
+                placeholder="الراتب الصافي بالدينار — الحد الأدنى 290"
                 type="number"
                 value={salary}
                 onChange={(e) => setSalary(e.target.value)}
@@ -1109,7 +1098,7 @@ export default function ApplyPage() {
 
               <div className="rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
                 <p className="mb-3 font-bold text-[#f3dfac]">
-                  هل مقدم الطلب مشترك بالضمان الاجتماعي؟
+                  هل مقدم الطلب مشترك بالضمان الاجتماعي؟ <span className="text-[#aeb9af]">(اختياري)</span>
                 </p>
 
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1141,9 +1130,7 @@ export default function ApplyPage() {
                 </div>
 
                 <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.40)] p-4 text-sm leading-7 text-[#d7ddd5]">
-                  {applicantSocialSecurity
-                    ? "في حال كان مقدم الطلب مشتركًا بالضمان، يجب ألا يقل الراتب الصافي عن 350 دينار."
-                    : "في حال عدم اشتراك مقدم الطلب بالضمان، يجب ألا يقل الراتب الصافي عن 400 دينار، وأن يكون الكفيل مشتركًا بالضمان ومن قرابة مقبولة."}
+                  التسجيل بالضمان الاجتماعي خيار يساعد في دراسة الطلب، لكنه غير إلزامي. الحد الأدنى للراتب الصافي هو 290 دينار أردني. يتم تقييم الطلب حسب البيانات والوثائق وسياسة الموافقة الداخلية.
                 </div>
               </div>
             </div>
@@ -1182,42 +1169,39 @@ export default function ApplyPage() {
                 }
               />
 
-              {!applicantSocialSecurity && (
-                <div className="space-y-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
-                  <p className="font-bold text-[#f3dfac]">
-                    شروط إضافية لأن مقدم الطلب غير مشترك بالضمان
-                  </p>
+              <div className="space-y-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
+                <p className="font-bold text-[#f3dfac]">
+                  معلومات إضافية عن الكفيل <span className="text-[#aeb9af]">(اختيارية)</span>
+                </p>
 
-                  <label className={labelBoxClass}>
-                    <input
-                      type="checkbox"
-                      checked={guarantorSocialSecurity}
-                      onChange={(e) =>
-                        setGuarantorSocialSecurity(e.target.checked)
-                      }
-                    />
+                <label className={labelBoxClass}>
+                  <input
+                    type="checkbox"
+                    checked={guarantorSocialSecurity}
+                    onChange={(e) =>
+                      setGuarantorSocialSecurity(e.target.checked)
+                    }
+                  />
 
-                    <span>الكفيل مشترك بالضمان الاجتماعي</span>
-                  </label>
+                  <span>الكفيل مشترك بالضمان الاجتماعي</span>
+                </label>
 
-                  <select
-                    className={inputClass}
-                    value={guarantorRelationship}
-                    onChange={(e) => setGuarantorRelationship(e.target.value)}
-                  >
-                    {guarantorRelationshipOptions.map((option) => (
-                      <option key={option.value || "empty"} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
+                <select
+                  className={inputClass}
+                  value={guarantorRelationship}
+                  onChange={(e) => setGuarantorRelationship(e.target.value)}
+                >
+                  {guarantorRelationshipOptions.map((option) => (
+                    <option key={option.value || "empty"} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
 
-                  <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4 text-sm leading-7 text-[#d7ddd5]">
-                    يشترط في هذا المسار أن يكون الكفيل مشتركًا بالضمان وأن تكون
-                    صلة القرابة من الخيارات المقبولة حسب سياسة الأمين.
-                  </div>
+                <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4 text-sm leading-7 text-[#d7ddd5]">
+                  هذه المعلومات اختيارية وتساعد الإدارة على دراسة الطلب بشكل أوضح، لكنها ليست شرطًا إلزاميًا لإرسال الطلب. يمكن للكفيل تقديم طلب مستقل لاحقًا، ويمكن أن يكفل مقدم الطلب كفيله في طلب منفصل.
                 </div>
-              )}
+              </div>
             </div>
           </section>
 
@@ -1225,7 +1209,7 @@ export default function ApplyPage() {
             <h2 className="mb-2 text-2xl font-bold">5. رفع صور الهويات</h2>
 
             <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
-              يمكنك اختيار صور الهويات من مكاتبنا أو الملفات، أو تصويرها مباشرة
+              يمكنك اختيار صور الهويات من معرض الصور أو الملفات، أو تصويرها مباشرة
               إذا رغبت. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
             </p>
 
@@ -1351,56 +1335,55 @@ export default function ApplyPage() {
             </label>
 
             <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 leading-8">
-              <strong>رسوم معالجة الطلب:</strong> 5 دنانير غير مستردة، تُدفع
+              <strong>رسوم فتح الملف:</strong> 5 دنانير، تُدفع
               بعد تقديم الطلب عبر كليك أو إي فواتيركم أو محفظة إلكترونية
-              معتمدة، لاستكمال مراجعة الملف والتقييم الأولي. دفع الرسوم لا يعني
+              معتمدة، لاستكمال مراجعة الملف والتقييم الأولي. يتم استرداد رسوم فتح الملف عند الموافقة على الطلب وتوقيع عقد الاستلام. دفع الرسوم لا يعني
               الموافقة النهائية على طلب التقسيط.
             </div>
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <details className="group rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <summary className="cursor-pointer select-none text-xl font-bold text-white">
-                عرض الشروط والأحكام
-              </summary>
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.28)] bg-[rgba(214,181,107,0.08)] p-5">
+              <h2 className="text-2xl font-black text-[#f3dfac]">
+                يرجى قراءة الشروط والأحكام بعناية قبل إرسال الطلب
+              </h2>
 
-              <div className="mt-5 max-h-72 overflow-y-auto rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(2,18,14,0.92)] p-5 text-sm leading-8 text-[#d7ddd5]">
-                <ul className="list-disc space-y-2 pr-5">
-                  <li>{legalRegistrationText}</li>
-                  <li>
-                    إذا كان مقدم الطلب مشتركًا بالضمان، يجب ألا يقل الراتب
-                    الصافي عن 350 دينار أردني.
-                  </li>
-                  <li>
-                    إذا كان مقدم الطلب غير مشترك بالضمان، يجب ألا يقل الراتب
-                    الصافي عن 400 دينار أردني.
-                  </li>
-                  <li>
-                    في حال عدم اشتراك مقدم الطلب بالضمان، يشترط أن يكون الكفيل
-                    مشتركًا بالضمان الاجتماعي ومن صلة قرابة مقبولة.
-                  </li>
-                  <li>
-                    لا يسمح بوجود أكثر من طلب فعّال لنفس الرقم الوطني أو نفس
-                    الرقم الوطني للكفيل.
-                  </li>
-                  <li>
-                    يجب تقديم هوية شخصية سارية لمقدم الطلب والكفيل، وجه أمامي
-                    وخلفي.
-                  </li>
-                  <li>
-                    صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق
-                    من البيانات.
-                  </li>
-                  <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
-                  <li>رسوم معالجة الطلب 5 دنانير غير مستردة.</li>
-                  <li>دفع رسوم المعالجة لا يعني الموافقة على طلب التقسيط.</li>
-                  <li>
-                    الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في
-                    مكاتبنا.
-                  </li>
-                </ul>
-              </div>
-            </details>
+              <p className="mt-3 text-sm font-bold leading-7 text-[#d7ddd5]">
+                الشروط ظاهرة هنا بشكل مباشر حتى تكون واضحة قبل إرسال الطلب.
+              </p>
+            </div>
+
+            <div className="mt-4 max-h-96 overflow-y-auto rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(2,18,14,0.92)] p-5 text-sm leading-8 text-[#d7ddd5]">
+              <ul className="list-disc space-y-2 pr-5">
+                <li>{legalRegistrationText}</li>
+                <li>الحد الأدنى للراتب الصافي لقبول دراسة الطلب هو 290 دينار أردني.</li>
+                <li>لا يشترط أن يكون مقدم الطلب مسجلًا في الضمان الاجتماعي.</li>
+                <li>خيار الضمان الاجتماعي موجود كمعلومة إضافية تساعد في دراسة الطلب، لكنه غير إلزامي.</li>
+                <li>وجود كفيل مطلوب لإرسال الطلب، أما اشتراك الكفيل في الضمان الاجتماعي فهو خيار إضافي غير إلزامي.</li>
+                <li>
+                  لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب. ويمكن للكفيل
+                  تقديم طلب مستقل، كما يمكن أن يكفل مقدم الطلب كفيله في طلب
+                  منفصل.
+                </li>
+                <li>
+                  يجب تقديم هوية شخصية سارية لمقدم الطلب والكفيل، وجه أمامي
+                  وخلفي.
+                </li>
+                <li>
+                  صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق
+                  من البيانات.
+                </li>
+                <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
+                <li>
+                  يتم استرداد رسوم فتح الملف عند الموافقة على الطلب وتوقيع عقد الاستلام.
+                </li>
+                <li>دفع رسوم فتح الملف لا يعني الموافقة النهائية على طلب التقسيط.</li>
+                <li>
+                  الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في
+                  مكاتبنا.
+                </li>
+              </ul>
+            </div>
 
             <label className="mt-4 flex items-start gap-3 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4 leading-7">
               <input
@@ -1411,7 +1394,7 @@ export default function ApplyPage() {
               />
 
               <span>
-                أقرّ بأنني قرأت الشروط والأحكام وأوافق عليها، وأوافق على
+                أقرّ بأنني قرأت الشروط والأحكام بعناية وأوافق عليها، وأوافق على
                 استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التمويل فقط.
               </span>
             </label>
@@ -1467,7 +1450,7 @@ function SubmittingOverlay({ message }: { message: string }) {
     <div className="fixed inset-0 z-[9999] flex items-center justify-center glass-panel-strong px-4 backdrop-blur-md">
       <div className="w-full max-w-md rounded-[2rem] border border-[rgba(214,181,107,0.30)] bg-[rgba(3,18,14,0.95)] p-7 text-center shadow-2xl">
         <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)]">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
+          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#69d97b] border-t-transparent" />
         </div>
 
         <div className="mb-3 inline-flex rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)] px-4 py-2 text-xs font-black text-[#f3dfac]">
