@@ -178,10 +178,10 @@ export default function ApplyPage() {
   }, [previewUrls]);
 
   const inputClass =
-    "w-full rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4 text-white outline-none transition placeholder:text-zinc-500 focus:border-orange-500 focus:ring-2 focus:ring-orange-500/20";
+    "w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] p-4 text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10";
 
   const labelBoxClass =
-    "flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4";
+    "flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.04)] p-4 text-[#d7ddd5]";
 
   function cleanDigits(value: string) {
     return value.replace(/\D/g, "");
@@ -690,14 +690,14 @@ export default function ApplyPage() {
     return (
       <main
         dir="rtl"
-        className="min-h-screen bg-[radial-gradient(circle_at_top,#112b16_0%,#050505_38%,#000_100%)] px-4 py-10 text-white"
+        className="relative min-h-screen overflow-x-hidden px-4 py-10 text-white"
       >
-        <div className="mx-auto max-w-3xl rounded-[2rem] border border-green-500/30 bg-black/80 p-8 text-center shadow-2xl">
-          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-500 text-4xl text-black">
+        <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 text-center shadow-2xl">
+          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#69d97b] text-4xl text-black">
             ✓
           </div>
 
-          <div className="mb-4 inline-flex rounded-full border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-300">
+          <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-4 py-2 text-sm text-[#b8f3c0]">
             تم تسجيل الدفع بنجاح
           </div>
 
@@ -705,24 +705,24 @@ export default function ApplyPage() {
             طلبك الآن بانتظار تأكيد الإدارة
           </h1>
 
-          <p className="mx-auto mt-4 max-w-2xl leading-8 text-zinc-300">
+          <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#d7ddd5]">
             تم تسجيل رقم الوصل/الحركة، وسيتم التحقق من الدفع من قبل الإدارة.
             بعد التأكيد سيتم تحويل الطلب إلى مرحلة الدراسة.
           </p>
 
           <div className="mt-8 grid gap-4 text-right md:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5">
-              <p className="text-sm text-zinc-400">رقم التتبع</p>
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
+              <p className="text-sm text-[#aeb9af]">رقم التتبع</p>
 
-              <p className="mt-2 break-words text-2xl font-black text-orange-400">
+              <p className="mt-2 break-words text-2xl font-black text-[#f3dfac]">
                 {successTrackingId}
               </p>
             </div>
 
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5">
-              <p className="text-sm text-zinc-400">رقم الوصل / الحركة</p>
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
+              <p className="text-sm text-[#aeb9af]">رقم الوصل / الحركة</p>
 
-              <p className="mt-2 break-words text-2xl font-black text-green-400">
+              <p className="mt-2 break-words text-2xl font-black text-[#69d97b]">
                 {paymentReference.trim()}
               </p>
             </div>
@@ -731,20 +731,20 @@ export default function ApplyPage() {
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
             <Link
               href={trackHref}
-              className="rounded-2xl bg-green-500 px-6 py-4 text-center text-base font-black text-black transition hover:bg-green-400"
+              className="green-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
             >
               تتبع حالة الطلب
             </Link>
 
             <Link
               href="/"
-              className="rounded-2xl border border-zinc-700 bg-zinc-950 px-6 py-4 text-center text-base font-black text-white transition hover:bg-zinc-900"
+              className="soft-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
             >
               العودة للرئيسية
             </Link>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5 text-sm leading-8 text-zinc-300">
+          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5 text-sm leading-8 text-[#d7ddd5]">
             احتفظ برقم التتبع ورقم الوصل. قد تتواصل الإدارة معك للتأكد من
             العملية قبل بدء دراسة الطلب.
           </div>
@@ -757,10 +757,10 @@ export default function ApplyPage() {
     return (
       <main
         dir="rtl"
-        className="min-h-screen bg-[radial-gradient(circle_at_top,#2b1607_0%,#050505_38%,#000_100%)] px-4 py-10 text-white"
+        className="relative min-h-screen overflow-x-hidden px-4 py-10 text-white"
       >
-        <div className="mx-auto max-w-3xl rounded-[2rem] border border-orange-500/30 bg-black/80 p-8 shadow-2xl">
-          <div className="mb-4 inline-flex rounded-full border border-green-500/30 bg-green-500/10 px-4 py-2 text-sm text-green-300">
+        <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 shadow-2xl">
+          <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-4 py-2 text-sm text-[#b8f3c0]">
             تم استلام الطلب بنجاح ✅
           </div>
 
@@ -768,9 +768,9 @@ export default function ApplyPage() {
             خطوة الدفع لاستكمال المراجعة
           </h1>
 
-          <p className="mt-4 leading-8 text-zinc-300">
+          <p className="mt-4 leading-8 text-[#d7ddd5]">
             رقم طلبك هو:
-            <strong className="mx-2 text-orange-400">
+            <strong className="mx-2 text-[#f3dfac]">
               {successTrackingId}
             </strong>
             يرجى دفع رسوم معالجة الطلب قبل انتهاء المهلة حتى لا يتم إلغاء الطلب
@@ -778,12 +778,12 @@ export default function ApplyPage() {
           </p>
 
           {selectedProduct && selectedInstallment && (
-            <div className="mt-6 rounded-2xl border border-orange-700 bg-orange-950/40 p-5">
-              <h2 className="text-xl font-black text-orange-300">
+            <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5">
+              <h2 className="text-xl font-black text-[#f3dfac]">
                 ملخص الجهاز
               </h2>
 
-              <div className="mt-4 grid gap-3 text-sm leading-7 text-zinc-300 md:grid-cols-2">
+              <div className="mt-4 grid gap-3 text-sm leading-7 text-[#d7ddd5] md:grid-cols-2">
                 <p>الجهاز: {selectedProduct.name}</p>
                 <p>الموديل: {selectedProduct.model}</p>
                 <p>السعر: {formatJod(selectedProduct.price)}</p>
@@ -800,7 +800,7 @@ export default function ApplyPage() {
           )}
 
           <div className="mt-6 rounded-2xl border border-red-700 bg-red-950/30 p-5 text-center">
-            <p className="text-sm text-zinc-300">
+            <p className="text-sm text-[#d7ddd5]">
               الوقت المتبقي قبل إلغاء الطلب
             </p>
 
@@ -808,36 +808,36 @@ export default function ApplyPage() {
               {formatCountdown(timeLeft)}
             </p>
 
-            <p className="mt-2 text-sm text-zinc-400">
+            <p className="mt-2 text-sm text-[#aeb9af]">
               مدة الدفع المتاحة: ساعة واحدة فقط
             </p>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-orange-700 bg-orange-950/40 p-5">
-            <p className="text-xl font-black text-orange-300">
+          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5">
+            <p className="text-xl font-black text-[#f3dfac]">
               المبلغ المطلوب: 5 دنانير
             </p>
 
-            <p className="mt-2 text-sm text-zinc-300">
+            <p className="mt-2 text-sm text-[#d7ddd5]">
               رسوم معالجة غير مستردة ولا تعني الموافقة النهائية على التقسيط.
             </p>
           </div>
 
           <div className="mt-6 space-y-4">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5">
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
               <h2 className="text-2xl font-bold">كليك</h2>
 
-              <p className="mt-3 text-zinc-300">اسم كليك:</p>
+              <p className="mt-3 text-[#d7ddd5]">اسم كليك:</p>
 
-              <div className="mt-2 rounded-xl border border-zinc-700 bg-black p-4 font-black text-orange-400">
+              <div className="mt-2 rounded-xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)] p-4 font-black text-[#f3dfac]">
                 AMEENPAY
               </div>
             </div>
 
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5">
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
               <h2 className="text-2xl font-bold">Orange Money</h2>
 
-              <p className="mt-3 text-zinc-300">
+              <p className="mt-3 text-[#d7ddd5]">
                 اسم المستفيد مخفي لحماية الخصوصية.
               </p>
 
@@ -845,19 +845,19 @@ export default function ApplyPage() {
                 <button
                   type="button"
                   onClick={() => setShowBeneficiaryName(true)}
-                  className="mt-4 rounded-xl bg-orange-500 px-5 py-3 font-black text-black"
+                  className="mt-4 rounded-xl bg-[#d6b56b] px-5 py-3 font-black text-black"
                 >
                   إظهار اسم المستفيد
                 </button>
               ) : (
-                <div className="mt-4 rounded-xl border border-zinc-700 bg-black p-4 font-bold text-orange-300">
+                <div className="mt-4 rounded-xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)] p-4 font-bold text-[#f3dfac]">
                   عبدالرحمن تيسير ناصر الحراحشه
                 </div>
               )}
             </div>
           </div>
 
-          <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5">
+          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
             <label className="mb-3 block text-lg font-black text-white">
               رقم الوصل / رقم الحركة
             </label>
@@ -869,7 +869,7 @@ export default function ApplyPage() {
               onChange={(e) => setPaymentReference(e.target.value)}
             />
 
-            <p className="mt-3 text-sm leading-7 text-zinc-400">
+            <p className="mt-3 text-sm leading-7 text-[#aeb9af]">
               يجب إدخال رقم الوصل أو رقم الحركة قبل الضغط على تأكيد الدفع.
             </p>
           </div>
@@ -878,12 +878,12 @@ export default function ApplyPage() {
             type="button"
             onClick={markPaidClicked}
             disabled={paidClicked || timeLeft === 0}
-            className="mt-6 w-full rounded-2xl bg-green-500 p-5 text-lg font-black text-black shadow-2xl transition hover:bg-green-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="green-button mt-6 w-full rounded-2xl p-5 text-lg font-black shadow-2xl transition disabled:cursor-not-allowed disabled:opacity-60"
           >
             {paidClicked ? "جاري تسجيل الدفع..." : "تأكيد الدفع"}
           </button>
 
-          <div className="mt-6 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5 leading-8 text-zinc-300">
+          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5 leading-8 text-[#d7ddd5]">
             بعد الضغط على “تأكيد الدفع”، سيتم وضع الطلب بانتظار تأكيد الإدارة.
             احتفظ برقم الوصل/الحركة لأن الإدارة قد تطلبه منك.
           </div>
@@ -895,21 +895,21 @@ export default function ApplyPage() {
   return (
     <main
       dir="rtl"
-      className="min-h-screen bg-[radial-gradient(circle_at_top,#2b1607_0%,#050505_38%,#000_100%)] px-4 py-10 text-white"
+      className="relative min-h-screen overflow-x-hidden px-4 py-10 text-white"
     >
       {isSubmitting && <SubmittingOverlay message={submissionStep} />}
 
       <div className="mx-auto max-w-5xl">
-        <div className="mb-8 rounded-[2rem] border border-orange-500/20 bg-black/70 p-8 shadow-2xl backdrop-blur">
-          <div className="mb-4 inline-flex rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-sm text-orange-300">
-            الأمين للأقساط والتمويل — طلب تقسيط آمن وسريع
+        <div className="site-shell pattern-lines mb-8 rounded-[2rem] p-8 shadow-2xl">
+          <div className="gold-chip mb-4 inline-flex rounded-full px-4 py-2 text-sm font-black">
+            الأمين للأقساط والتمويل — تجربة تقسيط فاخرة وآمنة
           </div>
 
           <h1 className="text-4xl font-black leading-tight md:text-6xl">
             قدّم طلب التقسيط خلال دقائق
           </h1>
 
-          <p className="mt-4 max-w-2xl text-zinc-300">
+          <p className="mt-4 max-w-2xl text-[#d7ddd5]">
             عبّئ البيانات بدقة، ارفع صور الهويات المطلوبة، وبعد تقديم الطلب يتم
             دفع رسوم معالجة 5 دنانير لاستكمال مراجعة الملف والتقييم الأولي.
           </p>
@@ -925,25 +925,25 @@ export default function ApplyPage() {
             />
             <TrustCard
               title="تقديم أونلاين"
-              text="الاستلام من المعرض بعد الموافقة وتوقيع العقد."
+              text="الاستلام من مكاتبنا بعد الموافقة وتوقيع العقد."
             />
           </div>
 
-          <div className="mt-5 rounded-2xl border border-orange-500/20 bg-orange-950/20 p-4">
-            <p className="text-xs font-black text-orange-300">
+          <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.04)] p-4">
+            <p className="text-xs font-black text-[#f3dfac]">
               بيانات التسجيل والملكية
             </p>
-            <p className="mt-2 text-sm font-bold leading-7 text-zinc-300">
+            <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
               {legalRegistrationText}
             </p>
           </div>
         </div>
 
         {selectedProduct && selectedInstallment ? (
-          <section className="mb-6 rounded-3xl border border-orange-500/30 bg-orange-950/30 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline mb-6 rounded-3xl p-5 shadow-2xl">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-bold text-orange-300">
+                <p className="text-sm font-bold text-[#f3dfac]">
                   الجهاز المختار
                 </p>
 
@@ -951,14 +951,14 @@ export default function ApplyPage() {
                   {selectedProduct.name}
                 </h2>
 
-                <p className="mt-1 text-sm text-zinc-300">
+                <p className="mt-1 text-sm text-[#d7ddd5]">
                   {selectedProduct.model}
                 </p>
               </div>
 
               <Link
                 href="/products"
-                className="rounded-2xl border border-orange-500/30 bg-black/40 px-5 py-3 text-center text-sm font-black text-orange-300 transition hover:bg-black"
+                className="rounded-2xl border border-[rgba(214,181,107,0.30)] bg-[rgba(3,18,14,0.40)] px-5 py-3 text-center text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(2,18,14,0.92)]"
               >
                 تغيير الجهاز
               </Link>
@@ -979,17 +979,17 @@ export default function ApplyPage() {
             </div>
           </section>
         ) : (
-          <section className="mb-6 rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline mb-6 rounded-3xl p-5 shadow-2xl">
             <h2 className="text-xl font-black">طلب عام بدون جهاز محدد</h2>
 
-            <p className="mt-2 text-sm leading-7 text-zinc-300">
+            <p className="mt-2 text-sm leading-7 text-[#d7ddd5]">
               لم يتم اختيار جهاز من صفحة المنتجات. يمكنك متابعة الطلب العام، أو
               الرجوع لاختيار جهاز محدد.
             </p>
 
             <Link
               href="/products"
-              className="mt-4 inline-flex rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-black"
+              className="gold-button mt-4 inline-flex rounded-2xl px-5 py-3 text-sm font-black"
             >
               اختيار جهاز
             </Link>
@@ -997,7 +997,7 @@ export default function ApplyPage() {
         )}
 
         <form onSubmit={handleSubmit} className="space-y-6">
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-bold">1. بيانات مقدم الطلب</h2>
 
             <div className="space-y-4">
@@ -1037,7 +1037,7 @@ export default function ApplyPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-bold">2. العنوان</h2>
 
             <div className="space-y-4">
@@ -1084,7 +1084,7 @@ export default function ApplyPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-bold">3. بيانات العمل والدخل</h2>
 
             <div className="space-y-4">
@@ -1107,8 +1107,8 @@ export default function ApplyPage() {
                 onChange={(e) => setSalary(e.target.value)}
               />
 
-              <div className="rounded-2xl border border-orange-700 bg-orange-950/30 p-4">
-                <p className="mb-3 font-bold text-orange-300">
+              <div className="rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
+                <p className="mb-3 font-bold text-[#f3dfac]">
                   هل مقدم الطلب مشترك بالضمان الاجتماعي؟
                 </p>
 
@@ -1140,7 +1140,7 @@ export default function ApplyPage() {
                   </label>
                 </div>
 
-                <div className="mt-4 rounded-2xl border border-zinc-800 bg-black/40 p-4 text-sm leading-7 text-zinc-300">
+                <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.40)] p-4 text-sm leading-7 text-[#d7ddd5]">
                   {applicantSocialSecurity
                     ? "في حال كان مقدم الطلب مشتركًا بالضمان، يجب ألا يقل الراتب الصافي عن 350 دينار."
                     : "في حال عدم اشتراك مقدم الطلب بالضمان، يجب ألا يقل الراتب الصافي عن 400 دينار، وأن يكون الكفيل مشتركًا بالضمان ومن قرابة مقبولة."}
@@ -1149,7 +1149,7 @@ export default function ApplyPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-bold">4. بيانات الكفيل</h2>
 
             <div className="space-y-4">
@@ -1183,8 +1183,8 @@ export default function ApplyPage() {
               />
 
               {!applicantSocialSecurity && (
-                <div className="space-y-4 rounded-2xl border border-orange-700 bg-orange-950/30 p-4">
-                  <p className="font-bold text-orange-300">
+                <div className="space-y-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
+                  <p className="font-bold text-[#f3dfac]">
                     شروط إضافية لأن مقدم الطلب غير مشترك بالضمان
                   </p>
 
@@ -1212,20 +1212,20 @@ export default function ApplyPage() {
                     ))}
                   </select>
 
-                  <div className="rounded-2xl border border-zinc-800 bg-black/40 p-4 text-sm leading-7 text-zinc-300">
+                  <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4 text-sm leading-7 text-[#d7ddd5]">
                     يشترط في هذا المسار أن يكون الكفيل مشتركًا بالضمان وأن تكون
-                    صلة القرابة من الخيارات المقبولة حسب سياسة المعرض.
+                    صلة القرابة من الخيارات المقبولة حسب سياسة الأمين.
                   </div>
                 </div>
               )}
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-2 text-2xl font-bold">5. رفع صور الهويات</h2>
 
-            <p className="mb-5 text-sm leading-7 text-zinc-300">
-              يمكنك اختيار صور الهويات من المعرض أو الملفات، أو تصويرها مباشرة
+            <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
+              يمكنك اختيار صور الهويات من مكاتبنا أو الملفات، أو تصويرها مباشرة
               إذا رغبت. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
             </p>
 
@@ -1244,11 +1244,11 @@ export default function ApplyPage() {
               />
             </div>
 
-            <div className="mb-5 rounded-2xl border border-green-700/40 bg-green-950/20 p-4">
-              <p className="text-sm font-black text-green-300">
+            <div className="mb-5 rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(7,49,38,0.45)] p-4">
+              <p className="text-sm font-black text-[#b8f3c0]">
                 تعهّد الخصوصية
               </p>
-              <p className="mt-2 text-sm font-bold leading-7 text-zinc-300">
+              <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
                 يتم استخدام صور الهويات والوثائق فقط لدراسة طلب التمويل والتحقق
                 من البيانات، ولا يتم نشرها أو بيعها أو استخدامها لأي غرض تسويقي.
               </p>
@@ -1263,18 +1263,18 @@ export default function ApplyPage() {
                 return (
                   <div
                     key={item.key}
-                    className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4"
+                    className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4"
                   >
                     <label className="mb-3 block font-bold">
                       {item.label}
                     </label>
 
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-orange-500/40 bg-black/50 p-5 text-center transition hover:bg-black">
-                      <span className="text-base font-black text-orange-300">
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[rgba(214,181,107,0.34)] bg-[rgba(3,18,14,0.50)] p-5 text-center transition hover:bg-[rgba(2,18,14,0.92)]">
+                      <span className="text-base font-black text-[#f3dfac]">
                         اختيار صورة أو تصوير الهوية
                       </span>
 
-                      <span className="mt-2 text-xs leading-6 text-zinc-400">
+                      <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
                         يمكنك اختيار صورة محفوظة من الجهاز أو تصوير الهوية حسب
                         الخيارات المتاحة في هاتفك.
                       </span>
@@ -1295,7 +1295,7 @@ export default function ApplyPage() {
                     {file && (
                       <div className="mt-4 space-y-3">
                         {previewUrl && (
-                          <div className="overflow-hidden rounded-2xl border border-zinc-700 bg-black">
+                          <div className="overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)]">
                             <img
                               src={previewUrl}
                               alt={item.label}
@@ -1304,19 +1304,19 @@ export default function ApplyPage() {
                           </div>
                         )}
 
-                        <p className="break-words text-sm text-zinc-300">
+                        <p className="break-words text-sm text-[#d7ddd5]">
                           {file.name} —{" "}
                           {(file.size / 1024 / 1024).toFixed(2)} MB
                         </p>
 
-                        <div className="h-3 w-full overflow-hidden rounded-full bg-zinc-800">
+                        <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
                           <div
-                            className="h-full bg-orange-500 transition-all duration-300"
+                            className="h-full bg-gradient-to-l from-[#d6b56b] to-[#69d97b] transition-all duration-300"
                             style={{ width: `${percent}%` }}
                           />
                         </div>
 
-                        <p className="text-sm text-orange-400">
+                        <p className="text-sm text-[#f3dfac]">
                           {percent < 100
                             ? `جارٍ تجهيز الملف... ${percent}%`
                             : "اكتمل 100% ✅"}
@@ -1337,10 +1337,10 @@ export default function ApplyPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-bold">6. الإقرارات والرسوم</h2>
 
-            <label className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
+            <label className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
               <input
                 type="checkbox"
                 checked={financialClear}
@@ -1350,7 +1350,7 @@ export default function ApplyPage() {
               <span>أتعهد بعدم وجود قضايا مالية عليّ</span>
             </label>
 
-            <div className="mt-4 rounded-2xl border border-orange-700 bg-orange-950/40 p-5 leading-8">
+            <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 leading-8">
               <strong>رسوم معالجة الطلب:</strong> 5 دنانير غير مستردة، تُدفع
               بعد تقديم الطلب عبر كليك أو إي فواتيركم أو محفظة إلكترونية
               معتمدة، لاستكمال مراجعة الملف والتقييم الأولي. دفع الرسوم لا يعني
@@ -1358,13 +1358,13 @@ export default function ApplyPage() {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-black/50 p-5 shadow-2xl">
-            <details className="group rounded-2xl border border-zinc-800 bg-zinc-950/80 p-5">
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+            <details className="group rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
               <summary className="cursor-pointer select-none text-xl font-bold text-white">
                 عرض الشروط والأحكام
               </summary>
 
-              <div className="mt-5 max-h-72 overflow-y-auto rounded-2xl border border-zinc-800 bg-black p-5 text-sm leading-8 text-zinc-300">
+              <div className="mt-5 max-h-72 overflow-y-auto rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(2,18,14,0.92)] p-5 text-sm leading-8 text-[#d7ddd5]">
                 <ul className="list-disc space-y-2 pr-5">
                   <li>{legalRegistrationText}</li>
                   <li>
@@ -1396,13 +1396,13 @@ export default function ApplyPage() {
                   <li>دفع رسوم المعالجة لا يعني الموافقة على طلب التقسيط.</li>
                   <li>
                     الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في
-                    المعرض.
+                    مكاتبنا.
                   </li>
                 </ul>
               </div>
             </details>
 
-            <label className="mt-4 flex items-start gap-3 rounded-2xl border border-orange-700 bg-orange-950/30 p-4 leading-7">
+            <label className="mt-4 flex items-start gap-3 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4 leading-7">
               <input
                 type="checkbox"
                 checked={termsAccepted}
@@ -1419,7 +1419,7 @@ export default function ApplyPage() {
 
           <button
             disabled={isSubmitting}
-            className="sticky bottom-4 w-full rounded-2xl bg-orange-500 p-5 text-lg font-black text-black shadow-2xl shadow-orange-500/20 transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="green-button sticky bottom-4 w-full rounded-2xl p-5 text-lg font-black shadow-2xl disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "جاري تقديم الطلب..." : "إرسال الطلب الآن"}
           </button>
@@ -1439,12 +1439,12 @@ function InfoBox({
   highlight?: boolean;
 }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-black/50 p-4">
-      <p className="text-xs text-zinc-400">{label}</p>
+    <div className="stat-chip rounded-2xl p-4">
+      <p className="text-xs text-[#aeb9af]">{label}</p>
 
       <p
         className={`mt-1 text-lg font-black ${
-          highlight ? "text-orange-300" : "text-white"
+          highlight ? "gold-text" : "text-white"
         }`}
       >
         {value}
@@ -1455,36 +1455,36 @@ function InfoBox({
 
 function TrustCard({ title, text }: { title: string; text: string }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950/80 p-4">
-      <p className="text-sm font-black text-orange-300">{title}</p>
-      <p className="mt-2 text-xs font-bold leading-6 text-zinc-400">{text}</p>
+    <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4">
+      <p className="text-sm font-black text-[#f3dfac]">{title}</p>
+      <p className="mt-2 text-xs font-bold leading-6 text-[#aeb9af]">{text}</p>
     </div>
   );
 }
 
 function SubmittingOverlay({ message }: { message: string }) {
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 px-4 backdrop-blur-md">
-      <div className="w-full max-w-md rounded-[2rem] border border-orange-500/30 bg-zinc-950 p-7 text-center shadow-2xl">
-        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-orange-500/30 bg-orange-500/10">
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center glass-panel-strong px-4 backdrop-blur-md">
+      <div className="w-full max-w-md rounded-[2rem] border border-[rgba(214,181,107,0.30)] bg-[rgba(3,18,14,0.95)] p-7 text-center shadow-2xl">
+        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)]">
           <div className="h-10 w-10 animate-spin rounded-full border-4 border-orange-500 border-t-transparent" />
         </div>
 
-        <div className="mb-3 inline-flex rounded-full border border-orange-500/30 bg-orange-500/10 px-4 py-2 text-xs font-black text-orange-300">
+        <div className="mb-3 inline-flex rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)] px-4 py-2 text-xs font-black text-[#f3dfac]">
           لا تغلق الصفحة
         </div>
 
         <h2 className="text-2xl font-black text-white">جاري تقديم الطلب...</h2>
 
-        <p className="mt-4 min-h-[56px] text-sm font-bold leading-7 text-zinc-300">
+        <p className="mt-4 min-h-[56px] text-sm font-bold leading-7 text-[#d7ddd5]">
           {message || "يتم الآن معالجة الطلب ورفع الوثائق، يرجى الانتظار."}
         </p>
 
-        <div className="mt-5 h-3 overflow-hidden rounded-full bg-zinc-800">
-          <div className="h-full w-2/3 animate-pulse rounded-full bg-orange-500" />
+        <div className="mt-5 h-3 overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
+          <div className="h-full w-2/3 animate-pulse rounded-full bg-[#d6b56b]" />
         </div>
 
-        <p className="mt-4 text-xs font-bold leading-6 text-zinc-500">
+        <p className="mt-4 text-xs font-bold leading-6 text-[#8d998f]">
           قد تستغرق العملية عدة ثوانٍ حسب سرعة الإنترنت وحجم الصور.
         </p>
       </div>

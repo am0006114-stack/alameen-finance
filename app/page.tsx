@@ -7,7 +7,7 @@ const legalRegistrationText =
 const featuredBenefits = [
   {
     title: "تقديم أونلاين بالكامل",
-    description: "قدّم طلبك من البيت خلال دقائق بدون زيارة أولية للمعرض.",
+    description: "قدّم طلبك من البيت خلال دقائق بدون زيارة أولية لمكاتبنا.",
   },
   {
     title: "دراسة خلال 24 - 72 ساعة",
@@ -18,7 +18,7 @@ const featuredBenefits = [
     description: "يمكنك اختيار دفعة أولى حسب قدرتك أو التقديم بدون دفعة.",
   },
   {
-    title: "استلام من المعرض",
+    title: "استلام من المعرض / المكاتب",
     description: "بعد الموافقة، يتم شراء الجهاز وتسليمه مع توقيع العقد.",
   },
 ];
@@ -26,9 +26,9 @@ const featuredBenefits = [
 const steps = [
   ["1", "اختر الجهاز", "تصفح أجهزة iPhone و Samsung واختر الأنسب لك."],
   ["2", "قدّم الطلب", "عبّئ البيانات وارفع صور الهويات المطلوبة."],
-  ["3", "ادفع رسوم الملف", "ادفع 5 دنانير وأدخل رقم الوصل/الحركة."],
+  ["3", "ادفع رسوم الملف", "ادفع 5 دنانير وأدخل رقم الوصل أو رقم الحركة."],
   ["4", "انتظر الدراسة", "تتم مراجعة الطلب خلال 24 إلى 72 ساعة عمل."],
-  ["5", "استلم من المعرض", "بعد الموافقة، يتم شراء الجهاز وتسليمه مع توقيع العقد."],
+  ["5", "استلم جهازك", "بعد الموافقة، يتم شراء الجهاز وتسليمه مع توقيع العقد."],
 ];
 
 const faqItems = [
@@ -64,14 +64,17 @@ const featuredPhones = [
 
 export default function HomePage() {
   return (
-    <main
-      dir="rtl"
-      className="min-h-screen overflow-x-hidden bg-[#f6f3ee] text-[#111827]"
-    >
-      <header className="sticky top-0 z-40 border-b border-[#eadfce] bg-white/95 backdrop-blur-xl">
+    <main dir="rtl" className="relative min-h-screen overflow-x-hidden text-[#f7f3e8]">
+      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-100px] top-[220px] h-[260px] w-[260px] rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[18%] h-[260px] w-[260px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+      </div>
+
+      <header className="sticky top-0 z-50 border-b border-[rgba(214,181,107,0.18)] bg-[rgba(2,18,14,0.72)] backdrop-blur-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-3">
           <Link href="/" className="flex min-w-0 items-center gap-3">
-            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce] sm:h-14 sm:w-14">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.2)] bg-[rgba(255,255,255,0.04)] shadow-lg sm:h-14 sm:w-14">
               <Image
                 src="/logo.png"
                 alt="الأمين للأقساط"
@@ -83,37 +86,47 @@ export default function HomePage() {
             </div>
 
             <div className="min-w-0">
-              <p className="truncate text-base font-black leading-6 sm:text-lg">
+              <p className="truncate text-base font-black leading-6 text-white sm:text-lg">
                 الأمين للأقساط
               </p>
-              <p className="truncate text-[11px] font-bold tracking-wide text-[#b28b5e] sm:text-xs">
+              <p className="gold-text truncate text-[11px] font-black tracking-wide sm:text-xs">
                 AL AMEEN FINANCE
               </p>
             </div>
           </Link>
 
-          <nav className="hidden items-center gap-7 text-sm font-bold text-gray-600 lg:flex">
-            <Link href="/" className="text-[#111827]">
+          <nav className="hidden items-center gap-7 text-sm font-bold text-[#d7ddd5] lg:flex">
+            <Link href="/" className="text-white">
               الرئيسية
             </Link>
-            <Link href="/products">تصفح الهواتف</Link>
-            <Link href="/track">تتبع الطلب</Link>
-            <Link href="/faq">الأسئلة الشائعة</Link>
-            <Link href="/terms">الشروط</Link>
-            <Link href="/privacy">الخصوصية</Link>
+            <Link href="/products" className="hover:text-white">
+              تصفح الهواتف
+            </Link>
+            <Link href="/track" className="hover:text-white">
+              تتبع الطلب
+            </Link>
+            <Link href="/faq" className="hover:text-white">
+              الأسئلة الشائعة
+            </Link>
+            <Link href="/terms" className="hover:text-white">
+              الشروط
+            </Link>
+            <Link href="/privacy" className="hover:text-white">
+              الخصوصية
+            </Link>
           </nav>
 
           <div className="flex shrink-0 items-center gap-2">
             <Link
               href="/whatsapp"
-              className="hidden rounded-2xl border border-[#eadfce] bg-white px-4 py-3 text-sm font-black text-[#111827] shadow-sm transition hover:bg-[#fbf6ee] sm:inline-flex"
+              className="soft-button hidden rounded-2xl px-4 py-3 text-sm font-black shadow-lg transition sm:inline-flex"
             >
               واتساب
             </Link>
 
             <Link
               href="/products"
-              className="rounded-2xl bg-[#111827] px-4 py-3 text-xs font-black text-white shadow-lg transition hover:bg-black sm:px-5 sm:text-sm"
+              className="green-button rounded-2xl px-4 py-3 text-xs font-black shadow-xl transition sm:px-5 sm:text-sm"
             >
               تصفح الهواتف
             </Link>
@@ -121,137 +134,136 @@ export default function HomePage() {
         </div>
       </header>
 
-      <section className="mx-auto max-w-7xl px-4 py-5 sm:py-8 lg:py-12">
-        <div className="relative overflow-hidden rounded-[30px] border border-[#eadfce] bg-white shadow-2xl sm:rounded-[40px]">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,#eadfce_0%,transparent_28%),radial-gradient(circle_at_80%_10%,#f6ead8_0%,transparent_25%)]" />
+      <section className="mx-auto max-w-7xl px-4 pt-6 sm:pt-8 lg:pt-10">
+        <div className="site-shell pattern-lines overflow-hidden rounded-[32px] p-1 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:rounded-[42px]">
+          <div className="relative overflow-hidden rounded-[30px] border border-[rgba(214,181,107,0.14)] px-5 py-6 sm:px-8 sm:py-10 lg:px-12 lg:py-14">
+            <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(214,181,107,0.08),transparent_24%),radial-gradient(circle_at_85%_12%,rgba(84,199,116,0.08),transparent_24%),linear-gradient(135deg,transparent,rgba(214,181,107,0.04),transparent)]" />
 
-          <div className="relative grid gap-8 p-5 sm:p-8 lg:min-h-[680px] lg:grid-cols-[1.05fr_0.95fr] lg:p-14">
-            <div className="flex flex-col justify-center">
-              <p className="mb-4 inline-flex w-fit max-w-full rounded-full border border-[#d8c09c] bg-[#fbf6ee] px-3 py-2 text-xs font-black leading-6 text-[#9a7448] sm:mb-5 sm:px-4 sm:text-sm">
-                تقسيط هواتف فاخر — تقديم أونلاين واستلام من المعرض
-              </p>
+            <div className="relative grid gap-8 lg:grid-cols-[1.02fr_0.98fr] lg:items-center">
+              <div>
+                <p className="gold-chip mb-5 inline-flex max-w-full rounded-full px-4 py-2 text-xs font-black leading-6 sm:text-sm">
+                  iPhone و Samsung بالأقساط… بطريقة تليق فيك
+                </p>
 
-              <h1 className="max-w-full text-3xl font-black leading-[1.35] tracking-tight sm:text-5xl sm:leading-[1.25] lg:text-6xl">
-                قسط هاتفك بسهولة،
-                <br />
-                <span className="text-[#b28b5e]">بثقة وخطوات واضحة</span>
-              </h1>
+                <h1 className="max-w-full text-3xl font-black leading-[1.35] tracking-tight text-white sm:text-5xl sm:leading-[1.25] lg:text-6xl">
+                  تجربة متكاملة،
+                  <br />
+                  <span className="gold-text">ثقة بكل خطوة</span>
+                </h1>
 
-              <p className="mt-5 max-w-full break-words text-sm font-bold leading-8 text-gray-600 sm:text-lg sm:leading-9">
-                اختر جهاز <span dir="ltr">iPhone</span> أو{" "}
-                <span dir="ltr">Samsung</span>، وقدّم طلبك أونلاين خلال دقائق.
-                تحصل على دراسة للطلب خلال 24 إلى 72 ساعة عمل، وبعد الموافقة يتم
-                شراء الجهاز وتسليمه من المعرض مع توقيع العقد.
-              </p>
+                <p className="mt-5 max-w-3xl text-sm font-bold leading-8 text-[#d3ddd3] sm:text-lg sm:leading-9">
+                  اختر جهاز <span dir="ltr">iPhone</span> أو{" "}
+                  <span dir="ltr">Samsung</span>، وقدّم طلبك أونلاين خلال دقائق.
+                  نحافظ على تجربة فاخرة وواضحة من أول خطوة حتى المتابعة والاستلام.
+                </p>
 
-              <div className="mt-7 grid gap-3 sm:flex sm:flex-wrap">
-                <Link
-                  href="/products"
-                  className="rounded-2xl bg-[#111827] px-7 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-black"
-                >
-                  تصفح الهواتف
-                </Link>
-
-                <Link
-                  href="/apply"
-                  className="rounded-2xl bg-[#c49a63] px-7 py-4 text-center text-base font-black text-white shadow-lg transition hover:-translate-y-0.5 hover:bg-[#b28b5e]"
-                >
-                  قدّم الآن
-                </Link>
-
-                <Link
-                  href="/track"
-                  className="rounded-2xl border border-[#111827] bg-white px-7 py-4 text-center text-base font-black text-[#111827] transition hover:bg-gray-50"
-                >
-                  تتبع الطلب
-                </Link>
-              </div>
-
-              <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
-                <TrustPill value="حتى 36" label="شهر تقسيط" />
-                <TrustPill value="5%" label="لكل 12 شهر" />
-                <TrustPill value="24-72" label="ساعة عمل للدراسة" />
-                <TrustPill value="5 د.أ" label="رسوم فتح الملف" />
-              </div>
-            </div>
-
-            <div className="relative hidden items-center justify-center lg:flex">
-              <div className="absolute h-[420px] w-[420px] rounded-full bg-[#eadfce]/70 blur-3xl" />
-
-              <div className="relative w-full max-w-xl rounded-[36px] border border-white/70 bg-white/55 p-5 shadow-2xl backdrop-blur">
-                <div className="absolute -right-2 top-10 z-10 rounded-2xl border border-[#eadfce] bg-white px-4 py-3 shadow-xl">
-                  <p className="text-xs font-black text-gray-400">دراسة الطلب</p>
-                  <p className="mt-1 text-xl font-black text-[#111827]">
-                    24 - 72 ساعة
-                  </p>
-                </div>
-
-                <div className="absolute -left-2 top-32 z-10 rounded-2xl border border-[#eadfce] bg-white px-4 py-3 shadow-xl">
-                  <p className="text-xs font-black text-gray-400">دفعة أولى</p>
-                  <p className="mt-1 text-xl font-black text-[#b28b5e]">
-                    اختيارية
-                  </p>
-                </div>
-
-                <div className="absolute -right-2 bottom-16 z-10 rounded-2xl border border-[#eadfce] bg-white px-4 py-3 shadow-xl">
-                  <p className="text-xs font-black text-gray-400">الاستلام</p>
-                  <p className="mt-1 text-xl font-black text-[#111827]">
-                    من المعرض
-                  </p>
-                </div>
-
-                <div className="min-h-[430px] rounded-[30px] bg-gradient-to-br from-[#fbf6ee] to-white p-6">
-                  <div className="flex h-full min-h-[390px] items-end justify-center gap-5">
-                    <HeroPhone
-                      image="/assets/iphone16pro.jpg"
-                      name="iPhone 16 Pro"
-                      price="839 د.أ"
-                      className="mb-10"
-                    />
-
-                    <HeroPhone
-                      image="/assets/s26ultra.jpg"
-                      name="S26 Ultra"
-                      price="969 د.أ"
-                      dark
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-5 grid grid-cols-2 gap-3">
+                <div className="mt-7 grid gap-3 sm:flex sm:flex-wrap">
                   <Link
                     href="/products"
-                    className="rounded-2xl bg-[#111827] px-4 py-3 text-center text-sm font-black text-white"
+                    className="green-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
                   >
-                    اختر جهازك
+                    تصفح الهواتف
                   </Link>
+
                   <Link
-                    href="/whatsapp"
-                    className="rounded-2xl border border-[#eadfce] bg-white px-4 py-3 text-center text-sm font-black text-[#111827]"
+                    href="/apply"
+                    className="gold-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
                   >
-                    استفسار واتساب
+                    قدّم الآن
                   </Link>
+
+                  <Link
+                    href="/track"
+                    className="soft-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
+                  >
+                    تتبع الطلب
+                  </Link>
+                </div>
+
+                <div className="mt-7 grid grid-cols-2 gap-3 lg:grid-cols-4">
+                  <TrustPill value="حتى 36" label="شهر تقسيط" />
+                  <TrustPill value="5%" label="لكل 12 شهر" />
+                  <TrustPill value="24-72" label="ساعة عمل للدراسة" />
+                  <TrustPill value="5 د.أ" label="رسوم فتح الملف" />
+                </div>
+              </div>
+
+              <div className="relative hidden lg:block">
+                <div className="absolute right-10 top-8 h-40 w-40 rounded-full bg-[#d6b56b]/10 blur-3xl" />
+                <div className="absolute left-8 bottom-10 h-40 w-40 rounded-full bg-[#58c07f]/10 blur-3xl" />
+
+                <div className="grid gap-4">
+                  <div className="glass-panel rounded-[34px] p-4">
+                    <div className="grid grid-cols-[1.1fr_0.9fr] gap-4">
+                      <HeroShowcasePhone
+                        image="/assets/iphone16promax.jpg"
+                        title="iPhone 16 Pro Max"
+                        subtitle="Premium"
+                        price="999 د.أ"
+                      />
+
+                      <div className="flex flex-col gap-3">
+                        <MiniInfoCard title="دراسة الطلب" value="24 - 72 ساعة" />
+                        <MiniInfoCard title="دفعة أولى" value="اختيارية" />
+                        <MiniInfoCard title="الاستلام" value="بعد الموافقة" />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <div className="glass-panel rounded-[28px] p-4">
+                      <p className="gold-text text-sm font-black">منتج مختار</p>
+                      <div className="mt-4 flex items-center gap-3">
+                        <div className="relative h-24 w-24 overflow-hidden rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.03)]">
+                          <Image
+                            src="/assets/iphone16pro.jpg"
+                            alt="iPhone 16 Pro"
+                            fill
+                            sizes="96px"
+                            className="object-contain p-2"
+                          />
+                        </div>
+                        <div>
+                          <p className="text-lg font-black text-white">iPhone 16 Pro</p>
+                          <p className="mt-1 text-sm font-bold text-[#d0d9d0]">
+                            كفالة iSYSTEMS
+                          </p>
+                          <p className="mt-2 text-xl font-black text-[#69d97b]">
+                            839 د.أ
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="glass-panel rounded-[28px] p-4">
+                      <p className="gold-text text-sm font-black">ثقة ومصداقية</p>
+                      <div className="mt-4 space-y-3 text-sm font-bold leading-7 text-[#d7ddd5]">
+                        <p>✓ متابعة حالة الطلب برقم التتبع</p>
+                        <p>✓ شروط واضحة وتجربة سهلة</p>
+                        <p>✓ حماية للبيانات والوثائق</p>
+                        <p>✓ واجهة احترافية وواضحة</p>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
         </div>
       </section>
-      
-      <section className="mx-auto max-w-7xl px-4 py-4">
+
+      <section className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
         <div className="mb-5 flex items-end justify-between gap-4">
           <div>
-            <p className="mb-2 text-sm font-black text-[#b28b5e]">
-              أجهزة مختارة
-            </p>
-            <h2 className="text-2xl font-black leading-tight sm:text-3xl">
+            <p className="gold-text mb-2 text-sm font-black">أجهزة مختارة</p>
+            <h2 className="text-2xl font-black leading-tight text-white sm:text-3xl">
               ابدأ من الأجهزة الأكثر طلبًا
             </h2>
           </div>
 
           <Link
             href="/products"
-            className="hidden rounded-2xl bg-[#111827] px-5 py-3 text-sm font-black text-white sm:inline-flex"
+            className="gold-button hidden rounded-2xl px-5 py-3 text-sm font-black shadow-lg transition sm:inline-flex"
           >
             عرض كل الأجهزة
           </Link>
@@ -262,9 +274,9 @@ export default function HomePage() {
             <Link
               key={phone.name}
               href={phone.href}
-              className="overflow-hidden rounded-[24px] border border-[#eadfce] bg-white shadow-lg transition hover:-translate-y-1 hover:shadow-xl sm:rounded-[28px]"
+              className="glass-panel gold-outline overflow-hidden rounded-[24px] transition hover:-translate-y-1 hover:shadow-2xl sm:rounded-[28px]"
             >
-              <div className="relative h-44 bg-white sm:h-64">
+              <div className="relative h-44 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] sm:h-64">
                 <Image
                   src={phone.image}
                   alt={phone.name}
@@ -274,17 +286,15 @@ export default function HomePage() {
                 />
               </div>
 
-              <div className="border-t border-[#f1e8dc] bg-[#111827] p-3 text-white sm:p-4">
-                <p className="text-[11px] font-black text-[#c49a63] sm:text-xs">
-                  {phone.badge}
-                </p>
-                <h3 className="mt-2 min-h-[42px] text-sm font-black leading-6 sm:min-h-[48px] sm:text-xl">
+              <div className="border-t border-[rgba(214,181,107,0.14)] p-3 sm:p-4">
+                <p className="gold-text text-[11px] font-black sm:text-xs">{phone.badge}</p>
+                <h3 className="mt-2 min-h-[42px] text-sm font-black leading-6 text-white sm:min-h-[48px] sm:text-xl">
                   {phone.name}
                 </h3>
-                <p className="mt-3 text-base font-black sm:text-lg">
+                <p className="mt-3 text-base font-black text-[#69d97b] sm:text-lg">
                   {phone.price}
                 </p>
-                <p className="mt-1 text-[11px] font-bold leading-5 text-gray-300 sm:text-xs">
+                <p className="mt-1 text-[11px] font-bold leading-5 text-[#afbbaf] sm:text-xs">
                   السعر النقدي قبل احتساب التقسيط
                 </p>
               </div>
@@ -295,23 +305,25 @@ export default function HomePage() {
         <div className="mt-5 sm:hidden">
           <Link
             href="/products"
-            className="block rounded-2xl bg-[#111827] px-5 py-4 text-center text-sm font-black text-white"
+            className="gold-button block rounded-2xl px-5 py-4 text-center text-sm font-black shadow-lg"
           >
             عرض كل الأجهزة
           </Link>
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-6">
+      <section className="mx-auto max-w-7xl px-4 py-4 sm:py-6">
         <div className="grid gap-4 md:grid-cols-4">
-          {featuredBenefits.map((benefit) => (
+          {featuredBenefits.map((benefit, index) => (
             <div
               key={benefit.title}
-              className="rounded-[28px] border border-[#eadfce] bg-white p-6 shadow-lg transition hover:-translate-y-1 hover:shadow-xl"
+              className="glass-panel gold-outline rounded-[28px] p-6 transition hover:-translate-y-1 hover:shadow-xl"
             >
-              <div className="mb-5 h-10 w-10 rounded-2xl bg-[#fbf6ee] ring-1 ring-[#eadfce]" />
-              <h3 className="text-lg font-black">{benefit.title}</h3>
-              <p className="mt-3 text-sm font-medium leading-7 text-gray-500">
+              <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] text-sm font-black text-[#f3dfac]">
+                {index + 1}
+              </div>
+              <h3 className="text-lg font-black text-white">{benefit.title}</h3>
+              <p className="mt-3 text-sm font-medium leading-7 text-[#c3cec2]">
                 {benefit.description}
               </p>
             </div>
@@ -320,56 +332,53 @@ export default function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="rounded-[30px] border border-[#eadfce] bg-white p-6 shadow-xl sm:rounded-[40px] sm:p-10">
-          <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="mb-3 text-sm font-black text-[#b28b5e]">
-                خطوات واضحة
-              </p>
-              <h2 className="text-3xl font-black sm:text-4xl">
-                كيف تعمل الخدمة؟
-              </h2>
-              <p className="mt-3 max-w-2xl text-sm font-medium leading-8 text-gray-500">
-                من اختيار الجهاز حتى الاستلام، كل خطوة واضحة ومتابعة من خلال
-                رقم التتبع.
-              </p>
-            </div>
-
-            <Link
-              href="/faq"
-              className="rounded-2xl border border-[#eadfce] bg-[#fbf6ee] px-5 py-3 text-center text-sm font-black text-[#9a7448]"
-            >
-              عرض الأسئلة الشائعة
-            </Link>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-5">
-            {steps.map((step) => (
-              <div
-                key={step[0]}
-                className="rounded-[28px] border border-gray-100 bg-gray-50 p-5 text-center"
-              >
-                <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl bg-[#111827] text-lg font-black text-white">
-                  {step[0]}
-                </div>
-                <h3 className="text-lg font-black">{step[1]}</h3>
-                <p className="mt-3 text-sm font-medium leading-7 text-gray-500">
-                  {step[2]}
+        <div className="site-shell rounded-[30px] p-1 sm:rounded-[40px]">
+          <div className="rounded-[28px] px-6 py-7 sm:rounded-[38px] sm:px-10 sm:py-10">
+            <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+              <div>
+                <p className="gold-text mb-3 text-sm font-black">خطوات واضحة</p>
+                <h2 className="text-3xl font-black text-white sm:text-4xl">
+                  كيف تعمل الخدمة؟
+                </h2>
+                <p className="mt-3 max-w-2xl text-sm font-medium leading-8 text-[#c0ccc0]">
+                  من اختيار الجهاز حتى الاستلام، كل خطوة واضحة ومتابعة من خلال رقم التتبع.
                 </p>
               </div>
-            ))}
+
+              <Link
+                href="/faq"
+                className="soft-button rounded-2xl px-5 py-3 text-center text-sm font-black transition"
+              >
+                عرض الأسئلة الشائعة
+              </Link>
+            </div>
+
+            <div className="grid gap-4 md:grid-cols-5">
+              {steps.map((step) => (
+                <div
+                  key={step[0]}
+                  className="glass-panel gold-outline rounded-[28px] p-5 text-center"
+                >
+                  <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.26)] bg-[rgba(214,181,107,0.1)] text-lg font-black text-[#f3dfac]">
+                    {step[0]}
+                  </div>
+                  <h3 className="text-lg font-black text-white">{step[1]}</h3>
+                  <p className="mt-3 text-sm font-medium leading-7 text-[#c0ccc0]">
+                    {step[2]}
+                  </p>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-10">
         <div className="grid gap-6 lg:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-[30px] bg-[#111827] p-7 text-white shadow-2xl sm:rounded-[40px] sm:p-10">
-            <p className="mb-3 text-sm font-black text-[#c49a63]">
-              كفالات معتمدة
-            </p>
+          <div className="glass-panel-strong rounded-[30px] p-7 shadow-2xl sm:rounded-[40px] sm:p-10">
+            <p className="gold-text mb-3 text-sm font-black">كفالات معتمدة</p>
 
-            <h2 className="text-3xl font-black leading-tight sm:text-4xl">
+            <h2 className="text-3xl font-black leading-tight text-white sm:text-4xl">
               أجهزة أصلية، وكفالة واضحة
             </h2>
 
@@ -381,24 +390,19 @@ export default function HomePage() {
               />
               <WarrantyItem
                 title="التسليم"
-                value="من المعرض بعد الموافقة وتوقيع العقد"
+                value="من المعرض / المكاتب بعد الموافقة وتوقيع العقد"
               />
             </div>
           </div>
 
-          <div className="rounded-[30px] border border-[#eadfce] bg-white p-7 shadow-xl sm:rounded-[40px] sm:p-10">
-            <p className="mb-3 text-sm font-black text-[#b28b5e]">
-              شروط مختصرة
-            </p>
+          <div className="glass-panel rounded-[30px] p-7 shadow-xl sm:rounded-[40px] sm:p-10">
+            <p className="gold-text mb-3 text-sm font-black">شروط مختصرة</p>
 
-            <h2 className="text-3xl font-black">الأهلية الأساسية</h2>
+            <h2 className="text-3xl font-black text-white">الأهلية الأساسية</h2>
 
-            <div className="mt-6 space-y-3 text-sm font-bold leading-8 text-gray-600">
+            <div className="mt-6 space-y-3 text-sm font-bold leading-8 text-[#c9d2c8]">
               <p>✓ للمشتركين بالضمان: الراتب الصافي لا يقل عن 350 د.أ.</p>
-              <p>
-                ✓ لغير المشتركين بالضمان: الراتب لا يقل عن 400 د.أ مع كفيل
-                مشترك بالضمان.
-              </p>
+              <p>✓ لغير المشتركين بالضمان: الراتب لا يقل عن 400 د.أ مع كفيل مشترك بالضمان.</p>
               <p>✓ وجود كفيل ورفع صور الهوية المطلوبة لمقدم الطلب والكفيل.</p>
               <p>✓ عدم وجود قضايا مالية مؤثرة حسب سياسة دراسة الطلب.</p>
               <p>✓ الموافقة النهائية بعد مراجعة الإدارة وتوقيع العقد.</p>
@@ -407,14 +411,14 @@ export default function HomePage() {
             <div className="mt-7 grid gap-3 sm:grid-cols-2">
               <Link
                 href="/terms"
-                className="rounded-2xl bg-[#111827] px-5 py-4 text-center text-sm font-black text-white"
+                className="green-button rounded-2xl px-5 py-4 text-center text-sm font-black transition"
               >
                 قراءة الشروط
               </Link>
 
               <Link
                 href="/privacy"
-                className="rounded-2xl border border-[#eadfce] bg-[#fbf6ee] px-5 py-4 text-center text-sm font-black text-[#9a7448]"
+                className="soft-button rounded-2xl px-5 py-4 text-center text-sm font-black transition"
               >
                 سياسة الخصوصية
               </Link>
@@ -424,18 +428,16 @@ export default function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 py-10">
-        <div className="rounded-[30px] border border-[#eadfce] bg-white p-6 shadow-xl sm:rounded-[40px] sm:p-10">
+        <div className="glass-panel rounded-[30px] p-6 shadow-xl sm:rounded-[40px] sm:p-10">
           <div className="mb-8 flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
-              <p className="mb-3 text-sm font-black text-[#b28b5e]">
-                أسئلة شائعة
-              </p>
-              <h2 className="text-3xl font-black">قبل ما تقدّم</h2>
+              <p className="gold-text mb-3 text-sm font-black">أسئلة شائعة</p>
+              <h2 className="text-3xl font-black text-white">قبل ما تقدّم</h2>
             </div>
 
             <Link
               href="/faq"
-              className="rounded-2xl bg-[#111827] px-5 py-3 text-center text-sm font-black text-white"
+              className="gold-button rounded-2xl px-5 py-3 text-center text-sm font-black shadow-lg transition"
             >
               كل الأسئلة
             </Link>
@@ -445,7 +447,7 @@ export default function HomePage() {
             {faqItems.map((item) => (
               <div
                 key={item}
-                className="rounded-2xl border border-gray-100 bg-gray-50 p-5 text-sm font-bold leading-8 text-gray-700"
+                className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.03)] p-5 text-sm font-bold leading-8 text-[#d7ddd5]"
               >
                 {item}
               </div>
@@ -455,34 +457,31 @@ export default function HomePage() {
       </section>
 
       <section className="mx-auto max-w-7xl px-4 pb-12">
-        <div className="overflow-hidden rounded-[30px] bg-[#111827] shadow-2xl sm:rounded-[40px]">
-          <div className="grid gap-6 p-7 text-white sm:p-10 lg:grid-cols-[1fr_auto] lg:items-center">
+        <div className="glass-panel-strong rounded-[30px] overflow-hidden shadow-2xl sm:rounded-[40px]">
+          <div className="grid gap-6 p-7 sm:p-10 lg:grid-cols-[1fr_auto] lg:items-center">
             <div>
-              <p className="mb-3 text-sm font-black text-[#c49a63]">
-                ابدأ الآن
-              </p>
+              <p className="gold-text mb-3 text-sm font-black">ابدأ الآن</p>
 
-              <h2 className="text-3xl font-black leading-tight sm:text-4xl">
+              <h2 className="text-3xl font-black leading-tight text-white sm:text-4xl">
                 جاهز تختار جهازك؟
               </h2>
 
-              <p className="mt-3 max-w-2xl text-sm font-medium leading-8 text-gray-300">
-                تصفح الهواتف، اختر مدة التقسيط والدفعة الأولى، ثم أرسل الطلب
-                بخطوات واضحة وآمنة.
+              <p className="mt-3 max-w-2xl text-sm font-medium leading-8 text-[#c7d2c7]">
+                تصفح الهواتف، اختر مدة التقسيط والدفعة الأولى، ثم أرسل الطلب بخطوات واضحة وآمنة.
               </p>
             </div>
 
             <div className="grid gap-3 sm:grid-cols-2">
               <Link
                 href="/products"
-                className="rounded-2xl bg-[#c49a63] px-7 py-4 text-center text-base font-black text-white transition hover:bg-[#b28b5e]"
+                className="gold-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
               >
                 تصفح الهواتف
               </Link>
 
               <Link
                 href="/track"
-                className="rounded-2xl border border-white/20 bg-white/10 px-7 py-4 text-center text-base font-black text-white transition hover:bg-white/15"
+                className="soft-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
               >
                 تتبع الطلب
               </Link>
@@ -491,10 +490,10 @@ export default function HomePage() {
         </div>
       </section>
 
-      <footer className="border-t border-[#eadfce] bg-white">
+      <footer className="border-t border-[rgba(214,181,107,0.16)] bg-[rgba(2,18,14,0.55)] backdrop-blur-xl">
         <div className="mx-auto grid max-w-7xl gap-6 px-4 py-8 md:grid-cols-[1fr_auto] md:items-start">
           <div className="flex items-start gap-3">
-            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-[#eadfce]">
+            <div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.04)] shadow-sm">
               <Image
                 src="/logo.png"
                 alt="الأمين للأقساط"
@@ -505,26 +504,24 @@ export default function HomePage() {
             </div>
 
             <div>
-              <p className="font-black">الأمين للأقساط</p>
-              <p className="mt-1 text-xs font-bold text-gray-500">
-                التقديم أونلاين فقط، والاستلام من المعرض بعد الموافقة.
+              <p className="font-black text-white">الأمين للأقساط</p>
+              <p className="mt-1 text-xs font-bold text-[#c7d3c7]">
+                التقديم أونلاين فقط، والاستلام بعد الموافقة واستكمال الإجراءات.
               </p>
-              <p className="mt-1 text-xs font-bold text-gray-400">
-                Al-Madina Al-Monawara St 261, Amman 11953
+              <p className="mt-1 text-xs font-bold text-[#a7b4a7]">
+                شارع المدينة المنورة 261، عمّان 11953، الأردن
               </p>
 
-              <div className="mt-4 max-w-3xl rounded-2xl border border-[#eadfce] bg-[#fbf6ee] p-4">
-                <p className="text-xs font-black text-[#9a7448]">
-                  بيانات التسجيل والملكية
-                </p>
-                <p className="mt-2 text-xs font-bold leading-7 text-gray-600">
+              <div className="mt-4 max-w-3xl rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.04)] p-4">
+                <p className="gold-text text-xs font-black">بيانات التسجيل والملكية</p>
+                <p className="mt-2 text-xs font-bold leading-7 text-[#d2dad2]">
                   {legalRegistrationText}
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-3 text-sm font-bold text-gray-600">
+          <div className="flex flex-wrap gap-3 text-sm font-bold text-[#c2cec2]">
             <Link href="/products">الهواتف</Link>
             <Link href="/track">تتبع الطلب</Link>
             <Link href="/faq">FAQ</Link>
@@ -540,48 +537,53 @@ export default function HomePage() {
 
 function TrustPill({ value, label }: { value: string; label: string }) {
   return (
-    <div className="rounded-2xl border border-[#eadfce] bg-white/90 p-4 shadow-sm">
-      <p className="text-2xl font-black text-[#111827]">{value}</p>
-      <p className="mt-1 text-xs font-bold text-gray-500">{label}</p>
+    <div className="stat-chip rounded-2xl p-4">
+      <p className="text-2xl font-black text-white">{value}</p>
+      <p className="mt-1 text-xs font-bold text-[#b9c6b9]">{label}</p>
     </div>
   );
 }
 
-function HeroPhone({
+function MiniInfoCard({ title, value }: { title: string; value: string }) {
+  return (
+    <div className="rounded-[24px] border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.03)] p-4">
+      <p className="text-xs font-black text-[#b6c4b7]">{title}</p>
+      <p className="mt-1 text-lg font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function HeroShowcasePhone({
   image,
-  name,
+  title,
+  subtitle,
   price,
-  dark,
-  className = "",
 }: {
   image: string;
-  name: string;
+  title: string;
+  subtitle: string;
   price: string;
-  dark?: boolean;
-  className?: string;
 }) {
   return (
-    <div
-      className={`relative w-36 overflow-hidden rounded-[28px] border shadow-2xl sm:w-44 ${
-        dark
-          ? "border-[#111827] bg-[#111827]"
-          : "border-[#eadfce] bg-white"
-      } ${className}`}
-    >
-      <div className="relative h-52 bg-white sm:h-64">
+    <div className="rounded-[28px] border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.03)] p-4">
+      <div className="relative h-72 overflow-hidden rounded-[24px] border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.02)]">
         <Image
           src={image}
-          alt={name}
+          alt={title}
           fill
-          sizes="176px"
-          className="object-contain p-3"
-          priority
+          sizes="(max-width: 1024px) 50vw, 420px"
+          className="object-contain p-5"
         />
       </div>
 
-      <div className={`p-3 ${dark ? "text-white" : "text-[#111827]"}`}>
-        <p className="text-sm font-black leading-5">{name}</p>
-        <p className="mt-2 text-base font-black text-[#c49a63]">{price}</p>
+      <div className="mt-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xl font-black text-white">{title}</p>
+          <p className="mt-1 text-sm font-bold text-[#b6c3b6]">{subtitle}</p>
+        </div>
+        <div className="rounded-2xl border border-[rgba(214,181,107,0.2)] bg-[rgba(214,181,107,0.08)] px-4 py-3">
+          <p className="text-lg font-black text-[#f3dfac]">{price}</p>
+        </div>
       </div>
     </div>
   );
@@ -589,8 +591,8 @@ function HeroPhone({
 
 function WarrantyItem({ title, value }: { title: string; value: string }) {
   return (
-    <div className="rounded-3xl border border-white/10 bg-white/5 p-5">
-      <p className="text-sm font-black text-[#c49a63]">{title}</p>
+    <div className="rounded-3xl border border-[rgba(214,181,107,0.15)] bg-[rgba(255,255,255,0.04)] p-5">
+      <p className="gold-text text-sm font-black">{title}</p>
       <p className="mt-2 text-base font-black text-white">{value}</p>
     </div>
   );
