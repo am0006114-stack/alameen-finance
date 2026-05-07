@@ -22,6 +22,150 @@ type ExistingApplication = {
   full_name: string | null;
 };
 
+type DeviceColorOption = {
+  value: string;
+  label: string;
+  hint?: string;
+};
+
+const fallbackDeviceColorOptions: DeviceColorOption[] = [
+  { value: "Black", label: "أسود", hint: "الخيار الأكثر طلبًا" },
+  { value: "White", label: "أبيض", hint: "هادئ ورسمي" },
+  { value: "Silver", label: "فضي", hint: "مناسب لمعظم الأجهزة" },
+  { value: "Gold", label: "ذهبي", hint: "حسب توفر المورد" },
+  { value: "Blue", label: "أزرق", hint: "حسب توفر المورد" },
+  { value: "حسب المتوفر", label: "حسب المتوفر", hint: "اترك الاختيار للإدارة" },
+];
+
+function uniqueColorOptions(options: DeviceColorOption[]) {
+  const seen = new Set<string>();
+
+  return options.filter((option) => {
+    const key = option.value.toLowerCase();
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function getDeviceColorOptions(productName: string, brand: string): DeviceColorOption[] {
+  const name = productName.toLowerCase();
+
+  if (brand === "Apple") {
+    if (name.includes("17 pro")) {
+      return [
+        { value: "Cosmic Orange", label: "برتقالي كوني / Cosmic Orange", hint: "لون قوي ومميز" },
+        { value: "Deep Blue", label: "أزرق غامق / Deep Blue", hint: "رسمي وفخم" },
+        { value: "Silver", label: "فضي / Silver", hint: "كلاسيكي" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    if (name.includes("iphone 17")) {
+      return [
+        { value: "Black", label: "أسود / Black", hint: "الأكثر أمانًا" },
+        { value: "Lavender", label: "لافندر / Lavender", hint: "لون ناعم" },
+        { value: "Mist Blue", label: "أزرق ضبابي / Mist Blue", hint: "هادئ" },
+        { value: "Sage", label: "أخضر Sage", hint: "مختلف" },
+        { value: "White", label: "أبيض / White", hint: "كلاسيكي" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    if (name.includes("air")) {
+      return [
+        { value: "Space Black", label: "أسود / Space Black", hint: "فخم" },
+        { value: "Cloud White", label: "أبيض / Cloud White", hint: "نظيف" },
+        { value: "Light Gold", label: "ذهبي فاتح / Light Gold", hint: "راقي" },
+        { value: "Sky Blue", label: "أزرق سماوي / Sky Blue", hint: "هادئ" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    return [
+      { value: "Black", label: "أسود", hint: "مطلوب دائمًا" },
+      { value: "White", label: "أبيض", hint: "كلاسيكي" },
+      { value: "Blue", label: "أزرق", hint: "حسب الموديل" },
+      { value: "Pink", label: "وردي", hint: "حسب الموديل" },
+      { value: "Green", label: "أخضر", hint: "حسب الموديل" },
+      { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+    ];
+  }
+
+  if (brand === "Samsung") {
+    if (name.includes("s26")) {
+      return [
+        { value: "Cobalt Violet", label: "بنفسجي كوبالت / Cobalt Violet", hint: "لون مميز" },
+        { value: "Sky Blue", label: "أزرق سماوي / Sky Blue", hint: "هادئ" },
+        { value: "Black", label: "أسود / Black", hint: "الأكثر طلبًا" },
+        { value: "White", label: "أبيض / White", hint: "كلاسيكي" },
+        { value: "Silver Shadow", label: "فضي شادو / Silver Shadow", hint: "قد يكون حصريًا أونلاين" },
+        { value: "Pink Gold", label: "ذهبي وردي / Pink Gold", hint: "قد يكون حصريًا أونلاين" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    return [
+      { value: "Black", label: "أسود", hint: "الأكثر طلبًا" },
+      { value: "Silver", label: "فضي", hint: "كلاسيكي" },
+      { value: "Blue", label: "أزرق", hint: "حسب الموديل" },
+      { value: "Gray", label: "رمادي", hint: "حسب الموديل" },
+      { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+    ];
+  }
+
+  if (brand === "HONOR") {
+    if (name.includes("600 pro")) {
+      return [
+        { value: "Orange", label: "برتقالي / Orange", hint: "لون قوي ومميز" },
+        { value: "White", label: "أبيض / White", hint: "نظيف" },
+        { value: "Black", label: "أسود / Black", hint: "رسمي" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    if (name.includes("600")) {
+      return [
+        { value: "Orange", label: "برتقالي / Orange", hint: "مميز" },
+        { value: "Black", label: "أسود / Black", hint: "رسمي" },
+        { value: "Golden White", label: "أبيض ذهبي / Golden White", hint: "راقي" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    return [
+      { value: "Black", label: "أسود", hint: "رسمي" },
+      { value: "Green", label: "أخضر", hint: "حسب التوفر" },
+      { value: "Gold", label: "ذهبي", hint: "حسب التوفر" },
+      { value: "Silver", label: "فضي", hint: "حسب التوفر" },
+      { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+    ];
+  }
+
+  if (brand === "TECNO") {
+    if (name.includes("camon 40")) {
+      return [
+        { value: "Galaxy Black", label: "أسود جالكسي / Galaxy Black", hint: "فخم" },
+        { value: "Sandy Titanium", label: "تايتينيوم رملي / Sandy Titanium", hint: "راقي" },
+        { value: "Emerald Lake Green", label: "أخضر زمردي / Emerald Lake Green", hint: "مميز" },
+        { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+      ];
+    }
+
+    return [
+      { value: "Black", label: "أسود", hint: "الأكثر طلبًا" },
+      { value: "Silver", label: "فضي", hint: "حسب التوفر" },
+      { value: "Green", label: "أخضر", hint: "حسب التوفر" },
+      { value: "Gold", label: "ذهبي", hint: "حسب التوفر" },
+      { value: "حسب المتوفر", label: "حسب المتوفر", hint: "الإدارة تختار المتاح" },
+    ];
+  }
+
+  return fallbackDeviceColorOptions;
+}
+
 const legalRegistrationText =
   "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
 
@@ -99,6 +243,14 @@ export default function ApplyPage() {
     });
   }, [selectedProduct, selectedMonths, selectedDownPayment]);
 
+  const deviceColorOptions = useMemo(() => {
+    if (!selectedProduct) return [];
+
+    return uniqueColorOptions(
+      getDeviceColorOptions(selectedProduct.name, selectedProduct.brand)
+    );
+  }, [selectedProduct]);
+
   const [fullName, setFullName] = useState("");
   const [nationalId, setNationalId] = useState("");
   const [phone, setPhone] = useState("");
@@ -109,6 +261,8 @@ export default function ApplyPage() {
   const [nearestLandmark, setNearestLandmark] = useState("");
   const [employer, setEmployer] = useState("");
   const [salary, setSalary] = useState("");
+  const [selectedDeviceColor, setSelectedDeviceColor] = useState("");
+  const [deviceColorNote, setDeviceColorNote] = useState("");
 
   const [applicantSocialSecurity, setApplicantSocialSecurity] = useState(true);
   const [guarantorSocialSecurity, setGuarantorSocialSecurity] = useState(false);
@@ -158,6 +312,11 @@ export default function ApplyPage() {
     guarantorIdFront: 0,
     guarantorIdBack: 0,
   });
+
+  useEffect(() => {
+    setSelectedDeviceColor("");
+    setDeviceColorNote("");
+  }, [selectedProduct?.id]);
 
   useEffect(() => {
     if (!successTrackingId || paymentCompleted) return;
@@ -421,7 +580,13 @@ export default function ApplyPage() {
           eligibilityPath: params.eligibilityPath,
           deviceId: selectedProduct?.id || "",
           deviceName: selectedProduct
-            ? `${selectedProduct.name} - ${selectedProduct.model}`
+            ? `${selectedProduct.name} - ${selectedProduct.model}${
+                selectedDeviceColor ? ` - اللون المطلوب: ${selectedDeviceColor}` : ""
+              }${
+                deviceColorNote.trim()
+                  ? ` - ملاحظة اللون: ${deviceColorNote.trim()}`
+                  : ""
+              }`
             : "",
           devicePrice: selectedProduct?.price || "",
           installmentMonths: selectedProduct ? selectedMonths : "",
@@ -550,6 +715,12 @@ export default function ApplyPage() {
     const salaryNumber = Number(salary);
     const requiredSalaryMinimum = getRequiredSalaryMinimum();
     const eligibilityPath = getEligibilityPath();
+    const cleanSelectedDeviceColor = selectedDeviceColor.trim();
+    const cleanDeviceColorNote = deviceColorNote.trim();
+
+    if (selectedProduct && !cleanSelectedDeviceColor) {
+      return alert("يرجى اختيار لون الجهاز المطلوب قبل إرسال الطلب.");
+    }
 
     if (fullName.trim().split(/\s+/).length < 4) {
       return alert("الاسم لازم يكون رباعي");
@@ -642,7 +813,15 @@ export default function ApplyPage() {
       const paymentDeadline = new Date(deadlineMs).toISOString();
 
       const deviceName = selectedProduct
-        ? `${selectedProduct.name} - ${selectedProduct.model}`
+        ? `${selectedProduct.name} - ${selectedProduct.model}${
+            cleanSelectedDeviceColor
+              ? ` - اللون المطلوب: ${cleanSelectedDeviceColor}`
+              : ""
+          }${
+            cleanDeviceColorNote
+              ? ` - ملاحظة اللون: ${cleanDeviceColorNote}`
+              : ""
+          }`
         : null;
 
       const { data: application, error: appError } = await supabase
@@ -882,6 +1061,18 @@ export default function ApplyPage() {
                   القسط التقريبي: {formatJod(selectedInstallment.monthly)} /
                   شهر
                 </p>
+
+                {selectedDeviceColor && (
+                  <p className="md:col-span-2">
+                    اللون المطلوب: {selectedDeviceColor}
+                  </p>
+                )}
+
+                {deviceColorNote.trim() && (
+                  <p className="md:col-span-2">
+                    ملاحظة اللون: {deviceColorNote.trim()}
+                  </p>
+                )}
               </div>
             </div>
           )}
@@ -1122,6 +1313,72 @@ export default function ApplyPage() {
                 value={formatJod(selectedInstallment.monthly)}
                 highlight
               />
+            </div>
+
+            <div className="mt-6 rounded-3xl border border-[rgba(214,181,107,0.36)] bg-[linear-gradient(135deg,rgba(214,181,107,0.18),rgba(105,217,123,0.08),rgba(3,18,14,0.78))] p-5 shadow-[0_18px_50px_rgba(0,0,0,0.26)]">
+              <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="inline-flex rounded-full border border-[rgba(214,181,107,0.34)] bg-[rgba(214,181,107,0.12)] px-4 py-2 text-xs font-black text-[#f3dfac]">
+                    مطلوب قبل إرسال الطلب
+                  </div>
+
+                  <h3 className="mt-3 text-2xl font-black text-white">
+                    اختر لون الجهاز المطلوب
+                  </h3>
+
+                  <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
+                    اختر اللون الأساسي، واكتب بدائل إذا عندك. توفر اللون يعتمد
+                    على المخزون وقت الموافقة والتجهيز.
+                  </p>
+                </div>
+
+                <div className="rounded-2xl border border-[rgba(105,217,123,0.24)] bg-[rgba(105,217,123,0.10)] px-4 py-3 text-center text-xs font-black text-[#b8f3c0]">
+                  اختيار إجباري
+                </div>
+              </div>
+
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                {deviceColorOptions.map((color) => (
+                  <button
+                    key={color.value}
+                    type="button"
+                    onClick={() => setSelectedDeviceColor(color.value)}
+                    className={`rounded-2xl border p-4 text-right transition ${
+                      selectedDeviceColor === color.value
+                        ? "border-[#d6b56b] bg-[rgba(214,181,107,0.18)] shadow-[0_0_0_4px_rgba(214,181,107,0.08)]"
+                        : "border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] hover:bg-[rgba(255,255,255,0.055)]"
+                    }`}
+                  >
+                    <span className="block text-sm font-black text-white">
+                      {color.label}
+                    </span>
+
+                    {color.hint && (
+                      <span className="mt-1 block text-xs font-bold leading-5 text-[#aeb9af]">
+                        {color.hint}
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                className={`${inputClass} mt-4 min-h-28 resize-none leading-7`}
+                placeholder="اختياري: اكتب بدائل اللون. مثال: إذا البرتقالي غير متوفر بدي أزرق غامق، وإذا مش متوفر فضي."
+                value={deviceColorNote}
+                onChange={(e) => setDeviceColorNote(e.target.value)}
+                maxLength={220}
+              />
+
+              <div className="mt-3 flex flex-col gap-2 text-xs font-bold text-[#aeb9af] sm:flex-row sm:items-center sm:justify-between">
+                <span>
+                  سنحاول توفير اللون المطلوب، وفي حال عدم توفره سيتم التواصل معك أو اعتماد البديل الأقرب حسب الملاحظة.
+                </span>
+
+                <span className="text-[#f3dfac]">
+                  {deviceColorNote.length}/220
+                </span>
+              </div>
             </div>
           </section>
         ) : (
