@@ -162,12 +162,24 @@ function translatePaymentStatus(status: string | null | undefined) {
   }
 }
 
+function formatPaymentReference(value: string | null | undefined) {
+  if (value === "payment_receipt_uploaded") {
+    return "تم رفع صورة وصل الدفع";
+  }
+
+  return value || "—";
+}
+
 function translateEligibilityPath(path: string | null | undefined) {
   switch (path) {
     case "applicant_social_security":
       return "مقدم الطلب مشترك بالضمان";
     case "guarantor_social_security_first_degree":
       return "الكفيل مشترك بالضمان + قرابة مقبولة";
+    case "applicant_social_security_optional":
+      return "مقدم الطلب اختار الضمان كمعلومة إضافية";
+    case "standard_application_no_social_security_required":
+      return "طلب عادي — الضمان غير إلزامي";
     default:
       return path || "—";
   }
@@ -187,6 +199,8 @@ function translateDocumentType(type: string | null | undefined) {
     case "guarantor_id_back":
     case "guarantor_back":
       return "هوية الكفيل - خلفي";
+    case "payment_receipt":
+      return "وصل الدفع";
     default:
       return type || "وثيقة";
   }
@@ -282,7 +296,7 @@ function paymentReminderMessage(app: ApplicationRecord) {
 
 تم استلام طلب التمويل الخاص بك لدى الأمين للأقساط.
 
-لاستكمال دراسة الطلب، يرجى دفع رسوم فتح الملف بقيمة 5 دنانير، ثم إدخال رقم الوصل/الحركة والضغط على زر "تأكيد الدفع" من صفحة الدفع.
+لاستكمال دراسة الطلب، يرجى دفع رسوم فتح الملف بقيمة 5 دنانير، ثم رفع صورة أو سكرين شوت واضح لوصل الدفع والضغط على زر "تأكيد الدفع" من صفحة الدفع.
 
 رقم التتبع: ${tracking}
 
@@ -770,7 +784,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 label: "حالة الدفع",
                 value: translatePaymentStatus(app.payment_status),
               },
-              { label: "رقم الوصل / الحركة", value: app.payment_reference },
+              { label: "وصل الدفع", value: formatPaymentReference(app.payment_reference) },
               {
                 label: "وقت ضغط العميل تأكيد الدفع",
                 value: formatDate(app.paid_clicked_at),
@@ -786,7 +800,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           </h2>
 
           {documentsError && (
-            <div className="mb-5 rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-700">
+            <div className="mb-5 rounded-2xl border border-red-400/30 bg-red-950/25 px-4 py-3 text-sm font-bold text-red-200">
               تعذر جلب الوثائق: {documentsError.message}
             </div>
           )}
@@ -806,6 +820,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               {safeDocuments.map((document, index) => {
                 const documentUrl = getDocumentUrl(document);
                 const documentType = document.document_type || document.type;
+                const isPaymentReceipt = documentType === "payment_receipt";
                 const title =
                   translateDocumentType(documentType) ||
                   document.filename ||
@@ -815,7 +830,11 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 return (
                   <div
                     key={document.id || `${documentUrl}-${index}`}
-                    className="glass-panel gold-outline rounded-[28px] p-4"
+                    className={`glass-panel gold-outline rounded-[28px] p-4 ${
+                      isPaymentReceipt
+                        ? "border-[rgba(105,217,123,0.34)] bg-[rgba(105,217,123,0.06)]"
+                        : ""
+                    }`}
                   >
                     <div className="mb-3 flex items-center justify-between gap-3">
                       <h3 className="text-sm font-black text-white">

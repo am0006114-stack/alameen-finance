@@ -126,13 +126,16 @@ export default function ApplyPage() {
   const [showPaymentTransition, setShowPaymentTransition] = useState(false);
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
+  const [successApplicationId, setSuccessApplicationId] = useState("");
   const [paymentDeadlineTime, setPaymentDeadlineTime] = useState<number | null>(
     null
   );
   const [timeLeft, setTimeLeft] = useState(60 * 60);
   const [showBeneficiaryName, setShowBeneficiaryName] = useState(false);
   const [paidClicked, setPaidClicked] = useState(false);
-  const [paymentReference, setPaymentReference] = useState("");
+  const [paymentReceiptFile, setPaymentReceiptFile] = useState<File | null>(null);
+  const [paymentReceiptPreviewUrl, setPaymentReceiptPreviewUrl] = useState("");
+  const [paymentReceiptProgress, setPaymentReceiptProgress] = useState(0);
   const [paymentCompleted, setPaymentCompleted] = useState(false);
 
   const [files, setFiles] = useState<Record<UploadKey, File | null>>({
@@ -186,8 +189,12 @@ export default function ApplyPage() {
       Object.values(previewUrls).forEach((url) => {
         if (url) URL.revokeObjectURL(url);
       });
+
+      if (paymentReceiptPreviewUrl) {
+        URL.revokeObjectURL(paymentReceiptPreviewUrl);
+      }
     };
-  }, [previewUrls]);
+  }, [previewUrls, paymentReceiptPreviewUrl]);
 
   const inputClass =
     "w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] p-4 text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10";
@@ -324,6 +331,51 @@ export default function ApplyPage() {
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
   }
 
+  function handlePaymentReceiptChange(file: File | null) {
+    if (!file) return;
+
+    const allowedTypes = ["image/jpeg", "image/png"];
+    const maxSize = 5 * 1024 * 1024;
+
+    if (!allowedTypes.includes(file.type)) {
+      alert("يُسمح فقط برفع صورة وصل بصيغة JPG أو PNG");
+      return;
+    }
+
+    if (file.size > maxSize) {
+      alert("حجم صورة الوصل يجب ألا يتجاوز 5MB");
+      return;
+    }
+
+    if (paymentReceiptPreviewUrl) {
+      URL.revokeObjectURL(paymentReceiptPreviewUrl);
+    }
+
+    setPaymentReceiptFile(file);
+    setPaymentReceiptPreviewUrl(URL.createObjectURL(file));
+    setPaymentReceiptProgress(0);
+
+    let value = 0;
+    const interval = window.setInterval(() => {
+      value += 10;
+      setPaymentReceiptProgress(value > 100 ? 100 : value);
+
+      if (value >= 100) {
+        window.clearInterval(interval);
+      }
+    }, 80);
+  }
+
+  function removePaymentReceipt() {
+    if (paymentReceiptPreviewUrl) {
+      URL.revokeObjectURL(paymentReceiptPreviewUrl);
+    }
+
+    setPaymentReceiptFile(null);
+    setPaymentReceiptPreviewUrl("");
+    setPaymentReceiptProgress(0);
+  }
+
   async function uploadFile(file: File, path: string) {
     const { error } = await supabase.storage
       .from("documents")
@@ -391,7 +443,7 @@ export default function ApplyPage() {
 
   async function sendPaymentConfirmedDiscordNotification(params: {
     trackingId: string;
-    cleanReference: string;
+    receiptUploaded: boolean;
   }) {
     try {
       const response = await fetch("/api/discord/payment-confirmed", {
@@ -403,7 +455,9 @@ export default function ApplyPage() {
           trackingId: params.trackingId,
           fullName: fullName.trim(),
           phone: cleanDigits(phone),
-          paymentReference: params.cleanReference,
+          paymentReference: params.receiptUploaded
+            ? "تم رفع صورة / سكرين شوت وصل الدفع"
+            : "لم يتم رفع صورة وصل",
         }),
       });
 
@@ -428,44 +482,60 @@ export default function ApplyPage() {
   async function markPaidClicked() {
     if (!successTrackingId) return;
 
-    const cleanReference = paymentReference.trim();
-
     if (timeLeft === 0) {
       alert("انتهت مهلة الدفع. يرجى تقديم طلب جديد أو التواصل مع الإدارة.");
       return;
     }
 
-    if (cleanReference.length < 3) {
-      alert("يرجى إدخال رقم الوصل أو رقم الحركة قبل تأكيد الدفع.");
+    if (!paymentReceiptFile) {
+      alert("يرجى رفع صورة أو سكرين شوت لوصل الدفع قبل تأكيد الدفع.");
+      return;
+    }
+
+    if (!successApplicationId) {
+      alert("حدث خطأ في ربط الطلب بصورة الوصل. يرجى تحديث الصفحة أو التواصل مع الإدارة.");
       return;
     }
 
     setPaidClicked(true);
 
-    const { error } = await supabase
-      .from("applications")
-      .update({
-        payment_status: "customer_claimed_paid",
-        status: "pending_payment_confirmation",
-        payment_reference: cleanReference,
-        paid_clicked_at: new Date().toISOString(),
-      })
-      .eq("tracking_id", successTrackingId);
+    try {
+      const extension = paymentReceiptFile.type === "image/png" ? "png" : "jpg";
+      const receiptPath = `${successTrackingId}/payment-receipt-${Date.now()}.${extension}`;
+      const receiptUrl = await uploadFile(paymentReceiptFile, receiptPath);
 
-    if (error) {
+      const { error: docError } = await supabase.from("documents").insert({
+        application_id: successApplicationId,
+        type: "payment_receipt",
+        file_url: receiptUrl,
+      });
+
+      if (docError) throw docError;
+
+      const { error } = await supabase
+        .from("applications")
+        .update({
+          payment_status: "customer_claimed_paid",
+          status: "pending_payment_confirmation",
+          payment_reference: "payment_receipt_uploaded",
+          paid_clicked_at: new Date().toISOString(),
+        })
+        .eq("tracking_id", successTrackingId);
+
+      if (error) throw error;
+
+      await sendPaymentConfirmedDiscordNotification({
+        trackingId: successTrackingId,
+        receiptUploaded: true,
+      });
+
+      setPaymentCompleted(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    } catch (error) {
       console.error(error);
-      alert("صار خطأ أثناء تسجيل الدفع. حاول مرة ثانية.");
+      alert("صار خطأ أثناء رفع وصل الدفع أو تسجيله. حاول مرة ثانية.");
       setPaidClicked(false);
-      return;
     }
-
-    await sendPaymentConfirmedDiscordNotification({
-      trackingId: successTrackingId,
-      cleanReference,
-    });
-
-    setPaymentCompleted(true);
-    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -672,6 +742,7 @@ export default function ApplyPage() {
       await wait(4200);
 
       setSuccessTrackingId(trackingId);
+      setSuccessApplicationId(application.id);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       console.error(error);
@@ -715,7 +786,7 @@ export default function ApplyPage() {
           </h1>
 
           <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#d7ddd5]">
-            تم تسجيل رقم الوصل/الحركة، وسيتم التحقق من الدفع من قبل الإدارة.
+            تم رفع صورة وصل الدفع، وسيتم التحقق من الدفع من قبل الإدارة.
             بعد التأكيد سيتم تحويل الطلب إلى مرحلة الدراسة.
           </p>
 
@@ -729,10 +800,10 @@ export default function ApplyPage() {
             </div>
 
             <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <p className="text-sm text-[#aeb9af]">رقم الوصل / الحركة</p>
+              <p className="text-sm text-[#aeb9af]">وصل الدفع</p>
 
               <p className="mt-2 break-words text-2xl font-black text-[#69d97b]">
-                {paymentReference.trim()}
+                تم رفع صورة الوصل ✅
               </p>
             </div>
           </div>
@@ -754,7 +825,7 @@ export default function ApplyPage() {
           </div>
 
           <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5 text-sm leading-8 text-[#d7ddd5]">
-            احتفظ برقم التتبع ورقم الوصل. قد تتواصل الإدارة معك للتأكد من
+            احتفظ برقم التتبع وصورة الوصل. قد تتواصل الإدارة معك للتأكد من
             العملية قبل بدء دراسة الطلب.
           </div>
         </div>
@@ -867,7 +938,7 @@ export default function ApplyPage() {
                 </button>
               ) : (
                 <div className="mt-4 rounded-xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)] p-4 font-bold text-[#f3dfac]">
-                  عبدالرحمن تيسير ناصر الحراحشه
+                  ABDULRAHMAN AL HARAHSHEH
                 </div>
               )}
             </div>
@@ -875,20 +946,72 @@ export default function ApplyPage() {
 
           <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
             <label className="mb-3 block text-lg font-black text-white">
-              رقم الوصل / رقم الحركة
+              صورة / سكرين شوت وصل الدفع
             </label>
 
-            <input
-              name="payment-reference"
-              autoComplete="off"
-              className={inputClass}
-              placeholder="اكتب رقم الوصل أو رقم الحركة هنا"
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-            />
+            <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[rgba(214,181,107,0.34)] bg-[rgba(255,255,255,0.035)] p-5 text-center transition hover:bg-[rgba(255,255,255,0.06)]">
+              <span className="text-base font-black text-[#f3dfac]">
+                رفع صورة الوصل
+              </span>
+
+              <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
+                ارفع صورة أو سكرين شوت واضح يبيّن عملية الدفع. الصيغ المقبولة:
+                JPG أو PNG.
+              </span>
+
+              <input
+                type="file"
+                accept="image/png,image/jpeg"
+                onChange={(e) =>
+                  handlePaymentReceiptChange(e.target.files?.[0] || null)
+                }
+                className="hidden"
+              />
+            </label>
+
+            {paymentReceiptFile && (
+              <div className="mt-4 space-y-3">
+                {paymentReceiptPreviewUrl && (
+                  <div className="overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)]">
+                    <img
+                      src={paymentReceiptPreviewUrl}
+                      alt="صورة وصل الدفع"
+                      className="max-h-80 w-full object-contain"
+                    />
+                  </div>
+                )}
+
+                <p className="break-words text-sm text-[#d7ddd5]">
+                  {paymentReceiptFile.name} —{" "}
+                  {(paymentReceiptFile.size / 1024 / 1024).toFixed(2)} MB
+                </p>
+
+                <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
+                  <div
+                    className="h-full bg-gradient-to-l from-[#d6b56b] to-[#69d97b] transition-all duration-300"
+                    style={{ width: `${paymentReceiptProgress}%` }}
+                  />
+                </div>
+
+                <p className="text-sm text-[#f3dfac]">
+                  {paymentReceiptProgress < 100
+                    ? `جارٍ تجهيز صورة الوصل... ${paymentReceiptProgress}%`
+                    : "تم تجهيز صورة الوصل 100% ✅"}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={removePaymentReceipt}
+                  className="rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-2 text-sm font-black text-red-300 transition hover:bg-red-950"
+                >
+                  حذف صورة الوصل ورفع صورة أخرى
+                </button>
+              </div>
+            )}
 
             <p className="mt-3 text-sm leading-7 text-[#aeb9af]">
-              يجب إدخال رقم الوصل أو رقم الحركة قبل الضغط على تأكيد الدفع.
+              يجب رفع صورة الوصل قبل الضغط على تأكيد الدفع حتى تتمكن الإدارة من
+              مطابقة العملية بسرعة.
             </p>
           </div>
 
@@ -898,12 +1021,12 @@ export default function ApplyPage() {
             disabled={paidClicked || timeLeft === 0}
             className="green-button mt-6 w-full rounded-2xl p-5 text-lg font-black shadow-2xl transition disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {paidClicked ? "جاري تسجيل الدفع..." : "تأكيد الدفع"}
+            {paidClicked ? "جاري رفع الوصل وتسجيل الدفع..." : "تأكيد الدفع"}
           </button>
 
           <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5 leading-8 text-[#d7ddd5]">
-            بعد الضغط على “تأكيد الدفع”، سيتم وضع الطلب بانتظار تأكيد الإدارة.
-            احتفظ برقم الوصل/الحركة لأن الإدارة قد تطلبه منك.
+            بعد الضغط على “تأكيد الدفع”، سيتم رفع صورة الوصل ووضع الطلب بانتظار
+            تأكيد الإدارة. احتفظ بصورة الوصل الأصلية لأن الإدارة قد تطلبها منك.
           </div>
         </div>
       </main>
