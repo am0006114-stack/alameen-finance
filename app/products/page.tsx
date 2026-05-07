@@ -8,6 +8,16 @@ import { calculateInstallment } from "@/lib/installments";
 
 const MONTH_OPTIONS = [12, 24, 36];
 
+type BrandFilter = "all" | Product["brand"];
+
+const BRAND_FILTERS: { value: BrandFilter; label: string }[] = [
+  { value: "all", label: "الكل" },
+  { value: "Apple", label: "iPhone" },
+  { value: "Samsung", label: "Samsung" },
+  { value: "HONOR", label: "HONOR" },
+  { value: "TECNO", label: "TECNO" },
+];
+
 function ProductCard({ product }: { product: Product }) {
   const [months, setMonths] = useState(24);
   const [downPayment, setDownPayment] = useState("");
@@ -154,13 +164,13 @@ function ProductCard({ product }: { product: Product }) {
 }
 
 export default function ProductsPage() {
-  const [brand, setBrand] = useState<"all" | "Apple" | "Samsung">("all");
+  const [brand, setBrand] = useState<BrandFilter>("all");
   const [search, setSearch] = useState("");
 
   const filteredProducts = products.filter((product) => {
     const matchesBrand = brand === "all" || product.brand === brand;
     const searchText =
-      `${product.name} ${product.model} ${product.brand}`.toLowerCase();
+      `${product.name} ${product.model} ${product.brand} ${product.warranty}`.toLowerCase();
     const matchesSearch = searchText.includes(search.trim().toLowerCase());
 
     return matchesBrand && matchesSearch;
@@ -251,12 +261,14 @@ export default function ProductsPage() {
               </div>
 
               <div className="glass-panel-strong rounded-[28px] p-6">
-                <h2 className="text-2xl font-black text-white">شروط التمويل المختصرة</h2>
+                <h2 className="text-2xl font-black text-white">
+                  شروط التمويل المختصرة
+                </h2>
 
                 <div className="mt-5 grid gap-3 text-sm leading-7 text-[#cbd6cb]">
                   <p>✓ الفائدة 5% لكل 12 شهر.</p>
                   <p>✓ التسليم بعد الموافقة وتوقيع العقد.</p>
-                  <p>✓ رسوم فتح الملف 5 دنانير غير مستردة.</p>
+                  <p>✓ رسوم فتح الملف 5 دنانير.</p>
                   <p>✓ القسط الظاهر تقريبي قبل دراسة الطلب.</p>
                 </div>
 
@@ -280,25 +292,20 @@ export default function ProductsPage() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="ابحث عن جهاز..."
+              placeholder="ابحث عن جهاز أو ماركة..."
               className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.55)] px-4 py-3 text-right text-sm font-bold text-white outline-none placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:bg-[rgba(3,18,14,0.72)] focus:ring-4 focus:ring-[#d6b56b]/10"
             />
 
-            <div className="grid grid-cols-3 gap-2">
-              <FilterButton active={brand === "all"} onClick={() => setBrand("all")}>
-                الكل
-              </FilterButton>
-
-              <FilterButton active={brand === "Apple"} onClick={() => setBrand("Apple")}>
-                iPhone
-              </FilterButton>
-
-              <FilterButton
-                active={brand === "Samsung"}
-                onClick={() => setBrand("Samsung")}
-              >
-                Samsung
-              </FilterButton>
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-5 md:min-w-[520px]">
+              {BRAND_FILTERS.map((filter) => (
+                <FilterButton
+                  key={filter.value}
+                  active={brand === filter.value}
+                  onClick={() => setBrand(filter.value)}
+                >
+                  {filter.label}
+                </FilterButton>
+              ))}
             </div>
           </div>
         </div>
@@ -322,7 +329,7 @@ export default function ProductsPage() {
           <div className="glass-panel gold-outline rounded-[28px] p-10 text-center">
             <h3 className="text-lg font-black text-white">لا توجد نتائج</h3>
             <p className="mt-2 text-sm text-[#aeb9af]">
-              جرّب البحث باسم جهاز آخر.
+              جرّب البحث باسم جهاز أو اختر فلتر آخر.
             </p>
           </div>
         ) : (
@@ -371,7 +378,7 @@ function FilterButton({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-2xl px-4 py-3 text-xs font-black transition ${
+      className={`rounded-2xl px-3 py-3 text-[11px] font-black transition sm:px-4 sm:text-xs ${
         active
           ? "green-button"
           : "border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.04)] text-[#d7ddd5] hover:bg-[rgba(255,255,255,0.07)]"
