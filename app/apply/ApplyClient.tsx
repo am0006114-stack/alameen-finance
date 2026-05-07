@@ -122,6 +122,7 @@ export default function ApplyPage() {
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStep, setSubmissionStep] = useState("");
+  const [submissionProgress, setSubmissionProgress] = useState(0);
   const [showPaymentTransition, setShowPaymentTransition] = useState(false);
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
@@ -160,7 +161,7 @@ export default function ApplyPage() {
 
     const timeout = window.setTimeout(() => {
       setShowPaymentTransition(false);
-    }, 900);
+    }, 2500);
 
     return () => window.clearTimeout(timeout);
   }, [successTrackingId, paymentCompleted]);
@@ -415,6 +416,15 @@ export default function ApplyPage() {
     }
   }
 
+  function wait(ms: number) {
+    return new Promise((resolve) => window.setTimeout(resolve, ms));
+  }
+
+  function updateSubmissionStatus(message: string, percent: number) {
+    setSubmissionStep(message);
+    setSubmissionProgress(Math.max(0, Math.min(100, percent)));
+  }
+
   async function markPaidClicked() {
     if (!successTrackingId) return;
 
@@ -534,7 +544,7 @@ export default function ApplyPage() {
     }
 
     setIsSubmitting(true);
-    setSubmissionStep("جاري فحص البيانات والتأكد من عدم وجود طلب مكرر...");
+    updateSubmissionStatus("جاري فحص البيانات والتأكد من عدم وجود طلب مكرر...", 8);
 
     try {
       const duplicateApplication = await checkDuplicateActiveApplication({
@@ -551,10 +561,11 @@ export default function ApplyPage() {
 
         setIsSubmitting(false);
         setSubmissionStep("");
+        setSubmissionProgress(0);
         return;
       }
 
-      setSubmissionStep("جاري إنشاء طلب التمويل وحفظ البيانات...");
+      updateSubmissionStatus("جاري إنشاء طلب التمويل وحفظ البيانات...", 28);
 
       const trackingId = "AM-" + Date.now();
       const deadlineMs = Date.now() + 60 * 60 * 1000;
@@ -616,11 +627,12 @@ export default function ApplyPage() {
 
       if (appError) throw appError;
 
-      setSubmissionStep("جاري رفع صور الهويات والوثائق...");
+      updateSubmissionStatus("جاري رفع صور الهويات والوثائق...", 45);
 
       for (const [index, item] of uploadTypes.entries()) {
-        setSubmissionStep(
-          `جاري رفع الوثائق (${index + 1} من ${uploadTypes.length})...`
+        updateSubmissionStatus(
+          `جاري رفع الوثائق (${index + 1} من ${uploadTypes.length})...`,
+          45 + Math.round(((index + 1) / uploadTypes.length) * 30)
         );
 
         const file = files[item.key];
@@ -640,7 +652,7 @@ export default function ApplyPage() {
         if (docError) throw docError;
       }
 
-      setSubmissionStep("جاري إرسال تنبيه الطلب للإدارة...");
+      updateSubmissionStatus("جاري إرسال تنبيه الطلب للإدارة...", 84);
 
       await sendApplicationCreatedDiscordNotification({
         trackingId,
@@ -650,16 +662,21 @@ export default function ApplyPage() {
         eligibilityPath,
       });
 
-      setSubmissionStep("تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع...");
+      updateSubmissionStatus("تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع...", 100);
       setShowPaymentTransition(true);
-
-      setSuccessTrackingId(trackingId);
       setPaymentDeadlineTime(deadlineMs);
       setTimeLeft(60 * 60);
+
+      // مهم: نخلي شاشة جاري تقديم الطلب ظاهرة بوضوح قبل الانتقال لصفحة الدفع
+      // حتى العميل ما يحس الصفحة علّقت أو اختفت فجأة.
+      await wait(4200);
+
+      setSuccessTrackingId(trackingId);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       console.error(error);
       setSubmissionStep("");
+      setSubmissionProgress(0);
       alert("صار خطأ أثناء حفظ الطلب أو رفع الصور. ابعتلي صورة الخطأ.");
     } finally {
       setIsSubmitting(false);
@@ -678,7 +695,10 @@ export default function ApplyPage() {
         className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
       >
         {showPaymentTransition && (
-          <SubmittingOverlay message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..." />
+          <SubmittingOverlay
+            message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..."
+            progress={100}
+          />
         )}
 
         <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 text-center shadow-2xl">
@@ -749,7 +769,10 @@ export default function ApplyPage() {
         className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
       >
         {showPaymentTransition && (
-          <SubmittingOverlay message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..." />
+          <SubmittingOverlay
+            message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..."
+            progress={100}
+          />
         )}
 
         <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 shadow-2xl">
@@ -856,6 +879,8 @@ export default function ApplyPage() {
             </label>
 
             <input
+              name="payment-reference"
+              autoComplete="off"
               className={inputClass}
               placeholder="اكتب رقم الوصل أو رقم الحركة هنا"
               value={paymentReference}
@@ -890,7 +915,12 @@ export default function ApplyPage() {
       dir="rtl"
       className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
     >
-      {isSubmitting && <SubmittingOverlay message={submissionStep} />}
+      {isSubmitting && (
+        <SubmittingOverlay
+          message={submissionStep}
+          progress={submissionProgress}
+        />
+      )}
 
       <div className="mx-auto max-w-5xl">
         <div className="site-shell pattern-lines mb-8 rounded-[2rem] p-8 shadow-2xl">
@@ -989,12 +1019,14 @@ export default function ApplyPage() {
           </section>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        <form onSubmit={handleSubmit} autoComplete="on" className="space-y-6">
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
             <h2 className="mb-4 text-2xl font-bold">1. بيانات مقدم الطلب</h2>
 
             <div className="space-y-4">
               <input
+                name="name"
+                autoComplete="name"
                 className={inputClass}
                 placeholder="الاسم الرباعي"
                 value={fullName}
@@ -1002,6 +1034,9 @@ export default function ApplyPage() {
               />
 
               <input
+                name="national-id"
+                autoComplete="off"
+                inputMode="numeric"
                 className={inputClass}
                 placeholder="الرقم الوطني: يبدأ بـ 9 أو 2 — 10 أرقام"
                 value={nationalId}
@@ -1012,6 +1047,9 @@ export default function ApplyPage() {
               />
 
               <input
+                name="tel"
+                autoComplete="tel"
+                inputMode="tel"
                 className={inputClass}
                 placeholder="رقم الهاتف: 079 / 078 / 077"
                 value={phone}
@@ -1022,6 +1060,9 @@ export default function ApplyPage() {
               />
 
               <input
+                name="email"
+                type="email"
+                autoComplete="email"
                 className={inputClass}
                 placeholder="البريد الإلكتروني"
                 value={email}
@@ -1035,6 +1076,8 @@ export default function ApplyPage() {
 
             <div className="space-y-4">
               <select
+                name="address-level1"
+                autoComplete="address-level1"
                 className={inputClass}
                 value={governorate}
                 onChange={(e) => setGovernorate(e.target.value)}
@@ -1055,6 +1098,8 @@ export default function ApplyPage() {
               </select>
 
               <input
+                name="address-level2"
+                autoComplete="address-level2"
                 className={inputClass}
                 placeholder="المدينة / المنطقة"
                 value={cityArea}
@@ -1062,6 +1107,8 @@ export default function ApplyPage() {
               />
 
               <input
+                name="street-address"
+                autoComplete="street-address"
                 className={inputClass}
                 placeholder="العنوان التفصيلي"
                 value={detailedAddress}
@@ -1069,6 +1116,8 @@ export default function ApplyPage() {
               />
 
               <input
+                name="address-line2"
+                autoComplete="address-line2"
                 className={inputClass}
                 placeholder="أقرب معلم واضح"
                 value={nearestLandmark}
@@ -1082,6 +1131,8 @@ export default function ApplyPage() {
 
             <div className="space-y-4">
               <input
+                name="organization"
+                autoComplete="organization"
                 className={inputClass}
                 placeholder="مكان العمل"
                 value={employer}
@@ -1089,6 +1140,9 @@ export default function ApplyPage() {
               />
 
               <input
+                name="salary"
+                autoComplete="off"
+                inputMode="decimal"
                 className={inputClass}
                 placeholder="الراتب الصافي بالدينار — الحد الأدنى 290"
                 type="number"
@@ -1141,6 +1195,8 @@ export default function ApplyPage() {
 
             <div className="space-y-4">
               <input
+                name="guarantor-name"
+                autoComplete="off"
                 className={inputClass}
                 placeholder="اسم الكفيل الرباعي"
                 value={guarantorName}
@@ -1148,6 +1204,9 @@ export default function ApplyPage() {
               />
 
               <input
+                name="guarantor-national-id"
+                autoComplete="off"
+                inputMode="numeric"
                 className={inputClass}
                 placeholder="الرقم الوطني للكفيل: يبدأ بـ 9 أو 2 — 10 أرقام"
                 value={guarantorNationalId}
@@ -1160,6 +1219,9 @@ export default function ApplyPage() {
               />
 
               <input
+                name="guarantor-tel"
+                autoComplete="off"
+                inputMode="tel"
                 className={inputClass}
                 placeholder="رقم هاتف الكفيل: 079 / 078 / 077"
                 value={guarantorPhone}
@@ -1445,16 +1507,37 @@ function TrustCard({ title, text }: { title: string; text: string }) {
   );
 }
 
-function SubmittingOverlay({ message }: { message: string }) {
+function SubmittingOverlay({
+  message,
+  progress,
+}: {
+  message: string;
+  progress: number;
+}) {
+  const safeProgress = Math.max(8, Math.min(100, Math.round(progress || 8)));
+
+  const steps = [
+    { label: "فحص البيانات", active: safeProgress >= 8, done: safeProgress >= 25 },
+    { label: "حفظ الطلب", active: safeProgress >= 28, done: safeProgress >= 45 },
+    { label: "رفع الوثائق", active: safeProgress >= 45, done: safeProgress >= 84 },
+    { label: "تجهيز الدفع", active: safeProgress >= 84, done: safeProgress >= 100 },
+  ];
+
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center glass-panel-strong px-4 backdrop-blur-md">
-      <div className="w-full max-w-md rounded-[2rem] border border-[rgba(214,181,107,0.30)] bg-[rgba(3,18,14,0.95)] p-7 text-center shadow-2xl">
-        <div className="mx-auto mb-5 flex h-20 w-20 items-center justify-center rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)]">
-          <div className="h-10 w-10 animate-spin rounded-full border-4 border-[#69d97b] border-t-transparent" />
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#03120e]/95 px-4 backdrop-blur-xl">
+      <div className="w-full max-w-md rounded-[2rem] border border-[rgba(214,181,107,0.30)] bg-[rgba(3,18,14,0.96)] p-7 text-center shadow-2xl">
+        <div className="mx-auto mb-5 flex h-24 w-24 items-center justify-center rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)] shadow-[0_0_45px_rgba(105,217,123,0.18)]">
+          <div className="relative flex h-16 w-16 items-center justify-center">
+            <div className="absolute inset-0 animate-spin rounded-full border-4 border-[#69d97b] border-t-transparent" />
+            <div className="absolute inset-2 animate-pulse rounded-full border border-[#d6b56b]/60" />
+            <span className="text-sm font-black text-[#f3dfac]">
+              {safeProgress}%
+            </span>
+          </div>
         </div>
 
         <div className="mb-3 inline-flex rounded-full border border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)] px-4 py-2 text-xs font-black text-[#f3dfac]">
-          لا تغلق الصفحة
+          لا تغلق الصفحة — الطلب قيد المعالجة
         </div>
 
         <h2 className="text-2xl font-black text-white">جاري تقديم الطلب...</h2>
@@ -1463,12 +1546,33 @@ function SubmittingOverlay({ message }: { message: string }) {
           {message || "يتم الآن معالجة الطلب ورفع الوثائق، يرجى الانتظار."}
         </p>
 
-        <div className="mt-5 h-3 overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
-          <div className="h-full w-2/3 animate-pulse rounded-full bg-[#d6b56b]" />
+        <div className="mt-5 h-4 overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
+          <div
+            className="h-full rounded-full bg-gradient-to-l from-[#d6b56b] via-[#69d97b] to-[#35c98e] transition-all duration-700"
+            style={{ width: `${safeProgress}%` }}
+          />
+        </div>
+
+        <div className="mt-5 grid grid-cols-2 gap-2 text-right">
+          {steps.map((step) => (
+            <div
+              key={step.label}
+              className={`rounded-2xl border px-3 py-3 text-xs font-black ${
+                step.done
+                  ? "border-[rgba(105,217,123,0.30)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]"
+                  : step.active
+                  ? "border-[rgba(214,181,107,0.30)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]"
+                  : "border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] text-[#aeb9af]"
+              }`}
+            >
+              <span className="ml-2">{step.done ? "✓" : step.active ? "…" : "•"}</span>
+              {step.label}
+            </div>
+          ))}
         </div>
 
         <p className="mt-4 text-xs font-bold leading-6 text-[#8d998f]">
-          قد تستغرق العملية عدة ثوانٍ حسب سرعة الإنترنت وحجم الصور.
+          قد تستغرق العملية عدة ثوانٍ حسب سرعة الإنترنت وحجم الصور. لا تضغط رجوع ولا تغلق الصفحة.
         </p>
       </div>
     </div>
