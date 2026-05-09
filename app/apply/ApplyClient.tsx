@@ -785,7 +785,7 @@ export default function ApplyPage() {
           <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 text-right leading-8 text-[#d7ddd5]">
             <p className="font-black text-[#f3dfac]">ماذا يحدث بعد ذلك؟</p>
             <ul className="mt-3 list-disc space-y-2 pr-5 text-sm">
-              <li>إذا كان الطلب مؤهلًا مبدئيًا، سيتم إرسال تعليمات دفع رسوم فتح الملف 5 دنانير.</li>
+              <li>إذا كان الطلب مؤهلًا مبدئيًا، سيتم التواصل معك عبر واتساب لاستكمال الخطوات التالية.</li>
               <li>إذا احتجنا كشف راتب، سيتم إرسال طلب واضح عبر واتساب.</li>
               <li>إذا لم تنطبق الشروط، سيتم إبلاغك بالنتيجة.</li>
             </ul>
@@ -1303,7 +1303,7 @@ export default function ApplyPage() {
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">5. الإقرارات والرسوم</h2>
+            <h2 className="mb-4 text-2xl font-bold">5. الإقرار النهائي</h2>
 
             <label className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
               <input
@@ -1315,11 +1315,8 @@ export default function ApplyPage() {
               <span>أتعهد بعدم وجود قضايا مالية عليّ</span>
             </label>
 
-            <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 leading-8">
-              <strong>رسوم فتح الملف:</strong> لا تُدفع أثناء إرسال الطلب المبدئي.
-              إذا كان الطلب مؤهلًا مبدئيًا، سترسل الإدارة تعليمات دفع رسوم فتح الملف
-              5 دنانير عبر واتساب لاستكمال المراجعة. يتم استرداد الرسوم عند الموافقة
-              على الطلب وتوقيع عقد الاستلام. دفع الرسوم لا يعني الموافقة النهائية.
+            <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm leading-8 text-[#d7ddd5]">
+              <strong className="text-[#f3dfac]">ملاحظة:</strong> هذا الطلب مبدئي لغرض مراجعة البيانات فقط، ولا يعني الموافقة النهائية على التقسيط. سيتم التواصل معك عبر واتساب لاستكمال أي خطوة إضافية عند الحاجة.
             </div>
           </section>
 
@@ -1349,10 +1346,7 @@ export default function ApplyPage() {
                   من البيانات.
                 </li>
                 <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
-                <li>
-                  يتم استرداد رسوم فتح الملف عند الموافقة على الطلب وتوقيع عقد الاستلام.
-                </li>
-                <li>دفع رسوم فتح الملف لا يعني الموافقة النهائية على طلب التقسيط.</li>
+                <li>تقديم الطلب لا يعني الموافقة النهائية على طلب التقسيط.</li>
                 <li>
                   الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في
                   مكاتبنا.
@@ -1373,6 +1367,17 @@ export default function ApplyPage() {
                 استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التمويل فقط.
               </span>
             </label>
+          </section>
+
+          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+            <h2 className="mb-4 text-2xl font-bold">معلومات الشركة</h2>
+
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm font-bold leading-8 text-[#d7ddd5]">
+              <p>{legalRegistrationText}</p>
+              <p className="mt-3">
+                يتم استخدام البيانات والوثائق المرفوعة فقط لغرض مراجعة طلب التمويل والتحقق من البيانات، ولا يتم استخدامها لأي غرض تسويقي أو عرض عام.
+              </p>
+            </div>
           </section>
 
           <button

@@ -24,6 +24,10 @@ type ApplicationRecord = {
   city_area?: string | null;
   detailed_address?: string | null;
   nearest_landmark?: string | null;
+  location_latitude?: number | string | null;
+  location_longitude?: number | string | null;
+  location_accuracy?: number | string | null;
+  location_captured_at?: string | null;
 
   city?: string | null;
   area?: string | null;
@@ -291,6 +295,28 @@ function getGuarantorUrl(app: ApplicationRecord) {
   return `${baseUrl}/guarantor?tracking=${encodeURIComponent(
     tracking
   )}&phone=${encodeURIComponent(phone)}`;
+}
+
+function hasGpsLocation(app: ApplicationRecord) {
+  return Boolean(app.location_latitude && app.location_longitude);
+}
+
+function getGoogleMapsUrl(app: ApplicationRecord) {
+  if (!hasGpsLocation(app)) return "";
+
+  return `https://www.google.com/maps?q=${encodeURIComponent(
+    `${app.location_latitude},${app.location_longitude}`
+  )}`;
+}
+
+function formatGpsAccuracy(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return "—";
+
+  const numberValue = Number(value);
+
+  if (Number.isNaN(numberValue)) return String(value);
+
+  return `${Math.round(numberValue)} متر تقريباً`;
 }
 
 function makeWhatsAppUrl(phone: string | null | undefined, message: string) {
@@ -612,6 +638,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   const address = app.detailed_address || app.address || "—";
   const employer = app.employer || app.employer_name || "—";
   const guarantorUrl = getGuarantorUrl(app);
+  const googleMapsUrl = getGoogleMapsUrl(app);
 
   return (
     <main dir="rtl" className="relative min-h-screen overflow-x-hidden px-4 py-8 text-[#f7f3e8]">
@@ -813,6 +840,34 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           </div>
         </section>
 
+        {googleMapsUrl && (
+          <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="gold-text text-xl font-black">موقع العميل GPS</h2>
+                <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
+                  تم حفظ موقع العميل من صفحة التقديم. افتح الرابط لمشاهدة الموقع مباشرة على Google Maps.
+                </p>
+                <p className="mt-2 break-words text-sm font-black text-white">
+                  {app.location_latitude}, {app.location_longitude}
+                </p>
+                <p className="mt-1 text-xs font-bold text-[#aeb9af]">
+                  الدقة: {formatGpsAccuracy(app.location_accuracy)}
+                </p>
+              </div>
+
+              <a
+                href={googleMapsUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="green-button rounded-2xl px-6 py-4 text-center text-sm font-black transition"
+              >
+                فتح الموقع على الخريطة
+              </a>
+            </div>
+          </section>
+        )}
+
         <div className="grid gap-6 lg:grid-cols-2">
           <InfoCard
             title="معلومات مقدم الطلب"
@@ -825,6 +880,24 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               { label: "المنطقة", value: area },
               { label: "العنوان التفصيلي", value: address },
               { label: "أقرب معلم", value: app.nearest_landmark },
+              {
+                label: "حالة GPS",
+                value: hasGpsLocation(app) ? "تم تحديد الموقع" : "لم يتم تحديد الموقع",
+              },
+              {
+                label: "إحداثيات GPS",
+                value: hasGpsLocation(app)
+                  ? `${app.location_latitude}, ${app.location_longitude}`
+                  : "—",
+              },
+              {
+                label: "دقة الموقع",
+                value: formatGpsAccuracy(app.location_accuracy),
+              },
+              {
+                label: "وقت تحديد الموقع",
+                value: formatDate(app.location_captured_at),
+              },
               {
                 label: "مقدم الطلب مشترك بالضمان",
                 value: yesNo(applicantSocialSecurity),
