@@ -246,6 +246,15 @@ export default function ApplyPage() {
   const [showPaymentTransition, setShowPaymentTransition] = useState(false);
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
+  const [currentStep, setCurrentStep] = useState(1);
+
+  const steps = [
+    { number: 1, title: "بياناتك" },
+    { number: 2, title: "الموقع والدخل" },
+    { number: 3, title: "الجهاز والهوية" },
+    { number: 4, title: "المراجعة والإرسال" },
+  ];
+
   const [files, setFiles] = useState<Record<UploadKey, File | null>>({
     applicantIdFront: null,
     applicantIdBack: null,
@@ -524,6 +533,99 @@ export default function ApplyPage() {
   function updateSubmissionStatus(message: string, percent: number) {
     setSubmissionStep(message);
     setSubmissionProgress(Math.max(0, Math.min(100, percent)));
+  }
+
+  function validateStep(step: number) {
+    const cleanPhone = cleanDigits(phone);
+    const cleanNationalId = cleanDigits(nationalId);
+    const salaryNumber = Number(salary);
+    const cleanSelectedDeviceColor = selectedDeviceColor.trim();
+
+    if (step === 1) {
+      if (fullName.trim().split(/\s+/).length < 4) {
+        alert("الاسم لازم يكون رباعي");
+        return false;
+      }
+
+      if (!validNationalId(cleanNationalId)) {
+        alert("الرقم الوطني يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام");
+        return false;
+      }
+
+      if (!validJordanPhone(cleanPhone)) {
+        alert("رقم الهاتف يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام");
+        return false;
+      }
+
+      if (email.trim() && (!email.includes("@") || !email.includes("."))) {
+        alert("الإيميل غير صحيح");
+        return false;
+      }
+
+      return true;
+    }
+
+    if (step === 2) {
+      if (!governorate) {
+        alert("يرجى اختيار المحافظة");
+        return false;
+      }
+
+      if (Number.isNaN(salaryNumber)) {
+        alert("يرجى إدخال الراتب الصافي بشكل صحيح");
+        return false;
+      }
+
+      if (salaryNumber < getRequiredSalaryMinimum()) {
+        alert("الراتب الصافي يجب ألا يقل عن 290 دينار أردني");
+        return false;
+      }
+
+      return true;
+    }
+
+    if (step === 3) {
+      if (selectedProduct && !cleanSelectedDeviceColor) {
+        alert("يرجى اختيار لون الجهاز المطلوب قبل المتابعة.");
+        return false;
+      }
+
+      for (const item of uploadTypes) {
+        if (!files[item.key]) {
+          alert("يرجى رفع صورة هوية مقدم الطلب من الأمام والخلف.");
+          return false;
+        }
+      }
+
+      return true;
+    }
+
+    if (step === 4) {
+      if (!financialClear) {
+        alert("يجب الإقرار بعدم وجود قضايا مالية");
+        return false;
+      }
+
+      if (!termsAccepted) {
+        alert("يرجى قراءة الشروط والأحكام بعناية ثم الموافقة عليها قبل إرسال الطلب.");
+        return false;
+      }
+
+      return true;
+    }
+
+    return true;
+  }
+
+  function goToNextStep() {
+    if (!validateStep(currentStep)) return;
+    setCurrentStep((prev) => Math.min(prev + 1, steps.length));
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function goToPreviousStep() {
+    setCurrentStep((prev) => Math.max(prev - 1, 1));
+    window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -979,404 +1081,606 @@ export default function ApplyPage() {
 
         <form onSubmit={handleSubmit} autoComplete="on" className="space-y-6">
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">1. بيانات مقدم الطلب</h2>
-
-            <div className="space-y-4">
-              <input
-                name="name"
-                autoComplete="name"
-                className={inputClass}
-                placeholder="الاسم الرباعي"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-              />
-
-              <input
-                name="national-id"
-                autoComplete="off"
-                inputMode="numeric"
-                className={inputClass}
-                placeholder="الرقم الوطني: يبدأ بـ 9 أو 2 — 10 أرقام"
-                value={nationalId}
-                maxLength={10}
-                onChange={(e) =>
-                  setNationalId(cleanDigits(e.target.value).slice(0, 10))
-                }
-              />
-
-              <input
-                name="tel"
-                autoComplete="tel"
-                inputMode="tel"
-                className={inputClass}
-                placeholder="رقم الهاتف: 079 / 078 / 077"
-                value={phone}
-                maxLength={10}
-                onChange={(e) =>
-                  setPhone(cleanDigits(e.target.value).slice(0, 10))
-                }
-              />
-
-              <input
-                name="email"
-                type="email"
-                autoComplete="email"
-                className={inputClass}
-                placeholder="البريد الإلكتروني — اختياري"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-          </section>
-
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">2. المحافظة والموقع</h2>
-
-            <div className="space-y-4">
-              <select
-                name="address-level1"
-                autoComplete="address-level1"
-                className={inputClass}
-                value={governorate}
-                onChange={(e) => setGovernorate(e.target.value)}
-              >
-                <option value="">اختر المحافظة</option>
-                <option value="Amman">عمّان</option>
-                <option value="Zarqa">الزرقاء</option>
-                <option value="Irbid">إربد</option>
-                <option value="Balqa">البلقاء</option>
-                <option value="Madaba">مادبا</option>
-                <option value="Karak">الكرك</option>
-                <option value="Aqaba">العقبة</option>
-                <option value="Mafraq">المفرق</option>
-                <option value="Jerash">جرش</option>
-                <option value="Ajloun">عجلون</option>
-                <option value="Tafilah">الطفيلة</option>
-                <option value="Maan">معان</option>
-              </select>
-
-              <div className="rounded-3xl border border-[rgba(105,217,123,0.24)] bg-[rgba(105,217,123,0.08)] p-5">
-                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-                  <div>
-                    <p className="text-lg font-black text-[#b8f3c0]">
-                      تحديد الموقع تلقائياً
-                    </p>
-
-                    <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
-                      اختياري لكنه يساعد الإدارة على معرفة أقرب منطقة للتواصل والتجهيز. يمكنك إكمال الطلب بدون GPS.
-                    </p>
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={requestLocation}
-                    disabled={isLocating}
-                    className="green-button rounded-2xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {isLocating ? "جاري تحديد الموقع..." : "تحديد موقعي تلقائياً"}
-                  </button>
-                </div>
-
-                {locationStatus && (
-                  <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.50)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
-                    {locationStatus}
-                    {locationLatitude && locationLongitude && (
-                      <div className="mt-2 text-xs text-[#aeb9af]">
-                        تم حفظ الإحداثيات بدقة تقريبية:{" "}
-                        {locationAccuracy ? `${Math.round(locationAccuracy)} متر` : "غير محددة"}
-                      </div>
-                    )}
-                  </div>
-                )}
+            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-black text-[#f3dfac]">
+                  طلب موافقة مبدئية — خطوة {currentStep} من {steps.length}
+                </p>
+                <h2 className="mt-2 text-2xl font-black text-white">
+                  {steps[currentStep - 1]?.title}
+                </h2>
               </div>
 
-              <input
-                name="address-level2"
-                autoComplete="address-level2"
-                className={inputClass}
-                placeholder="المدينة / المنطقة — اختياري"
-                value={cityArea}
-                onChange={(e) => setCityArea(e.target.value)}
-              />
+              <div className="rounded-2xl border border-[rgba(105,217,123,0.24)] bg-[rgba(105,217,123,0.08)] px-4 py-3 text-sm font-black text-[#b8f3c0]">
+                يستغرق عادةً أقل من دقيقتين
+              </div>
+            </div>
 
-              <input
-                name="street-address"
-                autoComplete="street-address"
-                className={inputClass}
-                placeholder="العنوان التفصيلي — اختياري"
-                value={detailedAddress}
-                onChange={(e) => setDetailedAddress(e.target.value)}
+            <div className="mb-6 h-3 overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
+              <div
+                className="h-full rounded-full bg-gradient-to-l from-[#d6b56b] via-[#69d97b] to-[#35c98e] transition-all duration-500"
+                style={{ width: `${(currentStep / steps.length) * 100}%` }}
               />
+            </div>
 
-              <input
-                name="address-line2"
-                autoComplete="address-line2"
-                className={inputClass}
-                placeholder="أقرب معلم واضح — اختياري"
-                value={nearestLandmark}
-                onChange={(e) => setNearestLandmark(e.target.value)}
-              />
+            <div className="grid gap-2 md:grid-cols-4">
+              {steps.map((step) => (
+                <button
+                  key={step.number}
+                  type="button"
+                  onClick={() => {
+                    if (step.number <= currentStep) {
+                      setCurrentStep(step.number);
+                      window.scrollTo({ top: 0, behavior: "smooth" });
+                    }
+                  }}
+                  className={`rounded-2xl border px-3 py-3 text-right text-xs font-black transition ${
+                    currentStep === step.number
+                      ? "border-[#d6b56b] bg-[rgba(214,181,107,0.16)] text-[#f3dfac]"
+                      : step.number < currentStep
+                      ? "border-[rgba(105,217,123,0.30)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]"
+                      : "border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.035)] text-[#aeb9af]"
+                  }`}
+                >
+                  <span className="ml-2">
+                    {step.number < currentStep ? "✓" : step.number}
+                  </span>
+                  {step.title}
+                </button>
+              ))}
             </div>
           </section>
 
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">3. بيانات العمل والدخل</h2>
+          {currentStep === 1 && (
+            <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+              <h2 className="mb-2 text-2xl font-bold">1. بيانات مقدم الطلب</h2>
+              <p className="mb-5 text-sm font-bold leading-7 text-[#d7ddd5]">
+                أدخل بياناتك الأساسية فقط. الإيميل اختياري، ورقم الهاتف هو الأهم للتواصل عبر واتساب.
+              </p>
 
-            <div className="space-y-4">
-              <input
-                name="organization"
-                autoComplete="organization"
-                className={inputClass}
-                placeholder="مكان العمل — اختياري"
-                value={employer}
-                onChange={(e) => setEmployer(e.target.value)}
-              />
+              <div className="space-y-4">
+                <input
+                  name="name"
+                  autoComplete="name"
+                  className={inputClass}
+                  placeholder="الاسم الرباعي"
+                  value={fullName}
+                  onChange={(e) => setFullName(e.target.value)}
+                />
 
-              <input
-                name="salary"
-                autoComplete="off"
-                inputMode="decimal"
-                className={inputClass}
-                placeholder="الراتب الصافي بالدينار — الحد الأدنى 290"
-                type="number"
-                value={salary}
-                onChange={(e) => setSalary(e.target.value)}
-              />
+                <input
+                  name="national-id"
+                  autoComplete="off"
+                  inputMode="numeric"
+                  className={inputClass}
+                  placeholder="الرقم الوطني: يبدأ بـ 9 أو 2 — 10 أرقام"
+                  value={nationalId}
+                  maxLength={10}
+                  onChange={(e) =>
+                    setNationalId(cleanDigits(e.target.value).slice(0, 10))
+                  }
+                />
 
-              <div className="rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
-                <p className="mb-3 font-bold text-[#f3dfac]">
-                  هل مقدم الطلب مشترك بالضمان الاجتماعي؟ <span className="text-[#aeb9af]">(اختياري)</span>
+                <input
+                  name="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  className={inputClass}
+                  placeholder="رقم الهاتف: 079 / 078 / 077"
+                  value={phone}
+                  maxLength={10}
+                  onChange={(e) =>
+                    setPhone(cleanDigits(e.target.value).slice(0, 10))
+                  }
+                />
+
+                <input
+                  name="email"
+                  type="email"
+                  autoComplete="email"
+                  className={inputClass}
+                  placeholder="البريد الإلكتروني — اختياري"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                />
+              </div>
+            </section>
+          )}
+
+          {currentStep === 2 && (
+            <>
+              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                <h2 className="mb-2 text-2xl font-bold">2. المحافظة والموقع</h2>
+                <p className="mb-5 text-sm font-bold leading-7 text-[#d7ddd5]">
+                  اختر المحافظة. تحديد الموقع عبر GPS اختياري، لكنه يساعد الإدارة على التجهيز والتواصل بشكل أسرع.
                 </p>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <label className={labelBoxClass}>
-                    <input
-                      type="radio"
-                      name="applicantSocialSecurity"
-                      checked={applicantSocialSecurity === true}
-                      onChange={() => setApplicantSocialSecurity(true)}
-                    />
-
-                    <span>نعم، مشترك بالضمان</span>
-                  </label>
-
-                  <label className={labelBoxClass}>
-                    <input
-                      type="radio"
-                      name="applicantSocialSecurity"
-                      checked={applicantSocialSecurity === false}
-                      onChange={() => setApplicantSocialSecurity(false)}
-                    />
-
-                    <span>لا، غير مشترك بالضمان</span>
-                  </label>
-                </div>
-
-                <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.40)] p-4 text-sm leading-7 text-[#d7ddd5]">
-                  التسجيل بالضمان الاجتماعي خيار يساعد في دراسة الطلب، لكنه غير إلزامي. الحد الأدنى للراتب الصافي هو 290 دينار أردني. يتم تقييم الطلب حسب البيانات والوثائق وسياسة الموافقة الداخلية.
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-2 text-2xl font-bold">4. رفع هوية مقدم الطلب</h2>
-
-            <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
-              ارفع صورة هوية مقدم الطلب فقط: الوجه الأمامي والوجه الخلفي. يمكن اختيار الصور من المعرض أو تصويرها مباشرة. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
-            </p>
-
-            <div className="mb-5 grid gap-3 md:grid-cols-3">
-              <TrustCard
-                title="لماذا نطلب الهوية؟"
-                text="للتحقق من بيانات مقدم الطلب ودراسة أهلية التمويل فقط."
-              />
-              <TrustCard
-                title="استخدام محدود"
-                text="لا يتم استخدام صور الهوية لأي إعلان أو تسويق أو عرض عام."
-              />
-              <TrustCard
-                title="مراجعة داخلية فقط"
-                text="الوثائق تظهر فقط للإدارة المخولة بمراجعة الطلبات."
-              />
-            </div>
-
-            <div className="mb-5 rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(7,49,38,0.45)] p-4">
-              <p className="text-sm font-black text-[#b8f3c0]">
-                تعهّد الخصوصية
-              </p>
-              <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
-                يتم استخدام صور الهويات والوثائق فقط لدراسة طلب التمويل والتحقق
-                من البيانات، ولا يتم نشرها أو بيعها أو استخدامها لأي غرض تسويقي.
-              </p>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2">
-              {uploadTypes.map((item) => {
-                const file = files[item.key];
-                const percent = progress[item.key];
-                const previewUrl = previewUrls[item.key];
-
-                return (
-                  <div
-                    key={item.key}
-                    className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4"
+                <div className="space-y-4">
+                  <select
+                    name="address-level1"
+                    autoComplete="address-level1"
+                    className={inputClass}
+                    value={governorate}
+                    onChange={(e) => setGovernorate(e.target.value)}
                   >
-                    <label className="mb-3 block font-bold">
-                      {item.label}
-                    </label>
+                    <option value="">اختر المحافظة</option>
+                    <option value="Amman">عمّان</option>
+                    <option value="Zarqa">الزرقاء</option>
+                    <option value="Irbid">إربد</option>
+                    <option value="Balqa">البلقاء</option>
+                    <option value="Madaba">مادبا</option>
+                    <option value="Karak">الكرك</option>
+                    <option value="Aqaba">العقبة</option>
+                    <option value="Mafraq">المفرق</option>
+                    <option value="Jerash">جرش</option>
+                    <option value="Ajloun">عجلون</option>
+                    <option value="Tafilah">الطفيلة</option>
+                    <option value="Maan">معان</option>
+                  </select>
 
-                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[rgba(214,181,107,0.34)] bg-[rgba(3,18,14,0.50)] p-5 text-center transition hover:bg-[rgba(2,18,14,0.92)]">
-                      <span className="text-base font-black text-[#f3dfac]">
-                        اختيار صورة أو تصوير الهوية
-                      </span>
+                  <div className="rounded-3xl border border-[rgba(105,217,123,0.24)] bg-[rgba(105,217,123,0.08)] p-5">
+                    <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                      <div>
+                        <p className="text-lg font-black text-[#b8f3c0]">
+                          تحديد الموقع تلقائياً
+                        </p>
 
-                      <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
-                        يمكنك اختيار صورة محفوظة من الجهاز أو تصوير الهوية حسب
-                        الخيارات المتاحة في هاتفك.
-                      </span>
+                        <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
+                          اختياري. يمكنك إكمال الطلب بدون GPS إذا لم ترغب بتفعيل الموقع.
+                        </p>
+                      </div>
 
-                      <input
-                        type="file"
-                        accept="image/png,image/jpeg"
-                        onChange={(e) =>
-                          handleFileChange(
-                            item.key,
-                            e.target.files?.[0] || null
-                          )
-                        }
-                        className="hidden"
-                      />
-                    </label>
+                      <button
+                        type="button"
+                        onClick={requestLocation}
+                        disabled={isLocating}
+                        className="green-button rounded-2xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isLocating ? "جاري تحديد الموقع..." : "تحديد موقعي تلقائياً"}
+                      </button>
+                    </div>
 
-                    {file && (
-                      <div className="mt-4 space-y-3">
-                        {previewUrl && (
-                          <div className="overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)]">
-                            <img
-                              src={previewUrl}
-                              alt={item.label}
-                              className="max-h-72 w-full object-contain"
-                            />
+                    {locationStatus && (
+                      <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.50)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
+                        {locationStatus}
+                        {locationLatitude && locationLongitude && (
+                          <div className="mt-2 text-xs text-[#aeb9af]">
+                            تم حفظ الإحداثيات بدقة تقريبية:{" "}
+                            {locationAccuracy ? `${Math.round(locationAccuracy)} متر` : "غير محددة"}
                           </div>
                         )}
-
-                        <p className="break-words text-sm text-[#d7ddd5]">
-                          {file.name} —{" "}
-                          {(file.size / 1024 / 1024).toFixed(2)} MB
-                        </p>
-
-                        <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
-                          <div
-                            className="h-full bg-gradient-to-l from-[#d6b56b] to-[#69d97b] transition-all duration-300"
-                            style={{ width: `${percent}%` }}
-                          />
-                        </div>
-
-                        <p className="text-sm text-[#f3dfac]">
-                          {percent < 100
-                            ? `جارٍ تجهيز الملف... ${percent}%`
-                            : "اكتمل 100% ✅"}
-                        </p>
-
-                        <button
-                          type="button"
-                          onClick={() => removeFile(item.key)}
-                          className="rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-2 text-sm font-black text-red-300 transition hover:bg-red-950"
-                        >
-                          حذف وإعادة التصوير / الرفع
-                        </button>
                       </div>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          </section>
 
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">5. الإقرار النهائي</h2>
+                  <input
+                    name="address-level2"
+                    autoComplete="address-level2"
+                    className={inputClass}
+                    placeholder="المدينة / المنطقة — اختياري"
+                    value={cityArea}
+                    onChange={(e) => setCityArea(e.target.value)}
+                  />
 
-            <label className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
-              <input
-                type="checkbox"
-                checked={financialClear}
-                onChange={(e) => setFinancialClear(e.target.checked)}
-              />
+                  <input
+                    name="street-address"
+                    autoComplete="street-address"
+                    className={inputClass}
+                    placeholder="العنوان التفصيلي — اختياري"
+                    value={detailedAddress}
+                    onChange={(e) => setDetailedAddress(e.target.value)}
+                  />
 
-              <span>أتعهد بعدم وجود قضايا مالية عليّ</span>
-            </label>
+                  <input
+                    name="address-line2"
+                    autoComplete="address-line2"
+                    className={inputClass}
+                    placeholder="أقرب معلم واضح — اختياري"
+                    value={nearestLandmark}
+                    onChange={(e) => setNearestLandmark(e.target.value)}
+                  />
+                </div>
+              </section>
 
-            <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm leading-8 text-[#d7ddd5]">
-              <strong className="text-[#f3dfac]">ملاحظة:</strong> هذا الطلب مبدئي لغرض مراجعة البيانات فقط، ولا يعني الموافقة النهائية على التقسيط. سيتم التواصل معك عبر واتساب لاستكمال أي خطوة إضافية عند الحاجة.
-            </div>
-          </section>
+              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                <h2 className="mb-2 text-2xl font-bold">3. بيانات العمل والدخل</h2>
+                <p className="mb-5 text-sm font-bold leading-7 text-[#d7ddd5]">
+                  الراتب مطلوب لدراسة الطلب المبدئية، ومكان العمل اختياري في هذه المرحلة.
+                </p>
 
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.28)] bg-[rgba(214,181,107,0.08)] p-5">
-              <h2 className="text-2xl font-black text-[#f3dfac]">
-                يرجى قراءة الشروط والأحكام بعناية قبل إرسال الطلب
-              </h2>
+                <div className="space-y-4">
+                  <input
+                    name="organization"
+                    autoComplete="organization"
+                    className={inputClass}
+                    placeholder="مكان العمل — اختياري"
+                    value={employer}
+                    onChange={(e) => setEmployer(e.target.value)}
+                  />
 
-              <p className="mt-3 text-sm font-bold leading-7 text-[#d7ddd5]">
-                الشروط ظاهرة هنا بشكل مباشر حتى تكون واضحة قبل إرسال الطلب.
-              </p>
-            </div>
+                  <input
+                    name="salary"
+                    autoComplete="off"
+                    inputMode="decimal"
+                    className={inputClass}
+                    placeholder="الراتب الصافي بالدينار — الحد الأدنى 290"
+                    type="number"
+                    value={salary}
+                    onChange={(e) => setSalary(e.target.value)}
+                  />
 
-            <div className="mt-4 max-h-96 overflow-y-auto rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(2,18,14,0.92)] p-5 text-sm leading-8 text-[#d7ddd5]">
-              <ul className="list-disc space-y-2 pr-5">
-                <li>الحد الأدنى للراتب الصافي لقبول دراسة الطلب هو 290 دينار أردني.</li>
-                <li>لا يشترط أن يكون مقدم الطلب مسجلًا في الضمان الاجتماعي.</li>
-                <li>خيار الضمان الاجتماعي موجود كمعلومة إضافية تساعد في دراسة الطلب، لكنه غير إلزامي.</li>
-                <li>لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب.</li>
-                <li>
-                  يجب تقديم هوية شخصية سارية لمقدم الطلب، وجه أمامي وخلفي.
-                </li>
-                <li>
-                  صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق
-                  من البيانات.
-                </li>
-                <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
-                <li>تقديم الطلب لا يعني الموافقة النهائية على طلب التقسيط.</li>
-                <li>
-                  الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في
-                  مكاتبنا.
-                </li>
-              </ul>
-            </div>
+                  <div className="rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
+                    <p className="mb-3 font-bold text-[#f3dfac]">
+                      هل مقدم الطلب مشترك بالضمان الاجتماعي؟ <span className="text-[#aeb9af]">(اختياري)</span>
+                    </p>
 
-            <label className="mt-4 flex items-start gap-3 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4 leading-7">
-              <input
-                type="checkbox"
-                checked={termsAccepted}
-                onChange={(e) => setTermsAccepted(e.target.checked)}
-                className="mt-2"
-              />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      <label className={labelBoxClass}>
+                        <input
+                          type="radio"
+                          name="applicantSocialSecurity"
+                          checked={applicantSocialSecurity === true}
+                          onChange={() => setApplicantSocialSecurity(true)}
+                        />
 
-              <span>
-                أقرّ بأنني قرأت الشروط والأحكام بعناية وأوافق عليها، وأوافق على
-                استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التمويل فقط.
-              </span>
-            </label>
-          </section>
+                        <span>نعم، مشترك بالضمان</span>
+                      </label>
 
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">معلومات الشركة والتسجيل</h2>
+                      <label className={labelBoxClass}>
+                        <input
+                          type="radio"
+                          name="applicantSocialSecurity"
+                          checked={applicantSocialSecurity === false}
+                          onChange={() => setApplicantSocialSecurity(false)}
+                        />
 
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm font-bold leading-8 text-[#d7ddd5]">
-              <p>{legalRegistrationText}</p>
-              <p className="mt-3">
-                يتم استخدام البيانات والوثائق المرفوعة فقط لغرض مراجعة طلب التمويل والتحقق من البيانات، ولا يتم استخدامها لأي غرض تسويقي أو عرض عام.
-              </p>
-            </div>
-          </section>
+                        <span>لا، غير مشترك بالضمان</span>
+                      </label>
+                    </div>
 
-          <button
-            disabled={isSubmitting}
-            className="green-button sticky bottom-4 w-full rounded-2xl p-5 text-lg font-black shadow-2xl disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isSubmitting ? "جاري تقديم الطلب..." : "إرسال الطلب الآن"}
-          </button>
+                    <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.40)] p-4 text-sm leading-7 text-[#d7ddd5]">
+                      التسجيل بالضمان الاجتماعي خيار يساعد في دراسة الطلب، لكنه غير إلزامي. الحد الأدنى للراتب الصافي هو 290 دينار أردني.
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </>
+          )}
+
+          {currentStep === 3 && (
+            <>
+              {selectedProduct && selectedInstallment ? (
+                <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                  <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="text-sm font-bold text-[#f3dfac]">
+                        الجهاز المختار
+                      </p>
+
+                      <h2 className="mt-2 text-2xl font-black text-white">
+                        {selectedProduct.name}
+                      </h2>
+
+                      <p className="mt-1 text-sm text-[#d7ddd5]">
+                        {selectedProduct.model}
+                      </p>
+                    </div>
+
+                    <Link
+                      href="/products"
+                      className="rounded-2xl border border-[rgba(214,181,107,0.30)] bg-[rgba(3,18,14,0.40)] px-5 py-3 text-center text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(2,18,14,0.92)]"
+                    >
+                      تغيير الجهاز
+                    </Link>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-4">
+                    <InfoBox label="السعر" value={formatJod(selectedProduct.price)} />
+                    <InfoBox label="مدة التقسيط" value={`${selectedMonths} شهر`} />
+                    <InfoBox
+                      label="الدفعة الأولى"
+                      value={formatJod(selectedInstallment.downPayment)}
+                    />
+                    <InfoBox
+                      label="القسط التقريبي"
+                      value={formatJod(selectedInstallment.monthly)}
+                      highlight
+                    />
+                  </div>
+
+                  <div className="mt-6 rounded-3xl border border-[rgba(214,181,107,0.36)] bg-[linear-gradient(135deg,rgba(214,181,107,0.18),rgba(105,217,123,0.08),rgba(3,18,14,0.78))] p-5">
+                    <div className="mb-4">
+                      <h3 className="text-2xl font-black text-white">
+                        اختر لون الجهاز المطلوب
+                      </h3>
+
+                      <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
+                        اختر اللون الأساسي، واكتب بدائل إذا عندك. توفر اللون يعتمد على المخزون وقت الموافقة والتجهيز.
+                      </p>
+                    </div>
+
+                    <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                      {deviceColorOptions.map((color) => (
+                        <button
+                          key={color.value}
+                          type="button"
+                          onClick={() => setSelectedDeviceColor(color.value)}
+                          className={`rounded-2xl border p-4 text-right transition ${
+                            selectedDeviceColor === color.value
+                              ? "border-[#d6b56b] bg-[rgba(214,181,107,0.18)] shadow-[0_0_0_4px_rgba(214,181,107,0.08)]"
+                              : "border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] hover:bg-[rgba(255,255,255,0.055)]"
+                          }`}
+                        >
+                          <span className="block text-sm font-black text-white">
+                            {color.label}
+                          </span>
+
+                          {color.hint && (
+                            <span className="mt-1 block text-xs font-bold leading-5 text-[#aeb9af]">
+                              {color.hint}
+                            </span>
+                          )}
+                        </button>
+                      ))}
+                    </div>
+
+                    <textarea
+                      className={`${inputClass} mt-4 min-h-28 resize-none leading-7`}
+                      placeholder="اختياري: اكتب بدائل اللون. مثال: إذا البرتقالي غير متوفر بدي أزرق غامق."
+                      value={deviceColorNote}
+                      onChange={(e) => setDeviceColorNote(e.target.value)}
+                      maxLength={220}
+                    />
+
+                    <div className="mt-3 flex flex-col gap-2 text-xs font-bold text-[#aeb9af] sm:flex-row sm:items-center sm:justify-between">
+                      <span>
+                        سنحاول توفير اللون المطلوب، وفي حال عدم توفره سيتم التواصل معك أو اعتماد البديل الأقرب.
+                      </span>
+
+                      <span className="text-[#f3dfac]">
+                        {deviceColorNote.length}/220
+                      </span>
+                    </div>
+                  </div>
+                </section>
+              ) : (
+                <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                  <h2 className="text-xl font-black">طلب عام بدون جهاز محدد</h2>
+
+                  <p className="mt-2 text-sm leading-7 text-[#d7ddd5]">
+                    لم يتم اختيار جهاز من صفحة المنتجات. يمكنك متابعة الطلب العام، أو الرجوع لاختيار جهاز محدد.
+                  </p>
+
+                  <Link
+                    href="/products"
+                    className="gold-button mt-4 inline-flex rounded-2xl px-5 py-3 text-sm font-black"
+                  >
+                    اختيار جهاز
+                  </Link>
+                </section>
+              )}
+
+              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                <h2 className="mb-2 text-2xl font-bold">رفع هوية مقدم الطلب</h2>
+
+                <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
+                  الهوية مطلوبة للجدية وحماية الطرفين من الطلبات الوهمية. ارفع الوجه الأمامي والخلفي فقط.
+                </p>
+
+                <div className="mb-5 grid gap-3 md:grid-cols-3">
+                  <TrustCard
+                    title="فلترة الطلبات الوهمية"
+                    text="نطلب الهوية لأن الطلبات الجدية فقط تُراجع."
+                  />
+                  <TrustCard
+                    title="استخدام محدود"
+                    text="لا يتم استخدام صور الهوية لأي إعلان أو تسويق أو عرض عام."
+                  />
+                  <TrustCard
+                    title="مراجعة داخلية فقط"
+                    text="الوثائق تظهر فقط للإدارة المخولة بمراجعة الطلبات."
+                  />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  {uploadTypes.map((item) => {
+                    const file = files[item.key];
+                    const percent = progress[item.key];
+                    const previewUrl = previewUrls[item.key];
+
+                    return (
+                      <div
+                        key={item.key}
+                        className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4"
+                      >
+                        <label className="mb-3 block font-bold">
+                          {item.label}
+                        </label>
+
+                        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[rgba(214,181,107,0.34)] bg-[rgba(3,18,14,0.50)] p-5 text-center transition hover:bg-[rgba(2,18,14,0.92)]">
+                          <span className="text-base font-black text-[#f3dfac]">
+                            اختيار صورة أو تصوير الهوية
+                          </span>
+
+                          <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
+                            يمكنك اختيار صورة محفوظة من الجهاز أو تصوير الهوية.
+                          </span>
+
+                          <input
+                            type="file"
+                            accept="image/png,image/jpeg"
+                            onChange={(e) =>
+                              handleFileChange(
+                                item.key,
+                                e.target.files?.[0] || null
+                              )
+                            }
+                            className="hidden"
+                          />
+                        </label>
+
+                        {file && (
+                          <div className="mt-4 space-y-3">
+                            {previewUrl && (
+                              <div className="overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)]">
+                                <img
+                                  src={previewUrl}
+                                  alt={item.label}
+                                  className="max-h-72 w-full object-contain"
+                                />
+                              </div>
+                            )}
+
+                            <p className="break-words text-sm text-[#d7ddd5]">
+                              {file.name} — {(file.size / 1024 / 1024).toFixed(2)} MB
+                            </p>
+
+                            <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
+                              <div
+                                className="h-full bg-gradient-to-l from-[#d6b56b] to-[#69d97b] transition-all duration-300"
+                                style={{ width: `${percent}%` }}
+                              />
+                            </div>
+
+                            <p className="text-sm text-[#f3dfac]">
+                              {percent < 100
+                                ? `جارٍ تجهيز الملف... ${percent}%`
+                                : "اكتمل 100% ✅"}
+                            </p>
+
+                            <button
+                              type="button"
+                              onClick={() => removeFile(item.key)}
+                              className="rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-2 text-sm font-black text-red-300 transition hover:bg-red-950"
+                            >
+                              حذف وإعادة التصوير / الرفع
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            </>
+          )}
+
+          {currentStep === 4 && (
+            <>
+              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                <h2 className="mb-4 text-2xl font-bold">4. المراجعة والإقرار النهائي</h2>
+
+                <div className="mb-5 grid gap-3 md:grid-cols-2">
+                  <InfoBox label="الاسم" value={fullName || "—"} />
+                  <InfoBox label="الهاتف" value={phone || "—"} />
+                  <InfoBox label="المحافظة" value={governorate || "—"} />
+                  <InfoBox label="الراتب" value={salary ? `${salary} د.أ` : "—"} />
+                </div>
+
+                <label className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
+                  <input
+                    type="checkbox"
+                    checked={financialClear}
+                    onChange={(e) => setFinancialClear(e.target.checked)}
+                  />
+
+                  <span>أتعهد بعدم وجود قضايا مالية عليّ</span>
+                </label>
+
+                <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm leading-8 text-[#d7ddd5]">
+                  <strong className="text-[#f3dfac]">ملاحظة:</strong> هذا الطلب مبدئي لغرض مراجعة البيانات فقط، ولا يعني الموافقة النهائية على التقسيط. سيتم التواصل معك عبر واتساب لاستكمال أي خطوة إضافية عند الحاجة.
+                </div>
+              </section>
+
+              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                <div className="rounded-2xl border border-[rgba(214,181,107,0.28)] bg-[rgba(214,181,107,0.08)] p-5">
+                  <h2 className="text-2xl font-black text-[#f3dfac]">
+                    الشروط المختصرة
+                  </h2>
+
+                  <p className="mt-3 text-sm font-bold leading-7 text-[#d7ddd5]">
+                    الشروط ظاهرة هنا في آخر خطوة حتى تكون واضحة قبل الإرسال.
+                  </p>
+                </div>
+
+                <div className="mt-4 max-h-96 overflow-y-auto rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(2,18,14,0.92)] p-5 text-sm leading-8 text-[#d7ddd5]">
+                  <ul className="list-disc space-y-2 pr-5">
+                    <li>الحد الأدنى للراتب الصافي لقبول دراسة الطلب هو 290 دينار أردني.</li>
+                    <li>لا يشترط أن يكون مقدم الطلب مسجلًا في الضمان الاجتماعي.</li>
+                    <li>خيار الضمان الاجتماعي موجود كمعلومة إضافية تساعد في دراسة الطلب، لكنه غير إلزامي.</li>
+                    <li>لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب.</li>
+                    <li>يجب تقديم هوية شخصية سارية لمقدم الطلب، وجه أمامي وخلفي.</li>
+                    <li>صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق من البيانات.</li>
+                    <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
+                    <li>تقديم الطلب لا يعني الموافقة النهائية على طلب التقسيط.</li>
+                    <li>الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في مكاتبنا.</li>
+                  </ul>
+                </div>
+
+                <label className="mt-4 flex items-start gap-3 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4 leading-7">
+                  <input
+                    type="checkbox"
+                    checked={termsAccepted}
+                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    className="mt-2"
+                  />
+
+                  <span>
+                    أقرّ بأنني قرأت الشروط والأحكام بعناية وأوافق عليها، وأوافق على استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التمويل فقط.
+                  </span>
+                </label>
+              </section>
+
+              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+                <h2 className="mb-4 text-2xl font-bold">معلومات الشركة والتسجيل</h2>
+
+                <div className="rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm font-bold leading-8 text-[#d7ddd5]">
+                  <p>{legalRegistrationText}</p>
+                  <p className="mt-3">
+                    يتم استخدام البيانات والوثائق المرفوعة فقط لغرض مراجعة طلب التمويل والتحقق من البيانات، ولا يتم استخدامها لأي غرض تسويقي أو عرض عام.
+                  </p>
+                </div>
+              </section>
+            </>
+          )}
+
+          <div className="sticky bottom-4 z-30 grid gap-3 rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[#03120e]/90 p-3 shadow-2xl backdrop-blur-xl sm:grid-cols-2">
+            {currentStep > 1 ? (
+              <button
+                type="button"
+                onClick={goToPreviousStep}
+                className="soft-button rounded-2xl p-4 text-base font-black transition"
+                disabled={isSubmitting}
+              >
+                السابق
+              </button>
+            ) : (
+              <Link
+                href="/products"
+                className="soft-button rounded-2xl p-4 text-center text-base font-black transition"
+              >
+                تغيير الجهاز
+              </Link>
+            )}
+
+            {currentStep < steps.length ? (
+              <button
+                type="button"
+                onClick={goToNextStep}
+                className="green-button rounded-2xl p-4 text-base font-black shadow-2xl transition"
+              >
+                التالي
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="green-button rounded-2xl p-4 text-base font-black shadow-2xl disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSubmitting ? "جاري تقديم الطلب..." : "إرسال الطلب الآن"}
+              </button>
+            )}
+          </div>
         </form>
       </div>
     </main>
