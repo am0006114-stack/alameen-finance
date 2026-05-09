@@ -184,6 +184,18 @@ function safeNumber(value: string | null, fallback: number) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function getWhatsAppFollowUpUrl(message: string) {
+  const number = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "";
+  const cleanNumber = number.replace(/\D/g, "");
+  const encodedMessage = encodeURIComponent(message);
+
+  if (cleanNumber) {
+    return `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
+  }
+
+  return `https://wa.me/?text=${encodedMessage}`;
+}
+
 export default function ApplyPage() {
   const searchParams = useSearchParams();
 
@@ -268,6 +280,15 @@ export default function ApplyPage() {
     { number: 3, title: "الجهاز والهوية" },
     { number: 4, title: "المراجعة والإرسال" },
   ];
+
+  const nextButtonLabel =
+    currentStep === 1
+      ? "التالي: الموقع والدخل"
+      : currentStep === 2
+      ? "التالي: الجهاز والهوية"
+      : currentStep === 3
+      ? "التالي: المراجعة والإرسال"
+      : "التالي";
 
   const [files, setFiles] = useState<Record<UploadKey, File | null>>({
     applicantIdFront: null,
@@ -603,18 +624,21 @@ export default function ApplyPage() {
     const cleanSelectedDeviceColor = selectedDeviceColor.trim();
 
     if (step === 1) {
+      if (!validJordanPhone(cleanPhone)) {
+        focusAndScrollTo(phoneRef.current, "رقم الهاتف يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام.");
+        return false;
+      }
+
       if (fullName.trim().split(/\s+/).length < 4) {
         focusAndScrollTo(fullNameRef.current, "الاسم لازم يكون رباعي حتى نقدر نطابقه مع الهوية.");
         return false;
       }
 
       if (!validNationalId(cleanNationalId)) {
-        focusAndScrollTo(nationalIdRef.current, "الرقم الوطني يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام.");
-        return false;
-      }
-
-      if (!validJordanPhone(cleanPhone)) {
-        focusAndScrollTo(phoneRef.current, "رقم الهاتف يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام.");
+        focusAndScrollTo(
+          nationalIdRef.current,
+          "الرقم الوطني يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام. نستخدم الرقم الوطني فقط لمنع الطلبات الوهمية وتكرار الطلبات، وللتدقيق على الطلبات المالية."
+        );
         return false;
       }
 
@@ -920,7 +944,7 @@ export default function ApplyPage() {
             </ul>
           </div>
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-2">
+          <div className="mt-8 grid gap-3 sm:grid-cols-3">
             <Link
               href={trackHref}
               className="green-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
@@ -928,11 +952,22 @@ export default function ApplyPage() {
               تتبع حالة الطلب
             </Link>
 
+            <a
+              href={getWhatsAppFollowUpUrl(
+                `مرحباً، قدمت طلب موافقة مبدئية لدى الأمين للأقساط والتمويل. رقم التتبع: ${successTrackingId}. أرغب بمتابعة الطلب.`
+              )}
+              target="_blank"
+              rel="noreferrer"
+              className="gold-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
+            >
+              تواصل معنا على واتساب
+            </a>
+
             <Link
-              href="/"
+              href="/products"
               className="soft-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
             >
-              العودة للرئيسية
+              العودة للمنتجات
             </Link>
           </div>
         </div>
@@ -963,7 +998,7 @@ export default function ApplyPage() {
           </h1>
 
           <p className="mt-4 max-w-2xl text-[#d7ddd5]">
-            عبّئ بياناتك الأساسية فقط وارفع هوية مقدم الطلب. لن يتم طلب الدفع في هذه المرحلة؛ الإدارة تراجع الطلب أولًا ثم تتواصل معك عبر واتساب عند الحاجة.
+            طلب موافقة مبدئية فقط: بدون دفع أثناء التقديم، بدون كفيل بالبداية، والهوية مطلوبة للجدية وحماية الطرفين.
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -1174,10 +1209,25 @@ export default function ApplyPage() {
             <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
               <h2 className="mb-2 text-2xl font-bold">1. بيانات مقدم الطلب</h2>
               <p className="mb-5 text-sm font-bold leading-7 text-[#d7ddd5]">
-                أدخل بياناتك الأساسية فقط. الإيميل اختياري، ورقم الهاتف هو الأهم للتواصل عبر واتساب.
+                نحتاج بيانات بسيطة للتواصل ومراجعة الطلب مبدئياً. لن يتم طلب أي دفع أثناء التقديم.
               </p>
 
               <div className="space-y-4">
+                <input
+                  ref={phoneRef}
+                  name="tel"
+                  autoComplete="tel"
+                  inputMode="tel"
+                  className={inputClass}
+                  placeholder="رقم الهاتف: 079 / 078 / 077"
+                  value={phone}
+                  maxLength={10}
+                  onChange={(e) => {
+                    setPhone(cleanDigits(e.target.value).slice(0, 10));
+                    clearStepError();
+                  }}
+                />
+
                 <input
                   ref={fullNameRef}
                   name="name"
@@ -1191,35 +1241,26 @@ export default function ApplyPage() {
                   }}
                 />
 
-                <input
-                  ref={nationalIdRef}
-                  name="national-id"
-                  autoComplete="off"
-                  inputMode="numeric"
-                  className={inputClass}
-                  placeholder="الرقم الوطني: يبدأ بـ 9 أو 2 — 10 أرقام"
-                  value={nationalId}
-                  maxLength={10}
-                  onChange={(e) =>
-                    setNationalId(cleanDigits(e.target.value).slice(0, 10));
-                    clearStepError();
-                  }
-                />
+                <div className="space-y-2">
+                  <input
+                    ref={nationalIdRef}
+                    name="national-id"
+                    autoComplete="off"
+                    inputMode="numeric"
+                    className={inputClass}
+                    placeholder="الرقم الوطني: يبدأ بـ 9 أو 2 — 10 أرقام"
+                    value={nationalId}
+                    maxLength={10}
+                    onChange={(e) => {
+                      setNationalId(cleanDigits(e.target.value).slice(0, 10));
+                      clearStepError();
+                    }}
+                  />
 
-                <input
-                  ref={phoneRef}
-                  name="tel"
-                  autoComplete="tel"
-                  inputMode="tel"
-                  className={inputClass}
-                  placeholder="رقم الهاتف: 079 / 078 / 077"
-                  value={phone}
-                  maxLength={10}
-                  onChange={(e) =>
-                    setPhone(cleanDigits(e.target.value).slice(0, 10));
-                    clearStepError();
-                  }
-                />
+                  <p className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(214,181,107,0.06)] px-4 py-3 text-xs font-bold leading-6 text-[#d7ddd5]">
+                    نستخدم الرقم الوطني فقط لمنع الطلبات الوهمية وتكرار الطلبات، وللتدقيق على الطلبات المالية.
+                  </p>
+                </div>
 
                 <input
                   ref={emailRef}
@@ -1532,10 +1573,10 @@ export default function ApplyPage() {
               )}
 
               <section ref={identityUploadRef} className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-                <h2 className="mb-2 text-2xl font-bold">رفع هوية مقدم الطلب</h2>
+                <h2 className="mb-2 text-2xl font-bold">آخر خطوة للتحقق من الجدية</h2>
 
                 <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
-                  الهوية مطلوبة للجدية وحماية الطرفين من الطلبات الوهمية. ارفع الوجه الأمامي والخلفي فقط.
+                  نطلب الهوية فقط لأن طلبات التقسيط تحتاج تحقق أولي، ولمنع الطلبات الوهمية. لا يوجد دفع أثناء التقديم ولا كفيل في هذه المرحلة. ارفع الوجه الأمامي والخلفي فقط.
                 </p>
 
                 <div className="mb-5 grid gap-3 md:grid-cols-3">
@@ -1746,7 +1787,7 @@ export default function ApplyPage() {
                 onClick={goToNextStep}
                 className="green-button rounded-2xl p-4 text-base font-black shadow-2xl transition"
               >
-                التالي
+                {nextButtonLabel}
               </button>
             ) : (
               <button
