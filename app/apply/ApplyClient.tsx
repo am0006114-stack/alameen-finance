@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { getProductById } from "../../lib/products";
@@ -247,6 +247,20 @@ export default function ApplyPage() {
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
   const [currentStep, setCurrentStep] = useState(1);
+  const [formError, setFormError] = useState("");
+
+  const stepContentRef = useRef<HTMLDivElement | null>(null);
+  const errorRef = useRef<HTMLDivElement | null>(null);
+  const fullNameRef = useRef<HTMLInputElement | null>(null);
+  const nationalIdRef = useRef<HTMLInputElement | null>(null);
+  const phoneRef = useRef<HTMLInputElement | null>(null);
+  const emailRef = useRef<HTMLInputElement | null>(null);
+  const governorateRef = useRef<HTMLSelectElement | null>(null);
+  const salaryRef = useRef<HTMLInputElement | null>(null);
+  const colorSectionRef = useRef<HTMLDivElement | null>(null);
+  const identityUploadRef = useRef<HTMLDivElement | null>(null);
+  const financialClearRef = useRef<HTMLLabelElement | null>(null);
+  const termsAcceptedRef = useRef<HTMLLabelElement | null>(null);
 
   const steps = [
     { number: 1, title: "بياناتك" },
@@ -405,12 +419,12 @@ export default function ApplyPage() {
     const maxSize = 5 * 1024 * 1024;
 
     if (!allowedTypes.includes(file.type)) {
-      alert("يُسمح فقط برفع صور JPG أو PNG");
+      focusAndScrollTo(identityUploadRef.current, "يُسمح فقط برفع صور JPG أو PNG.");
       return;
     }
 
     if (file.size > maxSize) {
-      alert("حجم الصورة يجب ألا يتجاوز 5MB");
+      focusAndScrollTo(identityUploadRef.current, "حجم الصورة يجب ألا يتجاوز 5MB.");
       return;
     }
 
@@ -427,6 +441,7 @@ export default function ApplyPage() {
 
     setFiles((prev) => ({ ...prev, [key]: file }));
     setProgress((prev) => ({ ...prev, [key]: 0 }));
+    clearStepError();
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
 
     let value = 0;
@@ -539,6 +554,48 @@ export default function ApplyPage() {
     setSubmissionProgress(Math.max(0, Math.min(100, percent)));
   }
 
+  function focusAndScrollTo(
+    target:
+      | HTMLElement
+      | HTMLInputElement
+      | HTMLSelectElement
+      | HTMLTextAreaElement
+      | null,
+    message: string
+  ) {
+    setFormError(message);
+
+    window.setTimeout(() => {
+      const destination = target || errorRef.current || stepContentRef.current;
+
+      destination?.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+      });
+
+      if (
+        destination instanceof HTMLInputElement ||
+        destination instanceof HTMLSelectElement ||
+        destination instanceof HTMLTextAreaElement
+      ) {
+        destination.focus({ preventScroll: true });
+      }
+    }, 80);
+  }
+
+  function scrollToStepContent() {
+    window.setTimeout(() => {
+      stepContentRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 80);
+  }
+
+  function clearStepError() {
+    if (formError) setFormError("");
+  }
+
   function validateStep(step: number) {
     const cleanPhone = cleanDigits(phone);
     const cleanNationalId = cleanDigits(nationalId);
@@ -547,22 +604,22 @@ export default function ApplyPage() {
 
     if (step === 1) {
       if (fullName.trim().split(/\s+/).length < 4) {
-        alert("الاسم لازم يكون رباعي");
+        focusAndScrollTo(fullNameRef.current, "الاسم لازم يكون رباعي حتى نقدر نطابقه مع الهوية.");
         return false;
       }
 
       if (!validNationalId(cleanNationalId)) {
-        alert("الرقم الوطني يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام");
+        focusAndScrollTo(nationalIdRef.current, "الرقم الوطني يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام.");
         return false;
       }
 
       if (!validJordanPhone(cleanPhone)) {
-        alert("رقم الهاتف يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام");
+        focusAndScrollTo(phoneRef.current, "رقم الهاتف يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام.");
         return false;
       }
 
       if (email.trim() && (!email.includes("@") || !email.includes("."))) {
-        alert("الإيميل غير صحيح");
+        focusAndScrollTo(emailRef.current, "الإيميل غير صحيح. اتركه فارغاً إذا لا تريد إضافته.");
         return false;
       }
 
@@ -571,17 +628,17 @@ export default function ApplyPage() {
 
     if (step === 2) {
       if (!governorate) {
-        alert("يرجى اختيار المحافظة");
+        focusAndScrollTo(governorateRef.current, "يرجى اختيار المحافظة حتى نعرف منطقة الطلب.");
         return false;
       }
 
       if (Number.isNaN(salaryNumber)) {
-        alert("يرجى إدخال الراتب الصافي بشكل صحيح");
+        focusAndScrollTo(salaryRef.current, "يرجى إدخال الراتب الصافي بشكل صحيح.");
         return false;
       }
 
       if (salaryNumber < getRequiredSalaryMinimum()) {
-        alert("الراتب الصافي يجب ألا يقل عن 290 دينار أردني");
+        focusAndScrollTo(salaryRef.current, "الراتب الصافي يجب ألا يقل عن 290 دينار أردني.");
         return false;
       }
 
@@ -590,13 +647,13 @@ export default function ApplyPage() {
 
     if (step === 3) {
       if (selectedProduct && !cleanSelectedDeviceColor) {
-        alert("يرجى اختيار لون الجهاز المطلوب قبل المتابعة.");
+        focusAndScrollTo(colorSectionRef.current, "يرجى اختيار لون الجهاز المطلوب قبل المتابعة.");
         return false;
       }
 
       for (const item of uploadTypes) {
         if (!files[item.key]) {
-          alert("يرجى رفع صورة هوية مقدم الطلب من الأمام والخلف.");
+          focusAndScrollTo(identityUploadRef.current, "يرجى رفع صورة هوية مقدم الطلب من الأمام والخلف.");
           return false;
         }
       }
@@ -606,12 +663,12 @@ export default function ApplyPage() {
 
     if (step === 4) {
       if (!financialClear) {
-        alert("يجب الإقرار بعدم وجود قضايا مالية");
+        focusAndScrollTo(financialClearRef.current, "يرجى تأكيد الإقرار بعدم وجود قضايا مالية قبل إرسال الطلب.");
         return false;
       }
 
       if (!termsAccepted) {
-        alert("يرجى قراءة الشروط والأحكام بعناية ثم الموافقة عليها قبل إرسال الطلب.");
+        focusAndScrollTo(termsAcceptedRef.current, "يرجى قراءة الشروط والأحكام ثم الموافقة عليها قبل إرسال الطلب.");
         return false;
       }
 
@@ -623,13 +680,16 @@ export default function ApplyPage() {
 
   function goToNextStep() {
     if (!validateStep(currentStep)) return;
+
+    setFormError("");
     setCurrentStep((prev) => Math.min(prev + 1, steps.length));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollToStepContent();
   }
 
   function goToPreviousStep() {
+    setFormError("");
     setCurrentStep((prev) => Math.max(prev - 1, 1));
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    scrollToStepContent();
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -640,59 +700,18 @@ export default function ApplyPage() {
     const cleanPhone = cleanDigits(phone);
     const cleanNationalId = cleanDigits(nationalId);
     const salaryNumber = Number(salary);
-    const requiredSalaryMinimum = getRequiredSalaryMinimum();
     const eligibilityPath = getEligibilityPath();
     const cleanSelectedDeviceColor = selectedDeviceColor.trim();
     const cleanDeviceColorNote = deviceColorNote.trim();
 
-    if (selectedProduct && !cleanSelectedDeviceColor) {
-      return alert("يرجى اختيار لون الجهاز المطلوب قبل إرسال الطلب.");
-    }
-
-    if (fullName.trim().split(/\s+/).length < 4) {
-      return alert("الاسم لازم يكون رباعي");
-    }
-
-    if (!validNationalId(cleanNationalId)) {
-      return alert("الرقم الوطني يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام");
-    }
-
-    if (!validJordanPhone(cleanPhone)) {
-      return alert(
-        "رقم الهاتف يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام"
-      );
-    }
-
-    if (email.trim() && (!email.includes("@") || !email.includes("."))) {
-      return alert("الإيميل غير صحيح");
-    }
-
-    if (!governorate) {
-      return alert("يرجى اختيار المحافظة");
-    }
-
-    if (Number.isNaN(salaryNumber)) {
-      return alert("يرجى إدخال الراتب الصافي بشكل صحيح");
-    }
-
-    if (salaryNumber < requiredSalaryMinimum) {
-      return alert("الراتب الصافي يجب ألا يقل عن 290 دينار أردني");
-    }
-
-    for (const item of uploadTypes) {
-      if (!files[item.key]) {
-        return alert("يرجى رفع جميع صور الهويات المطلوبة");
+    for (const step of steps) {
+      if (!validateStep(step.number)) {
+        setCurrentStep(step.number);
+        return;
       }
     }
 
-    if (!financialClear) {
-      return alert("يجب الإقرار بعدم وجود قضايا مالية");
-    }
-
-    if (!termsAccepted) {
-      return alert("يرجى قراءة الشروط والأحكام بعناية ثم الموافقة عليها قبل إرسال الطلب.");
-    }
-
+    setFormError("");
     setIsSubmitting(true);
     updateSubmissionStatus("جاري فحص البيانات والتأكد من عدم وجود طلب مكرر...", 8);
 
@@ -702,10 +721,11 @@ export default function ApplyPage() {
       });
 
       if (duplicateApplication) {
-        alert(
-          `لا يمكن تقديم طلب جديد. يوجد طلب فعّال لنفس مقدم الطلب.\nرقم التتبع: ${
+        focusAndScrollTo(
+          nationalIdRef.current,
+          `لا يمكن تقديم طلب جديد. يوجد طلب فعّال لنفس مقدم الطلب. رقم التتبع: ${
             duplicateApplication.tracking_id || duplicateApplication.id
-          }\nالحالة الحالية: ${duplicateApplication.status || "قيد المتابعة"}`
+          }`
         );
 
         setIsSubmitting(false);
@@ -829,7 +849,10 @@ export default function ApplyPage() {
       console.error(error);
       setSubmissionStep("");
       setSubmissionProgress(0);
-      alert("صار خطأ أثناء حفظ الطلب أو رفع الصور. ابعتلي صورة الخطأ.");
+      focusAndScrollTo(
+        errorRef.current || stepContentRef.current,
+        "صار خطأ أثناء حفظ الطلب أو رفع الصور. تأكد من الاتصال وحاول مرة ثانية."
+      );
     } finally {
       setIsSubmitting(false);
       setSubmissionStep("");
@@ -1114,8 +1137,9 @@ export default function ApplyPage() {
                   type="button"
                   onClick={() => {
                     if (step.number <= currentStep) {
+                      setFormError("");
                       setCurrentStep(step.number);
-                      window.scrollTo({ top: 0, behavior: "smooth" });
+                      scrollToStepContent();
                     }
                   }}
                   className={`rounded-2xl border px-3 py-3 text-right text-xs font-black transition ${
@@ -1133,7 +1157,18 @@ export default function ApplyPage() {
                 </button>
               ))}
             </div>
+
+            {formError && (
+              <div
+                ref={errorRef}
+                className="mt-5 rounded-2xl border border-red-400/40 bg-red-950/30 p-4 text-sm font-black leading-7 text-red-100"
+              >
+                {formError}
+              </div>
+            )}
           </section>
+
+          <div ref={stepContentRef} className="scroll-mt-6" />
 
           {currentStep === 1 && (
             <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
@@ -1144,15 +1179,20 @@ export default function ApplyPage() {
 
               <div className="space-y-4">
                 <input
+                  ref={fullNameRef}
                   name="name"
                   autoComplete="name"
                   className={inputClass}
                   placeholder="الاسم الرباعي"
                   value={fullName}
-                  onChange={(e) => setFullName(e.target.value)}
+                  onChange={(e) => {
+                    setFullName(e.target.value);
+                    clearStepError();
+                  }}
                 />
 
                 <input
+                  ref={nationalIdRef}
                   name="national-id"
                   autoComplete="off"
                   inputMode="numeric"
@@ -1161,11 +1201,13 @@ export default function ApplyPage() {
                   value={nationalId}
                   maxLength={10}
                   onChange={(e) =>
-                    setNationalId(cleanDigits(e.target.value).slice(0, 10))
+                    setNationalId(cleanDigits(e.target.value).slice(0, 10));
+                    clearStepError();
                   }
                 />
 
                 <input
+                  ref={phoneRef}
                   name="tel"
                   autoComplete="tel"
                   inputMode="tel"
@@ -1174,18 +1216,23 @@ export default function ApplyPage() {
                   value={phone}
                   maxLength={10}
                   onChange={(e) =>
-                    setPhone(cleanDigits(e.target.value).slice(0, 10))
+                    setPhone(cleanDigits(e.target.value).slice(0, 10));
+                    clearStepError();
                   }
                 />
 
                 <input
+                  ref={emailRef}
                   name="email"
                   type="email"
                   autoComplete="email"
                   className={inputClass}
                   placeholder="البريد الإلكتروني — اختياري"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    clearStepError();
+                  }}
                 />
               </div>
             </section>
@@ -1201,11 +1248,15 @@ export default function ApplyPage() {
 
                 <div className="space-y-4">
                   <select
+                    ref={governorateRef}
                     name="address-level1"
                     autoComplete="address-level1"
                     className={inputClass}
                     value={governorate}
-                    onChange={(e) => setGovernorate(e.target.value)}
+                    onChange={(e) => {
+                      setGovernorate(e.target.value);
+                      clearStepError();
+                    }}
                   >
                     <option value="">اختر المحافظة</option>
                     <option value="Amman">عمّان</option>
@@ -1303,6 +1354,7 @@ export default function ApplyPage() {
                   />
 
                   <input
+                    ref={salaryRef}
                     name="salary"
                     autoComplete="off"
                     inputMode="decimal"
@@ -1310,7 +1362,10 @@ export default function ApplyPage() {
                     placeholder="الراتب الصافي بالدينار — الحد الأدنى 290"
                     type="number"
                     value={salary}
-                    onChange={(e) => setSalary(e.target.value)}
+                    onChange={(e) => {
+                      setSalary(e.target.value);
+                      clearStepError();
+                    }}
                   />
 
                   <div className="rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
@@ -1324,7 +1379,10 @@ export default function ApplyPage() {
                           type="radio"
                           name="applicantSocialSecurity"
                           checked={applicantSocialSecurity === true}
-                          onChange={() => setApplicantSocialSecurity(true)}
+                          onChange={() => {
+                            setApplicantSocialSecurity(true);
+                            clearStepError();
+                          }}
                         />
 
                         <span>نعم، مشترك بالضمان</span>
@@ -1335,7 +1393,10 @@ export default function ApplyPage() {
                           type="radio"
                           name="applicantSocialSecurity"
                           checked={applicantSocialSecurity === false}
-                          onChange={() => setApplicantSocialSecurity(false)}
+                          onChange={() => {
+                            setApplicantSocialSecurity(false);
+                            clearStepError();
+                          }}
                         />
 
                         <span>لا، غير مشترك بالضمان</span>
@@ -1392,7 +1453,10 @@ export default function ApplyPage() {
                     />
                   </div>
 
-                  <div className="mt-6 rounded-3xl border border-[rgba(214,181,107,0.36)] bg-[linear-gradient(135deg,rgba(214,181,107,0.18),rgba(105,217,123,0.08),rgba(3,18,14,0.78))] p-5">
+                  <div
+                    ref={colorSectionRef}
+                    className="mt-6 rounded-3xl border border-[rgba(214,181,107,0.36)] bg-[linear-gradient(135deg,rgba(214,181,107,0.18),rgba(105,217,123,0.08),rgba(3,18,14,0.78))] p-5"
+                  >
                     <div className="mb-4">
                       <h3 className="text-2xl font-black text-white">
                         اختر لون الجهاز المطلوب
@@ -1408,7 +1472,10 @@ export default function ApplyPage() {
                         <button
                           key={color.value}
                           type="button"
-                          onClick={() => setSelectedDeviceColor(color.value)}
+                          onClick={() => {
+                            setSelectedDeviceColor(color.value);
+                            clearStepError();
+                          }}
                           className={`rounded-2xl border p-4 text-right transition ${
                             selectedDeviceColor === color.value
                               ? "border-[#d6b56b] bg-[rgba(214,181,107,0.18)] shadow-[0_0_0_4px_rgba(214,181,107,0.08)]"
@@ -1464,7 +1531,7 @@ export default function ApplyPage() {
                 </section>
               )}
 
-              <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
+              <section ref={identityUploadRef} className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
                 <h2 className="mb-2 text-2xl font-bold">رفع هوية مقدم الطلب</h2>
 
                 <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
@@ -1581,11 +1648,14 @@ export default function ApplyPage() {
                   <InfoBox label="الراتب" value={salary ? `${salary} د.أ` : "—"} />
                 </div>
 
-                <label className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
+                <label ref={financialClearRef} className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
                   <input
                     type="checkbox"
                     checked={financialClear}
-                    onChange={(e) => setFinancialClear(e.target.checked)}
+                    onChange={(e) => {
+                      setFinancialClear(e.target.checked);
+                      clearStepError();
+                    }}
                   />
 
                   <span>أتعهد بعدم وجود قضايا مالية عليّ</span>
@@ -1621,11 +1691,14 @@ export default function ApplyPage() {
                   </ul>
                 </div>
 
-                <label className="mt-4 flex items-start gap-3 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4 leading-7">
+                <label ref={termsAcceptedRef} className="mt-4 flex items-start gap-3 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4 leading-7">
                   <input
                     type="checkbox"
                     checked={termsAccepted}
-                    onChange={(e) => setTermsAccepted(e.target.checked)}
+                    onChange={(e) => {
+                      setTermsAccepted(e.target.checked);
+                      clearStepError();
+                    }}
                     className="mt-2"
                   />
 
