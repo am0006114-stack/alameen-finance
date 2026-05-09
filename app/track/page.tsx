@@ -25,8 +25,15 @@ type Application = {
   paid_clicked_at?: string | null;
 };
 
+type StatusView = {
+  title: string;
+  message: string;
+  tone: "new" | "warning" | "success" | "danger" | "neutral";
+  step: number;
+};
+
 function normalizePhone(value: string) {
-  return value.trim().replace(/\s+/g, "");
+  return value.trim().replace(/\D/g, "");
 }
 
 function maskName(name: string | null | undefined) {
@@ -65,93 +72,170 @@ function formatMoney(value: number | string | null | undefined) {
   return `${numberValue.toFixed(2)} د.أ`;
 }
 
-function translateStatus(status: string | null | undefined) {
-  switch (status) {
-    case "submitted":
-      return "تم استلام الطلب";
-    case "pending_payment":
-      return "بانتظار دفع رسوم فتح الملف";
-    case "pending_payment_confirmation":
-      return "بانتظار تأكيد الدفع";
-    case "under_review":
-      return "قيد الدراسة";
-    case "approved":
-      return "موافق عليه مبدئيًا";
-    case "rejected":
-      return "غير موافق عليه";
-    case "cancelled":
-      return "ملغي";
-    default:
-      return "قيد المتابعة";
-  }
-}
-
 function translatePaymentStatus(status: string | null | undefined) {
   switch (status) {
+    case "not_requested_yet":
+      return "لم يُطلب أي دفع";
     case "not_paid":
       return "لم يتم الدفع";
     case "pending":
-      return "بانتظار الدفع";
     case "pending_payment":
-      return "بانتظار الدفع";
+      return "بانتظار استكمال خطوة الدفع";
     case "customer_claimed_paid":
-      return "تم تسجيل الدفع بانتظار تأكيد الإدارة";
+      return "تم إرسال إشعار الدفع بانتظار تأكيد الإدارة";
     case "confirmed":
       return "تم تأكيد الدفع";
     case "rejected":
       return "الدفع غير مؤكد";
     default:
-      return "قيد المتابعة";
+      return "غير مطلوب حالياً";
   }
 }
 
-function getCustomerMessage(app: Application) {
+function getStatusView(app: Application): StatusView {
   if (app.payment_status === "customer_claimed_paid") {
-    return "تم تسجيل رقم الوصل/الحركة بنجاح. طلبك الآن بانتظار تأكيد الإدارة للدفع، وبعدها يتم تحويله إلى مرحلة الدراسة.";
+    return {
+      title: "بانتظار تأكيد الإدارة",
+      message:
+        "تم تسجيل إشعار الدفع أو الوصل، والطلب الآن بانتظار مراجعة الإدارة. سيتم تحديث الحالة بعد التأكد.",
+      tone: "warning",
+      step: 3,
+    };
   }
 
   if (app.payment_status === "confirmed" && app.status === "under_review") {
-    return "تم تأكيد رسوم فتح الملف، وطلبك الآن قيد الدراسة. مدة المراجعة المتوقعة من 1 إلى 24 ساعة.";
+    return {
+      title: "قيد الدراسة النهائية",
+      message:
+        "تم تأكيد الخطوات المطلوبة، وطلبك الآن قيد الدراسة النهائية. مدة المراجعة المتوقعة من 1 إلى 24 ساعة.",
+      tone: "new",
+      step: 4,
+    };
   }
 
   switch (app.status) {
+    case "preliminary_application":
     case "submitted":
+      return {
+        title: "طلبك وصل للإدارة",
+        message:
+          "تم استلام طلبك كمراجعة مبدئية. إذا احتجنا أي معلومة إضافية سيتم التواصل معك عبر واتساب.",
+        tone: "new",
+        step: 1,
+      };
+    case "preliminary_qualified":
+      return {
+        title: "مؤهل مبدئياً",
+        message:
+          "طلبك مؤهل مبدئياً لاستكمال الخطوات التالية. يرجى متابعة واتساب لأن الإدارة سترسل لك المطلوب بشكل واضح.",
+        tone: "success",
+        step: 2,
+      };
+    case "needs_salary_slip":
+      return {
+        title: "بحاجة كشف راتب",
+        message:
+          "نحتاج كشف راتب أو شهادة راتب حديثة لاستكمال دراسة الطلب. يرجى متابعة رسالة واتساب من الإدارة.",
+        tone: "warning",
+        step: 2,
+      };
+    case "needs_guarantor":
+      return {
+        title: "بحاجة كفيل",
+        message:
+          "نحتاج إدخال بيانات كفيل لاستكمال دراسة الملف. سيتم إرسال رابط خاص عبر واتساب لتعبئة بيانات الكفيل داخل الموقع.",
+        tone: "warning",
+        step: 2,
+      };
+    case "guarantor_submitted":
+      return {
+        title: "تم استلام بيانات الكفيل",
+        message:
+          "تم استلام بيانات الكفيل وربطها بطلبك. الطلب الآن بانتظار متابعة الإدارة للخطوة التالية.",
+        tone: "success",
+        step: 3,
+      };
     case "pending_payment":
-      return "طلبك مسجل لدينا. الرجاء دفع رسوم فتح الملف وإدخال رقم الوصل/الحركة حتى يتم تحويل الطلب للمراجعة.";
     case "pending_payment_confirmation":
-      return "تم تسجيل إشعار الدفع، وبانتظار تأكيد الإدارة.";
+      return {
+        title: "بانتظار استكمال خطوة",
+        message:
+          "طلبك بانتظار استكمال خطوة مطلوبة من الإدارة. يرجى متابعة واتساب أو انتظار تحديث الحالة.",
+        tone: "warning",
+        step: 3,
+      };
     case "under_review":
-      return "طلبك قيد الدراسة حاليًا. سيتم التواصل معك عند صدور القرار.";
+      return {
+        title: "قيد الدراسة",
+        message:
+          "طلبك قيد الدراسة حالياً. سيتم التواصل معك عند صدور القرار أو في حال الحاجة لأي معلومات إضافية.",
+        tone: "new",
+        step: 4,
+      };
     case "approved":
-      return "تمت الموافقة المبدئية على طلبك. سيتم التواصل معك لاستكمال الإجراءات والتسليم من مكاتبنا بعد توقيع العقد.";
+      return {
+        title: "تمت الموافقة المبدئية",
+        message:
+          "تمت الموافقة المبدئية على طلبك. سيتم التواصل معك لاستكمال الإجراءات النهائية، ويكون التسليم من مكاتبنا بعد توقيع العقد.",
+        tone: "success",
+        step: 5,
+      };
     case "rejected":
-      return "نعتذر، لم تتم الموافقة على الطلب حاليًا. يمكنك مراجعة الإدارة لمعرفة التفاصيل العامة.";
+      return {
+        title: "لم تتم الموافقة حالياً",
+        message:
+          "نعتذر، لم تتم الموافقة على الطلب حالياً. يمكنك التواصل مع الإدارة لمعرفة التفاصيل العامة أو إمكانية التقديم لاحقاً.",
+        tone: "danger",
+        step: 5,
+      };
     case "cancelled":
-      return "تم إلغاء هذا الطلب. إذا كان الإلغاء بالخطأ، يرجى التواصل مع الإدارة.";
+      return {
+        title: "الطلب ملغي",
+        message:
+          "تم إلغاء هذا الطلب. إذا كان الإلغاء بالخطأ، يرجى التواصل مع الإدارة.",
+        tone: "neutral",
+        step: 5,
+      };
     default:
-      return "طلبك قيد المتابعة. يرجى مراجعة الحالة لاحقًا.";
+      return {
+        title: "قيد المتابعة",
+        message:
+          "طلبك قيد المتابعة. يرجى مراجعة الحالة لاحقاً أو انتظار التواصل عبر واتساب.",
+        tone: "neutral",
+        step: 1,
+      };
   }
 }
 
-function badgeClass(status: string | null | undefined) {
-  switch (status) {
-    case "approved":
-    case "confirmed":
+function badgeClass(tone: StatusView["tone"]) {
+  switch (tone) {
+    case "success":
       return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
-    case "rejected":
+    case "danger":
       return "border-red-400/30 bg-red-950/25 text-red-200";
-    case "pending_payment_confirmation":
-    case "customer_claimed_paid":
-    case "pending_payment":
-    case "pending":
+    case "warning":
       return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
-    case "under_review":
+    case "new":
       return "border-sky-300/25 bg-sky-950/20 text-sky-200";
-    case "cancelled":
-      return "border-white/10 bg-white/5 text-[#c7d2c7]";
     default:
       return "border-white/10 bg-white/5 text-[#d7ddd5]";
   }
+}
+
+function timelineClass(index: number, activeStep: number, tone: StatusView["tone"]) {
+  if (index < activeStep) {
+    if (tone === "danger" && index === activeStep - 1) {
+      return "border-red-400/30 bg-red-950/25 text-red-200";
+    }
+
+    return "border-[rgba(105,217,123,0.30)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
+  }
+
+  if (index === activeStep) {
+    return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
+  }
+
+  return "border-white/10 bg-white/5 text-[#aeb9af]";
 }
 
 function InfoItem({
@@ -228,6 +312,16 @@ export default async function TrackPage({
     }
   }
 
+  const statusView = application ? getStatusView(application) : null;
+
+  const timeline = [
+    "تم استلام الطلب",
+    "المراجعة المبدئية",
+    "استكمال المطلوب",
+    "الدراسة النهائية",
+    "القرار",
+  ];
+
   return (
     <main
       dir="rtl"
@@ -255,12 +349,12 @@ export default async function TrackPage({
               </p>
 
               <h1 className="text-4xl font-black text-white">
-                تتبع طلب التمويل
+                تتبع طلب الموافقة المبدئية
               </h1>
 
               <p className="mx-auto mt-4 max-w-2xl text-sm font-bold leading-8 text-[#cbd6cb]">
                 أدخل رقم الهاتف المستخدم في الطلب مع رقم التتبع لمعرفة آخر حالة
-                للطلب، حالة الدفع، وتفاصيل الجهاز والتقسيط.
+                للطلب. إذا احتجنا أي إجراء إضافي سيتم التواصل معك عبر واتساب.
               </p>
             </div>
           </div>
@@ -312,7 +406,7 @@ export default async function TrackPage({
           </section>
         )}
 
-        {application && (
+        {application && statusView && (
           <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
@@ -327,11 +421,29 @@ export default async function TrackPage({
 
               <span
                 className={`inline-flex rounded-full border px-4 py-2 text-sm font-black ${badgeClass(
-                  application.status
+                  statusView.tone
                 )}`}
               >
-                {translateStatus(application.status)}
+                {statusView.title}
               </span>
+            </div>
+
+            <div className="mb-6 grid gap-2 md:grid-cols-5">
+              {timeline.map((item, index) => (
+                <div
+                  key={item}
+                  className={`rounded-2xl border px-3 py-3 text-center text-xs font-black ${timelineClass(
+                    index + 1,
+                    statusView.step,
+                    statusView.tone
+                  )}`}
+                >
+                  <div className="mb-1">
+                    {index + 1 < statusView.step ? "✓" : index + 1}
+                  </div>
+                  {item}
+                </div>
+              ))}
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
@@ -340,23 +452,20 @@ export default async function TrackPage({
                 label="تاريخ الطلب"
                 value={formatDate(application.created_at)}
               />
+              <InfoItem label="حالة الطلب" value={statusView.title} />
               <InfoItem
-                label="حالة الطلب"
-                value={translateStatus(application.status)}
-              />
-              <InfoItem
-                label="حالة الدفع"
+                label="حالة الخطوات المالية"
                 value={translatePaymentStatus(application.payment_status)}
               />
             </div>
 
             <div className="mt-5 rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-5">
               <h3 className="gold-text mb-2 text-base font-black">
-                ملاحظة الحالة
+                ماذا يعني هذا؟
               </h3>
 
               <p className="text-sm font-bold leading-8 text-[#d7ddd5]">
-                {getCustomerMessage(application)}
+                {statusView.message}
               </p>
             </div>
 
@@ -409,23 +518,25 @@ export default async function TrackPage({
               )}
             </div>
 
-            <div className="glass-panel-strong mt-6 rounded-[28px] p-5 shadow-sm">
-              <h3 className="gold-text mb-4 text-xl font-black">
-                معلومات الدفع
-              </h3>
+            {(application.payment_reference || application.paid_clicked_at) && (
+              <div className="glass-panel-strong mt-6 rounded-[28px] p-5 shadow-sm">
+                <h3 className="gold-text mb-4 text-xl font-black">
+                  معلومات خطوة الدفع
+                </h3>
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <InfoItem
-                  label="رقم الوصل / الحركة"
-                  value={application.payment_reference}
-                />
+                <div className="grid gap-4 md:grid-cols-2">
+                  <InfoItem
+                    label="مرجع الدفع"
+                    value={application.payment_reference}
+                  />
 
-                <InfoItem
-                  label="وقت تسجيل الدفع"
-                  value={formatDate(application.paid_clicked_at)}
-                />
+                  <InfoItem
+                    label="وقت تسجيل الدفع"
+                    value={formatDate(application.paid_clicked_at)}
+                  />
+                </div>
               </div>
-            </div>
+            )}
           </section>
         )}
       </div>
