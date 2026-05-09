@@ -332,11 +332,10 @@ function preliminaryPaymentMessage(app: ApplicationRecord) {
 
 رقم التتبع: ${tracking}
 
-كليك:
-AMEENPAY
-
-Orange Money:
-ABDULRAHMAN AL HARAHSHEH
+معلومات الدفع:
+اسم المستفيد: AMEENPAY
+اسم المحفظة: Orang-Money
+الاسم: ABDUL RAHMAN ALHARAHSHEH
 
 ملاحظة مهمة: دفع رسوم فتح الملف لا يعني الموافقة النهائية، ويتم استرداد الرسوم عند الموافقة وتوقيع عقد الاستلام.
 
