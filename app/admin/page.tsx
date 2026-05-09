@@ -20,6 +20,15 @@ type Application = {
   phone?: string | null;
   national_id?: string | null;
 
+  governorate?: string | null;
+  city_area?: string | null;
+  detailed_address?: string | null;
+  nearest_landmark?: string | null;
+  location_latitude?: number | string | null;
+  location_longitude?: number | string | null;
+  location_accuracy?: number | string | null;
+  location_captured_at?: string | null;
+
   city?: string | null;
   area?: string | null;
   address?: string | null;
@@ -44,8 +53,11 @@ type Application = {
 
 const STATUS_OPTIONS = [
   { value: "", label: "كل الحالات" },
-  { value: "submitted", label: "طلب جديد" },
-  { value: "pending_payment", label: "بانتظار الدفع" },
+  { value: "preliminary_application", label: "طلب مبدئي جديد" },
+  { value: "preliminary_qualified", label: "مؤهل مبدئياً" },
+  { value: "needs_salary_slip", label: "بحاجة كشف راتب" },
+  { value: "needs_guarantor", label: "بحاجة كفيل" },
+  { value: "guarantor_submitted", label: "تم إدخال الكفيل" },
   { value: "pending_payment_confirmation", label: "بانتظار تأكيد الدفع" },
   { value: "under_review", label: "قيد الدراسة" },
   { value: "approved", label: "مقبول" },
@@ -54,11 +66,12 @@ const STATUS_OPTIONS = [
 ];
 
 const PAYMENT_OPTIONS = [
-  { value: "", label: "كل حالات الدفع" },
+  { value: "", label: "كل حالات الخطوات المالية" },
+  { value: "not_requested_yet", label: "لم يُطلب الدفع بعد" },
   { value: "not_paid", label: "غير مدفوع" },
   { value: "pending", label: "بانتظار الدفع" },
   { value: "pending_payment", label: "بانتظار الدفع" },
-  { value: "customer_claimed_paid", label: "العميل ضغط تم الدفع" },
+  { value: "customer_claimed_paid", label: "العميل أرسل إشعار الدفع" },
   { value: "confirmed", label: "تم التأكيد" },
   { value: "rejected", label: "الدفع مرفوض" },
 ];
@@ -91,6 +104,16 @@ function formatMoney(value: number | string | null | undefined) {
 
 function translateStatus(status: string | null | undefined) {
   switch (status) {
+    case "preliminary_application":
+      return "طلب مبدئي جديد";
+    case "preliminary_qualified":
+      return "مؤهل مبدئياً";
+    case "needs_salary_slip":
+      return "بحاجة كشف راتب";
+    case "needs_guarantor":
+      return "بحاجة كفيل";
+    case "guarantor_submitted":
+      return "تم إدخال بيانات الكفيل";
     case "submitted":
       return "طلب جديد";
     case "pending_payment":
@@ -112,6 +135,8 @@ function translateStatus(status: string | null | undefined) {
 
 function translatePaymentStatus(status: string | null | undefined) {
   switch (status) {
+    case "not_requested_yet":
+      return "لم يُطلب الدفع بعد";
     case "not_paid":
       return "غير مدفوع";
     case "pending":
@@ -119,7 +144,7 @@ function translatePaymentStatus(status: string | null | undefined) {
     case "pending_payment":
       return "بانتظار الدفع";
     case "customer_claimed_paid":
-      return "العميل ضغط تم الدفع";
+      return "العميل أرسل إشعار الدفع";
     case "confirmed":
       return "تم التأكيد";
     case "rejected":
@@ -133,14 +158,21 @@ function statusClass(status: string | null | undefined) {
   switch (status) {
     case "approved":
     case "confirmed":
+    case "guarantor_submitted":
       return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
       return "border-red-400/30 bg-red-950/25 text-red-200";
+    case "preliminary_qualified":
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
     case "pending":
     case "pending_payment":
       return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
+    case "needs_salary_slip":
+    case "needs_guarantor":
+      return "border-purple-300/25 bg-purple-950/25 text-purple-100";
+    case "preliminary_application":
+    case "not_requested_yet":
     case "under_review":
       return "border-sky-300/25 bg-sky-950/20 text-sky-200";
     case "cancelled":
@@ -152,6 +184,18 @@ function statusClass(status: string | null | undefined) {
 
 function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
+}
+
+function hasGpsLocation(app: Application) {
+  return Boolean(app.location_latitude && app.location_longitude);
+}
+
+function displayGovernorate(app: Application) {
+  return app.governorate || app.city || "—";
+}
+
+function displayArea(app: Application) {
+  return app.city_area || app.area || "—";
 }
 
 function filterApplications(
@@ -173,6 +217,9 @@ function filterApplications(
         app.guarantor_name,
         app.guarantor_phone,
         app.device_name,
+        app.governorate,
+        app.city_area,
+        app.detailed_address,
       ]
         .filter(Boolean)
         .some((value) => String(value).toLowerCase().includes(search));
@@ -231,6 +278,18 @@ function CompactMobileRequest({ app }: { app: Application }) {
           <p className="mb-1 font-bold text-[#aeb9af]">الهاتف</p>
           <p className="truncate font-black text-white">{app.phone || "—"}</p>
         </div>
+
+        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
+          <p className="mb-1 font-bold text-[#aeb9af]">المحافظة</p>
+          <p className="truncate font-black text-white">{displayGovernorate(app)}</p>
+        </div>
+
+        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
+          <p className="mb-1 font-bold text-[#aeb9af]">GPS</p>
+          <p className="truncate font-black text-white">
+            {hasGpsLocation(app) ? "موجود" : "غير محدد"}
+          </p>
+        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -284,21 +343,24 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
   const totalApplications = safeApplications.length;
 
-  const pendingPaymentCount = safeApplications.filter(
+  const needsActionCount = safeApplications.filter(
     (app) =>
+      app.status === "needs_salary_slip" ||
+      app.status === "needs_guarantor" ||
       app.payment_status === "customer_claimed_paid" ||
       app.status === "pending_payment_confirmation"
   ).length;
 
-  const approvedCount = safeApplications.filter(
-    (app) => app.status === "approved"
+  const preliminaryCount = safeApplications.filter(
+    (app) => app.status === "preliminary_application" || !app.status
   ).length;
 
-  const newCount = safeApplications.filter(
-    (app) =>
-      app.status === "submitted" ||
-      app.status === "pending_payment" ||
-      !app.status
+  const qualifiedCount = safeApplications.filter(
+    (app) => app.status === "preliminary_qualified"
+  ).length;
+
+  const approvedCount = safeApplications.filter(
+    (app) => app.status === "approved"
   ).length;
 
   async function logoutAction() {
@@ -330,7 +392,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                 </h1>
 
                 <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-                  إدارة طلبات التمويل، متابعة الدفع، ومراجعة حالات العملاء.
+                  إدارة طلبات الموافقة المبدئية، مراجعة العملاء، وإرسال الإجراءات المطلوبة عبر واتساب.
                 </p>
               </div>
 
@@ -355,10 +417,11 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           </section>
         )}
 
-        <section className="grid gap-3 sm:gap-4 md:grid-cols-4">
+        <section className="grid gap-3 sm:gap-4 md:grid-cols-5">
           <StatBox label="إجمالي الطلبات" value={totalApplications} />
-          <StatBox label="الطلبات الجديدة" value={newCount} />
-          <StatBox label="بانتظار تأكيد الدفع" value={pendingPaymentCount} />
+          <StatBox label="طلبات مبدئية جديدة" value={preliminaryCount} />
+          <StatBox label="بحاجة إجراء" value={needsActionCount} />
+          <StatBox label="مؤهلين مبدئياً" value={qualifiedCount} />
           <StatBox label="طلبات مقبولة" value={approvedCount} />
         </section>
 
@@ -366,7 +429,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <div className="mb-4">
             <h2 className="text-lg font-black text-white">البحث والفلترة</h2>
             <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
-              ابحث بالاسم، الهاتف، رقم التتبع، الرقم الوطني، الكفيل أو الجهاز.
+              ابحث بالاسم، الهاتف، رقم التتبع، الرقم الوطني، المحافظة أو الجهاز.
             </p>
           </div>
 
@@ -425,11 +488,41 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
             <QuickFilter
               href={buildFilterHref({
                 q,
-                status: "pending_payment_confirmation",
+                status: "preliminary_application",
                 payment: selectedPayment,
               })}
-              label="بانتظار التأكيد"
+              label="مبدئية جديدة"
+              variant="blue"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
+                status: "preliminary_qualified",
+                payment: selectedPayment,
+              })}
+              label="مؤهلين"
               variant="gold"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
+                status: "needs_salary_slip",
+                payment: selectedPayment,
+              })}
+              label="كشف راتب"
+              variant="purple"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
+                status: "needs_guarantor",
+                payment: selectedPayment,
+              })}
+              label="كفيل"
+              variant="purple"
             />
 
             <QuickFilter
@@ -495,7 +588,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               <div className="hidden md:block">
                 <div className="overflow-hidden rounded-3xl border border-[rgba(214,181,107,0.14)]">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1100px] border-collapse text-right">
+                    <table className="w-full min-w-[1200px] border-collapse text-right">
                       <thead className="bg-[rgba(3,18,14,0.86)] text-white">
                         <tr>
                           <th className="px-4 py-4 text-sm font-black">
@@ -508,7 +601,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             الهاتف
                           </th>
                           <th className="px-4 py-4 text-sm font-black">
-                            المدينة
+                            المحافظة
+                          </th>
+                          <th className="px-4 py-4 text-sm font-black">
+                            GPS
                           </th>
                           <th className="px-4 py-4 text-sm font-black">
                             الراتب
@@ -550,7 +646,20 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             </td>
 
                             <td className="px-4 py-4 text-sm text-[#cbd6cb]">
-                              {app.city || app.area || "—"}
+                              {displayGovernorate(app)}
+                              {displayArea(app) !== "—" ? ` / ${displayArea(app)}` : ""}
+                            </td>
+
+                            <td className="px-4 py-4 text-sm">
+                              <span
+                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${
+                                  hasGpsLocation(app)
+                                    ? "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]"
+                                    : "border-white/10 bg-white/5 text-[#aeb9af]"
+                                }`}
+                              >
+                                {hasGpsLocation(app) ? "موجود" : "لا يوجد"}
+                              </span>
                             </td>
 
                             <td className="px-4 py-4 text-sm font-bold text-[#d7ddd5]">
@@ -624,7 +733,7 @@ function QuickFilter({
 }: {
   href: string;
   label: string;
-  variant: "neutral" | "gold" | "blue" | "green" | "red";
+  variant: "neutral" | "gold" | "blue" | "green" | "red" | "purple";
 }) {
   const classes = {
     neutral: "border-white/10 bg-white/5 text-[#d7ddd5]",
@@ -632,6 +741,7 @@ function QuickFilter({
     blue: "border-sky-300/25 bg-sky-950/20 text-sky-200",
     green: "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]",
     red: "border-red-400/30 bg-red-950/25 text-red-200",
+    purple: "border-purple-300/25 bg-purple-950/25 text-purple-100",
   };
 
   return (
