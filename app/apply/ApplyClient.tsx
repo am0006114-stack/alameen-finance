@@ -7,11 +7,7 @@ import { supabase } from "../../lib/supabase";
 import { getProductById } from "../../lib/products";
 import { calculateInstallment, formatJod } from "../../lib/installments";
 
-type UploadKey =
-  | "applicantIdFront"
-  | "applicantIdBack"
-  | "guarantorIdFront"
-  | "guarantorIdBack";
+type UploadKey = "applicantIdFront" | "applicantIdBack";
 
 type ExistingApplication = {
   id: string;
@@ -180,16 +176,6 @@ const uploadTypes: { key: UploadKey; type: string; label: string }[] = [
     type: "applicant_back",
     label: "هوية مقدم الطلب — الوجه الخلفي",
   },
-  {
-    key: "guarantorIdFront",
-    type: "guarantor_front",
-    label: "هوية الكفيل — الوجه الأمامي",
-  },
-  {
-    key: "guarantorIdBack",
-    type: "guarantor_back",
-    label: "هوية الكفيل — الوجه الخلفي",
-  },
 ];
 
 const guarantorRelationshipOptions = [
@@ -295,22 +281,16 @@ export default function ApplyPage() {
   const [files, setFiles] = useState<Record<UploadKey, File | null>>({
     applicantIdFront: null,
     applicantIdBack: null,
-    guarantorIdFront: null,
-    guarantorIdBack: null,
   });
 
   const [previewUrls, setPreviewUrls] = useState<Record<UploadKey, string>>({
     applicantIdFront: "",
     applicantIdBack: "",
-    guarantorIdFront: "",
-    guarantorIdBack: "",
   });
 
   const [progress, setProgress] = useState<Record<UploadKey, number>>({
     applicantIdFront: 0,
     applicantIdBack: 0,
-    guarantorIdFront: 0,
-    guarantorIdBack: 0,
   });
 
   useEffect(() => {
@@ -400,7 +380,6 @@ export default function ApplyPage() {
 
   async function checkDuplicateActiveApplication(params: {
     cleanNationalId: string;
-    cleanGuarantorNationalId: string;
   }) {
     const { data, error } = await supabase
       .from("applications")
@@ -592,8 +571,8 @@ export default function ApplyPage() {
           installmentMonths: selectedProduct ? selectedMonths : "",
           downPayment: selectedProduct ? selectedDownPayment : "",
           monthlyPayment: selectedInstallment?.monthly || "",
-          status: "pending_payment",
-          paymentStatus: "pending",
+          status: "preliminary_application",
+          paymentStatus: "not_requested_yet",
         }),
       });
 
@@ -710,8 +689,8 @@ export default function ApplyPage() {
 
     const cleanPhone = cleanDigits(phone);
     const cleanNationalId = cleanDigits(nationalId);
-    const cleanGuarantorPhone = cleanDigits(guarantorPhone);
-    const cleanGuarantorNationalId = cleanDigits(guarantorNationalId);
+    const cleanGuarantorPhone = "";
+    const cleanGuarantorNationalId = "";
     const salaryNumber = Number(salary);
     const requiredSalaryMinimum = getRequiredSalaryMinimum();
     const eligibilityPath = getEligibilityPath();
@@ -752,23 +731,6 @@ export default function ApplyPage() {
       return alert("الراتب الصافي يجب ألا يقل عن 290 دينار أردني");
     }
 
-    if (guarantorName.trim().split(/\s+/).length < 4) {
-      return alert("اسم الكفيل لازم يكون رباعي");
-    }
-
-    if (!validJordanPhone(cleanGuarantorPhone)) {
-      return alert(
-        "رقم هاتف الكفيل يجب أن يبدأ بـ 079 أو 078 أو 077 وأن يكون 10 أرقام"
-      );
-    }
-
-    if (!validNationalId(cleanGuarantorNationalId)) {
-      return alert("الرقم الوطني للكفيل يجب أن يبدأ بـ 9 أو 2 وأن يكون 10 أرقام");
-    }
-
-    if (cleanNationalId === cleanGuarantorNationalId) {
-      return alert("لا يمكن أن يكون مقدم الطلب هو نفس الكفيل.");
-    }
 
     for (const item of uploadTypes) {
       if (!files[item.key]) {
@@ -790,7 +752,6 @@ export default function ApplyPage() {
     try {
       const duplicateApplication = await checkDuplicateActiveApplication({
         cleanNationalId,
-        cleanGuarantorNationalId,
       });
 
       if (duplicateApplication) {
@@ -806,7 +767,7 @@ export default function ApplyPage() {
         return;
       }
 
-      updateSubmissionStatus("جاري إنشاء طلب التمويل وحفظ البيانات...", 28);
+      updateSubmissionStatus("جاري إنشاء طلب الموافقة المبدئية وحفظ البيانات...", 28);
 
       const trackingId = "AM-" + Date.now();
       const deadlineMs = Date.now() + 60 * 60 * 1000;
@@ -841,9 +802,9 @@ export default function ApplyPage() {
 
           social_security: applicantSocialSecurity,
           applicant_social_security: applicantSocialSecurity,
-          guarantor_social_security: guarantorSocialSecurity,
-          guarantor_relationship: translateRelationship(guarantorRelationship),
-          guarantor_national_id: cleanGuarantorNationalId,
+          guarantor_social_security: false,
+          guarantor_relationship: null,
+          guarantor_national_id: null,
           eligibility_path: eligibilityPath,
 
           device_id: selectedProduct?.id || null,
@@ -863,20 +824,20 @@ export default function ApplyPage() {
             ? selectedInstallment?.totalWithInterest || null
             : null,
 
-          guarantor_name: guarantorName.trim(),
-          guarantor_phone: cleanGuarantorPhone,
+          guarantor_name: null,
+          guarantor_phone: null,
           financial_clear: financialClear,
           terms_accepted: termsAccepted,
-          status: "pending_payment",
-          payment_status: "pending",
-          payment_deadline: paymentDeadline,
+          status: "preliminary_application",
+          payment_status: "not_requested_yet",
+          payment_deadline: null,
         })
         .select()
         .single();
 
       if (appError) throw appError;
 
-      updateSubmissionStatus("جاري رفع صور الهويات والوثائق...", 45);
+      updateSubmissionStatus("جاري رفع صور هوية مقدم الطلب...", 45);
 
       for (const [index, item] of uploadTypes.entries()) {
         updateSubmissionStatus(
@@ -911,14 +872,13 @@ export default function ApplyPage() {
         eligibilityPath,
       });
 
-      updateSubmissionStatus("تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع...", 100);
+      updateSubmissionStatus("تم استلام الطلب بنجاح، بانتظار مراجعة الإدارة...", 100);
       setShowPaymentTransition(true);
-      setPaymentDeadlineTime(deadlineMs);
-      setTimeLeft(60 * 60);
+      setPaymentDeadlineTime(null);
+      setTimeLeft(0);
 
-      // مهم: نخلي شاشة جاري تقديم الطلب ظاهرة بوضوح قبل الانتقال لصفحة الدفع
-      // حتى العميل ما يحس الصفحة علّقت أو اختفت فجأة.
-      await wait(4200);
+      // نخلي شاشة جاري تقديم الطلب ظاهرة بوضوح حتى العميل يعرف أن الطلب وصل.
+      await wait(2800);
 
       setSuccessTrackingId(trackingId);
       setSuccessApplicationId(application.id);
@@ -934,7 +894,7 @@ export default function ApplyPage() {
     }
   }
 
-  if (successTrackingId && paymentCompleted) {
+  if (successTrackingId) {
     const trackHref = `/track?phone=${encodeURIComponent(
       cleanDigits(phone)
     )}&tracking=${encodeURIComponent(successTrackingId)}`;
@@ -946,7 +906,7 @@ export default function ApplyPage() {
       >
         {showPaymentTransition && (
           <SubmittingOverlay
-            message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..."
+            message="تم استلام الطلب بنجاح، بانتظار مراجعة الإدارة..."
             progress={100}
           />
         )}
@@ -957,16 +917,15 @@ export default function ApplyPage() {
           </div>
 
           <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-4 py-2 text-sm text-[#b8f3c0]">
-            تم تسجيل الدفع بنجاح
+            تم إرسال الطلب المبدئي بنجاح
           </div>
 
-          <h1 className="text-4xl font-black">
-            طلبك الآن بانتظار تأكيد الإدارة
-          </h1>
+          <h1 className="text-4xl font-black">طلبك وصل للإدارة</h1>
 
           <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#d7ddd5]">
-            تم رفع صورة وصل الدفع، وسيتم التحقق من الدفع من قبل الإدارة.
-            بعد التأكيد سيتم تحويل الطلب إلى مرحلة الدراسة.
+            تم استلام طلبك كموافقة مبدئية. لن يُطلب منك الدفع الآن. ستقوم
+            الإدارة بمراجعة البيانات أولًا، ثم سيتم التواصل معك عبر واتساب حسب
+            نتيجة المراجعة: مؤهل مبدئيًا، بحاجة كشف راتب، بحاجة كفيل، أو مرفوض.
           </p>
 
           <div className="mt-8 grid gap-4 text-right md:grid-cols-2">
@@ -979,12 +938,22 @@ export default function ApplyPage() {
             </div>
 
             <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <p className="text-sm text-[#aeb9af]">وصل الدفع</p>
+              <p className="text-sm text-[#aeb9af]">حالة الطلب</p>
 
               <p className="mt-2 break-words text-2xl font-black text-[#69d97b]">
-                تم رفع صورة الوصل ✅
+                طلب مبدئي قيد المراجعة
               </p>
             </div>
+          </div>
+
+          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 text-right leading-8 text-[#d7ddd5]">
+            <p className="font-black text-[#f3dfac]">ماذا يحدث بعد ذلك؟</p>
+            <ul className="mt-3 list-disc space-y-2 pr-5 text-sm">
+              <li>إذا كان الطلب مؤهلًا مبدئيًا، سيتم إرسال تعليمات دفع رسوم فتح الملف 5 دنانير.</li>
+              <li>إذا احتجنا كشف راتب، سيتم إرسال طلب واضح عبر واتساب.</li>
+              <li>إذا احتجنا كفيل، سيتم إرسال رابط خاص لإدخال بيانات الكفيل ورفع هويته.</li>
+              <li>إذا لم تنطبق الشروط، سيتم إبلاغك بالنتيجة.</li>
+            </ul>
           </div>
 
           <div className="mt-8 grid gap-3 sm:grid-cols-2">
@@ -1001,223 +970,6 @@ export default function ApplyPage() {
             >
               العودة للرئيسية
             </Link>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5 text-sm leading-8 text-[#d7ddd5]">
-            احتفظ برقم التتبع وصورة الوصل. قد تتواصل الإدارة معك للتأكد من
-            العملية قبل بدء دراسة الطلب.
-          </div>
-        </div>
-      </main>
-    );
-  }
-
-  if (successTrackingId) {
-    return (
-      <main
-        dir="rtl"
-        className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
-      >
-        {showPaymentTransition && (
-          <SubmittingOverlay
-            message="تم استلام الطلب بنجاح، جاري تجهيز صفحة الدفع..."
-            progress={100}
-          />
-        )}
-
-        <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 shadow-2xl">
-          <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-4 py-2 text-sm text-[#b8f3c0]">
-            تم استلام الطلب بنجاح ✅
-          </div>
-
-          <h1 className="text-4xl font-black">
-            خطوة الدفع لاستكمال المراجعة
-          </h1>
-
-          <p className="mt-4 leading-8 text-[#d7ddd5]">
-            رقم طلبك هو:
-            <strong className="mx-2 text-[#f3dfac]">
-              {successTrackingId}
-            </strong>
-            يرجى دفع رسوم فتح الملف قبل انتهاء المهلة حتى لا يتم إلغاء الطلب
-            تلقائيًا.
-          </p>
-
-          {selectedProduct && selectedInstallment && (
-            <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5">
-              <h2 className="text-xl font-black text-[#f3dfac]">
-                ملخص الجهاز
-              </h2>
-
-              <div className="mt-4 grid gap-3 text-sm leading-7 text-[#d7ddd5] md:grid-cols-2">
-                <p>الجهاز: {selectedProduct.name}</p>
-                <p>الموديل: {selectedProduct.model}</p>
-                <p>السعر: {formatJod(selectedProduct.price)}</p>
-                <p>مدة التقسيط: {selectedMonths} شهر</p>
-                <p>
-                  الدفعة الأولى: {formatJod(selectedInstallment.downPayment)}
-                </p>
-                <p>
-                  القسط التقريبي: {formatJod(selectedInstallment.monthly)} /
-                  شهر
-                </p>
-
-                {selectedDeviceColor && (
-                  <p className="md:col-span-2">
-                    اللون المطلوب: {selectedDeviceColor}
-                  </p>
-                )}
-
-                {deviceColorNote.trim() && (
-                  <p className="md:col-span-2">
-                    ملاحظة اللون: {deviceColorNote.trim()}
-                  </p>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="mt-6 rounded-2xl border border-red-700 bg-red-950/30 p-5 text-center">
-            <p className="text-sm text-[#d7ddd5]">
-              الوقت المتبقي قبل إلغاء الطلب
-            </p>
-
-            <p className="mt-2 text-4xl font-black text-red-300">
-              {formatCountdown(timeLeft)}
-            </p>
-
-            <p className="mt-2 text-sm text-[#aeb9af]">
-              مدة الدفع المتاحة: ساعة واحدة فقط
-            </p>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5">
-            <p className="text-xl font-black text-[#f3dfac]">
-              رسوم فتح الملف: 5 دنانير
-            </p>
-
-            <p className="mt-2 text-sm text-[#d7ddd5]">
-              يتم استرداد رسوم فتح الملف عند الموافقة على الطلب وتوقيع عقد الاستلام. دفع الرسوم لا يعني الموافقة النهائية على التقسيط.
-            </p>
-          </div>
-
-          <div className="mt-6 space-y-4">
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <h2 className="text-2xl font-bold">كليك</h2>
-
-              <p className="mt-3 text-[#d7ddd5]">اسم كليك:</p>
-
-              <div className="mt-2 rounded-xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)] p-4 font-black text-[#f3dfac]">
-                AMEENPAY
-              </div>
-            </div>
-
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <h2 className="text-2xl font-bold">Orange Money</h2>
-
-              <p className="mt-3 text-[#d7ddd5]">
-                اسم المستفيد مخفي لحماية الخصوصية.
-              </p>
-
-              {!showBeneficiaryName ? (
-                <button
-                  type="button"
-                  onClick={() => setShowBeneficiaryName(true)}
-                  className="mt-4 rounded-xl bg-[#d6b56b] px-5 py-3 font-black text-black"
-                >
-                  إظهار اسم المستفيد
-                </button>
-              ) : (
-                <div className="mt-4 rounded-xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)] p-4 font-bold text-[#f3dfac]">
-                  ABDULRAHMAN AL HARAHSHEH
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-            <label className="mb-3 block text-lg font-black text-white">
-              صورة / سكرين شوت وصل الدفع
-            </label>
-
-            <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[rgba(214,181,107,0.34)] bg-[rgba(255,255,255,0.035)] p-5 text-center transition hover:bg-[rgba(255,255,255,0.06)]">
-              <span className="text-base font-black text-[#f3dfac]">
-                رفع صورة الوصل
-              </span>
-
-              <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
-                ارفع صورة أو سكرين شوت واضح يبيّن عملية الدفع. الصيغ المقبولة:
-                JPG أو PNG.
-              </span>
-
-              <input
-                type="file"
-                accept="image/png,image/jpeg"
-                onChange={(e) =>
-                  handlePaymentReceiptChange(e.target.files?.[0] || null)
-                }
-                className="hidden"
-              />
-            </label>
-
-            {paymentReceiptFile && (
-              <div className="mt-4 space-y-3">
-                {paymentReceiptPreviewUrl && (
-                  <div className="overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)]">
-                    <img
-                      src={paymentReceiptPreviewUrl}
-                      alt="صورة وصل الدفع"
-                      className="max-h-80 w-full object-contain"
-                    />
-                  </div>
-                )}
-
-                <p className="break-words text-sm text-[#d7ddd5]">
-                  {paymentReceiptFile.name} —{" "}
-                  {(paymentReceiptFile.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-
-                <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
-                  <div
-                    className="h-full bg-gradient-to-l from-[#d6b56b] to-[#69d97b] transition-all duration-300"
-                    style={{ width: `${paymentReceiptProgress}%` }}
-                  />
-                </div>
-
-                <p className="text-sm text-[#f3dfac]">
-                  {paymentReceiptProgress < 100
-                    ? `جارٍ تجهيز صورة الوصل... ${paymentReceiptProgress}%`
-                    : "تم تجهيز صورة الوصل 100% ✅"}
-                </p>
-
-                <button
-                  type="button"
-                  onClick={removePaymentReceipt}
-                  className="rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-2 text-sm font-black text-red-300 transition hover:bg-red-950"
-                >
-                  حذف صورة الوصل ورفع صورة أخرى
-                </button>
-              </div>
-            )}
-
-            <p className="mt-3 text-sm leading-7 text-[#aeb9af]">
-              يجب رفع صورة الوصل قبل الضغط على تأكيد الدفع حتى تتمكن الإدارة من
-              مطابقة العملية بسرعة.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={markPaidClicked}
-            disabled={paidClicked || timeLeft === 0}
-            className="green-button mt-6 w-full rounded-2xl p-5 text-lg font-black shadow-2xl transition disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {paidClicked ? "جاري رفع الوصل وتسجيل الدفع..." : "تأكيد الدفع"}
-          </button>
-
-          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5 leading-8 text-[#d7ddd5]">
-            بعد الضغط على “تأكيد الدفع”، سيتم رفع صورة الوصل ووضع الطلب بانتظار
-            تأكيد الإدارة. احتفظ بصورة الوصل الأصلية لأن الإدارة قد تطلبها منك.
           </div>
         </div>
       </main>
@@ -1243,12 +995,11 @@ export default function ApplyPage() {
           </div>
 
           <h1 className="text-4xl font-black leading-tight md:text-6xl">
-            قدّم طلب التقسيط خلال دقائق
+            احصل على موافقة مبدئية خلال دقائق
           </h1>
 
           <p className="mt-4 max-w-2xl text-[#d7ddd5]">
-            عبّئ البيانات بدقة، ارفع صور الهويات المطلوبة، وبعد تقديم الطلب يتم
-            دفع رسوم فتح الملف 5 دنانير لاستكمال مراجعة الملف والتقييم الأولي، ويتم استردادها عند الموافقة على الطلب وتوقيع عقد الاستلام.
+            عبّئ بياناتك الأساسية فقط وارفع هوية مقدم الطلب. لن يتم طلب الدفع أو الكفيل في هذه المرحلة؛ الإدارة تراجع الطلب أولًا ثم تتواصل معك عبر واتساب عند الحاجة.
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -1571,94 +1322,32 @@ export default function ApplyPage() {
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">4. بيانات الكفيل</h2>
+            <h2 className="mb-4 text-2xl font-bold">4. ملاحظة بخصوص الكفيل</h2>
 
-            <div className="space-y-4">
-              <input
-                name="guarantor-name"
-                autoComplete="off"
-                className={inputClass}
-                placeholder="اسم الكفيل الرباعي"
-                value={guarantorName}
-                onChange={(e) => setGuarantorName(e.target.value)}
-              />
+            <div className="rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(7,49,38,0.45)] p-5 leading-8 text-[#d7ddd5]">
+              <p className="text-lg font-black text-[#b8f3c0]">
+                لا نطلب كفيل أثناء التسجيل المبدئي.
+              </p>
 
-              <input
-                name="guarantor-national-id"
-                autoComplete="off"
-                inputMode="numeric"
-                className={inputClass}
-                placeholder="الرقم الوطني للكفيل: يبدأ بـ 9 أو 2 — 10 أرقام"
-                value={guarantorNationalId}
-                maxLength={10}
-                onChange={(e) =>
-                  setGuarantorNationalId(
-                    cleanDigits(e.target.value).slice(0, 10)
-                  )
-                }
-              />
-
-              <input
-                name="guarantor-tel"
-                autoComplete="off"
-                inputMode="tel"
-                className={inputClass}
-                placeholder="رقم هاتف الكفيل: 079 / 078 / 077"
-                value={guarantorPhone}
-                maxLength={10}
-                onChange={(e) =>
-                  setGuarantorPhone(cleanDigits(e.target.value).slice(0, 10))
-                }
-              />
-
-              <div className="space-y-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.07)] p-4">
-                <p className="font-bold text-[#f3dfac]">
-                  معلومات إضافية عن الكفيل <span className="text-[#aeb9af]">(اختيارية)</span>
-                </p>
-
-                <label className={labelBoxClass}>
-                  <input
-                    type="checkbox"
-                    checked={guarantorSocialSecurity}
-                    onChange={(e) =>
-                      setGuarantorSocialSecurity(e.target.checked)
-                    }
-                  />
-
-                  <span>الكفيل مشترك بالضمان الاجتماعي</span>
-                </label>
-
-                <select
-                  className={inputClass}
-                  value={guarantorRelationship}
-                  onChange={(e) => setGuarantorRelationship(e.target.value)}
-                >
-                  {guarantorRelationshipOptions.map((option) => (
-                    <option key={option.value || "empty"} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
-                <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4 text-sm leading-7 text-[#d7ddd5]">
-                  هذه المعلومات اختيارية وتساعد الإدارة على دراسة الطلب بشكل أوضح، لكنها ليست شرطًا إلزاميًا لإرسال الطلب. يمكن للكفيل تقديم طلب مستقل لاحقًا، ويمكن أن يكفل مقدم الطلب كفيله في طلب منفصل.
-                </div>
-              </div>
+              <p className="mt-3 text-sm font-bold">
+                قد يتم طلب كفيل لاحقًا حسب نتيجة دراسة الطلب. في حال احتجنا
+                كفيل، سيتم إرسال رابط خاص عبر واتساب لإدخال بيانات الكفيل ورفع
+                صور هويته داخل الموقع حتى يكتمل ملف العميل بشكل مرتب.
+              </p>
             </div>
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-2 text-2xl font-bold">5. رفع صور الهويات</h2>
+            <h2 className="mb-2 text-2xl font-bold">5. رفع هوية مقدم الطلب</h2>
 
             <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
-              يمكنك اختيار صور الهويات من معرض الصور أو الملفات، أو تصويرها مباشرة
-              إذا رغبت. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
+              ارفع صورة هوية مقدم الطلب فقط: الوجه الأمامي والوجه الخلفي. يمكن اختيار الصور من المعرض أو تصويرها مباشرة. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
             </p>
 
             <div className="mb-5 grid gap-3 md:grid-cols-3">
               <TrustCard
                 title="لماذا نطلب الهوية؟"
-                text="للتحقق من بيانات مقدم الطلب والكفيل ودراسة أهلية التمويل فقط."
+                text="للتحقق من بيانات مقدم الطلب ودراسة أهلية التمويل فقط."
               />
               <TrustCard
                 title="استخدام محدود"
@@ -1777,10 +1466,10 @@ export default function ApplyPage() {
             </label>
 
             <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 leading-8">
-              <strong>رسوم فتح الملف:</strong> 5 دنانير، تُدفع
-              بعد تقديم الطلب عبر كليك أو إي فواتيركم أو محفظة إلكترونية
-              معتمدة، لاستكمال مراجعة الملف والتقييم الأولي. يتم استرداد رسوم فتح الملف عند الموافقة على الطلب وتوقيع عقد الاستلام. دفع الرسوم لا يعني
-              الموافقة النهائية على طلب التقسيط.
+              <strong>رسوم فتح الملف:</strong> لا تُدفع أثناء إرسال الطلب المبدئي.
+              إذا كان الطلب مؤهلًا مبدئيًا، سترسل الإدارة تعليمات دفع رسوم فتح الملف
+              5 دنانير عبر واتساب لاستكمال المراجعة. يتم استرداد الرسوم عند الموافقة
+              على الطلب وتوقيع عقد الاستلام. دفع الرسوم لا يعني الموافقة النهائية.
             </div>
           </section>
 
@@ -1801,15 +1490,14 @@ export default function ApplyPage() {
                 <li>الحد الأدنى للراتب الصافي لقبول دراسة الطلب هو 290 دينار أردني.</li>
                 <li>لا يشترط أن يكون مقدم الطلب مسجلًا في الضمان الاجتماعي.</li>
                 <li>خيار الضمان الاجتماعي موجود كمعلومة إضافية تساعد في دراسة الطلب، لكنه غير إلزامي.</li>
-                <li>وجود كفيل مطلوب لإرسال الطلب، أما اشتراك الكفيل في الضمان الاجتماعي فهو خيار إضافي غير إلزامي.</li>
+                <li>الكفيل غير مطلوب أثناء التسجيل المبدئي، وقد يتم طلبه لاحقًا حسب نتيجة دراسة الطلب.</li>
                 <li>
                   لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب. ويمكن للكفيل
                   تقديم طلب مستقل، كما يمكن أن يكفل مقدم الطلب كفيله في طلب
                   منفصل.
                 </li>
                 <li>
-                  يجب تقديم هوية شخصية سارية لمقدم الطلب والكفيل، وجه أمامي
-                  وخلفي.
+                  يجب تقديم هوية شخصية سارية لمقدم الطلب، وجه أمامي وخلفي.
                 </li>
                 <li>
                   صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق
@@ -1900,7 +1588,7 @@ function SubmittingOverlay({
     { label: "فحص البيانات", active: safeProgress >= 8, done: safeProgress >= 25 },
     { label: "حفظ الطلب", active: safeProgress >= 28, done: safeProgress >= 45 },
     { label: "رفع الوثائق", active: safeProgress >= 45, done: safeProgress >= 84 },
-    { label: "تجهيز الدفع", active: safeProgress >= 84, done: safeProgress >= 100 },
+    { label: "تنبيه الإدارة", active: safeProgress >= 84, done: safeProgress >= 100 },
   ];
 
   return (
