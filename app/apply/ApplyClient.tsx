@@ -305,6 +305,63 @@ export default function ApplyPage() {
     applicantIdBack: 0,
   });
 
+  // ---- 🚀 إضافة تكتيكات الضغط ----
+  const [offerTimeLeft, setOfferTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
+  const [visitorCount, setVisitorCount] = useState(9); // عدد وهمي للمتقدمين الآن
+  const [sessionExpiresIn, setSessionExpiresIn] = useState(15 * 60); // 15 دقيقة بالثواني
+
+  // تحديث مؤقت العرض كل ثانية
+  useEffect(() => {
+    const calcTimeLeft = () => {
+      const now = new Date();
+      const end = new Date();
+      end.setHours(23, 59, 59, 999); // ينتهي العرض بنهاية اليوم
+      const diff = end.getTime() - now.getTime();
+
+      if (diff <= 0) {
+        setOfferTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
+        return;
+      }
+
+      const hours = Math.floor(diff / (1000 * 60 * 60));
+      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+      setOfferTimeLeft({ hours, minutes, seconds });
+    };
+
+    calcTimeLeft();
+    const interval = setInterval(calcTimeLeft, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // تحديث عدد الزوار الوهمي كل 30 ثانية
+  useEffect(() => {
+    const updateVisitor = () => {
+      const newVal = Math.floor(Math.random() * 10) + 5; // بين 5 و 14
+      setVisitorCount(newVal);
+    };
+    updateVisitor();
+    const interval = setInterval(updateVisitor, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // مؤقت انتهاء الجلسة في خطوة المراجعة
+  useEffect(() => {
+    if (currentStep !== 4 || isSubmitting) return;
+    const interval = setInterval(() => {
+      setSessionExpiresIn((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [currentStep, isSubmitting]);
+
+  const formatTime = (totalSeconds: number) => {
+    const m = Math.floor(totalSeconds / 60);
+    const s = totalSeconds % 60;
+    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+  };
+
+  // ------------------------------------
+
   useEffect(() => {
     setSelectedDeviceColor("");
     setDeviceColorNote("");
@@ -987,6 +1044,23 @@ export default function ApplyPage() {
         />
       )}
 
+      {/* 🚀 بانر الضغط العلوي مع عد تنازلي */}
+      <div className="mx-auto max-w-5xl mb-6">
+        <div className="rounded-2xl border border-[rgba(214,181,107,0.5)] bg-gradient-to-l from-[#d6b56b]/20 via-[#69d97b]/10 to-[#03120e] p-4 text-center shadow-2xl">
+          <p className="text-lg font-black text-[#f3dfac] flex items-center justify-center gap-2">
+            ⚡ العرض محدود – بادر الآن!
+            <span className="inline-flex items-center gap-1 rounded-full bg-black/30 px-3 py-1 text-sm">
+              ينتهي خلال {String(offerTimeLeft.hours).padStart(2, '0')}:
+              {String(offerTimeLeft.minutes).padStart(2, '0')}:
+              {String(offerTimeLeft.seconds).padStart(2, '0')}
+            </span>
+          </p>
+          <p className="mt-2 text-sm font-bold text-[#d7ddd5]">
+            🟢 {visitorCount} أشخاص يتصفحون هذه الصفحة الآن – لا تفوّت فرصتك!
+          </p>
+        </div>
+      </div>
+
       <div className="mx-auto max-w-5xl">
         <div className="site-shell pattern-lines mb-8 rounded-[2rem] p-8 shadow-2xl">
           <div className="gold-chip mb-4 inline-flex rounded-full px-4 py-2 text-sm font-black">
@@ -1022,9 +1096,15 @@ export default function ApplyPage() {
           <section className="glass-panel gold-outline mb-6 rounded-3xl p-5 shadow-2xl">
             <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-bold text-[#f3dfac]">
-                  الجهاز المختار
-                </p>
+                <div className="flex items-center gap-2 mb-1">
+                  <p className="text-sm font-bold text-[#f3dfac]">
+                    الجهاز المختار
+                  </p>
+                  {/* 🚀 شارة المخزون المحدود */}
+                  <span className="inline-flex items-center rounded-full bg-red-600/20 px-2 py-0.5 text-xs font-black text-red-300 border border-red-500/30">
+                    ⚠️ مخزون محدود
+                  </span>
+                </div>
 
                 <h2 className="mt-2 text-2xl font-black text-white">
                   {selectedProduct.name}
@@ -1459,9 +1539,15 @@ export default function ApplyPage() {
                 <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
                   <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
                     <div>
-                      <p className="text-sm font-bold text-[#f3dfac]">
-                        الجهاز المختار
-                      </p>
+                      <div className="flex items-center gap-2 mb-1">
+                        <p className="text-sm font-bold text-[#f3dfac]">
+                          الجهاز المختار
+                        </p>
+                        {/* 🚀 شارة المخزون المحدود في خطوة 3 أيضاً */}
+                        <span className="inline-flex items-center rounded-full bg-red-600/20 px-2 py-0.5 text-xs font-black text-red-300 border border-red-500/30">
+                          ⚠️ مخزون محدود
+                        </span>
+                      </div>
 
                       <h2 className="mt-2 text-2xl font-black text-white">
                         {selectedProduct.name}
@@ -1682,6 +1768,18 @@ export default function ApplyPage() {
               <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
                 <h2 className="mb-4 text-2xl font-bold">4. المراجعة والإقرار النهائي</h2>
 
+                {/* 🚀 تنبيه انتهاء الجلسة مع مؤقت */}
+                {sessionExpiresIn > 0 && (
+                  <div className="mb-5 rounded-2xl border border-red-400/30 bg-red-950/20 p-4 flex items-center justify-between">
+                    <span className="text-sm font-black text-red-200">
+                      ⏳ سارع! سيتم حذف الطلب غير المكتمل بعد {formatTime(sessionExpiresIn)} دقيقة
+                    </span>
+                    <span className="text-lg font-black text-red-300">
+                      {formatTime(sessionExpiresIn)}
+                    </span>
+                  </div>
+                )}
+
                 <div className="mb-5 grid gap-3 md:grid-cols-2">
                   <InfoBox label="الاسم" value={fullName || "—"} />
                   <InfoBox label="الهاتف" value={phone || "—"} />
@@ -1875,6 +1973,11 @@ function SubmittingOverlay({
 
         <p className="mt-4 min-h-[56px] text-sm font-bold leading-7 text-[#d7ddd5]">
           {message || "يتم الآن معالجة الطلب ورفع الوثائق، يرجى الانتظار."}
+        </p>
+
+        {/* 🚀 رسالة تحفيزية في الـ overlay */}
+        <p className="mt-2 text-xs font-bold text-[#f3dfac]">
+          ⚡ نضمن معالجة طلبك قبل انتهاء العرض المحدود
         </p>
 
         <div className="mt-5 h-4 overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
