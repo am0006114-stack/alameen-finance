@@ -178,25 +178,6 @@ const uploadTypes: { key: UploadKey; type: string; label: string }[] = [
   },
 ];
 
-const guarantorRelationshipOptions = [
-  { value: "", label: "اختر صلة القرابة" },
-  { value: "father", label: "الأب" },
-  { value: "mother", label: "الأم" },
-  { value: "brother", label: "الأخ" },
-  { value: "sister", label: "الأخت" },
-  { value: "son", label: "الابن" },
-  { value: "daughter", label: "الابنة" },
-  { value: "spouse", label: "الزوج / الزوجة" },
-];
-
-function translateRelationship(value: string) {
-  const found = guarantorRelationshipOptions.find(
-    (item) => item.value === value
-  );
-
-  return found?.label || value || "";
-}
-
 function safeNumber(value: string | null, fallback: number) {
   const parsed = Number(value);
 
@@ -251,13 +232,6 @@ export default function ApplyPage() {
   const [deviceColorNote, setDeviceColorNote] = useState("");
 
   const [applicantSocialSecurity, setApplicantSocialSecurity] = useState(true);
-  const [guarantorSocialSecurity, setGuarantorSocialSecurity] = useState(false);
-  const [guarantorRelationship, setGuarantorRelationship] = useState("");
-
-  const [guarantorName, setGuarantorName] = useState("");
-  const [guarantorPhone, setGuarantorPhone] = useState("");
-  const [guarantorNationalId, setGuarantorNationalId] = useState("");
-
   const [financialClear, setFinancialClear] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -266,18 +240,6 @@ export default function ApplyPage() {
   const [showPaymentTransition, setShowPaymentTransition] = useState(false);
 
   const [successTrackingId, setSuccessTrackingId] = useState("");
-  const [successApplicationId, setSuccessApplicationId] = useState("");
-  const [paymentDeadlineTime, setPaymentDeadlineTime] = useState<number | null>(
-    null
-  );
-  const [timeLeft, setTimeLeft] = useState(60 * 60);
-  const [showBeneficiaryName, setShowBeneficiaryName] = useState(false);
-  const [paidClicked, setPaidClicked] = useState(false);
-  const [paymentReceiptFile, setPaymentReceiptFile] = useState<File | null>(null);
-  const [paymentReceiptPreviewUrl, setPaymentReceiptPreviewUrl] = useState("");
-  const [paymentReceiptProgress, setPaymentReceiptProgress] = useState(0);
-  const [paymentCompleted, setPaymentCompleted] = useState(false);
-
   const [files, setFiles] = useState<Record<UploadKey, File | null>>({
     applicantIdFront: null,
     applicantIdBack: null,
@@ -299,41 +261,22 @@ export default function ApplyPage() {
   }, [selectedProduct?.id]);
 
   useEffect(() => {
-    if (!successTrackingId || paymentCompleted) return;
+    if (!successTrackingId) return;
 
     const timeout = window.setTimeout(() => {
       setShowPaymentTransition(false);
     }, 2500);
 
     return () => window.clearTimeout(timeout);
-  }, [successTrackingId, paymentCompleted]);
-
-  useEffect(() => {
-    if (!paymentDeadlineTime) return;
-
-    const interval = setInterval(() => {
-      const remaining = Math.max(
-        0,
-        Math.floor((paymentDeadlineTime - Date.now()) / 1000)
-      );
-
-      setTimeLeft(remaining);
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [paymentDeadlineTime]);
+  }, [successTrackingId]);
 
   useEffect(() => {
     return () => {
       Object.values(previewUrls).forEach((url) => {
         if (url) URL.revokeObjectURL(url);
       });
-
-      if (paymentReceiptPreviewUrl) {
-        URL.revokeObjectURL(paymentReceiptPreviewUrl);
-      }
     };
-  }, [previewUrls, paymentReceiptPreviewUrl]);
+  }, [previewUrls]);
 
   const inputClass =
     "w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] p-4 text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10";
@@ -351,17 +294,6 @@ export default function ApplyPage() {
 
   function validNationalId(value: string) {
     return /^[92][0-9]{9}$/.test(value);
-  }
-
-  function formatCountdown(seconds: number) {
-    const h = Math.floor(seconds / 3600);
-    const m = Math.floor((seconds % 3600) / 60);
-    const s = seconds % 60;
-
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(
-      2,
-      "0"
-    )}:${String(s).padStart(2, "0")}`;
   }
 
   function getEligibilityPath() {
@@ -469,51 +401,6 @@ export default function ApplyPage() {
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
   }
 
-  function handlePaymentReceiptChange(file: File | null) {
-    if (!file) return;
-
-    const allowedTypes = ["image/jpeg", "image/png"];
-    const maxSize = 5 * 1024 * 1024;
-
-    if (!allowedTypes.includes(file.type)) {
-      alert("يُسمح فقط برفع صورة وصل بصيغة JPG أو PNG");
-      return;
-    }
-
-    if (file.size > maxSize) {
-      alert("حجم صورة الوصل يجب ألا يتجاوز 5MB");
-      return;
-    }
-
-    if (paymentReceiptPreviewUrl) {
-      URL.revokeObjectURL(paymentReceiptPreviewUrl);
-    }
-
-    setPaymentReceiptFile(file);
-    setPaymentReceiptPreviewUrl(URL.createObjectURL(file));
-    setPaymentReceiptProgress(0);
-
-    let value = 0;
-    const interval = window.setInterval(() => {
-      value += 10;
-      setPaymentReceiptProgress(value > 100 ? 100 : value);
-
-      if (value >= 100) {
-        window.clearInterval(interval);
-      }
-    }, 80);
-  }
-
-  function removePaymentReceipt() {
-    if (paymentReceiptPreviewUrl) {
-      URL.revokeObjectURL(paymentReceiptPreviewUrl);
-    }
-
-    setPaymentReceiptFile(null);
-    setPaymentReceiptPreviewUrl("");
-    setPaymentReceiptProgress(0);
-  }
-
   async function uploadFile(file: File, path: string) {
     const { error } = await supabase.storage
       .from("documents")
@@ -532,8 +419,6 @@ export default function ApplyPage() {
   async function sendApplicationCreatedDiscordNotification(params: {
     trackingId: string;
     cleanPhone: string;
-    cleanGuarantorPhone: string;
-    cleanGuarantorNationalId: string;
     eligibilityPath: string;
   }) {
     try {
@@ -550,12 +435,7 @@ export default function ApplyPage() {
           governorate,
           cityArea: cityArea.trim(),
           salary: Number(salary),
-          guarantorName: guarantorName.trim(),
-          guarantorPhone: params.cleanGuarantorPhone,
-          guarantorNationalId: params.cleanGuarantorNationalId,
           applicantSocialSecurity,
-          guarantorSocialSecurity,
-          guarantorRelationship: translateRelationship(guarantorRelationship),
           eligibilityPath: params.eligibilityPath,
           deviceId: selectedProduct?.id || "",
           deviceName: selectedProduct
@@ -585,35 +465,6 @@ export default function ApplyPage() {
     }
   }
 
-  async function sendPaymentConfirmedDiscordNotification(params: {
-    trackingId: string;
-    receiptUploaded: boolean;
-  }) {
-    try {
-      const response = await fetch("/api/discord/payment-confirmed", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          trackingId: params.trackingId,
-          fullName: fullName.trim(),
-          phone: cleanDigits(phone),
-          paymentReference: params.receiptUploaded
-            ? "تم رفع صورة / سكرين شوت وصل الدفع"
-            : "لم يتم رفع صورة وصل",
-        }),
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        console.error("Discord payment notification failed:", text);
-      }
-    } catch (discordError) {
-      console.error("Discord payment notification error:", discordError);
-    }
-  }
-
   function wait(ms: number) {
     return new Promise((resolve) => window.setTimeout(resolve, ms));
   }
@@ -623,65 +474,6 @@ export default function ApplyPage() {
     setSubmissionProgress(Math.max(0, Math.min(100, percent)));
   }
 
-  async function markPaidClicked() {
-    if (!successTrackingId) return;
-
-    if (timeLeft === 0) {
-      alert("انتهت مهلة الدفع. يرجى تقديم طلب جديد أو التواصل مع الإدارة.");
-      return;
-    }
-
-    if (!paymentReceiptFile) {
-      alert("يرجى رفع صورة أو سكرين شوت لوصل الدفع قبل تأكيد الدفع.");
-      return;
-    }
-
-    if (!successApplicationId) {
-      alert("حدث خطأ في ربط الطلب بصورة الوصل. يرجى تحديث الصفحة أو التواصل مع الإدارة.");
-      return;
-    }
-
-    setPaidClicked(true);
-
-    try {
-      const extension = paymentReceiptFile.type === "image/png" ? "png" : "jpg";
-      const receiptPath = `${successTrackingId}/payment-receipt-${Date.now()}.${extension}`;
-      const receiptUrl = await uploadFile(paymentReceiptFile, receiptPath);
-
-      const { error: docError } = await supabase.from("documents").insert({
-        application_id: successApplicationId,
-        type: "payment_receipt",
-        file_url: receiptUrl,
-      });
-
-      if (docError) throw docError;
-
-      const { error } = await supabase
-        .from("applications")
-        .update({
-          payment_status: "customer_claimed_paid",
-          status: "pending_payment_confirmation",
-          payment_reference: "payment_receipt_uploaded",
-          paid_clicked_at: new Date().toISOString(),
-        })
-        .eq("tracking_id", successTrackingId);
-
-      if (error) throw error;
-
-      await sendPaymentConfirmedDiscordNotification({
-        trackingId: successTrackingId,
-        receiptUploaded: true,
-      });
-
-      setPaymentCompleted(true);
-      window.scrollTo({ top: 0, behavior: "smooth" });
-    } catch (error) {
-      console.error(error);
-      alert("صار خطأ أثناء رفع وصل الدفع أو تسجيله. حاول مرة ثانية.");
-      setPaidClicked(false);
-    }
-  }
-
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
@@ -689,8 +481,6 @@ export default function ApplyPage() {
 
     const cleanPhone = cleanDigits(phone);
     const cleanNationalId = cleanDigits(nationalId);
-    const cleanGuarantorPhone = "";
-    const cleanGuarantorNationalId = "";
     const salaryNumber = Number(salary);
     const requiredSalaryMinimum = getRequiredSalaryMinimum();
     const eligibilityPath = getEligibilityPath();
@@ -731,7 +521,6 @@ export default function ApplyPage() {
       return alert("الراتب الصافي يجب ألا يقل عن 290 دينار أردني");
     }
 
-
     for (const item of uploadTypes) {
       if (!files[item.key]) {
         return alert("يرجى رفع جميع صور الهويات المطلوبة");
@@ -770,9 +559,6 @@ export default function ApplyPage() {
       updateSubmissionStatus("جاري إنشاء طلب الموافقة المبدئية وحفظ البيانات...", 28);
 
       const trackingId = "AM-" + Date.now();
-      const deadlineMs = Date.now() + 60 * 60 * 1000;
-      const paymentDeadline = new Date(deadlineMs).toISOString();
-
       const deviceName = selectedProduct
         ? `${selectedProduct.name} - ${selectedProduct.model}${
             cleanSelectedDeviceColor
@@ -867,21 +653,15 @@ export default function ApplyPage() {
       await sendApplicationCreatedDiscordNotification({
         trackingId,
         cleanPhone,
-        cleanGuarantorPhone,
-        cleanGuarantorNationalId,
         eligibilityPath,
       });
 
       updateSubmissionStatus("تم استلام الطلب بنجاح، بانتظار مراجعة الإدارة...", 100);
       setShowPaymentTransition(true);
-      setPaymentDeadlineTime(null);
-      setTimeLeft(0);
-
       // نخلي شاشة جاري تقديم الطلب ظاهرة بوضوح حتى العميل يعرف أن الطلب وصل.
       await wait(2800);
 
       setSuccessTrackingId(trackingId);
-      setSuccessApplicationId(application.id);
       window.scrollTo({ top: 0, behavior: "smooth" });
     } catch (error) {
       console.error(error);
@@ -925,7 +705,7 @@ export default function ApplyPage() {
           <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#d7ddd5]">
             تم استلام طلبك كموافقة مبدئية. لن يُطلب منك الدفع الآن. ستقوم
             الإدارة بمراجعة البيانات أولًا، ثم سيتم التواصل معك عبر واتساب حسب
-            نتيجة المراجعة: مؤهل مبدئيًا، بحاجة كشف راتب، بحاجة كفيل، أو مرفوض.
+            نتيجة المراجعة: مؤهل مبدئيًا، بحاجة كشف راتب، أو مرفوض.
           </p>
 
           <div className="mt-8 grid gap-4 text-right md:grid-cols-2">
@@ -951,7 +731,6 @@ export default function ApplyPage() {
             <ul className="mt-3 list-disc space-y-2 pr-5 text-sm">
               <li>إذا كان الطلب مؤهلًا مبدئيًا، سيتم إرسال تعليمات دفع رسوم فتح الملف 5 دنانير.</li>
               <li>إذا احتجنا كشف راتب، سيتم إرسال طلب واضح عبر واتساب.</li>
-              <li>إذا احتجنا كفيل، سيتم إرسال رابط خاص لإدخال بيانات الكفيل ورفع هويته.</li>
               <li>إذا لم تنطبق الشروط، سيتم إبلاغك بالنتيجة.</li>
             </ul>
           </div>
@@ -999,7 +778,7 @@ export default function ApplyPage() {
           </h1>
 
           <p className="mt-4 max-w-2xl text-[#d7ddd5]">
-            عبّئ بياناتك الأساسية فقط وارفع هوية مقدم الطلب. لن يتم طلب الدفع أو الكفيل في هذه المرحلة؛ الإدارة تراجع الطلب أولًا ثم تتواصل معك عبر واتساب عند الحاجة.
+            عبّئ بياناتك الأساسية فقط وارفع هوية مقدم الطلب. لن يتم طلب الدفع في هذه المرحلة؛ الإدارة تراجع الطلب أولًا ثم تتواصل معك عبر واتساب عند الحاجة.
           </p>
 
           <div className="mt-6 grid gap-3 md:grid-cols-3">
@@ -1292,11 +1071,7 @@ export default function ApplyPage() {
                       type="radio"
                       name="applicantSocialSecurity"
                       checked={applicantSocialSecurity === true}
-                      onChange={() => {
-                        setApplicantSocialSecurity(true);
-                        setGuarantorSocialSecurity(false);
-                        setGuarantorRelationship("");
-                      }}
+                      onChange={() => setApplicantSocialSecurity(true)}
                     />
 
                     <span>نعم، مشترك بالضمان</span>
@@ -1322,23 +1097,7 @@ export default function ApplyPage() {
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">4. ملاحظة بخصوص الكفيل</h2>
-
-            <div className="rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(7,49,38,0.45)] p-5 leading-8 text-[#d7ddd5]">
-              <p className="text-lg font-black text-[#b8f3c0]">
-                لا نطلب كفيل أثناء التسجيل المبدئي.
-              </p>
-
-              <p className="mt-3 text-sm font-bold">
-                قد يتم طلب كفيل لاحقًا حسب نتيجة دراسة الطلب. في حال احتجنا
-                كفيل، سيتم إرسال رابط خاص عبر واتساب لإدخال بيانات الكفيل ورفع
-                صور هويته داخل الموقع حتى يكتمل ملف العميل بشكل مرتب.
-              </p>
-            </div>
-          </section>
-
-          <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-2 text-2xl font-bold">5. رفع هوية مقدم الطلب</h2>
+            <h2 className="mb-2 text-2xl font-bold">4. رفع هوية مقدم الطلب</h2>
 
             <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
               ارفع صورة هوية مقدم الطلب فقط: الوجه الأمامي والوجه الخلفي. يمكن اختيار الصور من المعرض أو تصويرها مباشرة. تأكد أن الصورة واضحة، كاملة، وغير مقصوصة.
@@ -1453,7 +1212,7 @@ export default function ApplyPage() {
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">6. الإقرارات والرسوم</h2>
+            <h2 className="mb-4 text-2xl font-bold">5. الإقرارات والرسوم</h2>
 
             <label className="flex items-center gap-3 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-4">
               <input
@@ -1490,12 +1249,7 @@ export default function ApplyPage() {
                 <li>الحد الأدنى للراتب الصافي لقبول دراسة الطلب هو 290 دينار أردني.</li>
                 <li>لا يشترط أن يكون مقدم الطلب مسجلًا في الضمان الاجتماعي.</li>
                 <li>خيار الضمان الاجتماعي موجود كمعلومة إضافية تساعد في دراسة الطلب، لكنه غير إلزامي.</li>
-                <li>الكفيل غير مطلوب أثناء التسجيل المبدئي، وقد يتم طلبه لاحقًا حسب نتيجة دراسة الطلب.</li>
-                <li>
-                  لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب. ويمكن للكفيل
-                  تقديم طلب مستقل، كما يمكن أن يكفل مقدم الطلب كفيله في طلب
-                  منفصل.
-                </li>
+                <li>لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب.</li>
                 <li>
                   يجب تقديم هوية شخصية سارية لمقدم الطلب، وجه أمامي وخلفي.
                 </li>
