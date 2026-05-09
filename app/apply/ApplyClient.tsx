@@ -226,6 +226,12 @@ export default function ApplyPage() {
   const [cityArea, setCityArea] = useState("");
   const [detailedAddress, setDetailedAddress] = useState("");
   const [nearestLandmark, setNearestLandmark] = useState("");
+  const [locationLatitude, setLocationLatitude] = useState<number | null>(null);
+  const [locationLongitude, setLocationLongitude] = useState<number | null>(null);
+  const [locationAccuracy, setLocationAccuracy] = useState<number | null>(null);
+  const [locationCapturedAt, setLocationCapturedAt] = useState("");
+  const [locationStatus, setLocationStatus] = useState("");
+  const [isLocating, setIsLocating] = useState(false);
   const [employer, setEmployer] = useState("");
   const [salary, setSalary] = useState("");
   const [selectedDeviceColor, setSelectedDeviceColor] = useState("");
@@ -294,6 +300,52 @@ export default function ApplyPage() {
 
   function validNationalId(value: string) {
     return /^[92][0-9]{9}$/.test(value);
+  }
+
+  function requestLocation() {
+    if (isLocating) return;
+
+    if (!("geolocation" in navigator)) {
+      setLocationStatus("المتصفح لا يدعم تحديد الموقع. يمكنك إكمال الطلب بدون GPS.");
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationStatus("جاري تحديد موقعك...");
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLocationLatitude(position.coords.latitude);
+        setLocationLongitude(position.coords.longitude);
+        setLocationAccuracy(position.coords.accuracy);
+        setLocationCapturedAt(new Date().toISOString());
+        setLocationStatus("تم تحديد موقعك بنجاح ✅");
+        setIsLocating(false);
+      },
+      (error) => {
+        let message = "تعذر تحديد الموقع. يمكنك إكمال الطلب بدون GPS.";
+
+        if (error.code === error.PERMISSION_DENIED) {
+          message = "تم رفض إذن الموقع. يمكنك إكمال الطلب بدون GPS.";
+        }
+
+        if (error.code === error.POSITION_UNAVAILABLE) {
+          message = "الموقع غير متاح حالياً. يمكنك إكمال الطلب بدون GPS.";
+        }
+
+        if (error.code === error.TIMEOUT) {
+          message = "انتهت مهلة تحديد الموقع. حاول مرة أخرى أو أكمل الطلب بدون GPS.";
+        }
+
+        setLocationStatus(message);
+        setIsLocating(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 12000,
+        maximumAge: 0,
+      }
+    );
   }
 
   function getEligibilityPath() {
@@ -505,12 +557,12 @@ export default function ApplyPage() {
       );
     }
 
-    if (!email.includes("@") || !email.includes(".")) {
+    if (email.trim() && (!email.includes("@") || !email.includes("."))) {
       return alert("الإيميل غير صحيح");
     }
 
-    if (!governorate || !cityArea || !detailedAddress) {
-      return alert("يرجى تعبئة المحافظة والمنطقة والعنوان التفصيلي");
+    if (!governorate) {
+      return alert("يرجى اختيار المحافظة");
     }
 
     if (Number.isNaN(salaryNumber)) {
@@ -578,12 +630,16 @@ export default function ApplyPage() {
           full_name: fullName.trim(),
           national_id: cleanNationalId,
           phone: cleanPhone,
-          email: email.trim(),
+          email: email.trim() || null,
           governorate,
-          city_area: cityArea.trim(),
-          detailed_address: detailedAddress.trim(),
-          nearest_landmark: nearestLandmark.trim(),
-          employer: employer.trim(),
+          city_area: cityArea.trim() || null,
+          detailed_address: detailedAddress.trim() || null,
+          nearest_landmark: nearestLandmark.trim() || null,
+          location_latitude: locationLatitude,
+          location_longitude: locationLongitude,
+          location_accuracy: locationAccuracy,
+          location_captured_at: locationCapturedAt || null,
+          employer: employer.trim() || null,
           salary: salaryNumber,
 
           social_security: applicantSocialSecurity,
@@ -974,7 +1030,7 @@ export default function ApplyPage() {
                 type="email"
                 autoComplete="email"
                 className={inputClass}
-                placeholder="البريد الإلكتروني"
+                placeholder="البريد الإلكتروني — اختياري"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
               />
@@ -982,7 +1038,7 @@ export default function ApplyPage() {
           </section>
 
           <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-            <h2 className="mb-4 text-2xl font-bold">2. العنوان</h2>
+            <h2 className="mb-4 text-2xl font-bold">2. المحافظة والموقع</h2>
 
             <div className="space-y-4">
               <select
@@ -1007,11 +1063,46 @@ export default function ApplyPage() {
                 <option value="Maan">معان</option>
               </select>
 
+              <div className="rounded-3xl border border-[rgba(105,217,123,0.24)] bg-[rgba(105,217,123,0.08)] p-5">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-lg font-black text-[#b8f3c0]">
+                      تحديد الموقع تلقائياً
+                    </p>
+
+                    <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
+                      اختياري لكنه يساعد الإدارة على معرفة أقرب منطقة للتواصل والتجهيز. يمكنك إكمال الطلب بدون GPS.
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={requestLocation}
+                    disabled={isLocating}
+                    className="green-button rounded-2xl px-5 py-3 text-sm font-black transition disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {isLocating ? "جاري تحديد الموقع..." : "تحديد موقعي تلقائياً"}
+                  </button>
+                </div>
+
+                {locationStatus && (
+                  <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.50)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
+                    {locationStatus}
+                    {locationLatitude && locationLongitude && (
+                      <div className="mt-2 text-xs text-[#aeb9af]">
+                        تم حفظ الإحداثيات بدقة تقريبية:{" "}
+                        {locationAccuracy ? `${Math.round(locationAccuracy)} متر` : "غير محددة"}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               <input
                 name="address-level2"
                 autoComplete="address-level2"
                 className={inputClass}
-                placeholder="المدينة / المنطقة"
+                placeholder="المدينة / المنطقة — اختياري"
                 value={cityArea}
                 onChange={(e) => setCityArea(e.target.value)}
               />
@@ -1020,7 +1111,7 @@ export default function ApplyPage() {
                 name="street-address"
                 autoComplete="street-address"
                 className={inputClass}
-                placeholder="العنوان التفصيلي"
+                placeholder="العنوان التفصيلي — اختياري"
                 value={detailedAddress}
                 onChange={(e) => setDetailedAddress(e.target.value)}
               />
@@ -1029,7 +1120,7 @@ export default function ApplyPage() {
                 name="address-line2"
                 autoComplete="address-line2"
                 className={inputClass}
-                placeholder="أقرب معلم واضح"
+                placeholder="أقرب معلم واضح — اختياري"
                 value={nearestLandmark}
                 onChange={(e) => setNearestLandmark(e.target.value)}
               />
@@ -1044,7 +1135,7 @@ export default function ApplyPage() {
                 name="organization"
                 autoComplete="organization"
                 className={inputClass}
-                placeholder="مكان العمل"
+                placeholder="مكان العمل — اختياري"
                 value={employer}
                 onChange={(e) => setEmployer(e.target.value)}
               />
