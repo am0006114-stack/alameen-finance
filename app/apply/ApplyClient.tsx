@@ -945,6 +945,18 @@ export default function ApplyPage() {
       cleanDigits(phone)
     )}&tracking=${encodeURIComponent(successTrackingId)}`;
 
+    const whatsappMessage = `مرحباً، قدمت طلب موافقة مبدئية لدى الأمين للأقساط والتمويل.
+
+رقم التتبع:
+${successTrackingId}
+
+رقم الهاتف:
+${cleanDigits(phone)}
+
+أرغب بمتابعة الطلب واستكمال الخطوات عبر واتساب.`;
+
+    const whatsappHref = getWhatsAppFollowUpUrl(whatsappMessage);
+
     return (
       <main
         dir="rtl"
@@ -957,76 +969,116 @@ export default function ApplyPage() {
           />
         )}
 
-        <div className="glass-panel-strong mx-auto max-w-3xl rounded-[2rem] p-8 text-center shadow-2xl">
-          <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-[#69d97b] text-4xl text-black">
-            ✓
-          </div>
+        <div className="pointer-events-none absolute inset-0 overflow-hidden">
+          <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/12 blur-3xl" />
+          <div className="absolute left-[-110px] top-[260px] h-[300px] w-[300px] rounded-full bg-[#69d97b]/12 blur-3xl" />
+          <div className="absolute bottom-[-100px] right-[22%] h-[280px] w-[280px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        </div>
 
-          <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-4 py-2 text-sm text-[#b8f3c0]">
-            تم إرسال الطلب المبدئي بنجاح
-          </div>
+        <div className="relative mx-auto max-w-4xl">
+          <section className="overflow-hidden rounded-[2.2rem] border border-[rgba(105,217,123,0.36)] bg-[linear-gradient(135deg,rgba(105,217,123,0.18),rgba(214,181,107,0.12),rgba(3,18,14,0.94))] p-1 shadow-[0_26px_90px_rgba(0,0,0,0.38)]">
+            <div className="rounded-[2rem] border border-white/10 bg-[rgba(3,18,14,0.62)] p-6 text-center shadow-2xl md:p-8">
+              <div className="mx-auto mb-6 flex h-24 w-24 items-center justify-center rounded-full border border-[rgba(105,217,123,0.36)] bg-[rgba(105,217,123,0.18)] text-5xl text-[#b8f3c0] shadow-[0_0_45px_rgba(105,217,123,0.20)]">
+                ✓
+              </div>
 
-          <h1 className="text-4xl font-black">طلبك وصل للإدارة</h1>
+              <div className="mb-4 inline-flex rounded-full border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] px-5 py-2 text-sm font-black text-[#b8f3c0]">
+                تم استلام طلبك بنجاح
+              </div>
 
-          <p className="mx-auto mt-4 max-w-2xl leading-8 text-[#d7ddd5]">
-            تم استلام طلبك كموافقة مبدئية. لن يُطلب منك الدفع الآن. ستقوم
-            الإدارة بمراجعة البيانات أولًا، ثم سيتم التواصل معك عبر واتساب حسب
-            نتيجة المراجعة: مؤهل مبدئيًا، بحاجة كشف راتب، أو مرفوض.
-          </p>
+              <h1 className="text-4xl font-black leading-tight md:text-6xl">
+                لا تغلق الصفحة الآن
+              </h1>
 
-          <div className="mt-8 grid gap-4 text-right md:grid-cols-2">
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <p className="text-sm text-[#aeb9af]">رقم التتبع</p>
-
-              <p className="mt-2 break-words text-2xl font-black text-[#f3dfac]">
-                {successTrackingId}
+              <p className="mx-auto mt-4 max-w-2xl text-base font-bold leading-8 text-[#d7ddd5]">
+                طلبك وصل للإدارة، والخطوة الأهم الآن هي فتح محادثة واتساب حتى يتم ربط رقم طلبك بالمحادثة ومتابعة المراجعة بشكل أسرع.
               </p>
-            </div>
 
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.74)] p-5">
-              <p className="text-sm text-[#aeb9af]">حالة الطلب</p>
+              <div className="mx-auto mt-7 max-w-2xl rounded-[28px] border border-[rgba(214,181,107,0.34)] bg-[rgba(214,181,107,0.10)] p-5 text-center">
+                <p className="text-sm font-black text-[#f3dfac]">
+                  رقم التتبع الخاص بك
+                </p>
 
-              <p className="mt-2 break-words text-2xl font-black text-[#69d97b]">
-                طلب مبدئي قيد المراجعة
+                <p className="mt-3 break-words text-3xl font-black tracking-wide text-white md:text-4xl">
+                  {successTrackingId}
+                </p>
+
+                <p className="mt-3 text-sm font-bold leading-7 text-[#d7ddd5]">
+                  سيتم إدراج هذا الرقم تلقائياً داخل رسالة واتساب.
+                </p>
+              </div>
+
+              <div className="mt-7 rounded-[28px] border border-[rgba(105,217,123,0.30)] bg-[rgba(105,217,123,0.09)] p-5 text-right">
+                <p className="text-lg font-black text-[#b8f3c0]">
+                  مهم جداً لتسريع المتابعة
+                </p>
+
+                <ul className="mt-3 list-disc space-y-2 pr-5 text-sm font-bold leading-7 text-[#d7ddd5]">
+                  <li>اضغط زر واتساب الآن، وستفتح رسالة جاهزة فيها رقم طلبك.</li>
+                  <li>لا تحتاج لكتابة أي شيء، فقط اضغط إرسال داخل واتساب.</li>
+                  <li>التواصل عبر واتساب يساعد الإدارة على مراجعة طلبك والرد عليك بوضوح.</li>
+                </ul>
+              </div>
+
+              <a
+                href={whatsappHref}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-7 flex w-full items-center justify-center rounded-3xl border border-[rgba(105,217,123,0.38)] bg-[linear-gradient(135deg,#69d97b,#35c98e)] px-6 py-5 text-center text-xl font-black text-[#03120e] shadow-[0_18px_55px_rgba(105,217,123,0.22)] transition hover:scale-[1.01] hover:shadow-[0_22px_70px_rgba(105,217,123,0.30)]"
+              >
+                افتح واتساب الآن لمتابعة الطلب
+              </a>
+
+              <p className="mt-3 text-xs font-bold leading-6 text-[#aeb9af]">
+                إذا لم يفتح واتساب تلقائياً، انسخ رقم التتبع وتواصل معنا من زر واتساب الموجود في الموقع.
               </p>
+
+              <div className="mt-8 grid gap-3 md:grid-cols-2">
+                <Link
+                  href={trackHref}
+                  className="soft-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
+                >
+                  تتبع حالة الطلب
+                </Link>
+
+                <Link
+                  href="/products"
+                  className="soft-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
+                >
+                  العودة للمنتجات
+                </Link>
+              </div>
             </div>
-          </div>
+          </section>
 
-          <div className="mt-6 rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.08)] p-5 text-right leading-8 text-[#d7ddd5]">
-            <p className="font-black text-[#f3dfac]">ماذا يحدث بعد ذلك؟</p>
-            <ul className="mt-3 list-disc space-y-2 pr-5 text-sm">
-              <li>إذا كان الطلب مؤهلًا مبدئيًا، سيتم التواصل معك عبر واتساب لاستكمال الخطوات التالية.</li>
-              <li>إذا احتجنا كشف راتب، سيتم إرسال طلب واضح عبر واتساب.</li>
-              <li>إذا لم تنطبق الشروط، سيتم إبلاغك بالنتيجة.</li>
-            </ul>
-          </div>
+          <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
+            <h2 className="gold-text mb-4 text-xl font-black">
+              ماذا يحدث بعد فتح واتساب؟
+            </h2>
 
-          <div className="mt-8 grid gap-3 sm:grid-cols-3">
-            <Link
-              href={trackHref}
-              className="green-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
-            >
-              تتبع حالة الطلب
-            </Link>
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4">
+                <p className="text-sm font-black text-white">1. تثبيت رقم الطلب</p>
+                <p className="mt-2 text-xs font-bold leading-6 text-[#aeb9af]">
+                  يصلنا رقم التتبع داخل المحادثة حتى نعرف طلبك بسرعة.
+                </p>
+              </div>
 
-            <a
-              href={getWhatsAppFollowUpUrl(
-                `مرحباً، قدمت طلب موافقة مبدئية لدى الأمين للأقساط والتمويل. رقم التتبع: ${successTrackingId}. أرغب بمتابعة الطلب.`
-              )}
-              target="_blank"
-              rel="noreferrer"
-              className="gold-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
-            >
-              تواصل معنا على واتساب
-            </a>
+              <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4">
+                <p className="text-sm font-black text-white">2. مراجعة مبدئية</p>
+                <p className="mt-2 text-xs font-bold leading-6 text-[#aeb9af]">
+                  تتم مراجعة البيانات والهوية والقدرة المالية مبدئياً.
+                </p>
+              </div>
 
-            <Link
-              href="/products"
-              className="soft-button rounded-2xl px-6 py-4 text-center text-base font-black transition"
-            >
-              العودة للمنتجات
-            </Link>
-          </div>
+              <div className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4">
+                <p className="text-sm font-black text-white">3. الرد بالخطوة التالية</p>
+                <p className="mt-2 text-xs font-bold leading-6 text-[#aeb9af]">
+                  إذا احتجنا كشف راتب أو كفيل أو أي إجراء، سيتم توضيحه عبر واتساب.
+                </p>
+              </div>
+            </div>
+          </section>
         </div>
       </main>
     );
