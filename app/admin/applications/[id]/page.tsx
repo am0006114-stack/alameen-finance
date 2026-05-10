@@ -349,6 +349,7 @@ ${trackUrl}
 function preliminaryPaymentMessage(app: ApplicationRecord) {
   const name = firstName(app.full_name);
   const tracking = app.tracking_id || app.id;
+  const trackUrl = getTrackUrl(app);
 
   return `أهلًا ${name}،
 
@@ -356,17 +357,23 @@ function preliminaryPaymentMessage(app: ApplicationRecord) {
 
 يرجى دفع رسوم فتح الملف بقيمة 5 دنانير، ثم إرسال صورة أو سكرين شوت واضح لوصل الدفع عبر واتساب.
 
-رقم التتبع: ${tracking}
+رقم التتبع:
+${tracking}
 
 معلومات الدفع:
 اسم المستفيد: AMEENPAY
 اسم المحفظة: Orang-Money
 الاسم: ABDUL RAHMAN ALHARAHSHEH
 
-ملاحظة مهمة: دفع رسوم فتح الملف لا يعني الموافقة النهائية، ويتم استرداد الرسوم عند الموافقة وتوقيع عقد الاستلام.
+رابط متابعة الطلب:
+${trackUrl}
+
+ملاحظة مهمة:
+دفع رسوم فتح الملف لا يعني الموافقة النهائية، ويتم استرداد الرسوم عند الموافقة وتوقيع عقد الاستلام.
 
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
+}
 }
 
 function underReviewMessage(app: ApplicationRecord) {
