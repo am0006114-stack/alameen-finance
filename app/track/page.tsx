@@ -23,8 +23,6 @@ type Application = {
   total_with_interest?: number | string | null;
   payment_reference?: string | null;
   paid_clicked_at?: string | null;
-  payment_confirmed_at?: string | null;
-  updated_at?: string | null;
 };
 
 type StatusView = {
@@ -101,13 +99,9 @@ function isPaymentConfirmed(app: Application) {
 function getPaymentConfirmedDate(app: Application) {
   if (!isPaymentConfirmed(app)) return null;
 
-  return (
-    app.payment_confirmed_at ||
-    app.paid_clicked_at ||
-    app.updated_at ||
-    app.created_at ||
-    null
-  );
+  // مهم: لا نطلب أعمدة جديدة من Supabase هنا حتى لا تختفي الطلبات إذا العمود غير موجود.
+  // نعتمد على paid_clicked_at إذا موجود، وإذا غير موجود نستخدم created_at كاحتياط.
+  return app.paid_clicked_at || app.created_at || null;
 }
 
 function getReviewDeadline(app: Application) {
@@ -354,9 +348,7 @@ export default async function TrackPage({
           monthly_payment,
           total_with_interest,
           payment_reference,
-          paid_clicked_at,
-          payment_confirmed_at,
-          updated_at
+          paid_clicked_at
         `
         )
         .eq("phone", phone)
