@@ -286,6 +286,7 @@ function getTrackUrl(app: ApplicationRecord) {
     phone
   )}&tracking=${encodeURIComponent(tracking)}`;
 }
+}
 
 function getGuarantorUrl(app: ApplicationRecord) {
   const baseUrl = getBaseUrl();
