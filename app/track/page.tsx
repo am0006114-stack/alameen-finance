@@ -36,6 +36,36 @@ function normalizePhone(value: string) {
   return value.trim().replace(/\D/g, "");
 }
 
+function getWhatsAppFollowUpUrl(message: string) {
+  const number = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "";
+  const cleanNumber = number.replace(/\D/g, "");
+  const encodedMessage = encodeURIComponent(message);
+
+  if (cleanNumber) {
+    return `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
+  }
+
+  return `https://wa.me/?text=${encodedMessage}`;
+}
+
+function getTrackWhatsAppMessage(app: Application, statusView: StatusView) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+
+  return `مرحباً، أريد متابعة طلبي لدى الأمين للأقساط والتمويل.
+
+رقم التتبع:
+${tracking}
+
+رقم الهاتف:
+${phone}
+
+حالة الطلب الحالية:
+${statusView.title}
+
+أرغب بالمساعدة أو معرفة الخطوة التالية.`;
+}
+
 function maskName(name: string | null | undefined) {
   if (!name) return "—";
 
@@ -371,6 +401,9 @@ export default async function TrackPage({
   const minimumReviewTime = application ? getMinimumReviewTime(application) : null;
   const reviewDeadline = application ? getReviewDeadline(application) : null;
   const countdown = formatCountdownParts(reviewDeadline || null);
+  const whatsappMessage =
+    application && statusView ? getTrackWhatsAppMessage(application, statusView) : "";
+  const whatsappHref = whatsappMessage ? getWhatsAppFollowUpUrl(whatsappMessage) : "#";
 
   const timeline = [
     "تم استلام الطلب",
@@ -482,6 +515,15 @@ export default async function TrackPage({
                       <p className="mt-3 max-w-2xl text-sm font-bold leading-8 text-[#d7ddd5]">
                         تم تأكيد خطوة الدفع بنجاح. تبدأ مدة المراجعة النهائية من لحظة تأكيد الدفع، والرد المتوقع يكون خلال 24 إلى 72 ساعة حسب ضغط الطلبات والتحقق من البيانات.
                       </p>
+
+                      <a
+                        href={whatsappHref}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-5 inline-flex rounded-2xl border border-[rgba(105,217,123,0.38)] bg-[linear-gradient(135deg,#69d97b,#35c98e)] px-5 py-3 text-sm font-black text-[#03120e] shadow-[0_14px_40px_rgba(105,217,123,0.18)] transition hover:scale-[1.01]"
+                      >
+                        تواصل معنا على واتساب بخصوص الدراسة النهائية
+                      </a>
                     </div>
 
                     <div className="rounded-3xl border border-[rgba(214,181,107,0.22)] bg-[rgba(2,18,14,0.72)] p-5 text-center">
@@ -583,6 +625,31 @@ export default async function TrackPage({
               <p className="text-sm font-bold leading-8 text-[#d7ddd5]">
                 {statusView.message}
               </p>
+            </div>
+
+            <div className="mt-6 overflow-hidden rounded-[30px] border border-[rgba(105,217,123,0.30)] bg-[linear-gradient(135deg,rgba(105,217,123,0.12),rgba(214,181,107,0.09),rgba(3,18,14,0.86))] p-1 shadow-[0_18px_60px_rgba(0,0,0,0.22)]">
+              <div className="rounded-[28px] border border-white/10 bg-[rgba(3,18,14,0.54)] p-5">
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-lg font-black text-white">
+                      تحتاج مساعدة أو متابعة أسرع؟
+                    </p>
+
+                    <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
+                      افتح واتساب برسالة جاهزة تحتوي رقم التتبع وحالة طلبك الحالية حتى نقدر نساعدك بسرعة.
+                    </p>
+                  </div>
+
+                  <a
+                    href={whatsappHref}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="green-button rounded-2xl px-5 py-4 text-center text-sm font-black transition"
+                  >
+                    تواصل معنا على واتساب
+                  </a>
+                </div>
+              </div>
             </div>
 
             <div className="glass-panel-strong mt-6 rounded-[28px] p-5 shadow-sm">
