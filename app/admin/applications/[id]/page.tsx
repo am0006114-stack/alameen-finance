@@ -286,7 +286,6 @@ function getTrackUrl(app: ApplicationRecord) {
     phone
   )}&tracking=${encodeURIComponent(tracking)}`;
 }
-}
 
 function getGuarantorUrl(app: ApplicationRecord) {
   const baseUrl = getBaseUrl();
@@ -374,7 +373,6 @@ ${trackUrl}
 
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
-}
 }
 
 function underReviewMessage(app: ApplicationRecord) {
