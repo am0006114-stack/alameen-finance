@@ -23,6 +23,8 @@ type Application = {
   total_with_interest?: number | string | null;
   payment_reference?: string | null;
   paid_clicked_at?: string | null;
+  payment_confirmed_at?: string | null;
+  updated_at?: string | null;
 };
 
 type StatusView = {
@@ -92,6 +94,64 @@ function translatePaymentStatus(status: string | null | undefined) {
   }
 }
 
+function isPaymentConfirmed(app: Application) {
+  return app.payment_status === "confirmed";
+}
+
+function getPaymentConfirmedDate(app: Application) {
+  if (!isPaymentConfirmed(app)) return null;
+
+  return (
+    app.payment_confirmed_at ||
+    app.paid_clicked_at ||
+    app.updated_at ||
+    app.created_at ||
+    null
+  );
+}
+
+function getReviewDeadline(app: Application) {
+  const confirmedAt = getPaymentConfirmedDate(app);
+
+  if (!confirmedAt) return null;
+
+  const confirmedDate = new Date(confirmedAt);
+
+  if (Number.isNaN(confirmedDate.getTime())) return null;
+
+  return new Date(confirmedDate.getTime() + 72 * 60 * 60 * 1000);
+}
+
+function getMinimumReviewTime(app: Application) {
+  const confirmedAt = getPaymentConfirmedDate(app);
+
+  if (!confirmedAt) return null;
+
+  const confirmedDate = new Date(confirmedAt);
+
+  if (Number.isNaN(confirmedDate.getTime())) return null;
+
+  return new Date(confirmedDate.getTime() + 24 * 60 * 60 * 1000);
+}
+
+function formatCountdownParts(targetDate: Date | null) {
+  if (!targetDate) {
+    return { days: "—", hours: "—", minutes: "—" };
+  }
+
+  const totalMs = Math.max(0, targetDate.getTime() - Date.now());
+  const totalMinutes = Math.floor(totalMs / 1000 / 60);
+  const days = Math.floor(totalMinutes / 60 / 24);
+  const hours = Math.floor((totalMinutes - days * 24 * 60) / 60);
+  const minutes = totalMinutes % 60;
+
+  return {
+    days: String(days).padStart(2, "0"),
+    hours: String(hours).padStart(2, "0"),
+    minutes: String(minutes).padStart(2, "0"),
+  };
+}
+
 function getStatusView(app: Application): StatusView {
   if (app.payment_status === "customer_claimed_paid") {
     return {
@@ -107,8 +167,8 @@ function getStatusView(app: Application): StatusView {
     return {
       title: "قيد الدراسة النهائية",
       message:
-        "تم تأكيد الخطوات المطلوبة، وطلبك الآن قيد الدراسة النهائية. مدة المراجعة المتوقعة من 1 إلى 24 ساعة.",
-      tone: "new",
+        "تم تأكيد الدفع وطلبك الآن قيد الدراسة النهائية. مدة المراجعة المتوقعة من لحظة تأكيد الدفع هي 24 إلى 72 ساعة.",
+      tone: "success",
       step: 4,
     };
   }
@@ -294,7 +354,9 @@ export default async function TrackPage({
           monthly_payment,
           total_with_interest,
           payment_reference,
-          paid_clicked_at
+          paid_clicked_at,
+          payment_confirmed_at,
+          updated_at
         `
         )
         .eq("phone", phone)
@@ -313,6 +375,10 @@ export default async function TrackPage({
   }
 
   const statusView = application ? getStatusView(application) : null;
+  const paymentConfirmedAt = application ? getPaymentConfirmedDate(application) : null;
+  const minimumReviewTime = application ? getMinimumReviewTime(application) : null;
+  const reviewDeadline = application ? getReviewDeadline(application) : null;
+  const countdown = formatCountdownParts(reviewDeadline || null);
 
   const timeline = [
     "تم استلام الطلب",
@@ -408,6 +474,64 @@ export default async function TrackPage({
 
         {application && statusView && (
           <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
+            {isPaymentConfirmed(application) && (
+              <div className="mb-6 overflow-hidden rounded-[32px] border border-[rgba(105,217,123,0.38)] bg-[linear-gradient(135deg,rgba(105,217,123,0.18),rgba(214,181,107,0.13),rgba(3,18,14,0.92))] p-1 shadow-[0_22px_70px_rgba(25,135,84,0.18)]">
+                <div className="rounded-[30px] border border-white/10 bg-[rgba(3,18,14,0.55)] p-6">
+                  <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <div className="mb-3 inline-flex rounded-full border border-[rgba(105,217,123,0.36)] bg-[rgba(105,217,123,0.12)] px-4 py-2 text-sm font-black text-[#b8f3c0]">
+                        ✅ تم تأكيد الدفع
+                      </div>
+
+                      <h2 className="text-2xl font-black text-white md:text-3xl">
+                        طلبك دخل مرحلة الدراسة النهائية
+                      </h2>
+
+                      <p className="mt-3 max-w-2xl text-sm font-bold leading-8 text-[#d7ddd5]">
+                        تم تأكيد خطوة الدفع بنجاح. تبدأ مدة المراجعة النهائية من لحظة تأكيد الدفع، والرد المتوقع يكون خلال 24 إلى 72 ساعة حسب ضغط الطلبات والتحقق من البيانات.
+                      </p>
+                    </div>
+
+                    <div className="rounded-3xl border border-[rgba(214,181,107,0.22)] bg-[rgba(2,18,14,0.72)] p-5 text-center">
+                      <p className="text-xs font-black text-[#f3dfac]">
+                        العد التنازلي للحد الأقصى
+                      </p>
+
+                      <div className="mt-3 grid grid-cols-3 gap-2">
+                        <div className="rounded-2xl bg-[rgba(255,255,255,0.06)] px-3 py-3">
+                          <p className="text-2xl font-black text-white">{countdown.days}</p>
+                          <p className="mt-1 text-[11px] font-bold text-[#aeb9af]">يوم</p>
+                        </div>
+                        <div className="rounded-2xl bg-[rgba(255,255,255,0.06)] px-3 py-3">
+                          <p className="text-2xl font-black text-white">{countdown.hours}</p>
+                          <p className="mt-1 text-[11px] font-bold text-[#aeb9af]">ساعة</p>
+                        </div>
+                        <div className="rounded-2xl bg-[rgba(255,255,255,0.06)] px-3 py-3">
+                          <p className="text-2xl font-black text-white">{countdown.minutes}</p>
+                          <p className="mt-1 text-[11px] font-bold text-[#aeb9af]">دقيقة</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid gap-3 md:grid-cols-3">
+                    <InfoItem
+                      label="وقت تأكيد الدفع"
+                      value={formatDate(paymentConfirmedAt)}
+                    />
+                    <InfoItem
+                      label="أقرب وقت متوقع للرد"
+                      value={formatDate(minimumReviewTime?.toISOString())}
+                    />
+                    <InfoItem
+                      label="الحد الأقصى المتوقع"
+                      value={formatDate(reviewDeadline?.toISOString())}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+
             <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
               <div>
                 <p className="gold-text mb-1 text-sm font-black">
