@@ -198,6 +198,22 @@ function displayArea(app: Application) {
   return app.city_area || app.area || "—";
 }
 
+function isNewApplication(app: Application) {
+  return app.status === "preliminary_application" || !app.status;
+}
+
+function newApplicationCardClass(app: Application) {
+  return isNewApplication(app)
+    ? "border-red-400/40 bg-red-950/20 shadow-[0_0_0_1px_rgba(248,113,113,0.18),0_18px_45px_rgba(127,29,29,0.22)]"
+    : "";
+}
+
+function newApplicationRowClass(app: Application) {
+  return isNewApplication(app)
+    ? "bg-red-950/20 hover:bg-red-950/30"
+    : "hover:bg-[rgba(255,255,255,0.04)]";
+}
+
 function filterApplications(
   applications: Application[],
   q: string,
@@ -249,13 +265,24 @@ function buildFilterHref(params: {
 
 function CompactMobileRequest({ app }: { app: Application }) {
   return (
-    <article className="glass-panel gold-outline rounded-2xl p-4 shadow-sm">
+    <article
+      className={`glass-panel gold-outline rounded-2xl p-4 shadow-sm ${newApplicationCardClass(
+        app
+      )}`}
+    >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[11px] font-bold text-[#aeb9af]">رقم التتبع</p>
-          <h3 className="truncate text-sm font-black text-white">
-            {app.tracking_id || app.id.slice(0, 8)}
-          </h3>
+          <div className="flex items-center gap-2">
+            {isNewApplication(app) && (
+              <span className="inline-flex rounded-full border border-red-400/40 bg-red-950/40 px-2 py-1 text-[10px] font-black text-red-100">
+                🔔 جديد
+              </span>
+            )}
+            <h3 className="truncate text-sm font-black text-white">
+              {app.tracking_id || app.id.slice(0, 8)}
+            </h3>
+          </div>
         </div>
 
         <Link
@@ -419,7 +446,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
         <section className="grid gap-3 sm:gap-4 md:grid-cols-5">
           <StatBox label="إجمالي الطلبات" value={totalApplications} />
-          <StatBox label="طلبات مبدئية جديدة" value={preliminaryCount} />
+          <StatBox label="🔔 طلبات جديدة" value={preliminaryCount} />
           <StatBox label="بحاجة إجراء" value={needsActionCount} />
           <StatBox label="مؤهلين مبدئياً" value={qualifiedCount} />
           <StatBox label="طلبات مقبولة" value={approvedCount} />
@@ -631,10 +658,19 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                         {filteredApplications.map((app) => (
                           <tr
                             key={app.id}
-                            className="border-b border-[rgba(214,181,107,0.10)] transition hover:bg-[rgba(255,255,255,0.04)]"
+                            className={`border-b border-[rgba(214,181,107,0.10)] transition ${newApplicationRowClass(
+                              app
+                            )}`}
                           >
                             <td className="px-4 py-4 text-sm font-black text-white">
-                              {app.tracking_id || app.id.slice(0, 8)}
+                              <div className="flex items-center gap-2">
+                                {isNewApplication(app) && (
+                                  <span className="inline-flex rounded-full border border-red-400/40 bg-red-950/40 px-2 py-1 text-[10px] font-black text-red-100">
+                                    🔔 جديد
+                                  </span>
+                                )}
+                                <span>{app.tracking_id || app.id.slice(0, 8)}</span>
+                              </div>
                             </td>
 
                             <td className="px-4 py-4 text-sm font-bold text-[#d7ddd5]">

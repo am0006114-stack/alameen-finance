@@ -473,6 +473,47 @@ ${trackUrl}
 الأمين للأقساط والتمويل`;
 }
 
+function missingIdentityDocumentsMessage(app: ApplicationRecord) {
+  const name = firstName(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const trackUrl = getTrackUrl(app);
+
+  return `أهلًا ${name}،
+
+وصل طلبك لدى الأمين للأقساط والتمويل، لكن صور الهوية غير ظاهرة لدينا أو لم تصل بشكل صحيح.
+
+نرجو إرسال صورة واضحة لهوية مقدم الطلب:
+- الوجه الأمامي
+- الوجه الخلفي
+
+رقم التتبع:
+${tracking}
+
+رابط متابعة الطلب:
+${trackUrl}
+
+ملاحظة: لا يمكن استكمال مراجعة الطلب قبل وصول صور الهوية بشكل واضح.
+
+الأمين للأقساط والتمويل
+Al Ameen for Financial Services`;
+}
+
+function getDocumentTypeValue(document: DocumentRecord) {
+  return document.document_type || document.type || "";
+}
+
+function isApplicantFrontDocument(document: DocumentRecord) {
+  const type = getDocumentTypeValue(document);
+
+  return type === "applicant_id_front" || type === "applicant_front";
+}
+
+function isApplicantBackDocument(document: DocumentRecord) {
+  const type = getDocumentTypeValue(document);
+
+  return type === "applicant_id_back" || type === "applicant_back";
+}
+
 function getDocumentUrl(document: DocumentRecord) {
   if (document.file_url) return document.file_url;
   if (document.public_url) return document.public_url;
@@ -602,6 +643,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     .order("created_at", { ascending: true });
 
   const safeDocuments = (documents || []) as DocumentRecord[];
+  const hasApplicantFrontDocument = safeDocuments.some(isApplicantFrontDocument);
+  const hasApplicantBackDocument = safeDocuments.some(isApplicantBackDocument);
+  const missingApplicantIdentityDocuments =
+    !hasApplicantFrontDocument || !hasApplicantBackDocument;
 
   async function updateApplicationAction(formData: FormData) {
     "use server";
@@ -793,7 +838,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               رقم الهاتف غير صالح للإرسال عبر واتساب.
             </div>
           ) : (
-            <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-7">
+            <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, currentStatusMessage(app))}
                 label="إرسال الحالة الحالية"
@@ -828,6 +873,12 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 href={makeWhatsAppUrl(app.phone, approvedMessage(app))}
                 label="موافقة مبدئية"
                 className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
+              />
+
+              <WhatsAppButton
+                href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+                label="إعادة إرسال الهوية"
+                className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
               />
 
               <WhatsAppButton
@@ -983,10 +1034,48 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           />
         </div>
 
+        {missingApplicantIdentityDocuments && (
+          <section className="mt-6 rounded-[32px] border border-red-400/35 bg-red-950/25 p-6 shadow-xl">
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-xl font-black text-red-100">
+                  🔔 تنبيه: صور الهوية غير مكتملة
+                </h2>
+                <p className="mt-2 text-sm font-bold leading-7 text-red-100/90">
+                  لم يتم العثور على الوجه الأمامي والخلفي لهوية مقدم الطلب داخل الوثائق. لا تكمل دراسة الطلب قبل استلام صور الهوية بشكل واضح.
+                </p>
+              </div>
+
+              {hasWhatsAppPhone && (
+                <a
+                  href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="rounded-2xl border border-red-400/35 bg-red-950/40 px-5 py-3 text-center text-sm font-black text-red-100 transition hover:bg-red-950/55"
+                >
+                  طلب إعادة إرسال الهوية عبر واتساب
+                </a>
+              )}
+            </div>
+          </section>
+        )}
+
         <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
-          <h2 className="gold-text mb-5 text-xl font-black">
-            الوثائق المرفوعة
-          </h2>
+          <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <h2 className="gold-text text-xl font-black">
+              الوثائق المرفوعة
+            </h2>
+
+            <span
+              className={`inline-flex rounded-full border px-4 py-2 text-sm font-black ${
+                missingApplicantIdentityDocuments
+                  ? "border-red-400/35 bg-red-950/30 text-red-100"
+                  : "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]"
+              }`}
+            >
+              {missingApplicantIdentityDocuments ? "صور الهوية غير مكتملة" : "صور الهوية مكتملة"}
+            </span>
+          </div>
 
           {documentsError && (
             <div className="mb-5 rounded-2xl border border-red-400/30 bg-red-950/25 px-4 py-3 text-sm font-bold text-red-200">
@@ -995,13 +1084,24 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           )}
 
           {safeDocuments.length === 0 ? (
-            <div className="rounded-3xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-10 text-center">
-              <h3 className="text-lg font-black text-white">
-                لا يوجد وثائق ظاهرة
+            <div className="rounded-3xl border border-dashed border-red-400/35 bg-red-950/20 p-10 text-center">
+              <h3 className="text-lg font-black text-red-100">
+                لا يوجد وثائق ظاهرة لهذا الطلب
               </h3>
-              <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-                إذا أنت متأكد إن الصور مرفوعة، ممكن يكون اسم عمود الربط في جدول documents مختلف عن application_id.
+              <p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-red-100/90">
+                غالباً صور الهوية لم تُحفظ في جدول documents أو لم ترتبط بهذا الطلب. اطلب من العميل إعادة إرسال الهوية عبر واتساب قبل متابعة الدراسة.
               </p>
+
+              {hasWhatsAppPhone && (
+                <a
+                  href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-5 inline-flex rounded-2xl border border-red-400/35 bg-red-950/40 px-5 py-3 text-sm font-black text-red-100 transition hover:bg-red-950/55"
+                >
+                  طلب إعادة إرسال الهوية عبر واتساب
+                </a>
+              )}
             </div>
           ) : (
             <div className="grid gap-5 md:grid-cols-2">
