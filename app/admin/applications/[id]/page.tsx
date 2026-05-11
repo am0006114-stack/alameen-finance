@@ -327,6 +327,13 @@ function makeWhatsAppUrl(phone: string | null | undefined, message: string) {
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
 
+function notificationNumberNotice() {
+  return `تنويه:
+هذا الرقم مخصص لإشعارات ومتابعة الطلبات فقط.
+للاستفسارات أو الاتصال المباشر يمكنكم التواصل معنا على الرقم:
+0788500337`;
+}
+
 function currentStatusMessage(app: ApplicationRecord) {
   const name = firstName(app.full_name);
   const tracking = app.tracking_id || app.id;
@@ -342,6 +349,8 @@ function currentStatusMessage(app: ApplicationRecord) {
 
 يمكنك متابعة حالة الطلب من خلال الرابط:
 ${trackUrl}
+
+${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل`;
 }
@@ -371,6 +380,8 @@ ${trackUrl}
 ملاحظة مهمة:
 دفع رسوم فتح الملف لا يعني الموافقة النهائية، ويتم استرداد الرسوم عند الموافقة وتوقيع عقد الاستلام.
 
+${notificationNumberNotice()}
+
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
 }
@@ -391,6 +402,8 @@ function underReviewMessage(app: ApplicationRecord) {
 
 يمكنك متابعة الطلب من الرابط:
 ${trackUrl}
+
+${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل`;
 }
@@ -414,6 +427,8 @@ function salarySlipRequestMessage(app: ApplicationRecord) {
 رابط متابعة الطلب:
 ${trackUrl}
 
+${notificationNumberNotice()}
+
 الأمين للأقساط والتمويل`;
 }
 
@@ -432,6 +447,8 @@ ${guarantorUrl}
 رقم التتبع: ${tracking}
 
 ملاحظة مهمة: طلب الكفيل لا يعني رفض الطلب، وإنما إجراء لاستكمال دراسة الملف حسب سياسة الموافقة.
+
+${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
@@ -453,6 +470,8 @@ function approvedMessage(app: ApplicationRecord) {
 رابط متابعة الطلب:
 ${trackUrl}
 
+${notificationNumberNotice()}
+
 الأمين للأقساط والتمويل`;
 }
 
@@ -469,6 +488,8 @@ function rejectedMessage(app: ApplicationRecord) {
 
 يمكنك متابعة حالة الطلب من الرابط:
 ${trackUrl}
+
+${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل`;
 }
@@ -493,6 +514,8 @@ ${tracking}
 ${trackUrl}
 
 ملاحظة: لا يمكن استكمال مراجعة الطلب قبل وصول صور الهوية بشكل واضح.
+
+${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
