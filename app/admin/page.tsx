@@ -360,9 +360,6 @@ function CompactMobileRequest({ app }: { app: Application }) {
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className={`mb-2 inline-flex rounded-full border px-2 py-1 text-[10px] font-black ${priorityClass(app)}`}>
-            {getPriorityLabel(app)}
-          </div>
           <p className="text-[11px] font-bold text-[#aeb9af]">رقم التتبع</p>
           <div className="flex items-center gap-2">
             {isNewApplication(app) && (
@@ -378,9 +375,9 @@ function CompactMobileRequest({ app }: { app: Application }) {
 
         <Link
           href={`/admin/applications/${app.id}`}
-          className="green-button shrink-0 rounded-xl px-3 py-2 text-xs font-black"
+          className="green-button shrink-0 rounded-xl px-4 py-3 text-xs font-black shadow-lg"
         >
-          التفاصيل
+          فتح الطلب
         </Link>
       </div>
 
@@ -408,19 +405,13 @@ function CompactMobileRequest({ app }: { app: Application }) {
             {hasGpsLocation(app) ? "موجود" : "غير محدد"}
           </p>
         </div>
-
-        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
-          <p className="mb-1 font-bold text-[#aeb9af]">الراتب</p>
-          <p className="truncate font-black text-white">{formatMoney(app.salary)}</p>
-        </div>
-
-        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
-          <p className="mb-1 font-bold text-[#aeb9af]">العمر</p>
-          <p className="truncate font-black text-white">{ageLabel(app.created_at)}</p>
-        </div>
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
+        <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${priorityClass(app)}`}>
+          {getPriorityLabel(app)}
+        </span>
+
         <span
           className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(
             app.status
@@ -437,6 +428,13 @@ function CompactMobileRequest({ app }: { app: Application }) {
           {translatePaymentStatus(app.payment_status)}
         </span>
       </div>
+
+      <Link
+        href={`/admin/applications/${app.id}`}
+        className="mt-4 flex w-full items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-4 py-3 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+      >
+        فتح تفاصيل الطلب وإجراءاته
+      </Link>
     </article>
   );
 }
@@ -500,13 +498,11 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   const gpsCount = safeApplications.filter(hasGpsLocation).length;
   const noGpsCount = safeApplications.length - gpsCount;
 
-  const totalSalary = safeApplications.reduce(
-    (sum, app) => sum + moneyNumber(app.salary),
-    0
-  );
-
   const averageSalary =
-    safeApplications.length > 0 ? totalSalary / safeApplications.length : 0;
+    safeApplications.length > 0
+      ? safeApplications.reduce((sum, app) => sum + moneyNumber(app.salary), 0) /
+        safeApplications.length
+      : 0;
 
   const urgentApplications = safeApplications
     .filter((app) => isNeedsAction(app) || isNewApplication(app))
@@ -545,17 +541,24 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                 </p>
               </div>
 
-              <div className="flex flex-col gap-2 sm:flex-row">
+              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
                 <a
-                  href="/api/admin/export-applications"
+                  href="/api/admin/export-applications?format=csv"
+                  className="green-button rounded-2xl px-5 py-3 text-center text-sm font-black transition"
+                >
+                  تحميل سريع CSV
+                </a>
+
+                <a
+                  href="/api/admin/export-applications?format=zip&files=1"
                   className="gold-button rounded-2xl px-5 py-3 text-center text-sm font-black transition"
                 >
-                  تحميل كل الطلبات + الصور
+                  ZIP مع الصور
                 </a>
 
                 <Link
                   href="/admin"
-                  className="green-button rounded-2xl px-5 py-3 text-center text-sm font-black transition"
+                  className="soft-button rounded-2xl px-5 py-3 text-center text-sm font-black transition"
                 >
                   تحديث
                 </Link>
@@ -584,8 +587,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
         <section className="grid gap-3 sm:gap-4 md:grid-cols-4 xl:grid-cols-8">
           <StatBox label="إجمالي الطلبات" value={totalApplications} />
-          <StatBox label="اليوم" value={todayCount} />
-          <StatBox label="🔔 طلبات جديدة" value={preliminaryCount} />
+          <StatBox label="طلبات اليوم" value={todayCount} />
+          <StatBox label="🔔 جديدة" value={preliminaryCount} />
           <StatBox label="بحاجة إجراء" value={needsActionCount} />
           <StatBox label="تأكيد دفع" value={awaitingPaymentConfirmationCount} />
           <StatBox label="مؤهلين" value={qualifiedCount} />
@@ -602,12 +605,12 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <MiniInsight
             label="طلبات بدون GPS"
             value={noGpsCount}
-            note="يفضل المتابعة بعنوان واضح أو واتساب"
+            note="تحتاج متابعة عنوان أو واتساب"
           />
           <MiniInsight
             label="أولوية المتابعة"
             value={urgentApplications.length}
-            note="طلبات جديدة أو بحاجة إجراء"
+            note="طلبات جديدة أو تحتاج إجراء"
           />
         </section>
 
@@ -617,7 +620,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               <div>
                 <h2 className="text-xl font-black text-white">مركز الأولويات</h2>
                 <p className="mt-1 text-sm font-bold text-[#aeb9af]">
-                  ابدأ من هنا: طلبات جديدة أو طلبات تحتاج إجراء سريع.
+                  الطلبات التي يجب فتحها أولاً. كل بطاقة هنا قابلة للضغط.
                 </p>
               </div>
 
@@ -830,7 +833,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               <div className="hidden md:block">
                 <div className="overflow-hidden rounded-3xl border border-[rgba(214,181,107,0.14)]">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1320px] border-collapse text-right">
+                    <table className="w-full min-w-[1340px] border-collapse text-right">
                       <thead className="bg-[rgba(3,18,14,0.86)] text-white">
                         <tr>
                           <th className="px-4 py-4 text-sm font-black">
@@ -957,9 +960,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             <td className="px-4 py-4 text-sm">
                               <Link
                                 href={`/admin/applications/${app.id}`}
-                                className="green-button inline-flex rounded-2xl px-4 py-2 text-xs font-black transition"
+                                className="green-button inline-flex min-w-[120px] items-center justify-center rounded-2xl px-4 py-3 text-xs font-black shadow-lg transition"
                               >
-                                التفاصيل
+                                فتح الطلب
                               </Link>
                             </td>
                           </tr>

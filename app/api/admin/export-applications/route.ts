@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import JSZip from "jszip";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -70,17 +70,24 @@ function getDocumentLabel(document: AnyRecord, index: number) {
   );
 }
 
-async function fetchFileAsArrayBuffer(url: string) {
-  const response = await fetch(url);
+async function fetchFileAsArrayBuffer(url: string, timeoutMs = 8000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
-  if (!response.ok) {
-    throw new Error(`Failed to download file: ${response.status}`);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download file: ${response.status}`);
+    }
+
+    return await response.arrayBuffer();
+  } finally {
+    clearTimeout(timeout);
   }
-
-  return response.arrayBuffer();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const loggedIn = await isAdminLoggedIn();
 
   if (!loggedIn) {
@@ -89,6 +96,9 @@ export async function GET() {
       { status: 401 }
     );
   }
+
+  const format = request.nextUrl.searchParams.get("format") || "csv";
+  const includeFiles = request.nextUrl.searchParams.get("files") === "1";
 
   const [
     { data: applications, error: applicationsError },
@@ -120,6 +130,18 @@ export async function GET() {
 
   const safeApplications = (applications || []) as AnyRecord[];
   const safeDocuments = (documents || []) as AnyRecord[];
+  const date = new Date().toISOString().slice(0, 10);
+
+  if (format === "csv") {
+    return new NextResponse("\uFEFF" + toCsv(safeApplications), {
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="alameen-applications-${date}.csv"`,
+        "Cache-Control": "no-store",
+      },
+    });
+  }
+
   const docsByApplicationId = new Map<string, AnyRecord[]>();
 
   for (const doc of safeDocuments) {
@@ -140,13 +162,10 @@ export async function GET() {
 Exported at: ${exportedAt}
 Applications: ${safeApplications.length}
 Documents: ${safeDocuments.length}
+Files included: ${includeFiles ? "yes" : "no"}
 
-This ZIP contains:
-- applications.csv
-- applications.json
-- documents.csv
-- documents.json
-- documents/<tracking-id>/*
+Use ?format=csv for fast CSV only.
+Use ?format=zip&files=1 for ZIP with images.
 `
   );
 
@@ -165,7 +184,6 @@ This ZIP contains:
     if (!appFolder || !appId) continue;
 
     const appDocs = docsByApplicationId.get(appId) || [];
-
     appFolder.file("application.json", JSON.stringify(app, null, 2));
 
     for (const [index, doc] of appDocs.entries()) {
@@ -177,8 +195,10 @@ This ZIP contains:
 
       appFolder.file(
         `document-${index + 1}-${label}.json`,
-        JSON.stringify(doc, null, 2)
+        JSON.stringify({ ...doc, resolved_url: url }, null, 2)
       );
+
+      if (!includeFiles) continue;
 
       if (!url) {
         failures.push(`${tracking}: missing URL for ${label}`);
@@ -203,8 +223,6 @@ This ZIP contains:
     compression: "DEFLATE",
     compressionOptions: { level: 6 },
   });
-
-  const date = new Date().toISOString().slice(0, 10);
 
   return new NextResponse(content, {
     headers: {
