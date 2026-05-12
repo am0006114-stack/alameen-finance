@@ -322,6 +322,151 @@ function timelineClass(index: number, activeStep: number, tone: StatusView["tone
   return "border-white/10 bg-white/5 text-[#aeb9af]";
 }
 
+function statusIcon(tone: StatusView["tone"]) {
+  switch (tone) {
+    case "success":
+      return "✓";
+    case "warning":
+      return "!";
+    case "danger":
+      return "×";
+    case "new":
+      return "●";
+    default:
+      return "•";
+  }
+}
+
+function statusGlowClass(tone: StatusView["tone"]) {
+  switch (tone) {
+    case "success":
+      return "border-[rgba(105,217,123,0.42)] bg-[rgba(105,217,123,0.14)] shadow-[0_0_0_1px_rgba(105,217,123,0.18),0_22px_70px_rgba(105,217,123,0.16)] text-[#b8f3c0]";
+    case "warning":
+      return "border-[rgba(214,181,107,0.46)] bg-[rgba(214,181,107,0.14)] shadow-[0_0_0_1px_rgba(214,181,107,0.18),0_22px_70px_rgba(214,181,107,0.13)] text-[#f3dfac]";
+    case "danger":
+      return "border-red-400/40 bg-red-950/30 shadow-[0_0_0_1px_rgba(248,113,113,0.18),0_22px_70px_rgba(127,29,29,0.18)] text-red-100";
+    case "new":
+      return "border-sky-300/30 bg-sky-950/25 shadow-[0_0_0_1px_rgba(125,211,252,0.13),0_22px_70px_rgba(14,116,144,0.13)] text-sky-100";
+    default:
+      return "border-white/10 bg-white/5 text-[#d7ddd5]";
+  }
+}
+
+function statusShortHint(app: Application, statusView: StatusView) {
+  if (app.payment_status === "confirmed") {
+    return "تم فتح الملف وتحويله للدراسة النهائية";
+  }
+
+  if (app.payment_status === "customer_claimed_paid") {
+    return "وصل الدفع بانتظار تأكيد الإدارة";
+  }
+
+  if (app.status === "preliminary_qualified") {
+    return "مؤهل لاستكمال خطوة فتح الملف";
+  }
+
+  if (app.status === "needs_salary_slip") {
+    return "يلزم إرسال كشف راتب واضح";
+  }
+
+  if (app.status === "needs_guarantor") {
+    return "يلزم إدخال بيانات كفيل عبر الرابط";
+  }
+
+  if (app.status === "approved") {
+    return "انتقل الطلب للإجراءات النهائية";
+  }
+
+  if (app.status === "rejected") {
+    return "لم تتم الموافقة حالياً";
+  }
+
+  return statusView.message;
+}
+
+function fileOpenStatus(app: Application) {
+  if (app.payment_status === "confirmed") {
+    return {
+      title: "تم فتح الملف",
+      description: "تم تأكيد خطوة الدفع، وملفك الآن داخل الدراسة النهائية.",
+      icon: "✓",
+      tone: "success" as const,
+    };
+  }
+
+  if (app.payment_status === "customer_claimed_paid") {
+    return {
+      title: "وصل الدفع قيد التأكيد",
+      description: "تم استلام إشعار الدفع، وبانتظار مطابقة الوصل من الإدارة.",
+      icon: "⌛",
+      tone: "warning" as const,
+    };
+  }
+
+  if (
+    app.payment_status === "pending" ||
+    app.payment_status === "pending_payment" ||
+    app.status === "preliminary_qualified"
+  ) {
+    return {
+      title: "بانتظار فتح الملف",
+      description: "طلبك مؤهل مبدئياً، وسيتم استكمال فتح الملف حسب تعليمات الإدارة.",
+      icon: "↗",
+      tone: "warning" as const,
+    };
+  }
+
+  return {
+    title: "لم يُطلب فتح الملف بعد",
+    description: "طلبك ما زال في مرحلة المراجعة المبدئية، ولا يوجد أي دفع مطلوب حالياً.",
+    icon: "•",
+    tone: "neutral" as const,
+  };
+}
+
+function paymentStageClass(tone: "success" | "warning" | "neutral") {
+  switch (tone) {
+    case "success":
+      return "border-[rgba(105,217,123,0.35)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
+    case "warning":
+      return "border-[rgba(214,181,107,0.35)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
+    default:
+      return "border-white/10 bg-white/5 text-[#d7ddd5]";
+  }
+}
+
+function nextStepText(app: Application, statusView: StatusView) {
+  if (app.payment_status === "confirmed") {
+    return "الآن المطلوب منك فقط انتظار نتيجة الدراسة النهائية خلال 24 إلى 72 ساعة، مع إبقاء واتساب متاحاً لأي استفسار من الإدارة.";
+  }
+
+  if (app.payment_status === "customer_claimed_paid") {
+    return "لا تعيد الدفع. فقط انتظر تأكيد الإدارة لوصل الدفع، وسيتم تحديث الحالة فور المطابقة.";
+  }
+
+  if (app.status === "preliminary_qualified") {
+    return "تابع واتساب لأن الإدارة سترسل لك تعليمات فتح الملف والخطوة التالية بشكل واضح.";
+  }
+
+  if (app.status === "needs_salary_slip") {
+    return "أرسل كشف راتب أو شهادة راتب حديثة عبر واتساب حتى نكمل دراسة الطلب.";
+  }
+
+  if (app.status === "needs_guarantor") {
+    return "افتح رابط الكفيل المرسل عبر واتساب وأكمل بياناته حتى يتحرك الطلب للخطوة التالية.";
+  }
+
+  if (app.status === "approved") {
+    return "تابع واتساب لاستكمال توقيع العقد وترتيب الاستلام من مكاتبنا.";
+  }
+
+  if (app.status === "rejected") {
+    return "يمكنك التواصل مع الإدارة لمعرفة التفاصيل العامة أو إمكانية إعادة التقديم لاحقاً.";
+  }
+
+  return statusView.message;
+}
+
 function InfoItem({
   label,
   value,
@@ -404,6 +549,7 @@ export default async function TrackPage({
   const whatsappMessage =
     application && statusView ? getTrackWhatsAppMessage(application, statusView) : "";
   const whatsappHref = whatsappMessage ? getWhatsAppFollowUpUrl(whatsappMessage) : "#";
+  const fileStatus = application ? fileOpenStatus(application) : null;
 
   const timeline = [
     "تم استلام الطلب",
@@ -499,6 +645,69 @@ export default async function TrackPage({
 
         {application && statusView && (
           <section className="glass-panel gold-outline mt-6 rounded-[32px] p-6 shadow-xl">
+            <div className={`mb-6 overflow-hidden rounded-[34px] border p-1 ${statusGlowClass(statusView.tone)}`}>
+              <div className="relative rounded-[32px] border border-white/10 bg-[rgba(3,18,14,0.66)] p-6">
+                <div className="absolute left-5 top-5 flex h-3 w-3">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-45" />
+                  <span className="relative inline-flex h-3 w-3 rounded-full bg-current" />
+                </div>
+
+                <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-16 w-16 shrink-0 animate-pulse items-center justify-center rounded-3xl border border-white/15 bg-white/10 text-3xl font-black">
+                      {statusIcon(statusView.tone)}
+                    </div>
+
+                    <div>
+                      <p className="mb-2 text-xs font-black opacity-80">
+                        الحالة الحالية للطلب
+                      </p>
+
+                      <h2 className="text-3xl font-black leading-tight text-white md:text-4xl">
+                        {statusView.title}
+                      </h2>
+
+                      <p className="mt-3 max-w-2xl text-sm font-bold leading-8 text-[#d7ddd5]">
+                        {statusShortHint(application, statusView)}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-3xl border border-[rgba(214,181,107,0.22)] bg-[rgba(2,18,14,0.72)] p-4 text-center">
+                    <p className="text-xs font-black text-[#f3dfac]">رقم التتبع</p>
+                    <p className="mt-2 break-words text-2xl font-black text-white md:text-3xl">
+                      {application.tracking_id}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {fileStatus && (
+              <div className={`mb-6 rounded-[30px] border p-5 ${paymentStageClass(fileStatus.tone)}`}>
+                <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                  <div className="flex items-start gap-4">
+                    <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border border-white/15 bg-white/10 text-2xl font-black">
+                      {fileStatus.icon}
+                    </div>
+
+                    <div>
+                      <p className="text-xl font-black text-white">
+                        {fileStatus.title}
+                      </p>
+                      <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
+                        {fileStatus.description}
+                      </p>
+                    </div>
+                  </div>
+
+                  <span className="inline-flex rounded-full border border-white/15 bg-black/20 px-4 py-2 text-xs font-black">
+                    حالة فتح الملف
+                  </span>
+                </div>
+              </div>
+            )}
+
             {isPaymentConfirmed(application) && (
               <div className="mb-6 overflow-hidden rounded-[32px] border border-[rgba(105,217,123,0.38)] bg-[linear-gradient(135deg,rgba(105,217,123,0.18),rgba(214,181,107,0.13),rgba(3,18,14,0.92))] p-1 shadow-[0_22px_70px_rgba(25,135,84,0.18)]">
                 <div className="rounded-[30px] border border-white/10 bg-[rgba(3,18,14,0.55)] p-6">
@@ -566,38 +775,21 @@ export default async function TrackPage({
               </div>
             )}
 
-            <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <div>
-                <p className="gold-text mb-1 text-sm font-black">
-                  نتيجة التتبع
-                </p>
-
-                <h2 className="break-words text-2xl font-black text-white">
-                  {application.tracking_id}
-                </h2>
-              </div>
-
-              <span
-                className={`inline-flex rounded-full border px-4 py-2 text-sm font-black ${badgeClass(
-                  statusView.tone
-                )}`}
-              >
-                {statusView.title}
-              </span>
-            </div>
-
             <div className="mb-6 grid gap-2 md:grid-cols-5">
               {timeline.map((item, index) => (
                 <div
                   key={item}
-                  className={`rounded-2xl border px-3 py-3 text-center text-xs font-black ${timelineClass(
+                  className={`relative rounded-2xl border px-3 py-3 text-center text-xs font-black ${timelineClass(
                     index + 1,
                     statusView.step,
                     statusView.tone
-                  )}`}
+                  )} ${index + 1 === statusView.step ? "animate-pulse shadow-[0_0_30px_rgba(214,181,107,0.12)]" : ""}`}
                 >
-                  <div className="mb-1">
-                    {index + 1 < statusView.step ? "✓" : index + 1}
+                  {index + 1 === statusView.step && (
+                    <span className="absolute left-2 top-2 h-2 w-2 rounded-full bg-current" />
+                  )}
+                  <div className="mb-1 text-lg">
+                    {index + 1 < statusView.step ? "✓" : index + 1 === statusView.step ? statusIcon(statusView.tone) : index + 1}
                   </div>
                   {item}
                 </div>
@@ -615,15 +807,23 @@ export default async function TrackPage({
                 label="حالة الخطوات المالية"
                 value={translatePaymentStatus(application.payment_status)}
               />
+              <InfoItem
+                label="فتح الملف"
+                value={fileStatus?.title}
+              />
+              <InfoItem
+                label="آخر تحديث مالي"
+                value={application.payment_status === "confirmed" ? "تم تأكيد الدفع" : translatePaymentStatus(application.payment_status)}
+              />
             </div>
 
-            <div className="mt-5 rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-5">
+            <div className="mt-5 rounded-3xl border border-[rgba(214,181,107,0.24)] bg-[linear-gradient(135deg,rgba(214,181,107,0.10),rgba(3,18,14,0.72))] p-5">
               <h3 className="gold-text mb-2 text-base font-black">
-                ماذا يعني هذا؟
+                الخطوة التالية بوضوح
               </h3>
 
               <p className="text-sm font-bold leading-8 text-[#d7ddd5]">
-                {statusView.message}
+                {nextStepText(application, statusView)}
               </p>
             </div>
 
