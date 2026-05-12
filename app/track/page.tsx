@@ -362,7 +362,7 @@ function statusShortHint(app: Application, statusView: StatusView) {
   }
 
   if (app.status === "preliminary_qualified") {
-    return "مؤهل لاستكمال خطوة فتح الملف";
+    return "";
   }
 
   if (app.status === "needs_salary_slip") {
