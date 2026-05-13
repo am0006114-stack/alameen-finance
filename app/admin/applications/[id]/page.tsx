@@ -97,6 +97,46 @@ function formatDate(value: string | null | undefined) {
   }
 }
 
+function addDays(date: Date, days: number) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function formatPickupDate(date: Date) {
+  return new Intl.DateTimeFormat("ar-JO", {
+    weekday: "long",
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    timeZone: "Asia/Amman",
+  }).format(date);
+}
+
+function cleanText(value: FormDataEntryValue | null) {
+  const textValue = String(value || "").trim();
+  return textValue || null;
+}
+
+function cleanNumber(value: FormDataEntryValue | null) {
+  const textValue = String(value || "").trim();
+  if (!textValue) return null;
+
+  const numberValue = Number(textValue);
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function deviceDetailsForMessage(app: ApplicationRecord) {
+  const lines = [
+    app.device_name || "الجهاز المطلوب",
+    app.installment_months ? `مدة التقسيط: ${app.installment_months} شهر` : "",
+    app.monthly_payment ? `القسط الشهري التقريبي: ${formatMoney(app.monthly_payment)}` : "",
+    app.down_payment ? `الدفعة الأولى: ${formatMoney(app.down_payment)}` : "",
+  ].filter(Boolean);
+
+  return lines.join("\n");
+}
+
 function formatMoney(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return "—";
 
@@ -328,12 +368,6 @@ function makeWhatsAppUrl(phone: string | null | undefined, message: string) {
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
 
-function notificationNumberNotice() {
-  return `تنويه:
-هذا الرقم مخصص لإشعارات ومتابعة الطلبات فقط.
-للاستفسارات أو الاتصال المباشر يمكنكم التواصل معنا على الرقم:
-0788500337`;
-}
 
 function currentStatusMessage(app: ApplicationRecord) {
   const name = firstName(app.full_name);
@@ -350,8 +384,6 @@ function currentStatusMessage(app: ApplicationRecord) {
 
 يمكنك متابعة حالة الطلب من خلال الرابط:
 ${trackUrl}
-
-${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل`;
 }
@@ -382,8 +414,6 @@ ${trackUrl}
 دفع رسوم فتح الملف لا يعني الموافقة النهائية، وإنما يعني انتقال الطلب إلى مرحلة الدراسة النهائية.
 ويتم استرداد الرسوم عند الموافقة النهائية وتوقيع عقد الاستلام.
 
-${notificationNumberNotice()}
-
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
 }
@@ -404,8 +434,6 @@ function underReviewMessage(app: ApplicationRecord) {
 
 يمكنك متابعة الطلب من الرابط:
 ${trackUrl}
-
-${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل`;
 }
@@ -429,8 +457,6 @@ function salarySlipRequestMessage(app: ApplicationRecord) {
 رابط متابعة الطلب:
 ${trackUrl}
 
-${notificationNumberNotice()}
-
 الأمين للأقساط والتمويل`;
 }
 
@@ -450,8 +476,6 @@ ${guarantorUrl}
 
 ملاحظة مهمة: طلب الكفيل لا يعني رفض الطلب، وإنما إجراء لاستكمال دراسة الملف حسب سياسة الموافقة.
 
-${notificationNumberNotice()}
-
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
 }
@@ -460,21 +484,30 @@ function approvedMessage(app: ApplicationRecord) {
   const name = firstName(app.full_name);
   const tracking = app.tracking_id || app.id;
   const trackUrl = getTrackUrl(app);
+  const pickupDate = formatPickupDate(addDays(new Date(), 3));
+  const deviceDetails = deviceDetailsForMessage(app);
 
-  return `أهلًا ${name}،
+  return `أهلًا ${name} 🌟
 
-نود إعلامك بأنه تمت الموافقة المبدئية على طلب التمويل الخاص بك لدى الأمين للأقساط والتمويل.
+يسعدنا إبلاغك بأنه تمت الموافقة على طلبك لدى الأمين للأقساط والتمويل ✅
 
-رقم التتبع: ${tracking}
+تفاصيل الجهاز:
+${deviceDetails}
 
-سيتم التواصل معك لاستكمال الإجراءات النهائية، ويكون التسليم من مكاتبنا بعد توقيع العقد.
+يرجى الحضور يوم ${pickupDate} برفقة الكفيل، لتوقيع العقد والكمبيالات واستكمال إجراءات استلام جهازك 🎉
+
+رقم التتبع:
+${tracking}
 
 رابط متابعة الطلب:
 ${trackUrl}
 
-${notificationNumberNotice()}
+أهلًا وسهلًا فيك مع الأمين للأقساط والتمويل 💚
 
-الأمين للأقساط والتمويل`;
+عنواننا:
+رنا سنتر – الطابق الثاني
+مقابل مستشفى العيون التخصصي
+شارع المدينة المنورة، عمّان`;
 }
 
 function rejectedMessage(app: ApplicationRecord) {
@@ -490,8 +523,6 @@ function rejectedMessage(app: ApplicationRecord) {
 
 يمكنك متابعة حالة الطلب من الرابط:
 ${trackUrl}
-
-${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل`;
 }
@@ -516,8 +547,6 @@ ${tracking}
 ${trackUrl}
 
 ملاحظة: لا يمكن استكمال مراجعة الطلب قبل وصول صور الهوية بشكل واضح.
-
-${notificationNumberNotice()}
 
 الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
@@ -584,6 +613,31 @@ function InfoCard({
         ))}
       </div>
     </section>
+  );
+}
+
+function EditInput({
+  label,
+  name,
+  defaultValue,
+}: {
+  label: string;
+  name: string;
+  defaultValue: string | number | null | undefined;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-xs font-black text-[#f3dfac]">
+        {label}
+      </span>
+      <input
+        name={name}
+        defaultValue={
+          defaultValue === null || defaultValue === undefined ? "" : String(defaultValue)
+        }
+        className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-3 text-right text-sm font-bold text-white outline-none transition placeholder:text-[#8d998f] focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
+      />
+    </label>
   );
 }
 
@@ -700,6 +754,46 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     if (Object.keys(updatePayload).length === 0) {
       redirect(`/admin/applications/${applicationId}`);
     }
+
+    await supabaseAdmin
+      .from("applications")
+      .update(updatePayload)
+      .eq("id", applicationId);
+
+    redirect(`/admin/applications/${applicationId}`);
+  }
+
+  async function updateApplicationDetailsAction(formData: FormData) {
+    "use server";
+
+    const applicationId = String(formData.get("applicationId") || "");
+
+    if (!applicationId) {
+      redirect("/admin");
+    }
+
+    const updatePayload = {
+      full_name: cleanText(formData.get("full_name")),
+      phone: cleanText(formData.get("phone")),
+      email: cleanText(formData.get("email")),
+      national_id: cleanText(formData.get("national_id")),
+      governorate: cleanText(formData.get("governorate")),
+      city_area: cleanText(formData.get("city_area")),
+      detailed_address: cleanText(formData.get("detailed_address")),
+      nearest_landmark: cleanText(formData.get("nearest_landmark")),
+      employer_name: cleanText(formData.get("employer_name")),
+      job_title: cleanText(formData.get("job_title")),
+      salary: cleanNumber(formData.get("salary")),
+      device_name: cleanText(formData.get("device_name")),
+      device_price: cleanNumber(formData.get("device_price")),
+      down_payment: cleanNumber(formData.get("down_payment")),
+      installment_months: cleanNumber(formData.get("installment_months")),
+      monthly_payment: cleanNumber(formData.get("monthly_payment")),
+      total_with_interest: cleanNumber(formData.get("total_with_interest")),
+      guarantor_name: cleanText(formData.get("guarantor_name")),
+      guarantor_phone: cleanText(formData.get("guarantor_phone")),
+      guarantor_national_id: cleanText(formData.get("guarantor_national_id")),
+    };
 
     await supabaseAdmin
       .from("applications")
@@ -856,6 +950,51 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
         <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
           <div className="mb-5">
             <h2 className="gold-text text-xl font-black">
+              تعديل بيانات الطلب
+            </h2>
+            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
+              عدّل رقم الهاتف، بيانات العميل، بيانات الجهاز أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي.
+            </p>
+          </div>
+
+          <form action={updateApplicationDetailsAction} className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <input type="hidden" name="applicationId" value={app.id} />
+
+            <EditInput label="الاسم الكامل" name="full_name" defaultValue={app.full_name} />
+            <EditInput label="رقم الهاتف" name="phone" defaultValue={app.phone} />
+            <EditInput label="البريد الإلكتروني" name="email" defaultValue={app.email} />
+            <EditInput label="الرقم الوطني" name="national_id" defaultValue={app.national_id} />
+            <EditInput label="المحافظة" name="governorate" defaultValue={governorate === "—" ? "" : governorate} />
+            <EditInput label="المنطقة" name="city_area" defaultValue={area === "—" ? "" : area} />
+            <EditInput label="العنوان التفصيلي" name="detailed_address" defaultValue={address === "—" ? "" : address} />
+            <EditInput label="أقرب معلم" name="nearest_landmark" defaultValue={app.nearest_landmark} />
+            <EditInput label="مكان العمل" name="employer_name" defaultValue={employer === "—" ? "" : employer} />
+            <EditInput label="المسمى الوظيفي" name="job_title" defaultValue={app.job_title} />
+            <EditInput label="الراتب الشهري" name="salary" defaultValue={app.salary} />
+            <EditInput label="اسم الجهاز" name="device_name" defaultValue={app.device_name} />
+            <EditInput label="سعر الجهاز" name="device_price" defaultValue={app.device_price} />
+            <EditInput label="الدفعة الأولى" name="down_payment" defaultValue={app.down_payment} />
+            <EditInput label="مدة التقسيط بالشهور" name="installment_months" defaultValue={app.installment_months} />
+            <EditInput label="القسط الشهري التقريبي" name="monthly_payment" defaultValue={app.monthly_payment} />
+            <EditInput label="الإجمالي مع الفائدة" name="total_with_interest" defaultValue={app.total_with_interest} />
+            <EditInput label="اسم الكفيل" name="guarantor_name" defaultValue={app.guarantor_name} />
+            <EditInput label="هاتف الكفيل" name="guarantor_phone" defaultValue={app.guarantor_phone} />
+            <EditInput label="الرقم الوطني للكفيل" name="guarantor_national_id" defaultValue={app.guarantor_national_id} />
+
+            <div className="md:col-span-2 xl:col-span-3">
+              <button
+                type="submit"
+                className="green-button w-full rounded-2xl px-5 py-4 text-sm font-black transition"
+              >
+                حفظ تعديلات الطلب
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
+          <div className="mb-5">
+            <h2 className="gold-text text-xl font-black">
               رسائل واتساب للعميل
             </h2>
             <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
@@ -901,7 +1040,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, approvedMessage(app))}
-                label="موافقة مبدئية"
+                label="قرار نهائي / الاستلام"
                 className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
               />
 
@@ -1058,6 +1197,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               {
                 label: "وقت ضغط العميل تأكيد الدفع",
                 value: formatDate(app.paid_clicked_at),
+              },
+              {
+                label: "وقت تأكيد الإدارة للدفع",
+                value: formatDate(app.payment_confirmed_at),
               },
               { label: "مهلة الدفع", value: formatDate(app.payment_deadline) },
             ]}
