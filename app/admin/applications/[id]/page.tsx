@@ -173,6 +173,8 @@ function translateStatus(status: string | null | undefined) {
       return "طلب مبدئي جديد";
     case "preliminary_qualified":
       return "مؤهل مبدئياً";
+    case "qualification_link_sent":
+      return "تم إرسال رابط القرار";
     case "customer_confirmed_continue":
       return "العميل وافق على الاستمرار";
     case "customer_declined_continue":
@@ -210,6 +212,8 @@ function translatePaymentStatus(status: string | null | undefined) {
       return "غير مدفوع";
     case "pending":
       return "بانتظار الدفع";
+    case "payment_info_sent":
+      return "تم إرسال معلومات الدفع";
     case "pending_payment":
       return "بانتظار الدفع";
     case "customer_claimed_paid":
@@ -278,6 +282,8 @@ function statusClass(status: string | null | undefined) {
     case "customer_declined_continue":
       return "border-red-400/30 bg-red-950/25 text-red-200";
     case "preliminary_qualified":
+    case "qualification_link_sent":
+    case "payment_info_sent":
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
     case "pending":
@@ -434,6 +440,31 @@ ${tracking}
 للاطلاع على تفاصيل المرحلة القادمة وتأكيد رغبتكم بالاستمرار، يرجى الدخول إلى الرابط التالي:
 
 ${continueUrl}
+
+الأمين للأقساط والتمويل`;
+}
+
+function paymentInfoMessage(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const deviceName = app.device_name || "—";
+
+  return `أهلًا ${name} 🌿
+
+تم تسجيل رغبتكم بالاستمرار في فتح ملف الدراسة النهائية ✅
+
+تفاصيل الطلب:
+الجهاز: ${deviceName}
+رقم التتبع: ${tracking}
+
+معلومات رسوم فتح الملف:
+قيمة الرسوم: 5 دنانير فقط
+
+اسم المستفيد: AMEENPAY
+اسم المحفظة: Orang-Money
+الاسم: ABDUL RAHMAN ALHARAHSHEH
+
+بعد التحويل يرجى إرسال صورة أو لقطة شاشة لوصل الدفع عبر واتساب ليتم فتح الملف وتحويله لقسم الدراسة النهائية.
 
 الأمين للأقساط والتمويل`;
 }
@@ -679,6 +710,37 @@ function WhatsAppButton({
     >
       {label}
     </a>
+  );
+}
+
+function WhatsAppActionButton({
+  applicationId,
+  phone,
+  message,
+  actionType,
+  label,
+  className,
+}: {
+  applicationId: string;
+  phone: string | null | undefined;
+  message: string;
+  actionType: "qualification_link_sent" | "payment_info_sent";
+  label: string;
+  className: string;
+}) {
+  return (
+    <form action="/api/admin/whatsapp-action" method="POST" target="_blank">
+      <input type="hidden" name="applicationId" value={applicationId} />
+      <input type="hidden" name="phone" value={phone || ""} />
+      <input type="hidden" name="message" value={message} />
+      <input type="hidden" name="actionType" value={actionType} />
+      <button
+        type="submit"
+        className={`flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-black transition ${className}`}
+      >
+        {label}
+      </button>
+    </form>
   );
 }
 
@@ -1035,10 +1097,22 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 className="border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.10)]"
               />
 
-              <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, preliminaryQualificationMessage(app))}
-                label="رسالة التأهيل + رابط القرار"
+              <WhatsAppActionButton
+                applicationId={app.id}
+                phone={app.phone}
+                message={preliminaryQualificationMessage(app)}
+                actionType="qualification_link_sent"
+                label="تهانينا + رابط القرار"
                 className="border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.16)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.24)]"
+              />
+
+              <WhatsAppActionButton
+                applicationId={app.id}
+                phone={app.phone}
+                message={paymentInfoMessage(app)}
+                actionType="payment_info_sent"
+                label="إرسال معلومات الدفع"
+                className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
               />
 
               <WhatsAppButton
