@@ -173,6 +173,10 @@ function translateStatus(status: string | null | undefined) {
       return "طلب مبدئي جديد";
     case "preliminary_qualified":
       return "مؤهل مبدئياً";
+    case "customer_confirmed_continue":
+      return "العميل وافق على الاستمرار";
+    case "customer_declined_continue":
+      return "العميل رفض الاستمرار";
     case "needs_salary_slip":
       return "بحاجة كشف راتب";
     case "needs_guarantor":
@@ -268,8 +272,10 @@ function statusClass(status: string | null | undefined) {
     case "approved":
     case "confirmed":
     case "guarantor_submitted":
+    case "customer_confirmed_continue":
       return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
+    case "customer_declined_continue":
       return "border-red-400/30 bg-red-950/25 text-red-200";
     case "preliminary_qualified":
     case "pending_payment_confirmation":
@@ -314,6 +320,17 @@ function firstName(fullName: string | null | undefined) {
   return fullName.trim().split(/\s+/)[0] || "عميلنا الكريم";
 }
 
+function firstTwoNames(fullName: string | null | undefined) {
+  if (!fullName) return "عميلنا الكريم";
+
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+
+  if (parts.length === 0) return "عميلنا الكريم";
+  if (parts.length === 1) return parts[0];
+
+  return `${parts[0]} ${parts[1]}`;
+}
+
 function getBaseUrl() {
   return process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000";
 }
@@ -326,6 +343,16 @@ function getTrackUrl(app: ApplicationRecord) {
   return `${baseUrl}/track?phone=${encodeURIComponent(
     phone
   )}&tracking=${encodeURIComponent(tracking)}`;
+}
+
+function getContinueUrl(app: ApplicationRecord) {
+  const baseUrl = getBaseUrl();
+  const phone = app.phone || "";
+  const tracking = app.tracking_id || app.id || "";
+
+  return `${baseUrl}/continue?tracking=${encodeURIComponent(
+    tracking
+  )}&phone=${encodeURIComponent(phone)}`;
 }
 
 function getGuarantorUrl(app: ApplicationRecord) {
@@ -388,34 +415,27 @@ ${trackUrl}
 الأمين للأقساط والتمويل`;
 }
 
-function preliminaryPaymentMessage(app: ApplicationRecord) {
-  const name = firstName(app.full_name);
+function preliminaryQualificationMessage(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
-  const trackUrl = getTrackUrl(app);
+  const continueUrl = getContinueUrl(app);
+  const deviceName = app.device_name || "الجهاز المطلوب";
 
-  return `أهلًا ${name}،
+  return `🌿 تهانينا ${name}،
 
-تمت مراجعة طلبك لدى الأمين للأقساط والتمويل، وطلبك مؤهل مبدئياً للانتقال إلى مرحلة الدراسة النهائية.
+بعد مراجعة البيانات المرسلة، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
 
-لاستكمال دراسة الملف بشكل رسمي، يرجى دفع رسوم فتح الملف للدراسة النهائية بقيمة 5 دنانير، ثم إرسال صورة أو سكرين شوت واضح لوصل الدفع عبر واتساب.
+الجهاز المطلوب:
+${deviceName}
 
 رقم التتبع:
 ${tracking}
 
-معلومات الدفع:
-اسم المستفيد: AMEENPAY
-اسم المحفظة: Orang-Money
-الاسم: ABDUL RAHMAN ALHARAHSHEH
+للاطلاع على تفاصيل المرحلة القادمة وتأكيد رغبتكم بالاستمرار، يرجى الدخول إلى الرابط التالي:
 
-رابط متابعة الطلب:
-${trackUrl}
+${continueUrl}
 
-ملاحظة مهمة:
-دفع رسوم فتح الملف لا يعني الموافقة النهائية، وإنما يعني انتقال الطلب إلى مرحلة الدراسة النهائية.
-ويتم استرداد الرسوم عند الموافقة النهائية وتوقيع عقد الاستلام.
-
-الأمين للأقساط والتمويل
-Al Ameen for Financial Services`;
+الأمين للأقساط والتمويل`;
 }
 
 function underReviewMessage(app: ApplicationRecord) {
@@ -813,6 +833,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   const address = app.detailed_address || app.address || "—";
   const employer = app.employer || app.employer_name || "—";
   const guarantorUrl = getGuarantorUrl(app);
+  const continueUrl = getContinueUrl(app);
   const googleMapsUrl = getGoogleMapsUrl(app);
 
   return (
@@ -878,8 +899,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             <StatusActionButton
               applicationId={app.id}
               status="preliminary_qualified"
-              paymentStatus="pending"
-              label="مؤهل مبدئياً / اطلب الدفع"
+              paymentStatus="not_requested_yet"
+              label="مؤهل مبدئياً / إرسال صفحة القرار"
               className="gold-button"
               action={updateApplicationAction}
             />
@@ -1015,8 +1036,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, preliminaryPaymentMessage(app))}
-                label="مؤهل / تعليمات الدفع"
+                href={makeWhatsAppUrl(app.phone, preliminaryQualificationMessage(app))}
+                label="رسالة التأهيل + رابط القرار"
                 className="border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.16)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.24)]"
               />
 
@@ -1058,11 +1079,20 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             </div>
           )}
 
-          <div className="mt-5 rounded-2xl border border-orange-300/20 bg-orange-950/20 p-4">
-            <p className="text-xs font-black text-orange-100">رابط إدخال بيانات الكفيل</p>
-            <p className="mt-2 break-words text-sm font-bold leading-7 text-[#f7f3e8]">
-              {guarantorUrl}
-            </p>
+          <div className="mt-5 grid gap-3 md:grid-cols-2">
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(214,181,107,0.07)] p-4">
+              <p className="text-xs font-black text-[#f3dfac]">رابط صفحة قرار العميل</p>
+              <p className="mt-2 break-words text-sm font-bold leading-7 text-[#f7f3e8]">
+                {continueUrl}
+              </p>
+            </div>
+
+            <div className="rounded-2xl border border-orange-300/20 bg-orange-950/20 p-4">
+              <p className="text-xs font-black text-orange-100">رابط إدخال بيانات الكفيل</p>
+              <p className="mt-2 break-words text-sm font-bold leading-7 text-[#f7f3e8]">
+                {guarantorUrl}
+              </p>
+            </div>
           </div>
         </section>
 
