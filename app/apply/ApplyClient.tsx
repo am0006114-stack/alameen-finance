@@ -185,15 +185,13 @@ function safeNumber(value: string | null, fallback: number) {
 }
 
 function getWhatsAppFollowUpUrl(message: string) {
-  const number = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "";
-  const cleanNumber = number.replace(/\D/g, "");
+  // الرقم الرسمي الأردني للأمين للأقساط والتمويل.
+  // وضعناه ثابتًا هنا حتى لا تبقى صفحة التقديم تفتح على الرقم البريطاني
+  // بسبب كاش Vercel أو قيمة NEXT_PUBLIC_WHATSAPP_NUMBER القديمة.
+  const officialWhatsAppNumber = "962788500337";
   const encodedMessage = encodeURIComponent(message);
 
-  if (cleanNumber) {
-    return `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
-  }
-
-  return `https://wa.me/?text=${encodedMessage}`;
+  return `https://wa.me/${officialWhatsAppNumber}?text=${encodedMessage}`;
 }
 
 export default function ApplyPage() {

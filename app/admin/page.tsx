@@ -306,7 +306,7 @@ function filterApplications(
   applications: Application[],
   q: string,
   status: string,
-  payment: string
+  payment: string,
 ) {
   const search = normalizeSearch(q);
 
@@ -351,11 +351,143 @@ function buildFilterHref(params: {
   return queryString ? `/admin?${queryString}` : "/admin";
 }
 
+function normalizeJordanPhone(phone: string | null | undefined) {
+  const raw = String(phone || "").replace(/[^0-9]/g, "");
+
+  if (!raw) return "";
+  if (raw.startsWith("962")) return raw;
+  if (raw.startsWith("0")) return `962${raw.slice(1)}`;
+  if (raw.length === 9 && raw.startsWith("7")) return `962${raw}`;
+
+  return raw;
+}
+
+function buildTrackLink(app: Application) {
+  const phone = app.phone || "";
+  const tracking = app.tracking_id || "";
+  const params = new URLSearchParams();
+
+  if (phone) params.set("phone", phone);
+  if (tracking) params.set("tracking", tracking);
+
+  const query = params.toString();
+  return `https://www.ameenfinance.co/track${query ? `?${query}` : ""}`;
+}
+
+function applicantFirstName(app: Application) {
+  return app.full_name?.trim().split(/\s+/)[0] || "";
+}
+
+function buildPreliminaryQualifiedMessage(app: Application) {
+  const name = applicantFirstName(app);
+  const tracking = app.tracking_id || "—";
+  const device = app.device_name || "الجهاز المطلوب";
+  const trackLink = buildTrackLink(app);
+
+  return `أهلًا${name ? ` ${name}` : ""} 🌿
+
+بعد مراجعة البيانات المرسلة، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
+
+الجهاز المطلوب: ${device}
+رقم التتبع: ${tracking}
+رابط متابعة الطلب:
+${trackLink}
+
+هذا يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا، وسيتم تحويله لقسم الدراسة النهائية بعد فتح الملف.
+
+مهم جدًا:
+هذه الرسالة لا تعني موافقة نهائية بعد، لكنها تعني أن الطلب اجتاز المرحلة الأولية بنجاح، وهي مرحلة لا يصل إليها جميع المتقدمين.
+
+رسوم فتح الملف هدفها:
+• تأكيد جدية الطلب
+• منع الطلبات الوهمية
+• تخصيص ملف دراسة فعلي باسمكم داخل النظام
+
+✅ الرسوم مستردة بالحالتين:
+• في حال عدم الموافقة
+• أو عند إتمام العقد والاستلام حسب حالة الطلب
+
+بعد فتح الملف يتم تحويل الطلب مباشرة للدراسة النهائية، ومدة الرد المتوقعة من 24 إلى 72 ساعة.
+
+هل تود الاستمرار بإجراءات فتح الملف؟ 🌿`;
+}
+
+function buildPaymentInfoMessage(app: Application) {
+  const name = applicantFirstName(app);
+  const tracking = app.tracking_id || "—";
+  const device = app.device_name || "الجهاز المطلوب";
+  const trackLink = buildTrackLink(app);
+
+  return `أهلًا${name ? ` ${name}` : ""} 🌿
+
+ممتاز، تم تجهيز طلبكم للانتقال إلى الدراسة النهائية ✅
+
+الجهاز المطلوب: ${device}
+رقم التتبع: ${tracking}
+رابط متابعة الطلب:
+${trackLink}
+
+لاستكمال فتح الملف، يرجى دفع رسوم فتح الملف بقيمة 5 دنانير فقط عبر المعلومات التالية:
+
+اسم المستفيد: AMEENPAY
+اسم المحفظة: Orang-Money
+الاسم: ABDUL RAHMAN ALHARAHSHEH
+
+بعد التحويل يرجى إرسال صورة أو لقطة شاشة لوصل الدفع.
+
+فور تأكيد الدفع:
+✅ يتم فتح الملف رسميًا
+✅ يتم تحويل الطلب لقسم الدراسة النهائية
+✅ يتم تثبيت أولوية الطلب داخل النظام
+
+مدة دراسة الطلب المتوقعة:
+من 24 إلى 72 ساعة حسب ضغط الطلبات.
+
+نشكر ثقتكم 🌿
+الأمين للأقساط والتمويل`;
+}
+
+function buildWhatsappUrl(phone: string | null | undefined, message: string) {
+  const normalizedPhone = normalizeJordanPhone(phone);
+  const encodedMessage = encodeURIComponent(message);
+
+  if (!normalizedPhone) return `https://wa.me/?text=${encodedMessage}`;
+
+  return `https://wa.me/${normalizedPhone}?text=${encodedMessage}`;
+}
+
+function AdminWhatsappActions({ app }: { app: Application }) {
+  const preliminaryMessage = buildPreliminaryQualifiedMessage(app);
+  const paymentMessage = buildPaymentInfoMessage(app);
+
+  return (
+    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+      <a
+        href={buildWhatsappUrl(app.phone, preliminaryMessage)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-3 text-center text-xs font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+      >
+        واتساب 1: تأهيل مبدئي
+      </a>
+
+      <a
+        href={buildWhatsappUrl(app.phone, paymentMessage)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] px-3 py-3 text-center text-xs font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.20)]"
+      >
+        واتساب 2: معلومات الدفع
+      </a>
+    </div>
+  );
+}
+
 function CompactMobileRequest({ app }: { app: Application }) {
   return (
     <article
       className={`glass-panel gold-outline rounded-2xl p-4 shadow-sm ${newApplicationCardClass(
-        app
+        app,
       )}`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
@@ -396,7 +528,9 @@ function CompactMobileRequest({ app }: { app: Application }) {
 
         <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
           <p className="mb-1 font-bold text-[#aeb9af]">المحافظة</p>
-          <p className="truncate font-black text-white">{displayGovernorate(app)}</p>
+          <p className="truncate font-black text-white">
+            {displayGovernorate(app)}
+          </p>
         </div>
 
         <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
@@ -408,13 +542,15 @@ function CompactMobileRequest({ app }: { app: Application }) {
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${priorityClass(app)}`}>
+        <span
+          className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${priorityClass(app)}`}
+        >
           {getPriorityLabel(app)}
         </span>
 
         <span
           className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(
-            app.status
+            app.status,
           )}`}
         >
           {translateStatus(app.status)}
@@ -422,12 +558,14 @@ function CompactMobileRequest({ app }: { app: Application }) {
 
         <span
           className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black ${statusClass(
-            app.payment_status
+            app.payment_status,
           )}`}
         >
           {translatePaymentStatus(app.payment_status)}
         </span>
       </div>
+
+      <AdminWhatsappActions app={app} />
 
       <Link
         href={`/admin/applications/${app.id}`}
@@ -464,7 +602,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     safeApplications,
     q,
     selectedStatus,
-    selectedPayment
+    selectedPayment,
   );
 
   const totalApplications = safeApplications.length;
@@ -474,25 +612,27 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
       app.status === "needs_salary_slip" ||
       app.status === "needs_guarantor" ||
       app.payment_status === "customer_claimed_paid" ||
-      app.status === "pending_payment_confirmation"
+      app.status === "pending_payment_confirmation",
   ).length;
 
   const preliminaryCount = safeApplications.filter(
-    (app) => app.status === "preliminary_application" || !app.status
+    (app) => app.status === "preliminary_application" || !app.status,
   ).length;
 
   const qualifiedCount = safeApplications.filter(
-    (app) => app.status === "preliminary_qualified"
+    (app) => app.status === "preliminary_qualified",
   ).length;
 
   const approvedCount = safeApplications.filter(
-    (app) => app.status === "approved"
+    (app) => app.status === "approved",
   ).length;
 
-  const todayCount = safeApplications.filter((app) => isToday(app.created_at)).length;
+  const todayCount = safeApplications.filter((app) =>
+    isToday(app.created_at),
+  ).length;
 
   const awaitingPaymentConfirmationCount = safeApplications.filter(
-    isPaymentAwaitingConfirmation
+    isPaymentAwaitingConfirmation,
   ).length;
 
   const gpsCount = safeApplications.filter(hasGpsLocation).length;
@@ -500,8 +640,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
   const averageSalary =
     safeApplications.length > 0
-      ? safeApplications.reduce((sum, app) => sum + moneyNumber(app.salary), 0) /
-        safeApplications.length
+      ? safeApplications.reduce(
+          (sum, app) => sum + moneyNumber(app.salary),
+          0,
+        ) / safeApplications.length
       : 0;
 
   const urgentApplications = safeApplications
@@ -516,7 +658,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   }
 
   return (
-    <main dir="rtl" className="relative min-h-screen overflow-x-hidden px-3 py-5 text-[#f7f3e8] sm:px-4 sm:py-8">
+    <main
+      dir="rtl"
+      className="relative min-h-screen overflow-x-hidden px-3 py-5 text-[#f7f3e8] sm:px-4 sm:py-8"
+    >
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
         <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
         <div className="absolute left-[-110px] top-[280px] h-[300px] w-[300px] rounded-full bg-[#3fae65]/10 blur-3xl" />
@@ -537,7 +682,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                 </h1>
 
                 <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-                  إدارة طلبات الموافقة المبدئية، مراجعة العملاء، وإرسال الإجراءات المطلوبة عبر واتساب.
+                  إدارة طلبات الموافقة المبدئية، مراجعة العملاء، وإرسال
+                  الإجراءات المطلوبة عبر واتساب.
                 </p>
               </div>
 
@@ -618,7 +764,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <section className="glass-panel gold-outline mt-5 rounded-[28px] p-4 shadow-xl sm:mt-6 sm:rounded-[32px] sm:p-5">
             <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
               <div>
-                <h2 className="text-xl font-black text-white">مركز الأولويات</h2>
+                <h2 className="text-xl font-black text-white">
+                  مركز الأولويات
+                </h2>
                 <p className="mt-1 text-sm font-bold text-[#aeb9af]">
                   الطلبات التي يجب فتحها أولاً. كل بطاقة هنا قابلة للضغط.
                 </p>
@@ -652,7 +800,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                     {app.phone || "—"} · {app.tracking_id || app.id.slice(0, 8)}
                   </p>
                   <p className="mt-2 truncate text-xs font-bold opacity-80">
-                    {translateStatus(app.status)} / {translatePaymentStatus(app.payment_status)}
+                    {translateStatus(app.status)} /{" "}
+                    {translatePaymentStatus(app.payment_status)}
                   </p>
                 </Link>
               ))}
@@ -694,7 +843,10 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-3 text-sm font-bold text-white outline-none transition focus:border-[#d6b56b] focus:ring-4 focus:ring-[#d6b56b]/10"
             >
               {PAYMENT_OPTIONS.map((option) => (
-                <option key={option.value || "all-payment"} value={option.value}>
+                <option
+                  key={option.value || "all-payment"}
+                  value={option.value}
+                >
                   {option.label}
                 </option>
               ))}
@@ -851,9 +1003,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                           <th className="px-4 py-4 text-sm font-black">
                             المحافظة
                           </th>
-                          <th className="px-4 py-4 text-sm font-black">
-                            GPS
-                          </th>
+                          <th className="px-4 py-4 text-sm font-black">GPS</th>
                           <th className="px-4 py-4 text-sm font-black">
                             الراتب
                           </th>
@@ -880,11 +1030,13 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                           <tr
                             key={app.id}
                             className={`border-b border-[rgba(214,181,107,0.10)] transition ${newApplicationRowClass(
-                              app
+                              app,
                             )}`}
                           >
                             <td className="px-4 py-4 text-sm">
-                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${priorityClass(app)}`}>
+                              <span
+                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${priorityClass(app)}`}
+                              >
                                 {getPriorityLabel(app)}
                               </span>
                             </td>
@@ -896,7 +1048,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                                     🔔 جديد
                                   </span>
                                 )}
-                                <span>{app.tracking_id || app.id.slice(0, 8)}</span>
+                                <span>
+                                  {app.tracking_id || app.id.slice(0, 8)}
+                                </span>
                               </div>
                             </td>
 
@@ -910,7 +1064,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
                             <td className="px-4 py-4 text-sm text-[#cbd6cb]">
                               {displayGovernorate(app)}
-                              {displayArea(app) !== "—" ? ` / ${displayArea(app)}` : ""}
+                              {displayArea(app) !== "—"
+                                ? ` / ${displayArea(app)}`
+                                : ""}
                             </td>
 
                             <td className="px-4 py-4 text-sm">
@@ -936,7 +1092,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             <td className="px-4 py-4 text-sm">
                               <span
                                 className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(
-                                  app.status
+                                  app.status,
                                 )}`}
                               >
                                 {translateStatus(app.status)}
@@ -946,7 +1102,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             <td className="px-4 py-4 text-sm">
                               <span
                                 className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(
-                                  app.payment_status
+                                  app.payment_status,
                                 )}`}
                               >
                                 {translatePaymentStatus(app.payment_status)}
@@ -958,12 +1114,38 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             </td>
 
                             <td className="px-4 py-4 text-sm">
-                              <Link
-                                href={`/admin/applications/${app.id}`}
-                                className="green-button inline-flex min-w-[120px] items-center justify-center rounded-2xl px-4 py-3 text-xs font-black shadow-lg transition"
-                              >
-                                فتح الطلب
-                              </Link>
+                              <div className="flex min-w-[220px] flex-col gap-2">
+                                <Link
+                                  href={`/admin/applications/${app.id}`}
+                                  className="green-button inline-flex items-center justify-center rounded-2xl px-4 py-3 text-xs font-black shadow-lg transition"
+                                >
+                                  فتح الطلب
+                                </Link>
+
+                                <a
+                                  href={buildWhatsappUrl(
+                                    app.phone,
+                                    buildPreliminaryQualifiedMessage(app),
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-2 text-[11px] font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+                                >
+                                  واتساب 1: تأهيل
+                                </a>
+
+                                <a
+                                  href={buildWhatsappUrl(
+                                    app.phone,
+                                    buildPaymentInfoMessage(app),
+                                  )}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] px-3 py-2 text-[11px] font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.20)]"
+                                >
+                                  واتساب 2: الدفع
+                                </a>
+                              </div>
                             </td>
                           </tr>
                         ))}
@@ -1020,7 +1202,8 @@ function QuickFilter({
     neutral: "border-white/10 bg-white/5 text-[#d7ddd5]",
     gold: "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]",
     blue: "border-sky-300/25 bg-sky-950/20 text-sky-200",
-    green: "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]",
+    green:
+      "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]",
     red: "border-red-400/30 bg-red-950/25 text-red-200",
     purple: "border-purple-300/25 bg-purple-950/25 text-purple-100",
   };
