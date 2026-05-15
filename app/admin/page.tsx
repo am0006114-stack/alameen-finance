@@ -60,6 +60,8 @@ const STATUS_OPTIONS = [
   { value: "guarantor_submitted", label: "تم إدخال الكفيل" },
   { value: "pending_payment_confirmation", label: "بانتظار تأكيد الدفع" },
   { value: "under_review", label: "قيد الدراسة" },
+  { value: "customer_confirmed_continue", label: "العميل وافق على الاستمرار" },
+  { value: "customer_declined_continue", label: "العميل رفض الاستمرار" },
   { value: "approved", label: "مقبول" },
   { value: "rejected", label: "مرفوض" },
   { value: "cancelled", label: "ملغي" },
@@ -122,6 +124,10 @@ function translateStatus(status: string | null | undefined) {
       return "بانتظار تأكيد الدفع";
     case "under_review":
       return "قيد الدراسة";
+    case "customer_confirmed_continue":
+      return "وافق على الاستمرار";
+    case "customer_declined_continue":
+      return "رفض الاستمرار";
     case "approved":
       return "مقبول";
     case "rejected":
@@ -157,10 +163,12 @@ function translatePaymentStatus(status: string | null | undefined) {
 function statusClass(status: string | null | undefined) {
   switch (status) {
     case "approved":
+    case "customer_confirmed_continue":
     case "confirmed":
     case "guarantor_submitted":
       return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
+    case "customer_declined_continue":
       return "border-red-400/30 bg-red-950/25 text-red-200";
     case "preliminary_qualified":
     case "pending_payment_confirmation":
@@ -219,14 +227,16 @@ function isNeedsAction(app: Application) {
     app.status === "needs_salary_slip" ||
     app.status === "needs_guarantor" ||
     app.payment_status === "customer_claimed_paid" ||
-    app.status === "pending_payment_confirmation"
+    app.status === "pending_payment_confirmation" ||
+    app.status === "customer_confirmed_continue"
   );
 }
 
 function isPaymentAwaitingConfirmation(app: Application) {
   return (
     app.payment_status === "customer_claimed_paid" ||
-    app.status === "pending_payment_confirmation"
+    app.status === "pending_payment_confirmation" ||
+    app.status === "customer_confirmed_continue"
   );
 }
 
@@ -244,6 +254,8 @@ function isToday(value: string | null) {
 }
 
 function getPriorityLabel(app: Application) {
+  if (app.status === "customer_confirmed_continue") return "وافق للاستمرار";
+  if (app.status === "customer_declined_continue") return "رفض الاستمرار";
   if (isPaymentAwaitingConfirmation(app)) return "تأكيد دفع";
   if (app.status === "needs_salary_slip") return "كشف راتب";
   if (app.status === "needs_guarantor") return "كفيل";
@@ -253,6 +265,14 @@ function getPriorityLabel(app: Application) {
 }
 
 function priorityClass(app: Application) {
+  if (app.status === "customer_confirmed_continue") {
+    return "border-[rgba(105,217,123,0.42)] bg-[rgba(105,217,123,0.14)] text-[#b8f3c0]";
+  }
+
+  if (app.status === "customer_declined_continue") {
+    return "border-red-400/35 bg-red-950/30 text-red-100";
+  }
+
   if (isPaymentAwaitingConfirmation(app)) {
     return "border-[rgba(214,181,107,0.42)] bg-[rgba(214,181,107,0.14)] text-[#f3dfac]";
   }
@@ -374,42 +394,53 @@ function buildTrackLink(app: Application) {
   return `https://www.ameenfinance.co/track${query ? `?${query}` : ""}`;
 }
 
+function buildContinueLink(app: Application) {
+  const phone = app.phone || "";
+  const tracking = app.tracking_id || app.id || "";
+  const params = new URLSearchParams();
+
+  if (phone) params.set("phone", phone);
+  if (tracking) params.set("tracking", tracking);
+
+  const query = params.toString();
+  return `https://www.ameenfinance.co/continue${query ? `?${query}` : ""}`;
+}
+
+function applicantShortName(app: Application) {
+  const parts = app.full_name?.trim().split(/\s+/).filter(Boolean) || [];
+
+  if (parts.length >= 2) return `${parts[0]} ${parts[1]}`;
+  if (parts.length === 1) return parts[0];
+
+  return "عميلنا الكريم";
+}
+
 function applicantFirstName(app: Application) {
   return app.full_name?.trim().split(/\s+/)[0] || "";
 }
 
 function buildPreliminaryQualifiedMessage(app: Application) {
-  const name = applicantFirstName(app);
+  const name = applicantShortName(app);
   const tracking = app.tracking_id || "—";
   const device = app.device_name || "الجهاز المطلوب";
-  const trackLink = buildTrackLink(app);
+  const continueLink = buildContinueLink(app);
 
-  return `أهلًا${name ? ` ${name}` : ""} 🌿
+  return `🌿 تهانينا ${name}،
 
-بعد مراجعة البيانات المرسلة، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
+تم تأهيل طلبكم مبدئيًا بنجاح ✅
+وهذا يعني أن طلبكم اجتاز مرحلة المراجعة الأولية وأصبح جاهزًا للانتقال للمرحلة التالية.
 
-الجهاز المطلوب: ${device}
-رقم التتبع: ${tracking}
-رابط متابعة الطلب:
-${trackLink}
+الجهاز المطلوب:
+${device}
 
-هذا يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا، وسيتم تحويله لقسم الدراسة النهائية بعد فتح الملف.
+رقم التتبع:
+${tracking}
 
-مهم جدًا:
-هذه الرسالة لا تعني موافقة نهائية بعد، لكنها تعني أن الطلب اجتاز المرحلة الأولية بنجاح، وهي مرحلة لا يصل إليها جميع المتقدمين.
+للاطلاع على تفاصيل المرحلة القادمة وتأكيد رغبتكم بالاستمرار، يرجى الدخول إلى الرابط التالي:
 
-رسوم فتح الملف هدفها:
-• تأكيد جدية الطلب
-• منع الطلبات الوهمية
-• تخصيص ملف دراسة فعلي باسمكم داخل النظام
+${continueLink}
 
-✅ الرسوم مستردة بالحالتين:
-• في حال عدم الموافقة
-• أو عند إتمام العقد والاستلام حسب حالة الطلب
-
-بعد فتح الملف يتم تحويل الطلب مباشرة للدراسة النهائية، ومدة الرد المتوقعة من 24 إلى 72 ساعة.
-
-هل تود الاستمرار بإجراءات فتح الملف؟ 🌿`;
+الأمين للأقساط والتمويل`;
 }
 
 function buildPaymentInfoMessage(app: Application) {
@@ -468,7 +499,7 @@ function AdminWhatsappActions({ app }: { app: Application }) {
         rel="noopener noreferrer"
         className="flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-3 text-center text-xs font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
       >
-        واتساب 1: تأهيل مبدئي
+        تهانينا + رابط القرار
       </a>
 
       <a
@@ -779,10 +810,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
             <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               {urgentApplications.map((app) => (
-                <Link
+                <article
                   key={app.id}
-                  href={`/admin/applications/${app.id}`}
-                  className={`rounded-3xl border p-4 transition hover:scale-[1.01] ${priorityClass(app)}`}
+                  className={`rounded-3xl border p-4 transition ${priorityClass(app)}`}
                 >
                   <div className="mb-3 flex items-center justify-between gap-2">
                     <span className="rounded-full bg-black/20 px-3 py-1 text-[11px] font-black">
@@ -803,7 +833,34 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                     {translateStatus(app.status)} /{" "}
                     {translatePaymentStatus(app.payment_status)}
                   </p>
-                </Link>
+
+                  <div className="mt-3 grid gap-2">
+                    <a
+                      href={buildWhatsappUrl(app.phone, buildPreliminaryQualifiedMessage(app))}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-3 text-center text-xs font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+                    >
+                      تهانينا + رابط القرار
+                    </a>
+
+                    <a
+                      href={buildWhatsappUrl(app.phone, buildPaymentInfoMessage(app))}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] px-3 py-3 text-center text-xs font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.20)]"
+                    >
+                      واتساب 2: معلومات الدفع
+                    </a>
+
+                    <Link
+                      href={`/admin/applications/${app.id}`}
+                      className="flex items-center justify-center rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-center text-xs font-black text-white transition hover:bg-black/30"
+                    >
+                      فتح الطلب
+                    </Link>
+                  </div>
+                </article>
               ))}
             </div>
           </section>
@@ -1131,7 +1188,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                                   rel="noopener noreferrer"
                                   className="inline-flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-2 text-[11px] font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
                                 >
-                                  واتساب 1: تأهيل
+                                  تهانينا + القرار
                                 </a>
 
                                 <a
