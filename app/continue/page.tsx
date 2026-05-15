@@ -329,13 +329,13 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
                   <input type="hidden" name="phone" value={app.phone || ""} />
                   <input type="hidden" name="decision" value="declined" />
 
-                  <div className="mb-3 rounded-2xl border border-[#eadcc5] bg-[#fbf8f2] p-4 text-sm font-bold leading-7 text-[#6f776f]">
-                    اختيار عدم الاستمرار سيوقف متابعة هذا الطلب حاليًا فقط، ويمكنكم التواصل معنا لاحقًا.
+                  <div className="mb-3 rounded-2xl border border-[#efcaca] bg-[#fff5f4] p-4 text-sm font-bold leading-7 text-[#8f3a35]">
+                    اختيار عدم الاستمرار سيوقف متابعة هذا الطلب حاليًا فقط، ويمكنكم التواصل معنا لاحقًا لإعادة فتح الطلب.
                   </div>
 
                   <button
                     type="submit"
-                    className="w-full rounded-2xl border border-[#d7d0c4] bg-[#fbf8f2] px-5 py-4 text-sm font-black text-[#5d675f] transition hover:bg-white"
+                    className="w-full rounded-2xl border border-[#d95b50] bg-[#b83a32] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:bg-[#a8322b]"
                   >
                     لا، لا أرغب بالاستمرار حاليًا
                   </button>
@@ -344,15 +344,15 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
             </div>
 
             <div className="mt-5 grid gap-4">
-              <div className="rounded-[30px] border border-[#eadcc5] bg-white/92 p-5 shadow-sm">
-                <h2 className="text-lg font-black text-[#123725]">
-                  ماذا يعني التأهيل المبدئي؟
+              <div className="rounded-[24px] border border-[#eadcc5] bg-white/70 p-4 shadow-sm">
+                <h2 className="text-sm font-black text-[#6b745f]">
+                  ملاحظة توضيحية: ماذا يعني التأهيل المبدئي؟
                 </h2>
-                <p className="mt-3 text-sm font-bold leading-8 text-[#5e6b62]">
-                  هذا يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا، وسيتم تحويله لقسم الدراسة النهائية بعد فتح الملف.
+                <p className="mt-2 text-xs font-bold leading-7 text-[#7a837c]">
+                  التأهيل المبدئي يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا وقابل للانتقال إلى قسم الدراسة النهائية بعد فتح الملف.
                 </p>
-                <p className="mt-3 text-sm font-bold leading-8 text-[#5e6b62]">
-                  مهم جدًا: هذه المرحلة لا تعني الموافقة النهائية بعد، لكنها تعني أن الطلب اجتاز مرحلة الفرز الأولي بنجاح.
+                <p className="mt-2 text-xs font-bold leading-7 text-[#7a837c]">
+                  هذه المرحلة لا تعني الموافقة النهائية، لكنها تعني أن الطلب اجتاز مرحلة الفرز الأولي بنجاح.
                 </p>
               </div>
 
