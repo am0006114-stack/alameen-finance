@@ -17,6 +17,24 @@ function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
 }
 
+function normalizeJordanPhoneForWhatsApp(phone: string | null | undefined) {
+  if (!phone) return "";
+
+  const digits = phone.replace(/\D/g, "");
+
+  if (digits.startsWith("962")) return digits;
+
+  if (digits.startsWith("07") && digits.length === 10) {
+    return `962${digits.slice(1)}`;
+  }
+
+  if (digits.startsWith("7") && digits.length === 9) {
+    return `962${digits}`;
+  }
+
+  return digits;
+}
+
 function decisionToStatus(decision: string) {
   if (decision === "confirmed") return "customer_confirmed_continue";
   if (decision === "declined") return "customer_declined_continue";
@@ -29,6 +47,31 @@ function decisionLabel(decision: string) {
   if (decision === "declined") return "رفض الاستمرار";
 
   return "قرار غير معروف";
+}
+
+function buildPaymentWhatsAppUrl(params: {
+  customerName: string;
+  tracking: string;
+  deviceName: string;
+}) {
+  const businessPhone = normalizeJordanPhoneForWhatsApp("0788500337");
+
+  const message = `نعم، أود الاستمرار بإجراءات فتح الملف وتحويل طلبي للدراسة النهائية ✅
+
+الاسم: ${params.customerName}
+رقم التتبع: ${params.tracking}
+الجهاز: ${params.deviceName || "—"}
+
+معلومات رسوم فتح الملف:
+قيمة الرسوم: 5 دنانير فقط
+
+اسم المستفيد: AMEENPAY
+اسم المحفظة: Orang-Money
+الاسم: ABDUL RAHMAN ALHARAHSHEH
+
+سأقوم بتحويل الرسوم وإرسال صورة وصل الدفع عبر واتساب.`;
+
+  return `https://wa.me/${businessPhone}?text=${encodeURIComponent(message)}`;
 }
 
 export async function POST(request: Request) {
@@ -85,8 +128,11 @@ export async function POST(request: Request) {
     .update(updatePayload)
     .eq("id", applicationId);
 
+  const customerName = firstTwoNames(application.full_name);
+  const appTracking = application.tracking_id || tracking || "—";
+  const deviceName = application.device_name || "—";
+
   if (!updateError) {
-    const customerName = firstTwoNames(application.full_name);
     const title =
       decision === "confirmed"
         ? "✅ العميل وافق على الاستمرار"
@@ -96,7 +142,7 @@ export async function POST(request: Request) {
       title,
       description:
         decision === "confirmed"
-          ? "العميل ضغط زر الاستمرار من صفحة التأهيل المبدئي. الإجراء التالي: متابعة الدفع وفتح الملف."
+          ? "العميل ضغط زر الاستمرار من صفحة التأهيل المبدئي. تم تحويله إلى واتساب مع معلومات الدفع."
           : "العميل اختار عدم الاستمرار من صفحة التأهيل المبدئي.",
       color: decision === "confirmed" ? 0x69d97b : 0xff5c5c,
       fields: [
@@ -112,12 +158,12 @@ export async function POST(request: Request) {
         },
         {
           name: "رقم التتبع",
-          value: application.tracking_id || tracking || "—",
+          value: appTracking,
           inline: true,
         },
         {
           name: "الجهاز",
-          value: application.device_name || "—",
+          value: deviceName,
           inline: false,
         },
         {
@@ -132,6 +178,16 @@ export async function POST(request: Request) {
         },
       ],
     });
+  }
+
+  if (decision === "confirmed") {
+    return NextResponse.redirect(
+      buildPaymentWhatsAppUrl({
+        customerName,
+        tracking: appTracking,
+        deviceName,
+      })
+    );
   }
 
   return NextResponse.redirect(
