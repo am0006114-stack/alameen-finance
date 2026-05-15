@@ -181,6 +181,12 @@ function translateStatus(status: string | null | undefined) {
       return "العميل رفض الاستمرار";
     case "needs_salary_slip":
       return "بحاجة كشف راتب";
+    case "salary_slip_link_sent":
+      return "تم إرسال رابط كشف الراتب";
+    case "salary_slip_uploaded":
+      return "تم رفع كشف الراتب";
+    case "first_installment_requested":
+      return "اختار دفع القسط الأول";
     case "needs_guarantor":
       return "بحاجة كفيل";
     case "guarantor_submitted":
@@ -214,6 +220,8 @@ function translatePaymentStatus(status: string | null | undefined) {
       return "بانتظار الدفع";
     case "payment_info_sent":
       return "تم إرسال معلومات الدفع";
+    case "first_installment_whatsapp":
+      return "طلب دفع القسط الأول عبر واتساب";
     case "pending_payment":
       return "بانتظار الدفع";
     case "customer_claimed_paid":
@@ -290,6 +298,10 @@ function statusClass(status: string | null | undefined) {
     case "pending_payment":
       return "border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]";
     case "needs_salary_slip":
+    case "salary_slip_link_sent":
+    case "salary_slip_uploaded":
+    case "first_installment_requested":
+    case "first_installment_whatsapp":
     case "needs_guarantor":
       return "border-purple-300/25 bg-purple-950/25 text-purple-100";
     case "preliminary_application":
@@ -744,6 +756,43 @@ function WhatsAppActionButton({
   );
 }
 
+
+function SalarySlipLinkAction({
+  applicationId,
+}: {
+  applicationId: string;
+}) {
+  return (
+    <form
+      action="/api/admin/salary-slip-link"
+      method="POST"
+      target="_blank"
+      className="rounded-2xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 p-3"
+    >
+      <input type="hidden" name="applicationId" value={applicationId} />
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-black text-[#f3dfac]">
+          قيمة القسط الأول — اختياري
+        </span>
+        <input
+          name="amount"
+          inputMode="decimal"
+          placeholder="مثال: 65"
+          className="mb-3 w-full rounded-xl border border-[rgba(214,181,107,0.22)] bg-[rgba(3,18,14,0.58)] px-3 py-3 text-right text-sm font-bold text-white outline-none placeholder:text-[#8d998f] focus:border-[#d6b56b]"
+        />
+      </label>
+
+      <button
+        type="submit"
+        className="flex w-full items-center justify-center rounded-xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.18)] px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.26)]"
+      >
+        إرسال رابط كشف الراتب / القسط الأول
+      </button>
+    </form>
+  );
+}
+
 function StatusActionButton({
   applicationId,
   status,
@@ -1115,9 +1164,11 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
               />
 
+              <SalarySlipLinkAction applicationId={app.id} />
+
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, salarySlipRequestMessage(app))}
-                label="طلب كشف راتب"
+                label="طلب كشف راتب قديم"
                 className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
               />
 
