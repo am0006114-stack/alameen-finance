@@ -229,16 +229,13 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
               </p>
             </div>
 
-            <div className="mt-5 rounded-[28px] border border-[#e2c984] bg-[#fff8e8] p-5">
+            <div className="mt-5 rounded-[28px] border border-[#d8bd7a] bg-[#fff8e8] p-5 text-center">
               <h3 className="text-lg font-black text-[#7c5b13]">
-                معلومات رسوم فتح الملف
+                تم تحويلكم إلى واتساب لاستكمال الخطوة التالية
               </h3>
-              <div className="mt-4 space-y-2 text-sm font-black leading-7 text-[#2f362f]">
-                <p>قيمة الرسوم: 5 دنانير فقط</p>
-                <p>اسم المستفيد: AMEENPAY</p>
-                <p>اسم المحفظة: Orang-Money</p>
-                <p>الاسم: ABDUL RAHMAN ALHARAHSHEH</p>
-              </div>
+              <p className="mx-auto mt-3 max-w-2xl text-sm font-bold leading-8 text-[#594c2c]">
+                حفاظًا على وضوح الإجراءات، تظهر معلومات الدفع فقط داخل رسالة واتساب الرسمية بعد تأكيد الاستمرار.
+              </p>
             </div>
 
             <div className="mt-5 grid gap-3 sm:grid-cols-2">
@@ -248,7 +245,7 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
                 rel="noreferrer"
                 className="flex items-center justify-center rounded-2xl bg-[#25D366] px-5 py-4 text-center text-sm font-black text-[#062b13] shadow-lg transition hover:opacity-90"
               >
-                إرسال تأكيد الاستمرار عبر واتساب
+                فتح واتساب لمتابعة الدفع
               </a>
 
               <a
