@@ -179,6 +179,14 @@ function translateStatus(status: string | null | undefined) {
       return "العميل وافق على الاستمرار";
     case "customer_declined_continue":
       return "العميل رفض الاستمرار";
+    case "delivery_delay_notice_sent":
+      return "تم إرسال خيار التمديد/الاسترداد";
+    case "customer_accepts_delivery_delay":
+      return "وافق على تمديد التسليم";
+    case "refund_requested":
+      return "طلب استرداد الرسوم";
+    case "refund_completed":
+      return "تم تنفيذ الاسترداد";
     case "needs_salary_slip":
       return "بحاجة كشف راتب";
     case "salary_slip_link_sent":
@@ -220,6 +228,8 @@ function translatePaymentStatus(status: string | null | undefined) {
       return "بانتظار الدفع";
     case "payment_info_sent":
       return "تم إرسال معلومات الدفع";
+    case "refund_requested":
+      return "طلب استرداد الرسوم";
     case "first_installment_whatsapp":
       return "طلب دفع القسط الأول عبر واتساب";
     case "pending_payment":
@@ -757,6 +767,25 @@ function WhatsAppActionButton({
 }
 
 
+
+function DeliveryDelayLinkAction({
+  applicationId,
+}: {
+  applicationId: string;
+}) {
+  return (
+    <form action="/api/admin/delivery-delay-link" method="POST" target="_blank">
+      <input type="hidden" name="applicationId" value={applicationId} />
+      <button
+        type="submit"
+        className="flex w-full items-center justify-center rounded-2xl border border-[#d6b56b]/30 bg-[#d6b56b]/15 px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/25"
+      >
+        إرسال خيار التمديد / الاسترداد
+      </button>
+    </form>
+  );
+}
+
 function SalarySlipLinkAction({
   applicationId,
 }: {
@@ -1145,6 +1174,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 label="إرسال الحالة الحالية"
                 className="border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.10)]"
               />
+
+              <DeliveryDelayLinkAction applicationId={app.id} />
 
               <WhatsAppActionButton
                 applicationId={app.id}
