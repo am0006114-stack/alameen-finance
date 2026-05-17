@@ -735,38 +735,6 @@ function WhatsAppButton({
   );
 }
 
-function WhatsAppActionButton({
-  applicationId,
-  phone,
-  message,
-  actionType,
-  label,
-  className,
-}: {
-  applicationId: string;
-  phone: string | null | undefined;
-  message: string;
-  actionType: "qualification_link_sent" | "payment_info_sent";
-  label: string;
-  className: string;
-}) {
-  return (
-    <form action="/api/admin/whatsapp-action" method="POST" target="_blank">
-      <input type="hidden" name="applicationId" value={applicationId} />
-      <input type="hidden" name="phone" value={phone || ""} />
-      <input type="hidden" name="message" value={message} />
-      <input type="hidden" name="actionType" value={actionType} />
-      <button
-        type="submit"
-        className={`flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-black transition ${className}`}
-      >
-        {label}
-      </button>
-    </form>
-  );
-}
-
-
 
 function DeliveryDelayLinkAction({
   applicationId,
@@ -802,7 +770,7 @@ function SalarySlipLinkAction({
 
       <label className="block">
         <span className="mb-2 block text-xs font-black text-[#f3dfac]">
-          قيمة القسط الأول — اختياري
+          قيمة القسط الأول — اختياري عند اختيار الدفع
         </span>
         <input
           name="amount"
@@ -816,7 +784,7 @@ function SalarySlipLinkAction({
         type="submit"
         className="flex w-full items-center justify-center rounded-xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.18)] px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.26)]"
       >
-        إرسال رابط كشف الراتب / القسط الأول
+        إرسال رابط كشف الراتب / أو دفع القسط الأول
       </button>
     </form>
   );
@@ -973,7 +941,6 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   const address = app.detailed_address || app.address || "—";
   const employer = app.employer || app.employer_name || "—";
   const guarantorUrl = getGuarantorUrl(app);
-  const continueUrl = getContinueUrl(app);
   const googleMapsUrl = getGoogleMapsUrl(app);
 
   return (
@@ -1040,7 +1007,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               applicationId={app.id}
               status="preliminary_qualified"
               paymentStatus="not_requested_yet"
-              label="مؤهل مبدئياً / إرسال صفحة القرار"
+              label="مؤهل مبدئياً"
               className="gold-button"
               action={updateApplicationAction}
             />
@@ -1048,7 +1015,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             <StatusActionButton
               applicationId={app.id}
               status="needs_salary_slip"
-              label="بحاجة كشف راتب"
+              label="بحاجة كشف راتب / أو دفع القسط الأول"
               className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
               action={updateApplicationAction}
             />
@@ -1104,7 +1071,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           </div>
 
           <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
-            فلو العمل: الطلب يدخل كـ طلب مبدئي، ثم تقرر الإدارة: مؤهل مبدئياً وطلب دفع، أو بحاجة كشف راتب، أو بحاجة كفيل عبر رابط خاص، أو رفض.
+            فلو العمل: الطلب يدخل كـ طلب مبدئي، ثم تقرر الإدارة: مؤهل مبدئياً، أو بحاجة كشف راتب / خيار دفع القسط الأول، أو بحاجة كفيل عبر رابط خاص، أو رفض.
           </div>
         </section>
 
@@ -1177,24 +1144,6 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               <DeliveryDelayLinkAction applicationId={app.id} />
 
-              <WhatsAppActionButton
-                applicationId={app.id}
-                phone={app.phone}
-                message={preliminaryQualificationMessage(app)}
-                actionType="qualification_link_sent"
-                label="تهانينا + رابط القرار"
-                className="border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.16)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.24)]"
-              />
-
-              <WhatsAppActionButton
-                applicationId={app.id}
-                phone={app.phone}
-                message={paymentInfoMessage(app)}
-                actionType="payment_info_sent"
-                label="إرسال معلومات الدفع"
-                className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
-              />
-
               <SalarySlipLinkAction applicationId={app.id} />
 
               <WhatsAppButton
@@ -1235,14 +1184,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             </div>
           )}
 
-          <div className="mt-5 grid gap-3 md:grid-cols-2">
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(214,181,107,0.07)] p-4">
-              <p className="text-xs font-black text-[#f3dfac]">رابط صفحة قرار العميل</p>
-              <p className="mt-2 break-words text-sm font-bold leading-7 text-[#f7f3e8]">
-                {continueUrl}
-              </p>
-            </div>
-
+          <div className="mt-5 grid gap-3">
             <div className="rounded-2xl border border-orange-300/20 bg-orange-950/20 p-4">
               <p className="text-xs font-black text-orange-100">رابط إدخال بيانات الكفيل</p>
               <p className="mt-2 break-words text-sm font-bold leading-7 text-[#f7f3e8]">
