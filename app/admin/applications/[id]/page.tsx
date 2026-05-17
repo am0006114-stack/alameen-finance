@@ -443,6 +443,47 @@ ${trackUrl}
 الأمين للأقساط والتمويل`;
 }
 
+function preliminaryApprovalWithFeeQuestionMessage(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const deviceName = app.device_name || "الجهاز المطلوب";
+
+  return `تهانينا ${name} 🌿
+
+بعد مراجعة البيانات المرسلة، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
+
+الجهاز المطلوب:
+${deviceName}
+
+رقم التتبع:
+${tracking}
+
+هذا يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا، وسيتم تحويله لقسم الدراسة النهائية بعد فتح الملف.
+
+مهم جدًا:
+هذه الرسالة لا تعني موافقة نهائية بعد، لكنها تعني أن الطلب اجتاز مرحلة المراجعة الأولية بنجاح، وهي مرحلة لا تصل إليها جميع الطلبات.
+
+رسوم فتح الملف:
+5 دنانير فقط
+
+هدف الرسوم:
+- تأكيد جدية الطلب
+- فتح ملف دراسة رسمي باسمكم
+- تحويل الطلب للقسم المختص بدل بقائه كطلب مبدئي فقط
+
+✅ رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة.
+✅ وفي حال إتمام العقد والاستلام، يتم احتسابها ضمن إجراءات الملف.
+
+هل تودون الاستمرار بفتح الملف وتحويل الطلب للدراسة النهائية؟
+
+يرجى الرد بإحدى العبارتين:
+✅ أود الاستمرار
+أو
+❌ لا أرغب بالاستمرار حاليًا
+
+الأمين للأقساط والتمويل`;
+}
+
 function preliminaryQualificationMessage(app: ApplicationRecord) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
@@ -1161,6 +1202,12 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 className="border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.10)]"
               />
 
+              <WhatsAppButton
+                href={makeWhatsAppUrl(app.phone, preliminaryApprovalWithFeeQuestionMessage(app))}
+                label="موافقة مبدئية + هل تود الاستمرار"
+                className="border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.20)]"
+              />
+
               <ReceiptLinkAction applicationId={app.id} />
 
               <DeliveryDelayLinkAction applicationId={app.id} />
@@ -1468,6 +1515,27 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                         <Image
                           src={documentUrl}
                           alt={title}
+                          fill
+                          unoptimized
+                          className="object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-2xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-8 text-center text-sm font-bold text-[#aeb9af]">
+                        لا يوجد رابط ظاهر لهذه الوثيقة
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+}
                           fill
                           unoptimized
                           className="object-contain"
