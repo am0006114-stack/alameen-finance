@@ -17,6 +17,12 @@ function firstTwoNames(fullName: string | null | undefined) {
   return `${parts[0]} ${parts[1]}`;
 }
 
+function addHours(date: Date, hours: number) {
+  const next = new Date(date);
+  next.setHours(next.getHours() + hours);
+  return next;
+}
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const baseUrl = getBaseUrl(request);
@@ -25,7 +31,9 @@ export async function GET(request: Request) {
 
   if (tracking && phone) {
     return NextResponse.redirect(
-      `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`
+      `${baseUrl}/delay-decision?tracking=${encodeURIComponent(
+        tracking
+      )}&phone=${encodeURIComponent(phone)}`
     );
   }
 
@@ -65,20 +73,29 @@ export async function POST(request: Request) {
   const appTracking = application.tracking_id || tracking || "—";
 
   if (decision === "wait") {
+    const startedAt = new Date();
+    const delayUntil = addHours(startedAt, 72);
+
     await supabaseAdmin
       .from("applications")
-      .update({ status: "customer_accepts_delivery_delay" })
+      .update({
+        status: "customer_accepts_delivery_delay",
+        delivery_delay_started_at: startedAt.toISOString(),
+        delivery_delay_until: delayUntil.toISOString(),
+      })
       .eq("id", applicationId);
 
     await sendDiscordNotification({
-      title: "⏳ العميل اختار الانتظار 3 أيام",
-      description: "العميل وافق على تمديد موعد التسليم لمدة 3 أيام عمل.",
+      title: "⏳ العميل اختار الانتظار 72 ساعة",
+      description: "العميل وافق على تمديد موعد التسليم وتم تفعيل عداد 72 ساعة.",
       color: 0x69d97b,
       fields: [
         { name: "الاسم", value: customerName, inline: true },
         { name: "الهاتف", value: application.phone || phone || "—", inline: true },
         { name: "رقم التتبع", value: appTracking, inline: true },
         { name: "الجهاز", value: application.device_name || "—", inline: false },
+        { name: "بداية العداد", value: startedAt.toISOString(), inline: true },
+        { name: "نهاية العداد", value: delayUntil.toISOString(), inline: true },
       ],
     });
 
