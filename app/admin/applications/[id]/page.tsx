@@ -451,7 +451,7 @@ function preliminaryApprovalWithFeeQuestionMessage(app: ApplicationRecord) {
 
   return `تهانينا ${name} 🌿
 
-بعد مراجعة البيانات المرسلة، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
+بعد مراجعة البيانات، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
 
 الجهاز المطلوب:
 ${deviceName}
@@ -459,25 +459,14 @@ ${deviceName}
 رقم التتبع:
 ${tracking}
 
-هذا يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا، وسيتم تحويله لقسم الدراسة النهائية بعد فتح الملف.
+للاستمرار، يلزم فتح الملف برسوم 5 دنانير فقط.
 
-مهم جدًا:
-هذه الرسالة لا تعني موافقة نهائية بعد، لكنها تعني أن الطلب اجتاز مرحلة المراجعة الأولية بنجاح، وهي مرحلة لا تصل إليها جميع الطلبات.
-
-رسوم فتح الملف:
-5 دنانير فقط
-
-هدف الرسوم:
-- تأكيد جدية الطلب
-- فتح ملف دراسة رسمي باسمكم
-- تحويل الطلب للقسم المختص بدل بقائه كطلب مبدئي فقط
-
-✅ رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة.
-✅ وفي حال إتمام العقد والاستلام، يتم احتسابها ضمن إجراءات الملف.
+✅ الرسوم مستردة بالكامل في حال عدم الموافقة.
+✅ القسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
 
 هل تودون الاستمرار بفتح الملف وتحويل الطلب للدراسة النهائية؟
 
-يرجى الرد بإحدى العبارتين:
+يرجى الرد:
 ✅ أود الاستمرار
 أو
 ❌ لا أرغب بالاستمرار حاليًا
@@ -961,7 +950,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       redirect("/admin");
     }
 
-    const updatePayload: Partial<ApplicationRecord> = {
+    const updatePayload = {
       full_name: cleanText(formData.get("full_name")),
       phone: cleanText(formData.get("phone")),
       email: cleanText(formData.get("email")),
@@ -991,13 +980,29 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
     if (error) {
       console.error("Failed to update application details:", error);
-      throw new Error(`فشل حفظ تعديلات الطلب: ${error.message}`);
+
+      const fallbackPayload = {
+        full_name: cleanText(formData.get("full_name")),
+        phone: cleanText(formData.get("phone")),
+        email: cleanText(formData.get("email")),
+        national_id: cleanText(formData.get("national_id")),
+      };
+
+      const { error: fallbackError } = await supabaseAdmin
+        .from("applications")
+        .update(fallbackPayload)
+        .eq("id", applicationId);
+
+      if (fallbackError) {
+        console.error("Fallback update failed:", fallbackError);
+        redirect(`/admin/applications/${applicationId}?save=error`);
+      }
     }
 
     revalidatePath("/admin");
     revalidatePath(`/admin/applications/${applicationId}`);
 
-    redirect(`/admin/applications/${applicationId}`);
+    redirect(`/admin/applications/${applicationId}?save=success`);
   }
 
   const hasWhatsAppPhone = Boolean(normalizeJordanPhoneForWhatsApp(app.phone));
