@@ -736,6 +736,25 @@ function WhatsAppButton({
 }
 
 
+
+function ReceiptLinkAction({
+  applicationId,
+}: {
+  applicationId: string;
+}) {
+  return (
+    <form action="/api/admin/receipt-link" method="POST" target="_blank">
+      <input type="hidden" name="applicationId" value={applicationId} />
+      <button
+        type="submit"
+        className="flex w-full items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] px-4 py-3 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+      >
+        إرسال رابط رفع وصل الدفع
+      </button>
+    </form>
+  );
+}
+
 function DeliveryDelayLinkAction({
   applicationId,
 }: {
@@ -1141,6 +1160,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 label="إرسال الحالة الحالية"
                 className="border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.10)]"
               />
+
+              <ReceiptLinkAction applicationId={app.id} />
 
               <DeliveryDelayLinkAction applicationId={app.id} />
 
