@@ -8,6 +8,7 @@ type PageProps = {
     q?: string;
     status?: string;
     payment?: string;
+    page?: string;
   }>;
 };
 
@@ -51,6 +52,39 @@ type Application = {
   payment_status?: string | null;
 };
 
+const PAGE_SIZE = 50;
+
+function normalizePage(value: string | undefined) {
+  const parsed = Number(value || "1");
+
+  if (!Number.isFinite(parsed) || parsed < 1) return 1;
+
+  return Math.floor(parsed);
+}
+
+function buildPageHref(params: {
+  q?: string;
+  status?: string;
+  payment?: string;
+  page?: number;
+}) {
+  const searchParams = new URLSearchParams();
+
+  if (params.q) searchParams.set("q", params.q);
+  if (params.status) searchParams.set("status", params.status);
+  if (params.payment) searchParams.set("payment", params.payment);
+  if (params.page && params.page > 1) searchParams.set("page", String(params.page));
+
+  const queryString = searchParams.toString();
+
+  return queryString ? `/admin?${queryString}` : "/admin";
+}
+
+function clampPage(page: number, totalPages: number) {
+  return Math.min(Math.max(page, 1), Math.max(totalPages, 1));
+}
+
+
 const STATUS_OPTIONS = [
   { value: "", label: "كل الحالات" },
   { value: "preliminary_application", label: "طلب مبدئي جديد" },
@@ -59,7 +93,7 @@ const STATUS_OPTIONS = [
   { value: "needs_guarantor", label: "بحاجة كفيل" },
   { value: "guarantor_submitted", label: "تم إدخال الكفيل" },
   { value: "pending_payment_confirmation", label: "بانتظار تأكيد الدفع" },
-  { value: "under_review", label: "قيد الدراسة" },
+  { value: "under_review", label: "قيد الدراسة / تمت إحالتها للدراسة" },
   { value: "customer_confirmed_continue", label: "العميل وافق على الاستمرار" },
   { value: "customer_declined_continue", label: "العميل رفض الاستمرار" },
   { value: "approved", label: "مقبول" },
@@ -74,7 +108,7 @@ const PAYMENT_OPTIONS = [
   { value: "pending", label: "بانتظار الدفع" },
   { value: "pending_payment", label: "بانتظار الدفع" },
   { value: "customer_claimed_paid", label: "العميل أرسل إشعار الدفع" },
-  { value: "confirmed", label: "تم التأكيد" },
+  { value: "confirmed", label: "تم تأكيد الدفع" },
   { value: "rejected", label: "الدفع مرفوض" },
 ];
 
@@ -394,125 +428,8 @@ function buildTrackLink(app: Application) {
   return `https://www.ameenfinance.co/track${query ? `?${query}` : ""}`;
 }
 
-function buildContinueLink(app: Application) {
-  const phone = app.phone || "";
-  const tracking = app.tracking_id || app.id || "";
-  const params = new URLSearchParams();
 
-  if (phone) params.set("phone", phone);
-  if (tracking) params.set("tracking", tracking);
 
-  const query = params.toString();
-  return `https://www.ameenfinance.co/continue${query ? `?${query}` : ""}`;
-}
-
-function applicantShortName(app: Application) {
-  const parts = app.full_name?.trim().split(/\s+/).filter(Boolean) || [];
-
-  if (parts.length >= 2) return `${parts[0]} ${parts[1]}`;
-  if (parts.length === 1) return parts[0];
-
-  return "عميلنا الكريم";
-}
-
-function applicantFirstName(app: Application) {
-  return app.full_name?.trim().split(/\s+/)[0] || "";
-}
-
-function buildPreliminaryQualifiedMessage(app: Application) {
-  const name = applicantShortName(app);
-  const tracking = app.tracking_id || "—";
-  const device = app.device_name || "الجهاز المطلوب";
-  const continueLink = buildContinueLink(app);
-
-  return `🌿 تهانينا ${name}،
-
-تم تأهيل طلبكم مبدئيًا بنجاح ✅
-وهذا يعني أن طلبكم اجتاز مرحلة المراجعة الأولية وأصبح جاهزًا للانتقال للمرحلة التالية.
-
-الجهاز المطلوب:
-${device}
-
-رقم التتبع:
-${tracking}
-
-للاطلاع على تفاصيل المرحلة القادمة وتأكيد رغبتكم بالاستمرار، يرجى الدخول إلى الرابط التالي:
-
-${continueLink}
-
-الأمين للأقساط والتمويل`;
-}
-
-function buildPaymentInfoMessage(app: Application) {
-  const name = applicantFirstName(app);
-  const tracking = app.tracking_id || "—";
-  const device = app.device_name || "الجهاز المطلوب";
-  const trackLink = buildTrackLink(app);
-
-  return `أهلًا${name ? ` ${name}` : ""} 🌿
-
-ممتاز، تم تجهيز طلبكم للانتقال إلى الدراسة النهائية ✅
-
-الجهاز المطلوب: ${device}
-رقم التتبع: ${tracking}
-رابط متابعة الطلب:
-${trackLink}
-
-لاستكمال فتح الملف، يرجى دفع رسوم فتح الملف بقيمة 5 دنانير فقط عبر المعلومات التالية:
-
-اسم المستفيد: AMEENPAY
-اسم المحفظة: Orang-Money
-الاسم: ABDUL RAHMAN ALHARAHSHEH
-
-بعد التحويل يرجى إرسال صورة أو لقطة شاشة لوصل الدفع.
-
-فور تأكيد الدفع:
-✅ يتم فتح الملف رسميًا
-✅ يتم تحويل الطلب لقسم الدراسة النهائية
-✅ يتم تثبيت أولوية الطلب داخل النظام
-
-مدة دراسة الطلب المتوقعة:
-من 24 إلى 72 ساعة حسب ضغط الطلبات.
-
-نشكر ثقتكم 🌿
-الأمين للأقساط والتمويل`;
-}
-
-function buildWhatsappUrl(phone: string | null | undefined, message: string) {
-  const normalizedPhone = normalizeJordanPhone(phone);
-  const encodedMessage = encodeURIComponent(message);
-
-  if (!normalizedPhone) return `https://wa.me/?text=${encodedMessage}`;
-
-  return `https://wa.me/${normalizedPhone}?text=${encodedMessage}`;
-}
-
-function AdminWhatsappActions({ app }: { app: Application }) {
-  const preliminaryMessage = buildPreliminaryQualifiedMessage(app);
-  const paymentMessage = buildPaymentInfoMessage(app);
-
-  return (
-    <div className="mt-3 grid gap-2 sm:grid-cols-2">
-      <a
-        href={buildWhatsappUrl(app.phone, preliminaryMessage)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-3 text-center text-xs font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
-      >
-        تهانينا + رابط القرار
-      </a>
-
-      <a
-        href={buildWhatsappUrl(app.phone, paymentMessage)}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] px-3 py-3 text-center text-xs font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.20)]"
-      >
-        واتساب 2: معلومات الدفع
-      </a>
-    </div>
-  );
-}
 
 function CompactMobileRequest({ app }: { app: Application }) {
   return (
@@ -596,7 +513,6 @@ function CompactMobileRequest({ app }: { app: Application }) {
         </span>
       </div>
 
-      <AdminWhatsappActions app={app} />
 
       <Link
         href={`/admin/applications/${app.id}`}
@@ -620,12 +536,13 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   const q = params?.q?.trim() || "";
   const selectedStatus = params?.status || "";
   const selectedPayment = params?.payment || "";
+  const requestedPage = normalizePage(params?.page);
 
   const { data: applications, error } = await supabaseAdmin
     .from("applications")
     .select("*")
     .order("created_at", { ascending: false })
-    .limit(300);
+    .limit(2000);
 
   const safeApplications = (applications || []) as Application[];
 
@@ -635,6 +552,13 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     selectedStatus,
     selectedPayment,
   );
+
+  const totalFilteredApplications = filteredApplications.length;
+  const totalPages = Math.max(1, Math.ceil(totalFilteredApplications / PAGE_SIZE));
+  const currentPage = clampPage(requestedPage, totalPages);
+  const pageStartIndex = (currentPage - 1) * PAGE_SIZE;
+  const pageEndIndex = pageStartIndex + PAGE_SIZE;
+  const paginatedApplications = filteredApplications.slice(pageStartIndex, pageEndIndex);
 
   const totalApplications = safeApplications.length;
 
@@ -835,24 +759,6 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                   </p>
 
                   <div className="mt-3 grid gap-2">
-                    <a
-                      href={buildWhatsappUrl(app.phone, buildPreliminaryQualifiedMessage(app))}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-3 text-center text-xs font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
-                    >
-                      تهانينا + رابط القرار
-                    </a>
-
-                    <a
-                      href={buildWhatsappUrl(app.phone, buildPaymentInfoMessage(app))}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] px-3 py-3 text-center text-xs font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.20)]"
-                    >
-                      واتساب 2: معلومات الدفع
-                    </a>
-
                     <Link
                       href={`/admin/applications/${app.id}`}
                       className="flex items-center justify-center rounded-2xl border border-white/10 bg-black/20 px-3 py-3 text-center text-xs font-black text-white transition hover:bg-black/30"
@@ -992,6 +898,16 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
             <QuickFilter
               href={buildFilterHref({
                 q,
+                status: "under_review",
+                payment: "confirmed",
+              })}
+              label="دفع مؤكد + قيد الدراسة"
+              variant="green"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
                 status: "approved",
                 payment: selectedPayment,
               })}
@@ -1016,8 +932,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
             <div>
               <h2 className="text-xl font-black text-white">آخر الطلبات</h2>
               <p className="mt-2 text-sm font-bold text-[#aeb9af]">
-                النتائج المعروضة: {filteredApplications.length} من أصل{" "}
-                {totalApplications}
+                النتائج المعروضة: {totalFilteredApplications} من أصل{" "}
+                {totalApplications} — الصفحة {currentPage} من {totalPages} — يظهر {paginatedApplications.length} طلب في هذه الصفحة
               </p>
             </div>
           </div>
@@ -1034,7 +950,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           ) : (
             <>
               <div className="grid gap-3 md:hidden">
-                {filteredApplications.map((app) => (
+                {paginatedApplications.map((app) => (
                   <CompactMobileRequest key={app.id} app={app} />
                 ))}
               </div>
@@ -1083,7 +999,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                       </thead>
 
                       <tbody>
-                        {filteredApplications.map((app) => (
+                        {paginatedApplications.map((app) => (
                           <tr
                             key={app.id}
                             className={`border-b border-[rgba(214,181,107,0.10)] transition ${newApplicationRowClass(
@@ -1179,29 +1095,6 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                                   فتح الطلب
                                 </Link>
 
-                                <a
-                                  href={buildWhatsappUrl(
-                                    app.phone,
-                                    buildPreliminaryQualifiedMessage(app),
-                                  )}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.12)] px-3 py-2 text-[11px] font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
-                                >
-                                  تهانينا + القرار
-                                </a>
-
-                                <a
-                                  href={buildWhatsappUrl(
-                                    app.phone,
-                                    buildPaymentInfoMessage(app),
-                                  )}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] px-3 py-2 text-[11px] font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.20)]"
-                                >
-                                  واتساب 2: الدفع
-                                </a>
                               </div>
                             </td>
                           </tr>
@@ -1211,6 +1104,14 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                   </div>
                 </div>
               </div>
+
+              <PaginationControls
+                q={q}
+                status={selectedStatus}
+                payment={selectedPayment}
+                currentPage={currentPage}
+                totalPages={totalPages}
+              />
             </>
           )}
         </section>
@@ -1218,6 +1119,96 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     </main>
   );
 }
+
+
+function PaginationControls({
+  q,
+  status,
+  payment,
+  currentPage,
+  totalPages,
+}: {
+  q: string;
+  status: string;
+  payment: string;
+  currentPage: number;
+  totalPages: number;
+}) {
+  if (totalPages <= 1) return null;
+
+  const visiblePages = Array.from({ length: totalPages }, (_, index) => index + 1)
+    .filter((page) => {
+      if (page === 1 || page === totalPages) return true;
+      return Math.abs(page - currentPage) <= 2;
+    });
+
+  return (
+    <div className="mt-5 flex flex-col gap-3 rounded-3xl border border-[rgba(214,181,107,0.14)] bg-[rgba(3,18,14,0.42)] p-4 md:flex-row md:items-center md:justify-between">
+      <p className="text-center text-sm font-black text-[#d7ddd5] md:text-right">
+        عرض 50 طلب لكل صفحة — الصفحة {currentPage} من {totalPages}
+      </p>
+
+      <div className="flex flex-wrap justify-center gap-2">
+        <Link
+          href={buildPageHref({
+            q,
+            status,
+            payment,
+            page: Math.max(1, currentPage - 1),
+          })}
+          className={`rounded-2xl border px-4 py-2 text-xs font-black ${
+            currentPage <= 1
+              ? "pointer-events-none border-white/10 bg-white/5 text-[#6f786f]"
+              : "border-[rgba(214,181,107,0.25)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]"
+          }`}
+        >
+          السابق
+        </Link>
+
+        {visiblePages.map((page, index) => {
+          const previous = visiblePages[index - 1];
+          const showGap = previous && page - previous > 1;
+
+          return (
+            <span key={page} className="flex items-center gap-2">
+              {showGap && (
+                <span className="px-1 text-xs font-black text-[#8d998f]">...</span>
+              )}
+
+              <Link
+                href={buildPageHref({ q, status, payment, page })}
+                className={`rounded-2xl border px-4 py-2 text-xs font-black ${
+                  page === currentPage
+                    ? "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.16)] text-[#b8f3c0]"
+                    : "border-white/10 bg-white/5 text-[#d7ddd5]"
+                }`}
+              >
+                {page}
+              </Link>
+            </span>
+          );
+        })}
+
+        <Link
+          href={buildPageHref({
+            q,
+            status,
+            payment,
+            page: Math.min(totalPages, currentPage + 1),
+          })}
+          className={`rounded-2xl border px-4 py-2 text-xs font-black ${
+            currentPage >= totalPages
+              ? "pointer-events-none border-white/10 bg-white/5 text-[#6f786f]"
+              : "border-[rgba(214,181,107,0.25)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac]"
+          }`}
+        >
+          التالي
+        </Link>
+      </div>
+    </div>
+  );
+}
+
 
 function MiniInsight({
   label,
