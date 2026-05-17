@@ -1535,24 +1535,3 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     </main>
   );
 }
-}
-                          fill
-                          unoptimized
-                          className="object-contain"
-                        />
-                      </div>
-                    ) : (
-                      <div className="rounded-2xl border border-dashed border-[rgba(214,181,107,0.22)] bg-[rgba(255,255,255,0.035)] p-8 text-center text-sm font-bold text-[#aeb9af]">
-                        لا يوجد رابط ظاهر لهذه الوثيقة
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
-  );
-}
