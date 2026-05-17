@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { notFound, redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -450,7 +451,7 @@ function preliminaryApprovalWithFeeQuestionMessage(app: ApplicationRecord) {
 
   return `تهانينا ${name} 🌿
 
-بعد مراجعة البيانات، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
+بعد مراجعة البيانات المرسلة، تم تأهيل طلبكم مبدئيًا للانتقال إلى مرحلة الدراسة النهائية ✅
 
 الجهاز المطلوب:
 ${deviceName}
@@ -458,14 +459,25 @@ ${deviceName}
 رقم التتبع:
 ${tracking}
 
-للاستمرار، يلزم فتح الملف برسوم 5 دنانير فقط.
+هذا يعني أن الطلب مستوفي للشروط الأساسية المطلوبة مبدئيًا، وسيتم تحويله لقسم الدراسة النهائية بعد فتح الملف.
 
-✅ الرسوم مستردة بالكامل في حال عدم الموافقة.
-✅ القسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
+مهم جدًا:
+هذه الرسالة لا تعني موافقة نهائية بعد، لكنها تعني أن الطلب اجتاز مرحلة المراجعة الأولية بنجاح، وهي مرحلة لا تصل إليها جميع الطلبات.
+
+رسوم فتح الملف:
+5 دنانير فقط
+
+هدف الرسوم:
+- تأكيد جدية الطلب
+- فتح ملف دراسة رسمي باسمكم
+- تحويل الطلب للقسم المختص بدل بقائه كطلب مبدئي فقط
+
+✅ رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة.
+✅ وفي حال إتمام العقد والاستلام، يتم احتسابها ضمن إجراءات الملف.
 
 هل تودون الاستمرار بفتح الملف وتحويل الطلب للدراسة النهائية؟
 
-يرجى الرد:
+يرجى الرد بإحدى العبارتين:
 ✅ أود الاستمرار
 أو
 ❌ لا أرغب بالاستمرار حاليًا
@@ -765,6 +777,8 @@ function WhatsAppButton({
   );
 }
 
+
+
 function ReceiptLinkAction({
   applicationId,
 }: {
@@ -941,13 +955,13 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   async function updateApplicationDetailsAction(formData: FormData) {
     "use server";
 
-    const applicationId = String(formData.get("applicationId") || "");
+    const applicationId = String(formData.get("applicationId") || "").trim();
 
     if (!applicationId) {
       redirect("/admin");
     }
 
-    const updatePayload = {
+    const updatePayload: Partial<ApplicationRecord> = {
       full_name: cleanText(formData.get("full_name")),
       phone: cleanText(formData.get("phone")),
       email: cleanText(formData.get("email")),
@@ -970,10 +984,18 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       guarantor_national_id: cleanText(formData.get("guarantor_national_id")),
     };
 
-    await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("applications")
       .update(updatePayload)
       .eq("id", applicationId);
+
+    if (error) {
+      console.error("Failed to update application details:", error);
+      throw new Error(`فشل حفظ تعديلات الطلب: ${error.message}`);
+    }
+
+    revalidatePath("/admin");
+    revalidatePath(`/admin/applications/${applicationId}`);
 
     redirect(`/admin/applications/${applicationId}`);
   }
