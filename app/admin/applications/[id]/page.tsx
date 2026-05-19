@@ -114,6 +114,26 @@ function formatPickupDate(date: Date) {
   }).format(date);
 }
 
+function formatCustomPickupDate(value: string | null | undefined) {
+  const cleanValue = String(value || "").trim();
+
+  if (!cleanValue) {
+    return formatPickupDate(addDays(new Date(), 3));
+  }
+
+  try {
+    const date = new Date(`${cleanValue}T12:00:00+03:00`);
+
+    if (Number.isNaN(date.getTime())) {
+      return cleanValue;
+    }
+
+    return formatPickupDate(date);
+  } catch {
+    return cleanValue;
+  }
+}
+
 function cleanText(value: FormDataEntryValue | null) {
   const textValue = String(value || "").trim();
   return textValue || null;
@@ -125,61 +145,6 @@ function cleanNumber(value: FormDataEntryValue | null) {
 
   const numberValue = Number(textValue);
   return Number.isFinite(numberValue) ? numberValue : null;
-}
-
-
-function getInstallmentInterestRate(months: number | null) {
-  if (!months) return 0;
-
-  if (months <= 12) return 0.05;
-  if (months <= 24) return 0.10;
-
-  return 0.15;
-}
-
-function calculateInstallmentValues({
-  devicePrice,
-  downPayment,
-  months,
-}: {
-  devicePrice: number | null;
-  downPayment: number | null;
-  months: number | null;
-}) {
-  const safeDevicePrice = devicePrice && devicePrice > 0 ? devicePrice : 0;
-  const safeDownPayment = downPayment && downPayment > 0 ? downPayment : 0;
-  const safeMonths = months && months > 0 ? months : null;
-
-  if (!safeDevicePrice || !safeMonths) {
-    return {
-      interestRate: null,
-      totalWithInterest: null,
-      monthlyPayment: null,
-    };
-  }
-
-  const financedAmount = Math.max(safeDevicePrice - safeDownPayment, 0);
-  const interestRate = getInstallmentInterestRate(safeMonths);
-  const totalWithInterest = financedAmount * (1 + interestRate);
-  const monthlyPayment = totalWithInterest / safeMonths;
-
-  return {
-    interestRate,
-    totalWithInterest: Number(totalWithInterest.toFixed(2)),
-    monthlyPayment: Number(monthlyPayment.toFixed(2)),
-  };
-}
-
-function getCalculatedInstallmentSummary(app: ApplicationRecord) {
-  const devicePrice = Number(app.device_price || 0);
-  const downPayment = Number(app.down_payment || 0);
-  const months = Number(app.installment_months || 0);
-
-  return calculateInstallmentValues({
-    devicePrice: Number.isFinite(devicePrice) ? devicePrice : null,
-    downPayment: Number.isFinite(downPayment) ? downPayment : null,
-    months: Number.isFinite(months) ? months : null,
-  });
 }
 
 function deviceDetailsForMessage(app: ApplicationRecord) {
@@ -639,11 +604,11 @@ ${guarantorUrl}
 Al Ameen for Financial Services`;
 }
 
-function approvedMessage(app: ApplicationRecord) {
+function approvedMessage(app: ApplicationRecord, customPickupDate?: string | null) {
   const name = firstName(app.full_name);
   const tracking = app.tracking_id || app.id;
   const trackUrl = getTrackUrl(app);
-  const pickupDate = formatPickupDate(addDays(new Date(), 3));
+  const pickupDate = formatCustomPickupDate(customPickupDate);
   const deviceDetails = deviceDetailsForMessage(app);
 
   return `أهلًا ${name} 🌟
@@ -823,6 +788,40 @@ function WhatsAppButton({
 
 
 
+function ApprovedPickupDateWhatsAppAction({
+  action,
+}: {
+  action: (formData: FormData) => Promise<void>;
+}) {
+  return (
+    <form
+      action={action}
+      className="rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.10)] p-3"
+    >
+      <label className="block">
+        <span className="mb-2 block text-xs font-black text-[#b8f3c0]">
+          تاريخ الاستلام
+        </span>
+        <input
+          required
+          type="date"
+          name="pickup_date"
+          className="mb-3 w-full rounded-xl border border-[rgba(105,217,123,0.24)] bg-[rgba(3,18,14,0.58)] px-3 py-3 text-right text-sm font-bold text-white outline-none focus:border-[#69d97b]"
+        />
+      </label>
+
+      <button
+        type="submit"
+        className="flex w-full items-center justify-center rounded-xl border border-[rgba(105,217,123,0.34)] bg-[rgba(105,217,123,0.18)] px-4 py-3 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.26)]"
+      >
+        قرار نهائي / الاستلام بتاريخ محدد
+      </button>
+    </form>
+  );
+}
+
+
+
 function ReceiptLinkAction({
   applicationId,
 }: {
@@ -996,83 +995,6 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     redirect(`/admin/applications/${applicationId}`);
   }
 
-  async function updateContactOnlyAction(formData: FormData) {
-    "use server";
-
-    const applicationId = String(formData.get("applicationId") || "").trim();
-
-    if (!applicationId) {
-      redirect("/admin");
-    }
-
-    const fullName = cleanText(formData.get("full_name"));
-    const phone = cleanText(formData.get("phone"));
-
-    const { error } = await supabaseAdmin
-      .from("applications")
-      .update({
-        full_name: fullName,
-        phone,
-      })
-      .eq("id", applicationId);
-
-    if (error) {
-      console.error("Failed to update contact fields:", error);
-      redirect(`/admin/applications/${applicationId}?contact=error`);
-    }
-
-    revalidatePath("/admin");
-    revalidatePath(`/admin/applications/${applicationId}`);
-
-    redirect(`/admin/applications/${applicationId}?contact=success`);
-  }
-
-  async function updateFinancingOnlyAction(formData: FormData) {
-    "use server";
-
-    const applicationId = String(formData.get("applicationId") || "").trim();
-
-    if (!applicationId) {
-      redirect("/admin");
-    }
-
-    const deviceName = cleanText(formData.get("device_name"));
-    const devicePrice = cleanNumber(formData.get("device_price"));
-    const downPayment = cleanNumber(formData.get("down_payment")) || 0;
-    const installmentMonths = cleanNumber(formData.get("installment_months"));
-
-    const calculated = calculateInstallmentValues({
-      devicePrice,
-      downPayment,
-      months: installmentMonths,
-    });
-
-    const updatePayload = {
-      device_name: deviceName,
-      device_price: devicePrice,
-      down_payment: downPayment,
-      installment_months: installmentMonths,
-      interest_rate: calculated.interestRate,
-      monthly_payment: calculated.monthlyPayment,
-      total_with_interest: calculated.totalWithInterest,
-    };
-
-    const { error } = await supabaseAdmin
-      .from("applications")
-      .update(updatePayload)
-      .eq("id", applicationId);
-
-    if (error) {
-      console.error("Failed to update financing fields:", error);
-      redirect(`/admin/applications/${applicationId}?finance=error`);
-    }
-
-    revalidatePath("/admin");
-    revalidatePath(`/admin/applications/${applicationId}`);
-
-    redirect(`/admin/applications/${applicationId}?finance=success`);
-  }
-
   async function updateApplicationDetailsAction(formData: FormData) {
     "use server";
 
@@ -1081,16 +1003,6 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     if (!applicationId) {
       redirect("/admin");
     }
-
-    const devicePrice = cleanNumber(formData.get("device_price"));
-    const downPayment = cleanNumber(formData.get("down_payment")) || 0;
-    const installmentMonths = cleanNumber(formData.get("installment_months"));
-
-    const calculated = calculateInstallmentValues({
-      devicePrice,
-      downPayment,
-      months: installmentMonths,
-    });
 
     const updatePayload = {
       full_name: cleanText(formData.get("full_name")),
@@ -1105,12 +1017,11 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       job_title: cleanText(formData.get("job_title")),
       salary: cleanNumber(formData.get("salary")),
       device_name: cleanText(formData.get("device_name")),
-      device_price: devicePrice,
-      down_payment: downPayment,
-      installment_months: installmentMonths,
-      interest_rate: calculated.interestRate,
-      monthly_payment: calculated.monthlyPayment,
-      total_with_interest: calculated.totalWithInterest,
+      device_price: cleanNumber(formData.get("device_price")),
+      down_payment: cleanNumber(formData.get("down_payment")),
+      installment_months: cleanNumber(formData.get("installment_months")),
+      monthly_payment: cleanNumber(formData.get("monthly_payment")),
+      total_with_interest: cleanNumber(formData.get("total_with_interest")),
       guarantor_name: cleanText(formData.get("guarantor_name")),
       guarantor_phone: cleanText(formData.get("guarantor_phone")),
       guarantor_national_id: cleanText(formData.get("guarantor_national_id")),
@@ -1148,6 +1059,17 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     redirect(`/admin/applications/${applicationId}?save=success`);
   }
 
+  async function sendApprovedWithCustomDateAction(formData: FormData) {
+    "use server";
+
+    const pickupDate = String(formData.get("pickup_date") || "").trim();
+
+    if (!pickupDate) {
+      redirect(`/admin/applications/${app.id}`);
+    }
+
+    redirect(makeWhatsAppUrl(app.phone, approvedMessage(app, pickupDate)));
+  }
 
   const hasWhatsAppPhone = Boolean(normalizeJordanPhoneForWhatsApp(app.phone));
 
@@ -1160,7 +1082,6 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   const employer = app.employer || app.employer_name || "—";
   const guarantorUrl = getGuarantorUrl(app);
   const googleMapsUrl = getGoogleMapsUrl(app);
-  const calculatedInstallmentSummary = getCalculatedInstallmentSummary(app);
 
   return (
     <main dir="rtl" className="relative min-h-screen overflow-x-hidden px-4 py-8 text-[#f7f3e8]">
@@ -1297,91 +1218,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
         <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
           <div className="mb-5">
             <h2 className="gold-text text-xl font-black">
-              تعديل سريع للاسم ورقم الواتساب
-            </h2>
-            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-              استخدم هذا الخيار لتغيير رقم الواتساب الأساسي الذي تُرسل عليه كل رسائل واتساب. هذا مهم لأن بعض أرقام العملاء لا تعمل على واتساب.
-            </p>
-          </div>
-
-          <form action={updateContactOnlyAction} className="grid gap-4 md:grid-cols-2">
-            <input type="hidden" name="applicationId" value={app.id} />
-
-            <EditInput label="الاسم الكامل" name="full_name" defaultValue={app.full_name} />
-
-            <EditInput label="رقم الواتساب الأساسي" name="phone" defaultValue={app.phone} />
-
-            <div className="md:col-span-2">
-              <button
-                type="submit"
-                className="green-button w-full rounded-2xl px-5 py-4 text-sm font-black transition"
-              >
-                حفظ الاسم ورقم الواتساب فقط
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
-          <div className="mb-5">
-            <h2 className="gold-text text-xl font-black">
-              تعديل الجهاز وحاسبة الأقساط
-            </h2>
-            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-              عدّل نوع الجهاز، السعر، الدفعة الأولى، ومدة التقسيط. سيتم حساب القسط الشهري والإجمالي تلقائيًا حسب مدة التقسيط.
-            </p>
-          </div>
-
-          <form action={updateFinancingOnlyAction} className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <input type="hidden" name="applicationId" value={app.id} />
-
-            <div className="xl:col-span-2">
-              <EditInput label="اسم الجهاز / النوع الجديد" name="device_name" defaultValue={app.device_name} />
-            </div>
-
-            <EditInput label="سعر الجهاز" name="device_price" defaultValue={app.device_price} />
-            <EditInput label="الدفعة الأولى" name="down_payment" defaultValue={app.down_payment} />
-            <EditInput label="مدة التقسيط بالشهور" name="installment_months" defaultValue={app.installment_months} />
-
-            <div className="rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(214,181,107,0.07)] p-4">
-              <p className="text-xs font-black text-[#f3dfac]">الفائدة الحالية حسب المدة</p>
-              <p className="mt-2 text-lg font-black text-white">
-                {formatPercent(calculatedInstallmentSummary.interestRate)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-[rgba(105,217,123,0.22)] bg-[rgba(105,217,123,0.08)] p-4">
-              <p className="text-xs font-black text-[#b8f3c0]">القسط الشهري الحالي</p>
-              <p className="mt-2 text-lg font-black text-white">
-                {formatMoney(calculatedInstallmentSummary.monthlyPayment)}
-              </p>
-            </div>
-
-            <div className="rounded-2xl border border-[rgba(105,217,123,0.22)] bg-[rgba(105,217,123,0.08)] p-4">
-              <p className="text-xs font-black text-[#b8f3c0]">الإجمالي الحالي مع الفائدة</p>
-              <p className="mt-2 text-lg font-black text-white">
-                {formatMoney(calculatedInstallmentSummary.totalWithInterest)}
-              </p>
-            </div>
-
-            <div className="md:col-span-2 xl:col-span-4">
-              <button
-                type="submit"
-                className="green-button w-full rounded-2xl px-5 py-4 text-sm font-black transition"
-              >
-                حفظ الجهاز وإعادة حساب الأقساط
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
-          <div className="mb-5">
-            <h2 className="gold-text text-xl font-black">
               تعديل بيانات الطلب
             </h2>
             <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-              عدّل بيانات العميل أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي. لتغيير الجهاز والحسبة استخدم قسم "تعديل الجهاز وحاسبة الأقساط" أعلاه.
+              عدّل رقم الهاتف، بيانات العميل، بيانات الجهاز أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي.
             </p>
           </div>
 
@@ -1403,8 +1243,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             <EditInput label="سعر الجهاز" name="device_price" defaultValue={app.device_price} />
             <EditInput label="الدفعة الأولى" name="down_payment" defaultValue={app.down_payment} />
             <EditInput label="مدة التقسيط بالشهور" name="installment_months" defaultValue={app.installment_months} />
-            <EditInput label="القسط الشهري التقريبي — يُعاد حسابه تلقائيًا" name="monthly_payment" defaultValue={app.monthly_payment} />
-            <EditInput label="الإجمالي مع الفائدة — يُعاد حسابه تلقائيًا" name="total_with_interest" defaultValue={app.total_with_interest} />
+            <EditInput label="القسط الشهري التقريبي" name="monthly_payment" defaultValue={app.monthly_payment} />
+            <EditInput label="الإجمالي مع الفائدة" name="total_with_interest" defaultValue={app.total_with_interest} />
             <EditInput label="اسم الكفيل" name="guarantor_name" defaultValue={app.guarantor_name} />
             <EditInput label="هاتف الكفيل" name="guarantor_phone" defaultValue={app.guarantor_phone} />
             <EditInput label="الرقم الوطني للكفيل" name="guarantor_national_id" defaultValue={app.guarantor_national_id} />
@@ -1472,11 +1312,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 className="border border-sky-300/25 bg-sky-950/30 text-sky-100 hover:bg-sky-950/45"
               />
 
-              <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, approvedMessage(app))}
-                label="قرار نهائي / الاستلام"
-                className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
-              />
+              <ApprovedPickupDateWhatsAppAction action={sendApprovedWithCustomDateAction} />
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
