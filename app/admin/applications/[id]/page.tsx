@@ -995,6 +995,66 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     redirect(`/admin/applications/${applicationId}`);
   }
 
+  async function updateWhatsAppPhoneOnlyAction(formData: FormData) {
+    "use server";
+
+    const applicationId = String(formData.get("applicationId") || "").trim();
+
+    if (!applicationId) {
+      redirect("/admin");
+    }
+
+    const phone = cleanText(formData.get("phone"));
+
+    const { error } = await supabaseAdmin
+      .from("applications")
+      .update({
+        phone,
+      })
+      .eq("id", applicationId);
+
+    if (error) {
+      console.error("Failed to update WhatsApp phone:", error);
+      redirect(`/admin/applications/${applicationId}?whatsapp=error`);
+    }
+
+    revalidatePath("/admin");
+    revalidatePath(`/admin/applications/${applicationId}`);
+
+    redirect(`/admin/applications/${applicationId}?whatsapp=success`);
+  }
+
+  async function updateContactOnlyAction(formData: FormData) {
+    "use server";
+
+    const applicationId = String(formData.get("applicationId") || "").trim();
+
+    if (!applicationId) {
+      redirect("/admin");
+    }
+
+    const fullName = cleanText(formData.get("full_name"));
+    const phone = cleanText(formData.get("phone"));
+
+    const { error } = await supabaseAdmin
+      .from("applications")
+      .update({
+        full_name: fullName,
+        phone,
+      })
+      .eq("id", applicationId);
+
+    if (error) {
+      console.error("Failed to update customer contact:", error);
+      redirect(`/admin/applications/${applicationId}?contact=error`);
+    }
+
+    revalidatePath("/admin");
+    revalidatePath(`/admin/applications/${applicationId}`);
+
+    redirect(`/admin/applications/${applicationId}?contact=success`);
+  }
+
   async function updateApplicationDetailsAction(formData: FormData) {
     "use server";
 
@@ -1218,10 +1278,63 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
         <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
           <div className="mb-5">
             <h2 className="gold-text text-xl font-black">
+              تعديل سريع لرقم الواتساب
+            </h2>
+            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
+              استخدم هذا الحقل إذا كان رقم العميل الأساسي لا يعمل على واتساب. جميع أزرار واتساب بالأسفل ستستخدم الرقم الجديد بعد الحفظ.
+            </p>
+          </div>
+
+          <form action={updateWhatsAppPhoneOnlyAction} className="grid gap-4 md:grid-cols-[1fr_auto] md:items-end">
+            <input type="hidden" name="applicationId" value={app.id} />
+
+            <EditInput
+              label="رقم الواتساب الجديد"
+              name="phone"
+              defaultValue={app.phone}
+            />
+
+            <button
+              type="submit"
+              className="green-button rounded-2xl px-6 py-4 text-sm font-black transition"
+            >
+              حفظ رقم الواتساب فقط
+            </button>
+          </form>
+
+          <form action={updateContactOnlyAction} className="mt-5 grid gap-4 md:grid-cols-2">
+            <input type="hidden" name="applicationId" value={app.id} />
+
+            <EditInput
+              label="الاسم الكامل — اختياري"
+              name="full_name"
+              defaultValue={app.full_name}
+            />
+
+            <EditInput
+              label="رقم الواتساب الأساسي"
+              name="phone"
+              defaultValue={app.phone}
+            />
+
+            <div className="md:col-span-2">
+              <button
+                type="submit"
+                className="w-full rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] px-5 py-4 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+              >
+                حفظ الاسم ورقم الواتساب معًا
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
+          <div className="mb-5">
+            <h2 className="gold-text text-xl font-black">
               تعديل بيانات الطلب
             </h2>
             <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-              عدّل رقم الهاتف، بيانات العميل، بيانات الجهاز أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي.
+              عدّل بيانات العميل، الجهاز أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي. لتغيير رقم الواتساب بسرعة استخدم القسم السريع أعلاه.
             </p>
           </div>
 
