@@ -53,6 +53,25 @@ function formatDateTime(value: string | null | undefined) {
   }
 }
 
+function formatDeadlineDate(value: string | null | undefined) {
+  if (!value) return "الموعد الجديد المعتمد";
+
+  try {
+    return new Intl.DateTimeFormat("ar-JO", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Amman",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 export default async function DelayDecisionPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
@@ -97,6 +116,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
 
   const fallbackDeadline = addHours(new Date(), 72).toISOString();
   const countdownDeadline = app.delivery_delay_until || fallbackDeadline;
+  const deadlineLabel = formatDeadlineDate(countdownDeadline);
 
   return (
     <main dir="rtl" className="relative min-h-screen overflow-x-hidden bg-[#f4ecdd] px-4 py-6 text-[#17261d] sm:py-10">
@@ -117,7 +137,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
             </h1>
 
             <p className="mx-auto mt-3 max-w-2xl text-base font-bold leading-8 text-[#5e6b62]">
-              أهلًا {customerName}، نعتذر منكم، تم تمديد موعد تسليم بعض الطلبات لمدة 3 أيام عمل بسبب مراجعة داخلية طارئة على الإجراءات، وذلك لضمان دقة الطلبات وعدالة الموافقات لجميع العملاء.
+              أهلًا {customerName}، نعتذر منكم على التأخير، تم تحديث موعد استكمال بعض الطلبات بسبب مراجعة داخلية طارئة على الإجراءات وتنسيق التزويد مع المورد، وذلك لضمان دقة الطلبات وعدالة الموافقات لجميع العملاء.
             </p>
           </div>
         </div>
@@ -138,9 +158,9 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
           </div>
 
           <div className="rounded-[28px] border border-[#e2c984] bg-[#fff8e8] p-5 shadow-[0_18px_45px_rgba(67,48,20,0.10)]">
-            <p className="text-xs font-black text-[#7c5b13]">مدة التمديد</p>
-            <p className="mt-2 text-lg font-black text-[#7c5b13]">
-              72 ساعة
+            <p className="text-xs font-black text-[#7c5b13]">الموعد الجديد</p>
+            <p className="mt-2 text-lg font-black leading-7 text-[#7c5b13]">
+              {deadlineLabel}
             </p>
           </div>
         </div>
@@ -186,7 +206,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                   يرجى اختيار الإجراء المناسب لكم
                 </h2>
                 <p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-[#627064]">
-                  تقديرًا لوقتكم، يمكنكم إما انتظار مدة التمديد واستكمال الطلب بشكل طبيعي، أو طلب استرداد رسوم فتح الملف المدفوعة.
+                  تقديرًا لوقتكم، يمكنكم إما انتظار الموعد الجديد واستكمال الطلب بشكل طبيعي، أو طلب استرداد رسوم فتح الملف المدفوعة.
                 </p>
               </div>
 
@@ -198,17 +218,26 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                   <input type="hidden" name="decision" value="wait" />
 
                   <h3 className="text-xl font-black text-[#14723a]">
-                    الانتظار لمدة 72 ساعة
+                    الانتظار حتى الموعد الجديد
                   </h3>
                   <p className="mt-3 text-sm font-bold leading-7 text-[#526158]">
-                    أوافق على تمديد موعد التسليم واستكمال الطلب بشكل طبيعي بعد انتهاء المراجعة الداخلية.
+                    أوافق على تمديد موعد التسليم حتى الموعد الجديد المعتمد، واستكمال الطلب بشكل طبيعي بعد انتهاء المراجعة.
                   </p>
+
+                  <div className="mt-4 rounded-2xl border border-[#b8ddc4] bg-white/80 px-4 py-3 text-center">
+                    <p className="text-xs font-black text-[#14723a]">
+                      الموعد الجديد المعتمد
+                    </p>
+                    <p className="mt-1 text-sm font-black leading-7 text-[#123725]">
+                      {deadlineLabel}
+                    </p>
+                  </div>
 
                   <button
                     type="submit"
                     className="mt-5 w-full rounded-2xl bg-[#37b75d] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:bg-[#2fa553]"
                   >
-                    أوافق على الانتظار وتفعيل عداد 72 ساعة
+                    أوافق على الانتظار حتى الموعد الجديد
                   </button>
                 </form>
 
@@ -278,7 +307,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                 ملاحظة توضيحية
               </h2>
               <p className="mt-2 text-xs font-bold leading-7 text-[#7a837c]">
-                التمديد مرتبط بمراجعة داخلية طارئة لضمان دقة الإجراءات وعدالة الموافقات، ولا يعني رفض الطلب.
+                تحديث الموعد مرتبط بمراجعة داخلية طارئة وتنسيق التزويد مع المورد لضمان دقة الإجراءات وعدالة الموافقات، ولا يعني رفض الطلب.
               </p>
             </div>
           </>
