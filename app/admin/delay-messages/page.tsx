@@ -23,9 +23,122 @@ type Application = {
   delivery_delay_until?: string | null;
   delivery_delay_started_at?: string | null;
   payment_reference?: string | null;
+  source?: "supabase" | "manual";
+};
+
+type ManualContact = {
+  id: string;
+  full_name: string;
+  phone: string;
+  tracking_id?: string;
+  device_name?: string;
+  source_note: string;
 };
 
 const DEFAULT_DEADLINE = "2026-05-31T18:00";
+
+const MANUAL_CONTACTS: ManualContact[] = [
+  {
+    id: "manual-0780653411",
+    full_name: "عميل واتساب",
+    phone: "0780653411",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0781348183",
+    full_name: "عميل واتساب",
+    phone: "0781348183",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0795459774",
+    full_name: "أحمد موفق محمد خليل",
+    phone: "0795459774",
+    tracking_id: "AM-1778395253647",
+    source_note: "Supabase + صور واتساب",
+  },
+  {
+    id: "manual-0786096114",
+    full_name: "مراد حسين سليمان أبو هليل",
+    phone: "0786096114",
+    tracking_id: "AM-1778496638994",
+    source_note: "Supabase + صور واتساب",
+  },
+  {
+    id: "manual-0779212117",
+    full_name: "عميل واتساب",
+    phone: "0779212117",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0778685897",
+    full_name: "عباده محمد صالح عوامله",
+    phone: "0778685897",
+    tracking_id: "AM-1778394991663",
+    source_note: "Supabase + صور واتساب",
+  },
+  {
+    id: "manual-0793634343",
+    full_name: "عميل واتساب",
+    phone: "0793634343",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0780413057",
+    full_name: "عميل واتساب",
+    phone: "0780413057",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0790624376",
+    full_name: "عميل واتساب",
+    phone: "0790624376",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0791608866",
+    full_name: "محمد نعمان ياسين مشعل",
+    phone: "0791608866",
+    tracking_id: "AM-1778502451499",
+    source_note: "Supabase",
+  },
+  {
+    id: "manual-0780103208",
+    full_name: "سوسن موسى حسن أبو راضي",
+    phone: "0780103208",
+    tracking_id: "AM-1778405637519",
+    source_note: "Supabase",
+  },
+  {
+    id: "manual-0782966610",
+    full_name: "أنس محمود أحمد سمارة",
+    phone: "0782966610",
+    tracking_id: "AM-1778496886719",
+    source_note: "Supabase",
+  },
+  {
+    id: "manual-0785544735",
+    full_name: "عميل واتساب",
+    phone: "0785544735",
+    source_note: "من صور واتساب",
+  },
+  {
+    id: "manual-0780550425",
+    full_name: "عميل واتساب",
+    phone: "0780550425",
+    source_note: "من آخر صورة واتساب",
+  },
+];
+
+function normalizePhoneKey(phone: string | null | undefined) {
+  const digits = String(phone || "").replace(/\D/g, "");
+
+  if (!digits) return "";
+  if (digits.startsWith("962")) return `0${digits.slice(3)}`;
+  if (digits.startsWith("7") && digits.length === 9) return `0${digits}`;
+
+  return digits;
+}
 
 function normalizeSearch(value: string) {
   return value.trim().toLowerCase();
@@ -59,6 +172,8 @@ function formatDate(value: string | null | undefined) {
 
 function translateStatus(status: string | null | undefined) {
   switch (status) {
+    case "manual_contact":
+      return "رقم يدوي من واتساب";
     case "delivery_delay_notice_sent":
       return "تم إرسال رابط التمديد / لم يرد";
     case "customer_accepts_delivery_delay":
@@ -86,6 +201,8 @@ function translateStatus(status: string | null | undefined) {
 
 function statusClass(status: string | null | undefined) {
   switch (status) {
+    case "manual_contact":
+      return "border-sky-300/35 bg-sky-950/30 text-sky-100";
     case "delivery_delay_notice_sent":
       return "border-[#d6b56b]/35 bg-[#d6b56b]/12 text-[#f3dfac]";
     case "customer_accepts_delivery_delay":
@@ -103,7 +220,7 @@ function statusClass(status: string | null | undefined) {
 }
 
 function firstTwoNames(fullName: string | null | undefined) {
-  if (!fullName) return "عميلنا الكريم";
+  if (!fullName || fullName === "عميل واتساب") return "عميلنا الكريم";
 
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
 
@@ -125,8 +242,17 @@ function buildDelayDecisionUrl(app: Application) {
 
 function buildWhatsAppPreviewMessage(app: Application) {
   const name = firstTwoNames(app.full_name);
-  const tracking = app.tracking_id || app.id;
-  const delayDecisionUrl = buildDelayDecisionUrl(app);
+  const tracking = app.tracking_id || "";
+  const hasTracking = Boolean(tracking);
+  const delayDecisionUrl = hasTracking ? buildDelayDecisionUrl(app) : "";
+
+  const linkBlock = hasTracking
+    ? `رابط خيار الانتظار أو الاسترداد:
+${delayDecisionUrl}
+
+رقم التتبع:
+${tracking}`
+    : `في حال رغبتكم بطلب الاسترداد، يرجى الرد على هذه الرسالة وسيتم إرسال رابط الاسترداد الخاص بطلبكم.`;
 
   return `أهلًا ${name} 🌿
 
@@ -138,14 +264,67 @@ function buildWhatsAppPreviewMessage(app: Application) {
 
 وفي حال عدم رغبتكم بالانتظار، يمكنكم طلب استرداد رسوم فتح الملف المدفوعة، وحقكم محفوظ بالكامل.
 
-رابط خيار الانتظار أو الاسترداد:
-${delayDecisionUrl}
-
-رقم التتبع:
-${tracking}
+${linkBlock}
 
 نعتذر مرة أخرى، ونشكركم على صبركم وتفهمكم.
 الأمين للأقساط والتمويل`;
+}
+
+function buildManualWhatsAppUrl(app: Application) {
+  const cleanPhone = normalizeJordanPhoneForWhatsApp(app.phone);
+  const message = buildWhatsAppPreviewMessage(app);
+
+  if (!cleanPhone) return "#";
+
+  return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+}
+
+function mergeSupabaseAndManualContacts(applications: Application[]) {
+  const byPhone = new Map<string, Application>();
+
+  for (const app of applications) {
+    const key = normalizePhoneKey(app.phone);
+
+    if (!key) continue;
+
+    byPhone.set(key, {
+      ...app,
+      source: "supabase",
+    });
+  }
+
+  for (const manual of MANUAL_CONTACTS) {
+    const key = normalizePhoneKey(manual.phone);
+
+    if (!key) continue;
+
+    const existing = byPhone.get(key);
+
+    if (existing) {
+      byPhone.set(key, {
+        ...existing,
+        full_name: existing.full_name || manual.full_name,
+        tracking_id: existing.tracking_id || manual.tracking_id || null,
+        device_name: existing.device_name || manual.device_name || null,
+        source: "supabase",
+      });
+    } else {
+      byPhone.set(key, {
+        id: manual.id,
+        full_name: manual.full_name,
+        phone: manual.phone,
+        tracking_id: manual.tracking_id || null,
+        device_name: manual.device_name || "—",
+        status: "manual_contact",
+        payment_status: null,
+        delivery_delay_until: null,
+        delivery_delay_started_at: null,
+        source: "manual",
+      });
+    }
+  }
+
+  return Array.from(byPhone.values());
 }
 
 function filterApplications(applications: Application[], q: string, filter: string) {
@@ -167,12 +346,17 @@ function filterApplications(applications: Application[], q: string, filter: stri
 
     let matchesFilter = true;
 
+    if (filter === "manual") {
+      matchesFilter = app.source === "manual";
+    }
+
     if (filter === "not_sent") {
       matchesFilter =
-        app.status !== "delivery_delay_notice_sent" &&
-        app.status !== "customer_accepts_delivery_delay" &&
-        app.status !== "refund_requested" &&
-        app.status !== "refund_completed";
+        app.source === "manual" ||
+        (app.status !== "delivery_delay_notice_sent" &&
+          app.status !== "customer_accepts_delivery_delay" &&
+          app.status !== "refund_requested" &&
+          app.status !== "refund_completed");
     }
 
     if (filter === "sent_no_reply") {
@@ -255,15 +439,19 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
     .order("created_at", { ascending: false })
     .limit(2000);
 
-  const applications = (data || []) as Application[];
+  const supabaseApplications = (data || []) as Application[];
+  const applications = mergeSupabaseAndManualContacts(supabaseApplications);
   const filteredApplications = filterApplications(applications, q, filter);
+
+  const manualCount = applications.filter((app) => app.source === "manual").length;
 
   const notSentCount = applications.filter(
     (app) =>
-      app.status !== "delivery_delay_notice_sent" &&
-      app.status !== "customer_accepts_delivery_delay" &&
-      app.status !== "refund_requested" &&
-      app.status !== "refund_completed"
+      app.source === "manual" ||
+      (app.status !== "delivery_delay_notice_sent" &&
+        app.status !== "customer_accepts_delivery_delay" &&
+        app.status !== "refund_requested" &&
+        app.status !== "refund_completed")
   ).length;
 
   const sentNoReplyCount = applications.filter(
@@ -302,18 +490,18 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
                 </p>
 
                 <h1 className="text-3xl font-black text-white">
-                  إرسال رسائل مخصصة من Supabase
+                  Supabase + أرقام واتساب اليدوية
                 </h1>
 
                 <p className="mt-2 max-w-3xl text-sm font-bold leading-7 text-[#cbd6cb]">
-                  هذه الصفحة تسحب الطلبات مباشرة من Supabase، وتجهز لكل عميل رسالة واتساب خاصة باسمه ورقم تتبعه ورابط الانتظار أو الاسترداد.
+                  هذه الصفحة تسحب الطلبات مباشرة من Supabase وتدمج معها الأرقام التي استخرجناها من صور واتساب. كل عميل يظهر معه زر إرسال مخصص.
                 </p>
               </div>
 
               <div className="rounded-2xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 p-4">
-                <p className="text-xs font-black text-[#f3dfac]">الموعد الافتراضي للإرسال</p>
-                <p className="mt-2 text-sm font-black text-white">
-                  الأحد 31/05/2026 — 6:00 مساءً
+                <p className="text-xs font-black text-[#f3dfac]">الأرقام اليدوية المضافة</p>
+                <p className="mt-2 text-2xl font-black text-white">
+                  {MANUAL_CONTACTS.length}
                 </p>
               </div>
             </div>
@@ -349,7 +537,8 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
                 defaultValue={filter}
                 className="w-full rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(3,18,14,0.58)] px-4 py-3 text-sm font-bold text-white outline-none focus:border-[#d6b56b]"
               >
-                <option value="">كل الطلبات</option>
+                <option value="">كل الطلبات + الأرقام اليدوية</option>
+                <option value="manual">الأرقام اليدوية فقط</option>
                 <option value="not_sent">لم يرسل لهم</option>
                 <option value="sent_no_reply">تم إرسال الرابط / لم يرد</option>
                 <option value="wait">اختار الانتظار</option>
@@ -378,7 +567,13 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
           </form>
         </section>
 
-        <section className="mb-6 grid gap-3 md:grid-cols-4">
+        <section className="mb-6 grid gap-3 md:grid-cols-5">
+          <CountCard
+            label="الأرقام اليدوية"
+            value={manualCount}
+            href={buildFilterHref({ q, filter: "manual", deadline })}
+            active={filter === "manual"}
+          />
           <CountCard
             label="لم يرسل لهم"
             value={notSentCount}
@@ -416,9 +611,10 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
           </div>
 
           <div className="overflow-x-auto rounded-3xl border border-white/10">
-            <table className="w-full min-w-[1150px] border-collapse bg-black/10 text-sm">
+            <table className="w-full min-w-[1220px] border-collapse bg-black/10 text-sm">
               <thead>
                 <tr className="bg-[#d6b56b]/10 text-[#f3dfac]">
+                  <th className="p-3 text-right font-black">المصدر</th>
                   <th className="p-3 text-right font-black">العميل</th>
                   <th className="p-3 text-right font-black">الهاتف</th>
                   <th className="p-3 text-right font-black">التتبع</th>
@@ -434,9 +630,22 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
                   const cleanPhone = normalizeJordanPhoneForWhatsApp(app.phone);
                   const canSend = Boolean(cleanPhone);
                   const preview = buildWhatsAppPreviewMessage(app);
+                  const isManual = app.source === "manual";
 
                   return (
-                    <tr key={app.id} className="border-t border-white/10 align-top hover:bg-white/[0.03]">
+                    <tr key={`${app.source}-${app.id}`} className="border-t border-white/10 align-top hover:bg-white/[0.03]">
+                      <td className="p-3">
+                        <span
+                          className={`inline-flex rounded-full border px-3 py-2 text-xs font-black ${
+                            isManual
+                              ? "border-sky-300/35 bg-sky-950/30 text-sky-100"
+                              : "border-[#69d97b]/35 bg-[#69d97b]/12 text-[#b8f3c0]"
+                          }`}
+                        >
+                          {isManual ? "يدوي / واتساب" : "Supabase"}
+                        </span>
+                      </td>
+
                       <td className="p-3">
                         <p className="font-black text-white">
                           {app.full_name || "—"}
@@ -451,10 +660,10 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
                       </td>
 
                       <td className="p-3 font-black text-white" dir="ltr">
-                        {app.tracking_id || app.id}
+                        {app.tracking_id || (isManual ? "غير متوفر" : app.id)}
                       </td>
 
-                      <td className="max-w-[260px] p-3">
+                      <td className="max-w-[240px] p-3">
                         <p className="break-words font-bold text-[#d7ddd5]">
                           {app.device_name || "—"}
                         </p>
@@ -474,21 +683,36 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
 
                       <td className="p-3">
                         <div className="grid gap-2">
-                          <form action="/api/admin/bulk-delay-whatsapp" method="POST" target="_blank">
-                            <input type="hidden" name="applicationId" value={app.id} />
-                            <input type="hidden" name="delayUntil" value={deadline} />
-                            <button
-                              type="submit"
-                              disabled={!canSend}
-                              className={`w-full rounded-2xl px-4 py-3 text-xs font-black transition ${
+                          {isManual ? (
+                            <a
+                              href={buildManualWhatsAppUrl(app)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className={`w-full rounded-2xl px-4 py-3 text-center text-xs font-black transition ${
                                 canSend
                                   ? "green-button"
                                   : "cursor-not-allowed border border-red-400/30 bg-red-950/30 text-red-100"
                               }`}
                             >
-                              إرسال رسالة مخصصة
-                            </button>
-                          </form>
+                              إرسال واتساب يدوي
+                            </a>
+                          ) : (
+                            <form action="/api/admin/bulk-delay-whatsapp" method="POST" target="_blank">
+                              <input type="hidden" name="applicationId" value={app.id} />
+                              <input type="hidden" name="delayUntil" value={deadline} />
+                              <button
+                                type="submit"
+                                disabled={!canSend}
+                                className={`w-full rounded-2xl px-4 py-3 text-xs font-black transition ${
+                                  canSend
+                                    ? "green-button"
+                                    : "cursor-not-allowed border border-red-400/30 bg-red-950/30 text-red-100"
+                                }`}
+                              >
+                                إرسال رسالة مخصصة
+                              </button>
+                            </form>
+                          )}
 
                           <details className="rounded-2xl border border-white/10 bg-white/[0.03] p-3">
                             <summary className="cursor-pointer text-xs font-black text-[#f3dfac]">
@@ -499,12 +723,14 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
                             </pre>
                           </details>
 
-                          <Link
-                            href={`/admin/applications/${app.id}`}
-                            className="text-center text-xs font-black text-[#f3dfac] underline"
-                          >
-                            فتح الطلب
-                          </Link>
+                          {!isManual && (
+                            <Link
+                              href={`/admin/applications/${app.id}`}
+                              className="text-center text-xs font-black text-[#f3dfac] underline"
+                            >
+                              فتح الطلب
+                            </Link>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -513,7 +739,7 @@ export default async function DelayMessagesPage({ searchParams }: PageProps) {
 
                 {filteredApplications.length === 0 && (
                   <tr>
-                    <td colSpan={7} className="p-10 text-center text-sm font-black text-[#cbd6cb]">
+                    <td colSpan={8} className="p-10 text-center text-sm font-black text-[#cbd6cb]">
                       لا يوجد نتائج حسب الفلتر الحالي.
                     </td>
                   </tr>
