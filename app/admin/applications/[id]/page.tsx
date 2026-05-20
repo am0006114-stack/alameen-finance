@@ -66,6 +66,8 @@ type ApplicationRecord = {
 
   status?: string | null;
   payment_status?: string | null;
+  delivery_delay_started_at?: string | null;
+  delivery_delay_until?: string | null;
 };
 
 type DocumentRecord = {
@@ -131,6 +133,31 @@ function formatCustomPickupDate(value: string | null | undefined) {
     return formatPickupDate(date);
   } catch {
     return cleanValue;
+  }
+}
+
+
+function formatDateTimeLocalInput(value: string | null | undefined) {
+  if (!value) return "";
+
+  try {
+    const date = new Date(value);
+
+    if (Number.isNaN(date.getTime())) return "";
+
+    const formatter = new Intl.DateTimeFormat("sv-SE", {
+      timeZone: "Asia/Amman",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    });
+
+    return formatter.format(date).replace(" ", "T");
+  } catch {
+    return "";
   }
 }
 
@@ -201,7 +228,7 @@ function translateStatus(status: string | null | undefined) {
     case "customer_declined_continue":
       return "العميل رفض الاستمرار";
     case "delivery_delay_notice_sent":
-      return "تم إرسال خيار التمديد/الاسترداد";
+      return "تم إرسال رابط التمديد / بانتظار رد العميل";
     case "customer_accepts_delivery_delay":
       return "وافق على تمديد التسليم";
     case "refund_requested":
@@ -322,6 +349,7 @@ function statusClass(status: string | null | undefined) {
       return "border-red-400/30 bg-red-950/25 text-red-200";
     case "preliminary_qualified":
     case "qualification_link_sent":
+    case "delivery_delay_notice_sent":
     case "payment_info_sent":
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
@@ -842,17 +870,38 @@ function ReceiptLinkAction({
 
 function DeliveryDelayLinkAction({
   applicationId,
+  currentDelayUntil,
 }: {
   applicationId: string;
+  currentDelayUntil?: string | null;
 }) {
   return (
-    <form action="/api/admin/delivery-delay-link" method="POST" target="_blank">
+    <form
+      action="/api/admin/delivery-delay-link"
+      method="POST"
+      target="_blank"
+      className="rounded-2xl border border-[#d6b56b]/30 bg-[#d6b56b]/10 p-3"
+    >
       <input type="hidden" name="applicationId" value={applicationId} />
+
+      <label className="block">
+        <span className="mb-2 block text-xs font-black text-[#f3dfac]">
+          تاريخ ووقت نهاية التمديد
+        </span>
+        <input
+          required
+          type="datetime-local"
+          name="delay_until"
+          defaultValue={formatDateTimeLocalInput(currentDelayUntil)}
+          className="mb-3 w-full rounded-xl border border-[rgba(214,181,107,0.22)] bg-[rgba(3,18,14,0.58)] px-3 py-3 text-right text-sm font-bold text-white outline-none placeholder:text-[#8d998f] focus:border-[#d6b56b]"
+        />
+      </label>
+
       <button
         type="submit"
-        className="flex w-full items-center justify-center rounded-2xl border border-[#d6b56b]/30 bg-[#d6b56b]/15 px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/25"
+        className="flex w-full items-center justify-center rounded-xl border border-[#d6b56b]/30 bg-[#d6b56b]/15 px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/25"
       >
-        إرسال خيار التمديد / الاسترداد
+        إرسال رابط التمديد / الاسترداد بتاريخ مخصص
       </button>
     </form>
   );
@@ -1403,7 +1452,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               <ReceiptLinkAction applicationId={app.id} />
 
-              <DeliveryDelayLinkAction applicationId={app.id} />
+              <DeliveryDelayLinkAction applicationId={app.id} currentDelayUntil={app.delivery_delay_until} />
 
               <SalarySlipLinkAction applicationId={app.id} />
 
@@ -1588,6 +1637,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 value: formatDate(app.payment_confirmed_at),
               },
               { label: "مهلة الدفع", value: formatDate(app.payment_deadline) },
+              { label: "بداية تمديد التسليم", value: formatDate(app.delivery_delay_started_at) },
+              { label: "نهاية تمديد التسليم", value: formatDate(app.delivery_delay_until) },
             ]}
           />
         </div>

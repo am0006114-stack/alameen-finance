@@ -29,6 +29,38 @@ function firstTwoNames(fullName: string | null | undefined) {
   return `${parts[0]} ${parts[1]}`;
 }
 
+
+function toJordanIsoFromLocalInput(value: string | null | undefined) {
+  const cleanValue = String(value || "").trim();
+
+  if (!cleanValue) return null;
+
+  const date = new Date(`${cleanValue}:00+03:00`);
+
+  if (Number.isNaN(date.getTime())) return null;
+
+  return date.toISOString();
+}
+
+function formatJordanDateTime(value: string | null | undefined) {
+  if (!value) return "الموعد المحدد";
+
+  try {
+    return new Intl.DateTimeFormat("ar-JO", {
+      weekday: "long",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: "Asia/Amman",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
 export async function GET(request: Request) {
   const baseUrl = getBaseUrl(request);
   return NextResponse.redirect(`${baseUrl}/admin`);
@@ -37,6 +69,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   const formData = await request.formData();
   const applicationId = String(formData.get("applicationId") || "").trim();
+  const delayUntilInput = String(formData.get("delay_until") || "").trim();
 
   const baseUrl = getBaseUrl(request);
 
@@ -46,7 +79,7 @@ export async function POST(request: Request) {
 
   const { data: application, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name")
+    .select("id, tracking_id, full_name, phone, device_name, delivery_delay_until")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -56,6 +89,8 @@ export async function POST(request: Request) {
 
   const tracking = application.tracking_id || application.id;
   const phone = application.phone || "";
+  const delayUntilIso = toJordanIsoFromLocalInput(delayUntilInput) || application.delivery_delay_until || null;
+  const formattedDelayUntil = formatJordanDateTime(delayUntilIso);
   const customerName = firstTwoNames(application.full_name);
   const cleanPhone = normalizeJordanPhoneForWhatsApp(phone);
 
@@ -65,7 +100,10 @@ export async function POST(request: Request) {
 
   await supabaseAdmin
     .from("applications")
-    .update({ status: "delivery_delay_notice_sent" })
+    .update({
+      status: "delivery_delay_notice_sent",
+      delivery_delay_until: delayUntilIso,
+    })
     .eq("id", applicationId);
 
   await sendDiscordNotification({
@@ -77,6 +115,7 @@ export async function POST(request: Request) {
       { name: "الهاتف", value: phone || "—", inline: true },
       { name: "رقم التتبع", value: tracking || "—", inline: true },
       { name: "الجهاز", value: application.device_name || "—", inline: false },
+      { name: "الموعد الجديد", value: formattedDelayUntil, inline: false },
     ],
   });
 
@@ -86,21 +125,27 @@ export async function POST(request: Request) {
 
   const message = `أهلًا ${customerName} 🌿
 
-نعتذر منكم، بسبب مراجعة داخلية طارئة على بعض الطلبات لضمان دقة الإجراءات وعدالة الموافقات، سيتم تمديد موعد التسليم لمدة 3 أيام عمل.
+نعتذر منكم بشدة على التعديل والتأخير، ونتفهم تمامًا أن تغيير موعد التسليم أمر مزعج.
 
-حرصًا منا على حقكم وراحتكم، يمكنكم اختيار أحد الخيارين:
+للتوضيح بكل شفافية: كان الموعد المتوقع مبدئيًا أقرب، لكن بعد المراجعة النهائية مع الإدارة والمورد تبيّن أن بعض الأجهزة لم يتم تزويدنا بها ضمن الموعد المتوقع، لذلك تم اعتماد موعد استكمال طلبكم بتاريخ:
 
-1️⃣ الانتظار لمدة 3 أيام عمل واستكمال الطلب بشكل طبيعي
+${formattedDelayUntil}
+
+طلبكم ما زال قائمًا وقيد المتابعة ولم يتم إلغاؤه.
+
+حرصًا منا على حقكم وراحتكم، يمكنكم اختيار أحد الخيارين من الرابط التالي:
+
+1️⃣ الانتظار حتى الموعد الجديد واستكمال الطلب بشكل طبيعي
 أو
 2️⃣ استرداد رسوم فتح الملف المدفوعة
 
-يرجى الدخول إلى الرابط التالي واختيار الخيار المناسب لكم:
-
+رابط الاختيار:
 ${delayDecisionUrl}
 
 رقم التتبع:
 ${tracking}
 
+نعتذر مرة أخرى، ونشكركم على صبركم وتفهمكم.
 الأمين للأقساط والتمويل`;
 
   return NextResponse.redirect(

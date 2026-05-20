@@ -61,7 +61,7 @@ export async function POST(request: Request) {
 
   const { data: application, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name")
+    .select("id, tracking_id, full_name, phone, device_name, delivery_delay_until")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -74,7 +74,14 @@ export async function POST(request: Request) {
 
   if (decision === "wait") {
     const startedAt = new Date();
-    const delayUntil = addHours(startedAt, 72);
+    const existingDelayUntil = application.delivery_delay_until
+      ? new Date(application.delivery_delay_until)
+      : null;
+
+    const delayUntil =
+      existingDelayUntil && !Number.isNaN(existingDelayUntil.getTime())
+        ? existingDelayUntil
+        : addHours(startedAt, 72);
 
     await supabaseAdmin
       .from("applications")
@@ -86,8 +93,8 @@ export async function POST(request: Request) {
       .eq("id", applicationId);
 
     await sendDiscordNotification({
-      title: "⏳ العميل اختار الانتظار 72 ساعة",
-      description: "العميل وافق على تمديد موعد التسليم وتم تفعيل عداد 72 ساعة.",
+      title: "⏳ العميل اختار الانتظار",
+      description: "العميل وافق على تمديد موعد التسليم وتم تفعيل العداد حسب الموعد المحدد في الطلب.",
       color: 0x69d97b,
       fields: [
         { name: "الاسم", value: customerName, inline: true },

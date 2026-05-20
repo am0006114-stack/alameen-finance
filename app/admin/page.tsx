@@ -50,6 +50,8 @@ type Application = {
 
   status?: string | null;
   payment_status?: string | null;
+  delivery_delay_started_at?: string | null;
+  delivery_delay_until?: string | null;
 };
 
 const PAGE_SIZE = 50;
@@ -96,6 +98,10 @@ const STATUS_OPTIONS = [
   { value: "under_review", label: "قيد الدراسة / تمت إحالتها للدراسة" },
   { value: "customer_confirmed_continue", label: "العميل وافق على الاستمرار" },
   { value: "customer_declined_continue", label: "العميل رفض الاستمرار" },
+  { value: "refund_completed", label: "تم تنفيذ الاسترداد" },
+  { value: "refund_requested", label: "اختار الاسترداد" },
+  { value: "customer_accepts_delivery_delay", label: "اختار الانتظار / تمديد" },
+  { value: "delivery_delay_notice_sent", label: "تم إرسال رابط التمديد / لم يرد" },
   { value: "approved", label: "مقبول" },
   { value: "rejected", label: "مرفوض" },
   { value: "cancelled", label: "ملغي" },
@@ -110,6 +116,7 @@ const PAYMENT_OPTIONS = [
   { value: "customer_claimed_paid", label: "العميل أرسل إشعار الدفع" },
   { value: "confirmed", label: "تم تأكيد الدفع" },
   { value: "rejected", label: "الدفع مرفوض" },
+  { value: "refund_requested", label: "طلب استرداد الرسوم" },
 ];
 
 function formatDate(value: string | null) {
@@ -162,6 +169,14 @@ function translateStatus(status: string | null | undefined) {
       return "وافق على الاستمرار";
     case "customer_declined_continue":
       return "رفض الاستمرار";
+    case "delivery_delay_notice_sent":
+      return "رابط التمديد مُرسل / لم يرد";
+    case "customer_accepts_delivery_delay":
+      return "اختار الانتظار";
+    case "refund_requested":
+      return "طلب استرداد الرسوم";
+    case "refund_completed":
+      return "تم تنفيذ الاسترداد";
     case "approved":
       return "مقبول";
     case "rejected":
@@ -189,6 +204,8 @@ function translatePaymentStatus(status: string | null | undefined) {
       return "تم التأكيد";
     case "rejected":
       return "الدفع مرفوض";
+    case "refund_requested":
+      return "طلب استرداد الرسوم";
     default:
       return status || "غير محدد";
   }
@@ -198,13 +215,16 @@ function statusClass(status: string | null | undefined) {
   switch (status) {
     case "approved":
     case "customer_confirmed_continue":
+    case "customer_accepts_delivery_delay":
     case "confirmed":
     case "guarantor_submitted":
       return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
     case "customer_declined_continue":
+    case "refund_requested":
       return "border-red-400/30 bg-red-950/25 text-red-200";
     case "preliminary_qualified":
+    case "delivery_delay_notice_sent":
     case "pending_payment_confirmation":
     case "customer_claimed_paid":
     case "pending":
@@ -590,6 +610,18 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     isPaymentAwaitingConfirmation,
   ).length;
 
+  const delayLinkSentCount = safeApplications.filter(
+    (app) => app.status === "delivery_delay_notice_sent",
+  ).length;
+
+  const delayAcceptedCount = safeApplications.filter(
+    (app) => app.status === "customer_accepts_delivery_delay",
+  ).length;
+
+  const refundRequestedCount = safeApplications.filter(
+    (app) => app.status === "refund_requested" || app.payment_status === "refund_requested",
+  ).length;
+
   const gpsCount = safeApplications.filter(hasGpsLocation).length;
   const noGpsCount = safeApplications.length - gpsCount;
 
@@ -903,6 +935,36 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               })}
               label="دفع مؤكد + قيد الدراسة"
               variant="green"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
+                status: "delivery_delay_notice_sent",
+                payment: selectedPayment,
+              })}
+              label={`تم إرسال رابط / لم يرد (${delayLinkSentCount})`}
+              variant="gold"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
+                status: "customer_accepts_delivery_delay",
+                payment: selectedPayment,
+              })}
+              label={`اختار انتظار (${delayAcceptedCount})`}
+              variant="green"
+            />
+
+            <QuickFilter
+              href={buildFilterHref({
+                q,
+                status: "refund_requested",
+                payment: selectedPayment,
+              })}
+              label={`اختار Refund (${refundRequestedCount})`}
+              variant="red"
             />
 
             <QuickFilter
