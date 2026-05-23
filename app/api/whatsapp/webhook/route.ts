@@ -106,6 +106,45 @@ function extractTracking(text: string) {
   return match ? match[0].toUpperCase() : "";
 }
 
+function extractJordanPhoneFromText(text: string) {
+  const raw = String(text || "");
+
+  const candidates = raw.match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeJordanPhone(candidate);
+    if (/^07[789]\d{7}$/.test(normalized)) {
+      return normalized;
+    }
+  }
+
+  return "";
+}
+
+const agentNames = ["سلمى", "ديما", "لين", "رنا", "نور", "تالا"];
+
+function pickAgentName(seed: string) {
+  const digits = digitsOnly(seed);
+  const last = Number(digits.slice(-2) || "0");
+  return agentNames[last % agentNames.length];
+}
+
+function humanOpening(from: string) {
+  const agent = pickAgentName(from);
+  const variants = [
+    `أهلًا وسهلًا 🌿\nمعك ${agent} من الأمين للأقساط.`,
+    `هلا فيك 🌿\nمعك ${agent} من فريق الأمين للأقساط.`,
+    `أهلًا فيك، معك ${agent} 🌿\nخليني أساعدك.`,
+    `يا هلا 🌿\nمعك ${agent} من الأمين للأقساط، أبشر.`,
+    `مرحبًا 🌿\nمعك ${agent}، كيف بقدر أساعدك؟`,
+  ];
+
+  const digits = digitsOnly(from);
+  const last = Number(digits.slice(-2) || "0");
+
+  return variants[last % variants.length];
+}
+
 function looksSensitive(text: string) {
   const t = text.toLowerCase();
   return [
@@ -677,25 +716,27 @@ ${url}
 ${BUSINESS_NAME}`;
 }
 
-function defaultAskForTracking(baseUrl: string, customerText = "") {
+function defaultAskForTracking(baseUrl: string, customerText = "", from = "") {
+  const opening = humanOpening(from);
+
   if (asksAboutLoan(customerText)) {
-    return `أهلًا وسهلًا 🌿
+    return `${opening}
 
-للتوضيح فقط: ${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط.
+للتوضيح فقط: إحنا في ${BUSINESS_NAME} مختصين بتقسيط الأجهزة الإلكترونية والهواتف فقط.
 
-لا نقدم قروضًا نقدية أو تمويلًا شخصيًا.
+ما بنقدم قروض نقدية أو تمويل شخصي.
 
-إذا عندك طلب تقسيط جهاز، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب، وبفحصلك الحالة مباشرة.`;
+إذا عندك طلب تقسيط جهاز، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب، وبفحصلك الحالة مباشرة.`;
   }
 
   if (asksAboutDeliveryDate(customerText)) {
-    return `أهلًا وسهلًا 🌿
+    return `${opening}
 
-حتى أقدر أعطيك رد دقيق عن الموعد، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
+حتى أعطيك جواب دقيق عن الموعد، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
 
 بشكل عام:
-- الطلبات التي عليها موافقة نهائية تكون متابعتها ${POST_EID_DELIVERY_TEXT} حسب جدول الإدارة.
-- الطلبات التي ما زالت قيد الدراسة يعتمد موعدها على تحديث صفحة الإدارة ونتيجة الدراسة.
+- الطلبات اللي عليها موافقة نهائية متابعتها بعد العيد، ابتداءً من الأحد 31/05/2026 حسب جدول الإدارة.
+- الطلبات اللي لسه قيد الدراسة أو ناقصها كفيل/كشف راتب، موعدها يعتمد على تحديث الإدارة ونتيجة الدراسة.
 
 مثال:
 AM-XXXXXXXXXX
@@ -704,38 +745,38 @@ AM-XXXXXXXXXX
 ${BUSINESS_NAME}`;
   }
 
-  return `أهلًا وسهلًا 🌿
+  return `${opening}
 
-معك ${BUSINESS_NAME}.
-
-حتى أقدر أساعدك بدقة، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
+حتى أقدر أطلعلك الطلب بدقة، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
 
 مثال:
 AM-XXXXXXXXXX
 078XXXXXXX
 
-وبسبب ضغط الطلبات، التواصل الكتابي على واتساب أفضل وأسرع من الاتصال حتى تكون المتابعة موثقة وواضحة.
+وبسبب ضغط الطلبات، المتابعة الكتابية على واتساب أفضل وأسرع من الاتصال لأنها بتضل موثقة وواضحة.
 
-تنويه مهم:
+تنويه سريع:
 ${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا يقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
 }
 
-function defaultGreeting(baseUrl: string) {
-  return `أهلًا وسهلًا 🌿
+function defaultGreeting(baseUrl: string, from = "") {
+  const opening = humanOpening(from);
 
-معك ${BUSINESS_NAME}.
+  return `${opening}
 
-إذا بدك تتابع طلب موجود، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب وبفحصلك الحالة.
+كيف بقدر أساعدك؟
+
+إذا بدك تتابع طلب موجود، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب وبفحصلك الحالة مباشرة.
 
 مثال:
 AM-XXXXXXXXXX
 078XXXXXXX
 
-للتقديم أو المتابعة من خلال الموقع:
+وللتقديم أو المتابعة من خلال الموقع:
 ${baseUrl}
 
 ملاحظة مهمة:
-نحن مختصون بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا نقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
+إحنا مختصين بتقسيط الأجهزة الإلكترونية والهواتف فقط، وما بنقدم قروض نقدية أو تمويل شخصي.`;
 }
 
 async function findApplicationByPhone(phone: string) {
@@ -889,7 +930,7 @@ async function generateAiReply(input: AiReplyInput) {
 شخصيتك وأسلوبك:
 - رد كإنسان طبيعي على واتساب، مش كنص رسمي جامد.
 - استخدم لهجة أردنية مهذبة وخفيفة، بدون مبالغة.
-- لا تكرر نفس الافتتاحية كل مرة.
+- لا تكرر نفس الافتتاحية كل مرة، وغيّر اسم الموظف/الموظفة وطريقة الترحيب حسب الافتتاحية الموجودة في الرد الآمن.
 - خليك راقٍ، واضح، ومطمئن.
 - إذا العميل متضايق، ابدأ بتهدئة واحترام.
 - لا تكتب ردود طويلة بلا داعي.
@@ -924,7 +965,7 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا الحالة needs_salary_slip، اطلب كشف راتب أو شهادة راتب حديثة بلطف.
 - إذا الحالة refund_requested، أكد تسجيل طلب الاسترداد بدون تحديد وقت تنفيذ.
 - إذا الحالة customer_claimed_paid، أكد أن الوصل قيد مراجعة الإدارة واطلب عدم إعادة الدفع.
-- إذا لا يوجد طلب معروف، اطلب رقم التتبع ورقم الهاتف.
+- إذا لا يوجد طلب معروف، اطلب رقم التتبع ورقم الهاتف فقط إذا لم يكونا موجودين في رسالة العميل. إذا أرسلهما العميل ولم يتم العثور على الطلب، اعتذر بلطف واطلب التأكد من الرقمين.
 - التواصل الكتابي عبر واتساب أفضل من الاتصال بسبب ضغط الطلبات وتوثيق المتابعة.
 
 طريقة استخدام الرد الآمن:
@@ -990,11 +1031,18 @@ ${input.deterministicReply}
 async function buildReply(request: Request, from: string, text: string) {
   const baseUrl = getBaseUrl(request);
   const tracking = extractTracking(text);
+  const typedPhone = extractJordanPhoneFromText(text);
   const sensitive = looksSensitive(text);
 
-  const app = tracking
-    ? await findApplicationByTrackingAndPhone(tracking, from)
-    : await findApplicationByPhone(from);
+  let app: ApplicationRecord | null = null;
+
+  if (tracking && typedPhone) {
+    app = await findApplicationByTrackingAndPhone(tracking, typedPhone);
+  } else if (tracking) {
+    app = await findApplicationByTrackingAndPhone(tracking, from);
+  } else {
+    app = await findApplicationByPhone(from);
+  }
 
   if (app) {
     let deterministicReply = safeReply(app, baseUrl, text);
@@ -1002,8 +1050,7 @@ async function buildReply(request: Request, from: string, text: string) {
     if (sensitive) {
       deterministicReply = `${deterministicReply}
 
-ملاحظة:
-المحادثة سيتم تحويلها للمتابعة بسبب وجود استفسار حساس أو شكوى، وحقك علينا نوصلها بشكل واضح للإدارة.`;
+ولا يهمك، رح أرفع المحادثة للمتابعة حتى تنشاف بشكل أوضح من الإدارة.`;
     }
 
     return generateAiReply({
@@ -1019,9 +1066,34 @@ async function buildReply(request: Request, from: string, text: string) {
     });
   }
 
+  if (tracking && typedPhone) {
+    const opening = humanOpening(from);
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply: `${opening}
+
+فحصت رقم التتبع ورقم الهاتف اللي وصلوني، بس ما ظهر عندي طلب مطابق عليهم.
+
+خليني أتأكد معك من البيانات:
+
+رقم التتبع:
+${tracking}
+
+رقم الهاتف:
+${typedPhone}
+
+ممكن يكون الرقم مسجل بطريقة مختلفة أو الطلب مربوط على رقم ثاني. إذا عندك صورة الطلب أو رقم تتبع آخر ابعثه وبفحصه لك.
+
+${BUSINESS_NAME}`,
+      isSensitive: sensitive,
+      hasApplication: false,
+    });
+  }
+
   const deterministicReply = isGreeting(text)
-    ? defaultGreeting(baseUrl)
-    : defaultAskForTracking(baseUrl, text);
+    ? defaultGreeting(baseUrl, from)
+    : defaultAskForTracking(baseUrl, text, from);
 
   return generateAiReply({
     customerText: text,
