@@ -320,248 +320,6 @@ function asksHowToApply(text: string) {
   ].some((word) => t.includes(word));
 }
 
-
-function textHasAny(text: string, keywords: string[]) {
-  const normalized = text.toLowerCase().trim();
-  return keywords.some((word) => normalized.includes(word.toLowerCase()));
-}
-
-function asksAboutWebsite(text: string) {
-  return textHasAny(text, [
-    "موقعكم",
-    "الموقع",
-    "رابطكم",
-    "الرابط",
-    "لينك",
-    "لينك الموقع",
-    "رابط الموقع",
-    "ويبسايت",
-    "website",
-    "site",
-    "صفحتكم",
-    "رابط التقديم",
-    "رابط المتابعة",
-    "رابط المتابعه",
-    "وين الموقع",
-    "ابعت الرابط",
-    "ابعث الرابط",
-    "موقع",
-  ]);
-}
-
-function asksAboutAddress(text: string) {
-  return textHasAny(text, [
-    "عنوانكم",
-    "عنوانك",
-    "العنوان",
-    "وين مكانكم",
-    "وين موقعكم",
-    "وين المحل",
-    "مكانكم",
-    "وين الفرع",
-    "فرع",
-    "مكتب",
-    "مكاتبكم",
-    "location",
-    "لوكيشن",
-    "موقع عالخريطة",
-    "الخريطة",
-    "google maps",
-    "وين موجودين",
-    "وين موقعكم عالخريطة",
-  ]);
-}
-
-function asksAboutContact(text: string) {
-  return textHasAny(text, [
-    "اتصال",
-    "اتصل",
-    "رن",
-    "احكي مع موظف",
-    "موظف",
-    "خدمة العملاء",
-    "رقمكم",
-    "رقم الهاتف",
-    "تلفونكم",
-    "واتساب",
-    "whatsapp",
-    "بدي اكلم",
-    "بدي احكي",
-    "تواصل",
-    "ادارة",
-    "الإدارة",
-    "مسؤول",
-  ]);
-}
-
-function asksAboutHours(text: string) {
-  return textHasAny(text, [
-    "دوام",
-    "الدوام",
-    "اوقات",
-    "أوقات",
-    "ساعات",
-    "متى بتفتحوا",
-    "متى بتسكروا",
-    "مفتوح",
-    "مغلق",
-    "العطله",
-    "العطلة",
-  ]);
-}
-
-function asksAboutProducts(text: string) {
-  return textHasAny(text, [
-    "اجهزه",
-    "أجهزة",
-    "تلفونات",
-    "هواتف",
-    "موبايلات",
-    "ايفون",
-    "iphone",
-    "سامسونج",
-    "samsung",
-    "هونر",
-    "honor",
-    "تكنو",
-    "tecno",
-    "اسعار",
-    "السعر",
-    "كم سعر",
-    "متوفر",
-    "توفر",
-    "الاجهزة المتوفرة",
-    "قائمة الاجهزة",
-    "المنتجات",
-    "products",
-  ]);
-}
-
-function asksAboutOrderStatus(text: string) {
-  return textHasAny(text, [
-    "طلبي",
-    "طلب",
-    "تتبعي",
-    "التتبع",
-    "رقم الطلب",
-    "حالة الطلب",
-    "شو صار",
-    "وين وصل طلبي",
-    "قيد الدراسة",
-    "موافقة",
-    "انرفض",
-    "رفض",
-    "مقبول",
-    "تأهل",
-    "تاهل",
-    "تابع",
-    "متابعة",
-    "فحص الطلب",
-  ]);
-}
-
-function asksThanks(text: string) {
-  return textHasAny(text, [
-    "شكرا",
-    "شكرًا",
-    "يسلمو",
-    "يعطيك العافية",
-    "تمام شكرا",
-    "مشكور",
-    "مشكورة",
-    "thanks",
-    "thank you",
-  ]);
-}
-
-function directGeneralReply(baseUrl: string, from: string, customerText = "") {
-  const opening = humanOpening(`${from}:${customerText}`);
-
-  if (asksAboutWebsite(customerText)) {
-    return `${opening}
-
-أكيد، هذا رابط موقع ${BUSINESS_NAME} للتقديم ومتابعة الطلبات:
-
-${baseUrl}
-
-من خلاله بتقدر تختار الجهاز، تقدم طلب جديد، أو تتابع طلبك إذا معك رقم التتبع ورقم الهاتف.`;
-  }
-
-  if (asksAboutAddress(customerText)) {
-    return `${opening}
-
-حاليًا التقديم والمتابعة الأساسية بتكون إلكترونيًا من خلال الموقع والواتساب حتى تكون البيانات واضحة وموثقة.
-
-رابط الموقع:
-${baseUrl}
-
-إذا طلبك يحتاج حضور أو تنسيق مباشر، الإدارة بتبلغك بالخطوة المناسبة حسب حالة الطلب.`;
-  }
-
-  if (asksAboutContact(customerText)) {
-    return `${opening}
-
-أنا معك هون على واتساب وبقدر أساعدك.
-
-بسبب ضغط الطلبات، المتابعة الكتابية أفضل وأسرع من الاتصال لأنها بتضل موثقة وواضحة. إذا الموضوع يحتاج موظف مختص بحوّله للمتابعة.
-
-اكتبلي المطلوب، أو ابعث رقم التتبع ورقم الهاتف إذا عندك طلب.`;
-  }
-
-  if (asksAboutHours(customerText)) {
-    return `${opening}
-
-رسائلكم بتوصلنا على واتساب، والمتابعة الإدارية حسب ضغط الطلبات وساعات العمل.
-
-إذا عندك طلب موجود، ابعث رقم التتبع ورقم الهاتف وبفحصلك الحالة.`;
-  }
-
-  if (asksAboutProducts(customerText)) {
-    return `${opening}
-
-الأجهزة والأسعار الأفضل تشوفها من الموقع لأنها بتتحدث حسب التوفر:
-
-${baseUrl}
-
-إذا في جهاز معين ببالك مثل iPhone أو Samsung أو HONOR أو TECNO، ابعث اسمه وبنساعدك بالخطوة المناسبة.`;
-  }
-
-  if (asksThanks(customerText)) {
-    return `${opening}
-
-العفو، بالخدمة دائمًا 🌿
-
-إذا احتجت أي متابعة، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب وبفحصلك الحالة.`;
-  }
-
-  if (
-    asksAboutInstallmentInfo(customerText) ||
-    asksAboutRequirements(customerText) ||
-    asksHowToApply(customerText) ||
-    asksAboutLoan(customerText) ||
-    asksAboutPaymentOrFee(customerText)
-  ) {
-    return generalInstallmentInfoReply(baseUrl, from, customerText);
-  }
-
-  return "";
-}
-
-function shouldAnswerDirectlyWithoutOrderLookup(text: string) {
-  return (
-    asksAboutWebsite(text) ||
-    asksAboutAddress(text) ||
-    asksAboutContact(text) ||
-    asksAboutHours(text) ||
-    asksAboutProducts(text) ||
-    asksThanks(text) ||
-    asksAboutInstallmentInfo(text) ||
-    asksAboutRequirements(text) ||
-    asksHowToApply(text) ||
-    asksAboutLoan(text)
-  );
-}
-
 function generalInstallmentInfoReply(baseUrl: string, from: string, customerText = "") {
   const opening = humanOpening(`${from}:${customerText}`);
 
@@ -1208,16 +966,53 @@ async function findApplicationByPhone(phone: string) {
   return (data || null) as ApplicationRecord | null;
 }
 
-async function findApplicationByTrackingAndPhone(tracking: string, phone: string) {
-  const localPhone = normalizeJordanPhone(phone);
-  if (!tracking || !localPhone) return null;
+async function findApplicationByTracking(tracking: string) {
+  const cleanTracking = String(tracking || "").trim().toUpperCase();
+  if (!cleanTracking) return null;
 
-  const { data } = await supabaseAdmin
+  const { data, error } = await supabaseAdmin
     .from("applications")
     .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
-    .eq("tracking_id", tracking)
-    .eq("phone", localPhone)
+    .eq("tracking_id", cleanTracking)
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle();
+
+  if (error) {
+    console.error("findApplicationByTracking error:", error.message);
+    return null;
+  }
+
+  return (data || null) as ApplicationRecord | null;
+}
+
+async function findApplicationByTrackingAndPhone(tracking: string, phone: string) {
+  const cleanTracking = String(tracking || "").trim().toUpperCase();
+  const localPhone = normalizeJordanPhone(phone);
+  if (!cleanTracking || !localPhone) return null;
+
+  const phoneVariants = Array.from(
+    new Set([
+      localPhone,
+      normalizeWhatsAppToSend(localPhone),
+      `+${normalizeWhatsAppToSend(localPhone)}`,
+      localPhone.startsWith("0") ? localPhone.slice(1) : localPhone,
+    ].filter(Boolean))
+  );
+
+  const { data, error } = await supabaseAdmin
+    .from("applications")
+    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
+    .eq("tracking_id", cleanTracking)
+    .in("phone", phoneVariants)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("findApplicationByTrackingAndPhone error:", error.message);
+    return null;
+  }
 
   return (data || null) as ApplicationRecord | null;
 }
@@ -1450,30 +1245,26 @@ async function buildReply(request: Request, from: string, text: string) {
   const typedPhone = extractJordanPhoneFromText(text);
   const sensitive = looksSensitive(text);
 
-  if (!tracking && shouldAnswerDirectlyWithoutOrderLookup(text)) {
-    const directReply = directGeneralReply(baseUrl, from, text);
-
-    return generateAiReply({
-      customerText: text,
-      deterministicReply: directReply || defaultGreeting(baseUrl, `${from}:${text}`),
-      isSensitive: sensitive,
-      hasApplication: false,
-    });
-  }
-
   let app: ApplicationRecord | null = null;
 
   if (tracking && typedPhone) {
+    // أولًا نحاول المطابقة الصارمة: رقم التتبع + رقم الهاتف المكتوب بالرسالة.
     app = await findApplicationByTrackingAndPhone(tracking, typedPhone);
+
+    // إذا العميل كتب رقم الهاتف غلط أو الطلب محفوظ بصيغة مختلفة، رقم التتبع نفسه يكفي لأنه فريد.
+    if (!app) {
+      app = await findApplicationByTracking(tracking);
+    }
   } else if (tracking) {
-    app = await findApplicationByTrackingAndPhone(tracking, from);
-  } else if (
-    asksAboutOrderStatus(text) ||
-    asksAboutDeliveryDate(text) ||
-    asksAboutPaymentOrFee(text) ||
-    looksSensitive(text) ||
-    extractJordanPhoneFromText(text)
-  ) {
+    // مهم جدًا: إذا العميل أرسل رقم التتبع فقط، لا نربطه برقم واتساب المرسل.
+    // قد يكون العميل يراسل من رقم مختلف عن رقم الطلب، لذلك نبحث بالتتبع مباشرة.
+    app = await findApplicationByTracking(tracking);
+
+    // احتياط إضافي لو كان التتبع مكررًا أو غير واضح.
+    if (!app) {
+      app = await findApplicationByTrackingAndPhone(tracking, from);
+    }
+  } else {
     app = await findApplicationByPhone(from);
   }
 
@@ -1506,7 +1297,7 @@ async function buildReply(request: Request, from: string, text: string) {
       customerText: text,
       deterministicReply: `${opening}
 
-فحصت رقم التتبع ورقم الهاتف اللي وصلوني، وبعتذر منك، ما ظهر عندي طلب مطابق عليهم.
+فحصت رقم التتبع ورقم الهاتف اللي وصلوني، بس ما ظهر عندي طلب مطابق عليهم.
 
 خليني أتأكد معك من البيانات:
 
@@ -1524,11 +1315,36 @@ ${BUSINESS_NAME}`,
     });
   }
 
+  if (tracking && !typedPhone) {
+    const opening = humanOpening(from);
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply: `${opening}
+
+فحصت رقم التتبع اللي وصلني:
+${tracking}
+
+بس ما ظهر عندي طلب مطابق لهذا الرقم.
+
+ممكن يكون في رقم ناقص أو خطأ بسيط بالتتبع. ابعثلي صورة الطلب أو رقم الهاتف المستخدم بالطلب، وبراجعه لك فورًا.
+
+${BUSINESS_NAME}`,
+      isSensitive: sensitive,
+      hasApplication: false,
+    });
+  }
+
   let deterministicReply: string;
 
-  const directReply = directGeneralReply(baseUrl, from, text);
-  if (directReply) {
-    deterministicReply = directReply;
+  if (
+    asksAboutInstallmentInfo(text) ||
+    asksAboutRequirements(text) ||
+    asksHowToApply(text) ||
+    asksAboutLoan(text) ||
+    asksAboutPaymentOrFee(text)
+  ) {
+    deterministicReply = generalInstallmentInfoReply(baseUrl, from, text);
   } else {
     deterministicReply = isGreeting(text)
       ? defaultGreeting(baseUrl, `${from}:${text}`)
