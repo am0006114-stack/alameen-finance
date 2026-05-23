@@ -34,6 +34,18 @@ type WhatsAppWebhookBody = {
   }>;
 };
 
+type AiReplyInput = {
+  customerText: string;
+  deterministicReply: string;
+  customerName?: string;
+  trackingId?: string;
+  status?: string | null;
+  paymentStatus?: string | null;
+  deviceName?: string | null;
+  isSensitive: boolean;
+  hasApplication: boolean;
+};
+
 function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
 }
@@ -101,17 +113,43 @@ function looksSensitive(text: string) {
     "شرطة",
     "بدي فلوسي",
     "رجعولي",
+    "رجعوا",
+    "استرجاع",
+    "استرداد",
     "وين جهازي",
     "تأخير",
     "تاخير",
     "راح اشتكي",
+    "رح اشتكي",
     "مش راح اسكت",
+    "حرام",
+    "كذاب",
+    "كذب",
+    "نصبتو",
+    "سرقتو",
+    "سرقة",
+    "بشتكي",
+    "القضاء",
+    "جرائم",
+    "حماية المستهلك",
   ].some((word) => t.includes(word));
 }
 
 function isGreeting(text: string) {
   const t = text.trim().toLowerCase();
-  return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "أهلا"].includes(t);
+  return [
+    "مرحبا",
+    "هلا",
+    "السلام عليكم",
+    "مساء الخير",
+    "صباح الخير",
+    "الو",
+    "اهلا",
+    "أهلا",
+    "هاي",
+    "hi",
+    "hello",
+  ].includes(t);
 }
 
 function trackUrl(baseUrl: string, app: ApplicationRecord) {
@@ -159,7 +197,7 @@ function paymentMessage(app: ApplicationRecord, baseUrl: string) {
 بعد الدفع يرجى رفع وصل الدفع من الرابط التالي:
 ${receiptUrl(baseUrl, app)}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function safeReply(app: ApplicationRecord, baseUrl: string) {
@@ -182,7 +220,7 @@ ${tracking}
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   if (paymentStatus === "confirmed" && status === "under_review") {
@@ -198,10 +236,16 @@ ${tracking}
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
-  if (status === "preliminary_qualified" || status === "customer_confirmed_continue" || paymentStatus === "pending" || paymentStatus === "pending_payment" || paymentStatus === "payment_info_sent") {
+  if (
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    paymentStatus === "pending" ||
+    paymentStatus === "pending_payment" ||
+    paymentStatus === "payment_info_sent"
+  ) {
     return paymentMessage(app, baseUrl);
   }
 
@@ -216,7 +260,7 @@ ${delayUrl(baseUrl, app)}
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   if (status === "customer_accepts_delivery_delay") {
@@ -230,7 +274,7 @@ ${delayText ? `\nالموعد الجديد المعتمد هو:\n${delayText}\n`
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   if (status === "refund_requested" || paymentStatus === "refund_requested") {
@@ -243,7 +287,20 @@ ${url}
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
+  }
+
+  if (status === "refund_completed") {
+    return `أهلًا ${name} 🌿
+
+تم تنفيذ استرداد رسوم فتح الملف حسب البيانات المسجلة لدينا.
+
+إذا كان لديك أي ملاحظة، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
+
+رقم التتبع:
+${tracking}
+
+الأمين للأقساط`;
   }
 
   if (status === "needs_salary_slip") {
@@ -259,7 +316,7 @@ ${tracking}
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   if (status === "needs_guarantor") {
@@ -275,7 +332,41 @@ ${tracking}
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
+  }
+
+  if (status === "guarantor_submitted") {
+    return `أهلًا ${name} 🌿
+
+تم استلام بيانات الكفيل وربطها بطلبكم.
+
+الطلب الآن بانتظار متابعة الإدارة للخطوة التالية.
+
+رقم التتبع:
+${tracking}
+
+رابط متابعة الطلب:
+${url}
+
+الأمين للأقساط`;
+  }
+
+  if (status === "under_review") {
+    return `أهلًا ${name} 🌿
+
+طلبكم قيد الدراسة حاليًا.
+
+سيتم التواصل معكم عند صدور التحديث أو في حال الحاجة لأي معلومات إضافية.
+
+لا يوجد أي دفع مطلوب حاليًا.
+
+رقم التتبع:
+${tracking}
+
+رابط متابعة الطلب:
+${url}
+
+الأمين للأقساط`;
   }
 
   if (status === "approved") {
@@ -293,7 +384,7 @@ ${tracking}
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   if (status === "rejected") {
@@ -306,7 +397,7 @@ ${url}
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   if (status === "cancelled") {
@@ -319,7 +410,7 @@ ${tracking}
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
   }
 
   return `أهلًا ${name} 🌿
@@ -334,7 +425,45 @@ ${tracking}
 رابط متابعة الطلب:
 ${url}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
+}
+
+function defaultAskForTracking(baseUrl: string) {
+  return `أهلًا وسهلًا 🌿
+
+معك الأمين للأقساط.
+
+لفحص طلبكم بدقة، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
+
+مثال:
+AM-XXXXXXXXXX
+078XXXXXXX
+
+بسبب عدد الطلبات الكبير، التواصل الكتابي عبر واتساب أفضل وأسرع من الاتصال لتوثيق الطلب ومراجعته بدقة.
+
+للتقديم أو المتابعة من خلال الموقع:
+${baseUrl}
+
+تنويه مهم:
+الأمين للأقساط مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا يقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
+}
+
+function defaultGreeting(baseUrl: string) {
+  return `أهلًا وسهلًا فيكم مع الأمين للأقساط 🌿
+
+نقدم خدمة تقسيط الأجهزة الإلكترونية والهواتف فقط، ولا نقدم قروضًا نقدية أو تمويلًا شخصيًا.
+
+لمتابعة طلب موجود، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
+
+مثال:
+AM-XXXXXXXXXX
+078XXXXXXX
+
+للتقديم أو متابعة الطلب من خلال الموقع:
+${baseUrl}
+
+تنبيه مهم:
+الأمين للأقساط لا علاقة له بالأمين للتمويل الأصغر أو أي مؤسسة تمويل أصغر.`;
 }
 
 async function findApplicationByPhone(phone: string) {
@@ -420,52 +549,178 @@ async function logMessage(input: {
   }
 }
 
+function extractOpenAiText(data: any) {
+  if (typeof data?.output_text === "string" && data.output_text.trim()) {
+    return data.output_text.trim();
+  }
+
+  const chunks: string[] = [];
+
+  for (const item of data?.output || []) {
+    for (const content of item?.content || []) {
+      if (typeof content?.text === "string") {
+        chunks.push(content.text);
+      }
+    }
+  }
+
+  return chunks.join("\n").trim();
+}
+
+function sanitizeAiReply(reply: string, fallback: string) {
+  let clean = String(reply || "").trim();
+
+  if (!clean) return fallback;
+
+  clean = clean
+    .replace(/```[\s\S]*?```/g, "")
+    .replace(/^["'“”]+|["'“”]+$/g, "")
+    .trim();
+
+  const forbidden = [
+    "قرض نقدي",
+    "قروض نقدية",
+    "كاش",
+    "تمويل شخصي",
+    "الأمين للتمويل الأصغر",
+    "موافقة نهائية مؤكدة بدون مراجعة",
+  ];
+
+  if (forbidden.some((word) => clean.includes(word))) {
+    return fallback;
+  }
+
+  if (clean.length > 3500) {
+    clean = clean.slice(0, 3400).trim();
+  }
+
+  return clean || fallback;
+}
+
+async function generateAiReply(input: AiReplyInput) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+
+  if (!apiKey) {
+    return input.deterministicReply;
+  }
+
+  const systemInstructions = `
+أنت موظف خدمة عملاء واتساب لدى "الأمين للأقساط".
+
+مهمتك:
+- اكتب ردًا عربيًا أردنيًا مهذبًا وواضحًا ومختصرًا نسبيًا.
+- اعتمد فقط على "الرد الآمن الأساسي" و"بيانات الطلب" الموجودة في المدخلات.
+- لا تخترع أي معلومة غير موجودة.
+- لا تغيّر حالة الطلب.
+- لا تعطي وعدًا قطعيًا بموعد تسليم.
+- لا تؤكد موافقة نهائية إلا إذا الرد الآمن الأساسي يقول ذلك صراحة.
+- لا تطلب القسط الأول الآن.
+- لا تطلب أي دفع إلا إذا الرد الآمن الأساسي يحتوي صراحة على رسوم فتح الملف 5 دنانير.
+- لا تستخدم كلمة "قروض" كخدمة مقدمة. إذا سأل العميل عن القروض، وضّح أننا لا نقدم قروضًا نقدية أو تمويلًا شخصيًا.
+- الاسم الصحيح للنشاط: "الأمين للأقساط".
+- النشاط مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط.
+- يجب ذكر أن التواصل الكتابي عبر واتساب أفضل من الاتصال عند الحاجة بسبب ضغط الطلبات.
+- إذا كان الاستفسار حساسًا أو شكوى، كن هادئًا وقل إن المحادثة ستحوّل للمتابعة.
+- لا تعرض بيانات حساسة.
+- لا تذكر أنك ذكاء اصطناعي.
+- أخرج نص رسالة واتساب فقط بدون شرح وبدون JSON.
+`;
+
+  const userInput = `
+رسالة العميل:
+${input.customerText || "(لا يوجد نص واضح)"}
+
+هل توجد حالة طلب؟
+${input.hasApplication ? "نعم" : "لا"}
+
+هل الرسالة حساسة؟
+${input.isSensitive ? "نعم" : "لا"}
+
+بيانات مختصرة:
+الاسم: ${input.customerName || "غير متوفر"}
+رقم التتبع: ${input.trackingId || "غير متوفر"}
+الحالة: ${input.status || "غير متوفرة"}
+حالة الدفع: ${input.paymentStatus || "غير متوفرة"}
+الجهاز: ${input.deviceName || "غير متوفر"}
+
+الرد الآمن الأساسي الذي يجب الالتزام به وعدم مخالفته:
+${input.deterministicReply}
+`;
+
+  try {
+    const response = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        instructions: systemInstructions,
+        input: userInput,
+        temperature: 0.2,
+        max_output_tokens: 900,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("OpenAI reply failed:", await response.text());
+      return input.deterministicReply;
+    }
+
+    const data = await response.json();
+    const aiText = extractOpenAiText(data);
+
+    return sanitizeAiReply(aiText, input.deterministicReply);
+  } catch (error) {
+    console.error("OpenAI reply error:", error);
+    return input.deterministicReply;
+  }
+}
+
 async function buildReply(request: Request, from: string, text: string) {
   const baseUrl = getBaseUrl(request);
   const tracking = extractTracking(text);
+  const sensitive = looksSensitive(text);
 
   const app = tracking
     ? await findApplicationByTrackingAndPhone(tracking, from)
     : await findApplicationByPhone(from);
 
   if (app) {
-    const reply = safeReply(app, baseUrl);
-    if (looksSensitive(text)) {
-      return `${reply}
+    let deterministicReply = safeReply(app, baseUrl);
+
+    if (sensitive) {
+      deterministicReply = `${deterministicReply}
 
 ملاحظة:
 تم تحويل المحادثة للمتابعة بسبب وجود استفسار حساس أو شكوى.`;
     }
-    return reply;
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply,
+      customerName: firstTwoNames(app.full_name),
+      trackingId: app.tracking_id || app.id,
+      status: app.status || null,
+      paymentStatus: app.payment_status || null,
+      deviceName: app.device_name || null,
+      isSensitive: sensitive,
+      hasApplication: true,
+    });
   }
 
-  if (isGreeting(text)) {
-    return `أهلًا وسهلًا فيكم مع الأمين للأقساط والتمويل 🌿
+  const deterministicReply = isGreeting(text)
+    ? defaultGreeting(baseUrl)
+    : defaultAskForTracking(baseUrl);
 
-نقدم خدمة تمويل أجهزة بالتقسيط فقط، ولا نقدم قروضًا نقدية.
-
-لمتابعة طلب موجود، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
-
-للتقديم من خلال الموقع:
-${baseUrl}
-
-تنبيه مهم:
-الأمين للأقساط والتمويل لا علاقة له بالأمين للتمويل الأصغر أو أي مؤسسة تمويل أصغر.
-
-الأمين للأقساط والتمويل`;
-  }
-
-  return `أهلًا وسهلًا 🌿
-
-لفحص طلبكم بدقة، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
-
-مثال:
-AM-XXXXXXXXXX
-078XXXXXXX
-
-بسبب عدد الطلبات الكبير، التواصل الكتابي عبر واتساب أفضل وأسرع من الاتصال لتوثيق الطلب ومراجعته بدقة.
-
-الأمين للأقساط والتمويل`;
+  return generateAiReply({
+    customerText: text,
+    deterministicReply,
+    isSensitive: sensitive,
+    hasApplication: false,
+  });
 }
 
 export async function GET(request: Request) {
@@ -518,7 +773,7 @@ export async function POST(request: Request) {
 
 يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب لمتابعة الحالة.
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 
           await sendWhatsAppText(from, reply);
           await logMessage({ waId: from, direction: "outgoing", body: reply });
