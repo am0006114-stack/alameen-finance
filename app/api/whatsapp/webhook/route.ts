@@ -46,6 +46,10 @@ type AiReplyInput = {
   hasApplication: boolean;
 };
 
+const POST_EID_DELIVERY_TEXT = "بعد العيد، ابتداءً من الأحد 31/05/2026";
+const FILE_OPENING_FEE_TEXT = "رسوم فتح الملف 5 دنانير فقط، وهي مستردة بالكامل في حال عدم الموافقة.";
+const BUSINESS_NAME = "الأمين للأقساط";
+
 function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
 }
@@ -152,6 +156,61 @@ function isGreeting(text: string) {
   ].includes(t);
 }
 
+function asksAboutDeliveryDate(text: string) {
+  const t = text.toLowerCase();
+  return [
+    "موعد",
+    "الاحد",
+    "الأحد",
+    "استلام",
+    "تسليم",
+    "الجهاز",
+    "جهازي",
+    "متى",
+    "بعد العيد",
+    "31/05",
+    "31-05",
+    "٣١",
+    "وين وصل",
+    "وصل",
+  ].some((word) => t.includes(word));
+}
+
+function asksAboutPaymentOrFee(text: string) {
+  const t = text.toLowerCase();
+  return [
+    "الدفع",
+    "ادفع",
+    "دفع",
+    "خمسة",
+    "5",
+    "٥",
+    "رسوم",
+    "فتح ملف",
+    "وصل",
+    "ايصال",
+    "إيصال",
+    "كليك",
+    "محفظة",
+    "اورنج",
+    "orange",
+  ].some((word) => t.includes(word));
+}
+
+function asksAboutLoan(text: string) {
+  const t = text.toLowerCase();
+  return [
+    "قرض",
+    "قروض",
+    "كاش",
+    "نقدي",
+    "مصاري",
+    "تمويل شخصي",
+    "سلفة",
+    "سلفه",
+  ].some((word) => t.includes(word));
+}
+
 function trackUrl(baseUrl: string, app: ApplicationRecord) {
   const tracking = app.tracking_id || app.id;
   const phone = app.phone || "";
@@ -170,73 +229,256 @@ function delayUrl(baseUrl: string, app: ApplicationRecord) {
   return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
 
+function statusHumanLabel(status: string) {
+  switch (status) {
+    case "preliminary_qualified":
+      return "مؤهل مبدئيًا";
+    case "customer_confirmed_continue":
+      return "تم تأكيد رغبتكم بالاستمرار";
+    case "under_review":
+      return "قيد الدراسة النهائية";
+    case "approved":
+      return "موافقة نهائية";
+    case "rejected":
+      return "غير موافق عليه حاليًا";
+    case "needs_salary_slip":
+      return "بانتظار كشف راتب / شهادة راتب";
+    case "needs_guarantor":
+      return "بانتظار بيانات كفيل";
+    case "guarantor_submitted":
+      return "تم استلام بيانات الكفيل";
+    case "customer_accepts_delivery_delay":
+      return "تم اختيار الانتظار للموعد الجديد";
+    case "delivery_delay_notice_sent":
+      return "بانتظار اختيار التمديد أو الاسترداد";
+    case "refund_requested":
+      return "طلب استرداد مسجل";
+    case "refund_completed":
+      return "تم تنفيذ الاسترداد";
+    case "cancelled":
+      return "طلب ملغي";
+    default:
+      return "قيد المتابعة";
+  }
+}
+
 function paymentMessage(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
   const device = app.device_name || "الجهاز المطلوب";
 
-  return `أهلًا ${name} 🌿
+  return `تمام ${name} 🌿
 
-طلبكم مؤهل مبدئيًا لاستكمال فتح ملف الدراسة النهائية.
+طلبكم مؤهل مبدئيًا للانتقال لمرحلة الدراسة النهائية.
 
-تفاصيل الطلب:
-الجهاز: ${device}
-رقم التتبع: ${tracking}
+الجهاز:
+${device}
 
-رسوم فتح الملف:
-5 دنانير فقط
+رقم التتبع:
+${tracking}
 
-✅ رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة.
+لاستكمال فتح الملف، المطلوب فقط رسوم فتح الملف:
+5 دنانير
+
+مهم جدًا:
+✅ الرسوم مستردة بالكامل في حال عدم الموافقة.
 ✅ القسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
+✅ دفع رسوم فتح الملف لا يعني الموافقة النهائية، لكنه إجراء لاستكمال الدراسة.
 
 معلومات الدفع:
 اسم المستفيد: AMEENPAY
 اسم المحفظة: Orange Money
 الاسم: ABDUL RAHMAN ALHARAHSHEH
 
-بعد الدفع يرجى رفع وصل الدفع من الرابط التالي:
+بعد الدفع، ارفع وصل الدفع من هذا الرابط:
 ${receiptUrl(baseUrl, app)}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
 }
 
-function safeReply(app: ApplicationRecord, baseUrl: string) {
+function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
   const status = app.status || "";
-  const paymentStatus = app.payment_status || "";
   const url = trackUrl(baseUrl, app);
 
-  if (paymentStatus === "customer_claimed_paid") {
+  if (status === "approved") {
     return `أهلًا ${name} 🌿
 
-تم تسجيل إشعار الدفع أو الوصل، والطلب الآن بانتظار مراجعة الإدارة.
+طلبكم عليه موافقة نهائية ✅
 
-يرجى عدم إعادة الدفع مرة أخرى، وسيتم تحديث الحالة فور التأكد.
+بالنسبة لموعد الاستلام، المواعيد للأجهزة الموافق عليها نهائيًا ستكون ${POST_EID_DELIVERY_TEXT} حسب جدول التسليم وترتيب الإدارة.
+
+ما بدي أعطيك ساعة أو موعد دقيق من عندي حتى ما أوعدك بشي غير مؤكد، لكن طلبك ظاهر لدينا كموافق عليه.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
-  if (paymentStatus === "confirmed" && status === "under_review") {
+  if (status === "customer_accepts_delivery_delay") {
+    const delayText = formatJordanDateTime(app.delivery_delay_until);
     return `أهلًا ${name} 🌿
 
-تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+اختياركم بالانتظار مسجل لدينا.
+
+${delayText ? `الموعد الجديد المعتمد الظاهر على الطلب:\n${delayText}` : `المتابعة ستكون ${POST_EID_DELIVERY_TEXT} حسب ترتيب الطلبات وجدول الإدارة.`}
 
 لا يوجد أي دفع مطلوب حاليًا.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "under_review" || status === "needs_salary_slip" || status === "needs_guarantor" || status === "guarantor_submitted") {
+    return `أهلًا ${name} 🌿
+
+طلبكم لسه ضمن مرحلة الدراسة والمتابعة، لذلك ما بقدر أعطي موعد استلام نهائي الآن.
+
+المتابعة بعد العيد، والموعد يعتمد على نتيجة الدراسة وما يظهر من صفحة الإدارة عند تحديث الحالة.
+
+حالة الطلب الحالية:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `أهلًا ${name} 🌿
+
+بالنسبة للموعد، لا أقدر أحدد تاريخ استلام نهائي إلا إذا كان الطلب عليه موافقة نهائية من الإدارة.
+
+حالة طلبكم الحالية:
+${statusHumanLabel(status)}
+
+بشكل عام المتابعات ستكون بعد العيد، وما يظهر في صفحة الإدارة هو المعتمد.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+}
+
+function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "") {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  const url = trackUrl(baseUrl, app);
+
+  if (asksAboutDeliveryDate(customerText)) {
+    return deliveryDateReply(app, baseUrl);
+  }
+
+  if (asksAboutPaymentOrFee(customerText)) {
+    if (
+      status === "preliminary_qualified" ||
+      status === "customer_confirmed_continue" ||
+      paymentStatus === "pending" ||
+      paymentStatus === "pending_payment" ||
+      paymentStatus === "payment_info_sent"
+    ) {
+      return paymentMessage(app, baseUrl);
+    }
+
+    if (paymentStatus === "confirmed") {
+      return `أهلًا ${name} 🌿
+
+رسوم فتح الملف مؤكدة لدينا ✅
+
+لا يوجد أي دفع مطلوب حاليًا، والقسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
+
+حالة الطلب:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+    }
+
+    if (paymentStatus === "customer_claimed_paid") {
+      return `أهلًا ${name} 🌿
+
+وصل الدفع أو إشعار الدفع مسجل لدينا، والطلب بانتظار تأكيد الإدارة.
+
+يرجى عدم إعادة الدفع مرة ثانية حتى لا يصير تكرار بالدفع.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+    }
+
+    return `أهلًا ${name} 🌿
+
+حاليًا لا يظهر عندي أي دفع مطلوب على طلبكم.
+
+رسوم فتح الملف تكون 5 دنانير فقط، ولا نطلبها إلا إذا كان الطلب مؤهل مبدئيًا أو تم إرسال تعليمات الدفع لكم من الإدارة.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (paymentStatus === "customer_claimed_paid") {
+    return `أهلًا ${name} 🌿
+
+وصل الدفع مسجل لدينا، والطلب الآن بانتظار تأكيد الإدارة.
+
+لا تعيد الدفع مرة ثانية، وبمجرد التأكيد ستظهر الحالة على رابط المتابعة.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (paymentStatus === "confirmed" && status === "under_review") {
+    return `تمام ${name} 🌿
+
+رسوم فتح الملف مؤكدة، وطلبكم الآن قيد الدراسة النهائية.
+
+لا يوجد أي دفع مطلوب حاليًا.
+المتابعة ستكون بعد العيد حسب ترتيب الطلبات وما يظهر من الإدارة.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
   }
 
   if (
@@ -252,42 +494,44 @@ ${url}
   if (status === "delivery_delay_notice_sent") {
     return `أهلًا ${name} 🌿
 
-تم إرسال خيار التمديد أو الاسترداد لطلبكم.
+تم إرسال خيار التمديد أو الاسترداد على طلبكم.
 
-يمكنكم اختيار الانتظار حتى الموعد الجديد أو طلب استرداد رسوم فتح الملف من الرابط التالي:
+تقدروا تختاروا الانتظار للموعد الجديد أو طلب استرداد رسوم فتح الملف من الرابط التالي:
 ${delayUrl(baseUrl, app)}
 
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "customer_accepts_delivery_delay") {
     const delayText = formatJordanDateTime(app.delivery_delay_until);
     return `أهلًا ${name} 🌿
 
-تم تسجيل اختياركم بالانتظار.
-${delayText ? `\nالموعد الجديد المعتمد هو:\n${delayText}\n` : ""}
-رسوم فتح الملف مؤكدة لدينا، ولا يوجد أي دفع مطلوب حاليًا.
+اختياركم بالانتظار مسجل لدينا.
 
-رابط متابعة الطلب:
+${delayText ? `الموعد الجديد المعتمد:\n${delayText}` : `المتابعة ستكون ${POST_EID_DELIVERY_TEXT} حسب ترتيب الطلبات وجدول الإدارة.`}
+
+رسوم فتح الملف مؤكدة، ولا يوجد أي دفع مطلوب حاليًا.
+
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "refund_requested" || paymentStatus === "refund_requested") {
     return `أهلًا ${name} 🌿
 
-تم تسجيل طلب استرداد رسوم فتح الملف.
+طلب استرداد رسوم فتح الملف مسجل لدينا.
 
 سيتم مراجعة بيانات التحويل وتنفيذ الاسترداد حسب ترتيب الطلبات.
 
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "refund_completed") {
@@ -295,96 +539,98 @@ ${tracking}
 
 تم تنفيذ استرداد رسوم فتح الملف حسب البيانات المسجلة لدينا.
 
-إذا كان لديك أي ملاحظة، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
+إذا عندك أي ملاحظة، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب.
 
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "needs_salary_slip") {
     return `أهلًا ${name} 🌿
 
-نحتاج كشف راتب أو شهادة راتب حديثة لاستكمال دراسة الطلب.
+طلبكم بحاجة كشف راتب أو شهادة راتب حديثة لاستكمال الدراسة.
 
-إرسال المستند لا يعني الموافقة النهائية، وإنما لاستكمال الدراسة.
+إرسال المستند لا يعني الموافقة النهائية، لكنه مطلوب حتى تقدر الإدارة تكمل مراجعة الملف.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "needs_guarantor") {
     return `أهلًا ${name} 🌿
 
-نحتاج إدخال بيانات كفيل لاستكمال دراسة الملف.
+حسب تحديث الإدارة، طلبكم بحاجة بيانات كفيل لاستكمال دراسة الملف.
 
-طلب الكفيل لا يعني رفض الطلب، وإنما إجراء لاستكمال الدراسة حسب سياسة الموافقة.
+هذا لا يعني رفض الطلب، لكنه إجراء مطلوب حتى تكتمل الدراسة.
+
+يرجى تجهيز بيانات الكفيل المطلوبة حسب تعليمات الإدارة، وسيتم متابعة الطلب بعدها.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "guarantor_submitted") {
-    return `أهلًا ${name} 🌿
+    return `تمام ${name} 🌿
 
-تم استلام بيانات الكفيل وربطها بطلبكم.
+بيانات الكفيل وصلت وتم ربطها بطلبكم.
 
-الطلب الآن بانتظار متابعة الإدارة للخطوة التالية.
+الطلب الآن بانتظار متابعة الإدارة للخطوة التالية، والمتابعة ستكون بعد العيد حسب ترتيب الطلبات.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "under_review") {
     return `أهلًا ${name} 🌿
 
-طلبكم قيد الدراسة حاليًا.
+طلبكم قيد الدراسة النهائية حاليًا.
 
-سيتم التواصل معكم عند صدور التحديث أو في حال الحاجة لأي معلومات إضافية.
+لا يوجد أي دفع مطلوب الآن، وسيتم التواصل معكم إذا احتجنا أي معلومة إضافية أو عند صدور التحديث من الإدارة.
 
-لا يوجد أي دفع مطلوب حاليًا.
+المتابعة ستكون بعد العيد حسب ترتيب الطلبات.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "approved") {
     return `أهلًا ${name} 🌿
 
-تمت الموافقة على طلبكم.
+طلبكم عليه موافقة نهائية ✅
 
-سيتم التواصل معكم لاستكمال الإجراءات النهائية وتحديد موعد الاستلام من الإدارة.
+الاستلام والمتابعة للأجهزة الموافق عليها نهائيًا ستكون ${POST_EID_DELIVERY_TEXT} حسب جدول التسليم وترتيب الإدارة.
 
-لا يمكن للرد الآلي تحديد موعد تسليم جديد من نفسه.
+لا أقدر أحدد ساعة دقيقة من الرد الآلي، لكن حالة الطلب عندكم موافقة نهائية.
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "rejected") {
@@ -392,78 +638,104 @@ ${url}
 
 نعتذر، لم تتم الموافقة على الطلب حاليًا.
 
-للاستفسار عن التفاصيل العامة أو إمكانية إعادة التقديم لاحقًا، يرجى متابعة الموظف المختص.
+إذا حاب تعرف التفاصيل العامة أو إمكانية إعادة التقديم لاحقًا، يتم تحويل الموضوع للمتابعة مع الموظف المختص.
 
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   if (status === "cancelled") {
     return `أهلًا ${name} 🌿
 
-هذا الطلب ظاهر لدينا كطلب ملغي.
+الطلب ظاهر لدينا كطلب ملغي.
 
-إذا كان الإلغاء بالخطأ، يرجى إرسال رقم التتبع ورقم الهاتف ليتم تحويله للمتابعة.
+إذا كان الإلغاء بالخطأ، ابعث رقم التتبع ورقم الهاتف حتى يتم تحويله للمتابعة.
 
 رقم التتبع:
 ${tracking}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
   }
 
   return `أهلًا ${name} 🌿
 
-طلبكم قيد المتابعة.
+طلبكم ظاهر لدينا وقيد المتابعة.
 
-لا يوجد أي دفع مطلوب حاليًا إلا إذا تم تأهيل الطلب مبدئيًا وإرسال تعليمات فتح الملف لكم.
+لا يوجد أي دفع مطلوب حاليًا إلا إذا تم تأهيل الطلب مبدئيًا وإرسال تعليمات رسوم فتح الملف لكم.
+
+حالة الطلب:
+${statusHumanLabel(status)}
 
 رقم التتبع:
 ${tracking}
 
-رابط متابعة الطلب:
+رابط المتابعة:
 ${url}
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
 }
 
-function defaultAskForTracking(baseUrl: string) {
-  return `أهلًا وسهلًا 🌿
+function defaultAskForTracking(baseUrl: string, customerText = "") {
+  if (asksAboutLoan(customerText)) {
+    return `أهلًا وسهلًا 🌿
 
-معك الأمين للأقساط.
+للتوضيح فقط: ${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط.
 
-لفحص طلبكم بدقة، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
+لا نقدم قروضًا نقدية أو تمويلًا شخصيًا.
+
+إذا عندك طلب تقسيط جهاز، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب، وبفحصلك الحالة مباشرة.`;
+  }
+
+  if (asksAboutDeliveryDate(customerText)) {
+    return `أهلًا وسهلًا 🌿
+
+حتى أقدر أعطيك رد دقيق عن الموعد، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
+
+بشكل عام:
+- الطلبات التي عليها موافقة نهائية تكون متابعتها ${POST_EID_DELIVERY_TEXT} حسب جدول الإدارة.
+- الطلبات التي ما زالت قيد الدراسة يعتمد موعدها على تحديث صفحة الإدارة ونتيجة الدراسة.
 
 مثال:
 AM-XXXXXXXXXX
 078XXXXXXX
 
-بسبب عدد الطلبات الكبير، التواصل الكتابي عبر واتساب أفضل وأسرع من الاتصال لتوثيق الطلب ومراجعته بدقة.
+${BUSINESS_NAME}`;
+  }
+
+  return `أهلًا وسهلًا 🌿
+
+معك ${BUSINESS_NAME}.
+
+حتى أقدر أساعدك بدقة، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
+
+مثال:
+AM-XXXXXXXXXX
+078XXXXXXX
+
+وبسبب ضغط الطلبات، التواصل الكتابي على واتساب أفضل وأسرع من الاتصال حتى تكون المتابعة موثقة وواضحة.
+
+تنويه مهم:
+${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا يقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
+}
+
+function defaultGreeting(baseUrl: string) {
+  return `أهلًا وسهلًا 🌿
+
+معك ${BUSINESS_NAME}.
+
+إذا بدك تتابع طلب موجود، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب وبفحصلك الحالة.
+
+مثال:
+AM-XXXXXXXXXX
+078XXXXXXX
 
 للتقديم أو المتابعة من خلال الموقع:
 ${baseUrl}
 
-تنويه مهم:
-الأمين للأقساط مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا يقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
-}
-
-function defaultGreeting(baseUrl: string) {
-  return `أهلًا وسهلًا فيكم مع الأمين للأقساط 🌿
-
-نقدم خدمة تقسيط الأجهزة الإلكترونية والهواتف فقط، ولا نقدم قروضًا نقدية أو تمويلًا شخصيًا.
-
-لمتابعة طلب موجود، يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب.
-
-مثال:
-AM-XXXXXXXXXX
-078XXXXXXX
-
-للتقديم أو متابعة الطلب من خلال الموقع:
-${baseUrl}
-
-تنبيه مهم:
-الأمين للأقساط لا علاقة له بالأمين للتمويل الأصغر أو أي مؤسسة تمويل أصغر.`;
+ملاحظة مهمة:
+نحن مختصون بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا نقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
 }
 
 async function findApplicationByPhone(phone: string) {
@@ -580,18 +852,24 @@ function sanitizeAiReply(reply: string, fallback: string) {
   const forbidden = [
     "قرض نقدي",
     "قروض نقدية",
+    "قروضنا",
+    "قرضك",
     "كاش",
     "تمويل شخصي",
     "الأمين للتمويل الأصغر",
     "موافقة نهائية مؤكدة بدون مراجعة",
+    "استلام اليوم",
+    "استلام بكرا",
+    "توصيل اليوم",
+    "التسليم مؤكد اليوم",
   ];
 
   if (forbidden.some((word) => clean.includes(word))) {
     return fallback;
   }
 
-  if (clean.length > 3500) {
-    clean = clean.slice(0, 3400).trim();
+  if (clean.length > 2800) {
+    clean = clean.slice(0, 2700).trim();
   }
 
   return clean || fallback;
@@ -599,32 +877,62 @@ function sanitizeAiReply(reply: string, fallback: string) {
 
 async function generateAiReply(input: AiReplyInput) {
   const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || "gpt-4o-mini";
+  const model = process.env.OPENAI_MODEL || "gpt-4o";
 
   if (!apiKey) {
     return input.deterministicReply;
   }
 
   const systemInstructions = `
-أنت موظف خدمة عملاء واتساب لدى "الأمين للأقساط".
+أنت موظف خدمة عملاء واتساب حقيقي لدى "الأمين للأقساط" في الأردن.
 
-مهمتك:
-- اكتب ردًا عربيًا أردنيًا مهذبًا وواضحًا ومختصرًا نسبيًا.
-- اعتمد فقط على "الرد الآمن الأساسي" و"بيانات الطلب" الموجودة في المدخلات.
-- لا تخترع أي معلومة غير موجودة.
-- لا تغيّر حالة الطلب.
-- لا تعطي وعدًا قطعيًا بموعد تسليم.
-- لا تؤكد موافقة نهائية إلا إذا الرد الآمن الأساسي يقول ذلك صراحة.
-- لا تطلب القسط الأول الآن.
-- لا تطلب أي دفع إلا إذا الرد الآمن الأساسي يحتوي صراحة على رسوم فتح الملف 5 دنانير.
-- لا تستخدم كلمة "قروض" كخدمة مقدمة. إذا سأل العميل عن القروض، وضّح أننا لا نقدم قروضًا نقدية أو تمويلًا شخصيًا.
-- الاسم الصحيح للنشاط: "الأمين للأقساط".
-- النشاط مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط.
-- يجب ذكر أن التواصل الكتابي عبر واتساب أفضل من الاتصال عند الحاجة بسبب ضغط الطلبات.
-- إذا كان الاستفسار حساسًا أو شكوى، كن هادئًا وقل إن المحادثة ستحوّل للمتابعة.
-- لا تعرض بيانات حساسة.
-- لا تذكر أنك ذكاء اصطناعي.
-- أخرج نص رسالة واتساب فقط بدون شرح وبدون JSON.
+شخصيتك وأسلوبك:
+- رد كإنسان طبيعي على واتساب، مش كنص رسمي جامد.
+- استخدم لهجة أردنية مهذبة وخفيفة، بدون مبالغة.
+- لا تكرر نفس الافتتاحية كل مرة.
+- خليك راقٍ، واضح، ومطمئن.
+- إذا العميل متضايق، ابدأ بتهدئة واحترام.
+- لا تكتب ردود طويلة بلا داعي.
+- استخدم إيموجي خفيف جدًا مثل 🌿 أو ✅ فقط عند الحاجة.
+- لا تقول إنك ذكاء اصطناعي.
+- لا تكتب JSON ولا شرح داخلي.
+
+قواعد النشاط:
+- الاسم الصحيح: "الأمين للأقساط".
+- النشاط فقط تقسيط أجهزة إلكترونية وهواتف.
+- لا نقدم قروضًا نقدية، ولا تمويلًا شخصيًا، ولا كاش.
+- إذا سأل العميل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
+- لا تذكر "الأمين للتمويل الأصغر" إلا للتوضيح إذا لزم.
+
+قواعد الدفع:
+- لا تطلب أي دفع إلا إذا الرد الآمن الأساسي يذكر صراحة رسوم فتح الملف.
+- رسوم فتح الملف 5 دنانير فقط.
+- الرسوم مستردة بالكامل في حال عدم الموافقة.
+- القسط الأول لا يُدفع الآن، بل بعد الاستلام حسب الاتفاق.
+- دفع رسوم فتح الملف لا يعني الموافقة النهائية.
+
+قواعد المواعيد:
+- لا تخترع موعد تسليم.
+- للأجهزة التي عليها موافقة نهائية فقط: المتابعة/الاستلام تكون بعد العيد، ابتداءً من الأحد 31/05/2026، حسب جدول الإدارة.
+- الطلبات التي ما زالت قيد الدراسة، بحاجة كفيل، بحاجة كشف راتب، أو قيد مراجعة: قل إن المتابعة بعد العيد وتعتمد على نتيجة الدراسة وما يظهر من صفحة الإدارة.
+- إذا سأل عن الأحد أو موعده، اربط الإجابة بحالة الطلب فقط.
+
+قواعد حالات الطلب:
+- إذا الحالة approved فقط، يجوز قول "موافقة نهائية".
+- إذا الحالة under_review أو confirmed payment تحت الدراسة، لا تقل موافقة.
+- إذا الحالة needs_guarantor، اطلب بيانات الكفيل بلطف ووضح أنها لاستكمال الدراسة وليست رفضًا.
+- إذا الحالة needs_salary_slip، اطلب كشف راتب أو شهادة راتب حديثة بلطف.
+- إذا الحالة refund_requested، أكد تسجيل طلب الاسترداد بدون تحديد وقت تنفيذ.
+- إذا الحالة customer_claimed_paid، أكد أن الوصل قيد مراجعة الإدارة واطلب عدم إعادة الدفع.
+- إذا لا يوجد طلب معروف، اطلب رقم التتبع ورقم الهاتف.
+- التواصل الكتابي عبر واتساب أفضل من الاتصال بسبب ضغط الطلبات وتوثيق المتابعة.
+
+طريقة استخدام الرد الآمن:
+- الرد الآمن الأساسي هو مصدر الحقيقة.
+- أعد صياغته بشكل بشري ولطيف، لكن لا تخالفه.
+- لا تضف معلومة جديدة غير موجودة.
+- لا تغير حالة الطلب.
+- لا تتعهد بشيء غير موجود.
 `;
 
   const userInput = `
@@ -659,8 +967,8 @@ ${input.deterministicReply}
         model,
         instructions: systemInstructions,
         input: userInput,
-        temperature: 0.2,
-        max_output_tokens: 900,
+        temperature: 0.65,
+        max_output_tokens: 1000,
       }),
     });
 
@@ -689,13 +997,13 @@ async function buildReply(request: Request, from: string, text: string) {
     : await findApplicationByPhone(from);
 
   if (app) {
-    let deterministicReply = safeReply(app, baseUrl);
+    let deterministicReply = safeReply(app, baseUrl, text);
 
     if (sensitive) {
       deterministicReply = `${deterministicReply}
 
 ملاحظة:
-تم تحويل المحادثة للمتابعة بسبب وجود استفسار حساس أو شكوى.`;
+المحادثة سيتم تحويلها للمتابعة بسبب وجود استفسار حساس أو شكوى، وحقك علينا نوصلها بشكل واضح للإدارة.`;
     }
 
     return generateAiReply({
@@ -713,7 +1021,7 @@ async function buildReply(request: Request, from: string, text: string) {
 
   const deterministicReply = isGreeting(text)
     ? defaultGreeting(baseUrl)
-    : defaultAskForTracking(baseUrl);
+    : defaultAskForTracking(baseUrl, text);
 
   return generateAiReply({
     customerText: text,
@@ -769,11 +1077,11 @@ export async function POST(request: Request) {
         if (type !== "text" && type !== "image") {
           const reply = `أهلًا وسهلًا 🌿
 
-وصلتنا رسالتكم، لكن حاليًا يمكننا معالجة الرسائل النصية والصور فقط.
+وصلتنا رسالتكم، لكن حاليًا أقدر أتعامل مع الرسائل النصية والصور فقط.
 
-يرجى إرسال رقم التتبع ورقم الهاتف المستخدم في الطلب لمتابعة الحالة.
+ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب، وبفحصلك الحالة.
 
-الأمين للأقساط`;
+${BUSINESS_NAME}`;
 
           await sendWhatsAppText(from, reply);
           await logMessage({ waId: from, direction: "outgoing", body: reply });
