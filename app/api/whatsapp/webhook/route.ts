@@ -320,6 +320,248 @@ function asksHowToApply(text: string) {
   ].some((word) => t.includes(word));
 }
 
+
+function textHasAny(text: string, keywords: string[]) {
+  const normalized = text.toLowerCase().trim();
+  return keywords.some((word) => normalized.includes(word.toLowerCase()));
+}
+
+function asksAboutWebsite(text: string) {
+  return textHasAny(text, [
+    "موقعكم",
+    "الموقع",
+    "رابطكم",
+    "الرابط",
+    "لينك",
+    "لينك الموقع",
+    "رابط الموقع",
+    "ويبسايت",
+    "website",
+    "site",
+    "صفحتكم",
+    "رابط التقديم",
+    "رابط المتابعة",
+    "رابط المتابعه",
+    "وين الموقع",
+    "ابعت الرابط",
+    "ابعث الرابط",
+    "موقع",
+  ]);
+}
+
+function asksAboutAddress(text: string) {
+  return textHasAny(text, [
+    "عنوانكم",
+    "عنوانك",
+    "العنوان",
+    "وين مكانكم",
+    "وين موقعكم",
+    "وين المحل",
+    "مكانكم",
+    "وين الفرع",
+    "فرع",
+    "مكتب",
+    "مكاتبكم",
+    "location",
+    "لوكيشن",
+    "موقع عالخريطة",
+    "الخريطة",
+    "google maps",
+    "وين موجودين",
+    "وين موقعكم عالخريطة",
+  ]);
+}
+
+function asksAboutContact(text: string) {
+  return textHasAny(text, [
+    "اتصال",
+    "اتصل",
+    "رن",
+    "احكي مع موظف",
+    "موظف",
+    "خدمة العملاء",
+    "رقمكم",
+    "رقم الهاتف",
+    "تلفونكم",
+    "واتساب",
+    "whatsapp",
+    "بدي اكلم",
+    "بدي احكي",
+    "تواصل",
+    "ادارة",
+    "الإدارة",
+    "مسؤول",
+  ]);
+}
+
+function asksAboutHours(text: string) {
+  return textHasAny(text, [
+    "دوام",
+    "الدوام",
+    "اوقات",
+    "أوقات",
+    "ساعات",
+    "متى بتفتحوا",
+    "متى بتسكروا",
+    "مفتوح",
+    "مغلق",
+    "العطله",
+    "العطلة",
+  ]);
+}
+
+function asksAboutProducts(text: string) {
+  return textHasAny(text, [
+    "اجهزه",
+    "أجهزة",
+    "تلفونات",
+    "هواتف",
+    "موبايلات",
+    "ايفون",
+    "iphone",
+    "سامسونج",
+    "samsung",
+    "هونر",
+    "honor",
+    "تكنو",
+    "tecno",
+    "اسعار",
+    "السعر",
+    "كم سعر",
+    "متوفر",
+    "توفر",
+    "الاجهزة المتوفرة",
+    "قائمة الاجهزة",
+    "المنتجات",
+    "products",
+  ]);
+}
+
+function asksAboutOrderStatus(text: string) {
+  return textHasAny(text, [
+    "طلبي",
+    "طلب",
+    "تتبعي",
+    "التتبع",
+    "رقم الطلب",
+    "حالة الطلب",
+    "شو صار",
+    "وين وصل طلبي",
+    "قيد الدراسة",
+    "موافقة",
+    "انرفض",
+    "رفض",
+    "مقبول",
+    "تأهل",
+    "تاهل",
+    "تابع",
+    "متابعة",
+    "فحص الطلب",
+  ]);
+}
+
+function asksThanks(text: string) {
+  return textHasAny(text, [
+    "شكرا",
+    "شكرًا",
+    "يسلمو",
+    "يعطيك العافية",
+    "تمام شكرا",
+    "مشكور",
+    "مشكورة",
+    "thanks",
+    "thank you",
+  ]);
+}
+
+function directGeneralReply(baseUrl: string, from: string, customerText = "") {
+  const opening = humanOpening(`${from}:${customerText}`);
+
+  if (asksAboutWebsite(customerText)) {
+    return `${opening}
+
+أكيد، هذا رابط موقع ${BUSINESS_NAME} للتقديم ومتابعة الطلبات:
+
+${baseUrl}
+
+من خلاله بتقدر تختار الجهاز، تقدم طلب جديد، أو تتابع طلبك إذا معك رقم التتبع ورقم الهاتف.`;
+  }
+
+  if (asksAboutAddress(customerText)) {
+    return `${opening}
+
+حاليًا التقديم والمتابعة الأساسية بتكون إلكترونيًا من خلال الموقع والواتساب حتى تكون البيانات واضحة وموثقة.
+
+رابط الموقع:
+${baseUrl}
+
+إذا طلبك يحتاج حضور أو تنسيق مباشر، الإدارة بتبلغك بالخطوة المناسبة حسب حالة الطلب.`;
+  }
+
+  if (asksAboutContact(customerText)) {
+    return `${opening}
+
+أنا معك هون على واتساب وبقدر أساعدك.
+
+بسبب ضغط الطلبات، المتابعة الكتابية أفضل وأسرع من الاتصال لأنها بتضل موثقة وواضحة. إذا الموضوع يحتاج موظف مختص بحوّله للمتابعة.
+
+اكتبلي المطلوب، أو ابعث رقم التتبع ورقم الهاتف إذا عندك طلب.`;
+  }
+
+  if (asksAboutHours(customerText)) {
+    return `${opening}
+
+رسائلكم بتوصلنا على واتساب، والمتابعة الإدارية حسب ضغط الطلبات وساعات العمل.
+
+إذا عندك طلب موجود، ابعث رقم التتبع ورقم الهاتف وبفحصلك الحالة.`;
+  }
+
+  if (asksAboutProducts(customerText)) {
+    return `${opening}
+
+الأجهزة والأسعار الأفضل تشوفها من الموقع لأنها بتتحدث حسب التوفر:
+
+${baseUrl}
+
+إذا في جهاز معين ببالك مثل iPhone أو Samsung أو HONOR أو TECNO، ابعث اسمه وبنساعدك بالخطوة المناسبة.`;
+  }
+
+  if (asksThanks(customerText)) {
+    return `${opening}
+
+العفو، بالخدمة دائمًا 🌿
+
+إذا احتجت أي متابعة، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب وبفحصلك الحالة.`;
+  }
+
+  if (
+    asksAboutInstallmentInfo(customerText) ||
+    asksAboutRequirements(customerText) ||
+    asksHowToApply(customerText) ||
+    asksAboutLoan(customerText) ||
+    asksAboutPaymentOrFee(customerText)
+  ) {
+    return generalInstallmentInfoReply(baseUrl, from, customerText);
+  }
+
+  return "";
+}
+
+function shouldAnswerDirectlyWithoutOrderLookup(text: string) {
+  return (
+    asksAboutWebsite(text) ||
+    asksAboutAddress(text) ||
+    asksAboutContact(text) ||
+    asksAboutHours(text) ||
+    asksAboutProducts(text) ||
+    asksThanks(text) ||
+    asksAboutInstallmentInfo(text) ||
+    asksAboutRequirements(text) ||
+    asksHowToApply(text) ||
+    asksAboutLoan(text)
+  );
+}
+
 function generalInstallmentInfoReply(baseUrl: string, from: string, customerText = "") {
   const opening = humanOpening(`${from}:${customerText}`);
 
@@ -1208,13 +1450,30 @@ async function buildReply(request: Request, from: string, text: string) {
   const typedPhone = extractJordanPhoneFromText(text);
   const sensitive = looksSensitive(text);
 
+  if (!tracking && shouldAnswerDirectlyWithoutOrderLookup(text)) {
+    const directReply = directGeneralReply(baseUrl, from, text);
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply: directReply || defaultGreeting(baseUrl, `${from}:${text}`),
+      isSensitive: sensitive,
+      hasApplication: false,
+    });
+  }
+
   let app: ApplicationRecord | null = null;
 
   if (tracking && typedPhone) {
     app = await findApplicationByTrackingAndPhone(tracking, typedPhone);
   } else if (tracking) {
     app = await findApplicationByTrackingAndPhone(tracking, from);
-  } else {
+  } else if (
+    asksAboutOrderStatus(text) ||
+    asksAboutDeliveryDate(text) ||
+    asksAboutPaymentOrFee(text) ||
+    looksSensitive(text) ||
+    extractJordanPhoneFromText(text)
+  ) {
     app = await findApplicationByPhone(from);
   }
 
@@ -1247,7 +1506,7 @@ async function buildReply(request: Request, from: string, text: string) {
       customerText: text,
       deterministicReply: `${opening}
 
-فحصت رقم التتبع ورقم الهاتف اللي وصلوني، بس ما ظهر عندي طلب مطابق عليهم.
+فحصت رقم التتبع ورقم الهاتف اللي وصلوني، وبعتذر منك، ما ظهر عندي طلب مطابق عليهم.
 
 خليني أتأكد معك من البيانات:
 
@@ -1267,14 +1526,9 @@ ${BUSINESS_NAME}`,
 
   let deterministicReply: string;
 
-  if (
-    asksAboutInstallmentInfo(text) ||
-    asksAboutRequirements(text) ||
-    asksHowToApply(text) ||
-    asksAboutLoan(text) ||
-    asksAboutPaymentOrFee(text)
-  ) {
-    deterministicReply = generalInstallmentInfoReply(baseUrl, from, text);
+  const directReply = directGeneralReply(baseUrl, from, text);
+  if (directReply) {
+    deterministicReply = directReply;
   } else {
     deterministicReply = isGreeting(text)
       ? defaultGreeting(baseUrl, `${from}:${text}`)
