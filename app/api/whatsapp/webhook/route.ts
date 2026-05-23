@@ -34,6 +34,24 @@ type WhatsAppWebhookBody = {
   }>;
 };
 
+type CustomerIntent =
+  | "complaint"
+  | "refund"
+  | "human_agent"
+  | "loan"
+  | "website"
+  | "location"
+  | "installment_info"
+  | "requirements"
+  | "apply"
+  | "products"
+  | "payment"
+  | "delivery"
+  | "order_status"
+  | "greeting"
+  | "thanks"
+  | "unknown";
+
 type AiReplyInput = {
   customerText: string;
   deterministicReply: string;
@@ -44,14 +62,15 @@ type AiReplyInput = {
   deviceName?: string | null;
   isSensitive: boolean;
   hasApplication: boolean;
+  intent: CustomerIntent;
 };
 
-const POST_EID_DELIVERY_TEXT = "بعد العيد، ابتداءً من الأحد 31/05/2026";
-const POST_EID_DELIVERY_STRICT_TEXT = "جميع مواعيد التسليم والاستلام ستكون بعد العيد، ابتداءً من الأحد 31/05/2026، وحسب جدول الإدارة وترتيب الطلبات";
-const DELIVERY_APOLOGY_TEXT =
-  "نعتذر منكم بصدق وبكل احترام عن أي تأخير أو ضغط صار على الموعد. حقكم علينا يكون الرد واضح وما نترككم بحيرة، ولذلك نؤكد أن التحديث المعتمد لمواعيد التسليم هو بعد العيد ابتداءً من 31/05/2026.";
-const FILE_OPENING_FEE_TEXT = "رسوم فتح الملف 5 دنانير فقط، وهي مستردة بالكامل في حال عدم الموافقة.";
 const BUSINESS_NAME = "الأمين للأقساط";
+const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني - مقابل مستشفى العيون - شارع المدينة المنورة";
+const BUSINESS_PHONE_DISPLAY = "0788500337";
+const POST_EID_DELIVERY_TEXT = "بعد العيد، ابتداءً من الأحد 31/05/2026";
+const POST_EID_DELIVERY_STRICT_TEXT =
+  "جميع مواعيد التسليم والاستلام ستكون بعد العيد، ابتداءً من الأحد 31/05/2026، وحسب جدول الإدارة وترتيب الطلبات";
 
 function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
@@ -61,9 +80,29 @@ function digitsOnly(value: string | null | undefined) {
   return String(value || "").replace(/\D/g, "");
 }
 
+function normalizeArabicText(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/[ى]/g, "ي")
+    .replace(/[ة]/g, "ه")
+    .replace(/[ؤ]/g, "و")
+    .replace(/[ئ]/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function hasAny(text: string, keywords: string[]) {
+  const t = normalizeArabicText(text);
+  return keywords.some((word) => t.includes(normalizeArabicText(word)));
+}
+
 function normalizeJordanPhone(value: string | null | undefined) {
   const digits = digitsOnly(value);
   if (!digits) return "";
+  if (digits.startsWith("00962") && digits.length === 14) return `0${digits.slice(5)}`;
   if (digits.startsWith("962") && digits.length === 12) return `0${digits.slice(3)}`;
   if (digits.startsWith("7") && digits.length === 9) return `0${digits}`;
   return digits;
@@ -72,6 +111,7 @@ function normalizeJordanPhone(value: string | null | undefined) {
 function normalizeWhatsAppToSend(value: string | null | undefined) {
   const digits = digitsOnly(value);
   if (!digits) return "";
+  if (digits.startsWith("00962")) return digits.slice(2);
   if (digits.startsWith("962")) return digits;
   if (digits.startsWith("07") && digits.length === 10) return `962${digits.slice(1)}`;
   if (digits.startsWith("7") && digits.length === 9) return `962${digits}`;
@@ -111,7 +151,6 @@ function extractTracking(text: string) {
 
 function extractJordanPhoneFromText(text: string) {
   const raw = String(text || "");
-
   const candidates = raw.match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
 
   for (const candidate of candidates) {
@@ -124,7 +163,7 @@ function extractJordanPhoneFromText(text: string) {
   return "";
 }
 
-const agentNames = ["سلمى", "ديما", "لين", "رنا", "نور", "تالا"];
+const agentNames = ["سلمى", "ديما", "لين", "رنا", "نور", "تالا", "مي", "لانا", "جود", "هبة"];
 
 function pickAgentName(seed: string) {
   const digits = digitsOnly(seed);
@@ -132,270 +171,115 @@ function pickAgentName(seed: string) {
   return agentNames[last % agentNames.length];
 }
 
-function humanOpening(from: string) {
-  const agent = pickAgentName(from);
+function humanOpening(seed: string) {
+  const agent = pickAgentName(seed);
   const variants = [
-    `أهلًا وسهلًا 🌿\nمعك ${agent} من الأمين للأقساط.`,
-    `هلا فيك 🌿\nمعك ${agent} من فريق الأمين للأقساط.`,
+    `أهلًا وسهلًا 🌿\nمعك ${agent} من ${BUSINESS_NAME}.`,
+    `هلا فيك 🌿\nمعك ${agent} من فريق ${BUSINESS_NAME}.`,
     `أهلًا فيك، معك ${agent} 🌿\nخليني أساعدك.`,
-    `يا هلا 🌿\nمعك ${agent} من الأمين للأقساط، أبشر.`,
+    `يا هلا 🌿\nمعك ${agent} من ${BUSINESS_NAME}، أبشر.`,
     `مرحبًا 🌿\nمعك ${agent}، كيف بقدر أساعدك؟`,
+    `حيّاك الله 🌿\nمعك ${agent} من ${BUSINESS_NAME}.`,
   ];
 
-  const digits = digitsOnly(from);
+  const digits = digitsOnly(seed);
   const last = Number(digits.slice(-2) || "0");
 
   return variants[last % variants.length];
 }
 
-function looksSensitive(text: string) {
-  const t = text.toLowerCase();
-  return [
-    "نصاب",
-    "نصب",
-    "احتيال",
-    "شكوى",
-    "محامي",
-    "شرطة",
-    "بدي فلوسي",
-    "رجعولي",
-    "رجعوا",
-    "استرجاع",
-    "استرداد",
-    "وين جهازي",
-    "تأخير",
-    "تاخير",
-    "راح اشتكي",
-    "رح اشتكي",
-    "مش راح اسكت",
-    "حرام",
-    "كذاب",
-    "كذب",
-    "نصبتو",
-    "سرقتو",
-    "سرقة",
-    "بشتكي",
-    "القضاء",
-    "جرائم",
-    "حماية المستهلك",
-  ].some((word) => t.includes(word));
-}
-
 function isGreeting(text: string) {
-  const t = text.trim().toLowerCase();
-  return [
-    "مرحبا",
-    "هلا",
-    "السلام عليكم",
-    "مساء الخير",
-    "صباح الخير",
-    "الو",
-    "اهلا",
-    "أهلا",
-    "هاي",
-    "hi",
-    "hello",
-  ].includes(t);
+  const t = normalizeArabicText(text);
+  return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t);
 }
 
-function asksAboutDeliveryDate(text: string) {
-  const t = text.toLowerCase();
-  return [
-    "موعد",
-    "الاحد",
-    "الأحد",
-    "استلام",
-    "تسليم",
-    "الجهاز",
-    "جهازي",
-    "متى",
-    "بعد العيد",
-    "31/05",
-    "31-05",
-    "٣١",
-    "وين وصل",
-    "وصل",
-  ].some((word) => t.includes(word));
-}
+function classifyIntent(text: string): CustomerIntent {
+  const t = normalizeArabicText(text);
 
-function asksAboutPaymentOrFee(text: string) {
-  const t = text.toLowerCase();
-  return [
-    "الدفع",
-    "ادفع",
-    "دفع",
-    "خمسة",
-    "5",
-    "٥",
-    "رسوم",
-    "فتح ملف",
-    "وصل",
-    "ايصال",
-    "إيصال",
-    "كليك",
-    "محفظة",
-    "اورنج",
-    "orange",
-  ].some((word) => t.includes(word));
-}
+  if (!t) return "unknown";
 
-function asksAboutLoan(text: string) {
-  const t = text.toLowerCase();
-  return [
-    "قرض",
-    "قروض",
-    "كاش",
-    "نقدي",
-    "مصاري",
-    "تمويل شخصي",
-    "سلفة",
-    "سلفه",
-  ].some((word) => t.includes(word));
-}
-
-
-function asksAboutInstallmentInfo(text: string) {
-  const t = text.toLowerCase().trim();
-  return [
-    "كيف الاقساط",
-    "كيف الأقساط",
-    "كيف التقسيط",
-    "كيف بدي اقسط",
-    "كيف بدي أقسط",
-    "بدي اقسط",
-    "بدي أقسط",
-    "طريقة التقسيط",
-    "نظام التقسيط",
-    "شو نظامكم",
-    "شو نظام التقسيط",
-    "كيف النظام",
-    "كيف بتم التقسيط",
-    "كيف بكون التقسيط",
-    "تفاصيل التقسيط",
-    "اقساط",
-    "أقساط",
-    "تقسيط",
-  ].some((word) => t.includes(word));
-}
-
-function asksAboutRequirements(text: string) {
-  const t = text.toLowerCase().trim();
-  return [
-    "الشروط",
-    "شروط",
-    "شو الشروط",
-    "المتطلبات",
-    "متطلبات",
-    "شو المطلوب",
-    "شو بدكم",
-    "الاوراق",
-    "الأوراق",
-    "وثائق",
-    "كفيل",
-    "كشف راتب",
-    "راتب",
-    "ضمان",
-    "هوية",
-  ].some((word) => t.includes(word));
-}
-
-function asksHowToApply(text: string) {
-  const t = text.toLowerCase().trim();
-  return [
-    "اقدم",
-    "أقدم",
-    "تقديم",
-    "طلب جديد",
-    "اعمل طلب",
-    "أعمل طلب",
-    "وين اقدم",
-    "وين أقدم",
-    "رابط التقديم",
-    "قدم طلب",
-    "بدي جهاز",
-    "بدي تلفون",
-    "بدي موبايل",
-    "بدي ايفون",
-    "بدي سامسونج",
-  ].some((word) => t.includes(word));
-}
-
-function generalInstallmentInfoReply(baseUrl: string, from: string, customerText = "") {
-  const opening = humanOpening(`${from}:${customerText}`);
-
-  if (asksAboutLoan(customerText)) {
-    return `${opening}
-
-للتوضيح حتى تكون الصورة واضحة: إحنا في ${BUSINESS_NAME} مختصين بتقسيط الأجهزة الإلكترونية والهواتف فقط.
-
-ما بنقدم قروض نقدية، ولا سلف، ولا تمويل شخصي.
-
-إذا بدك تقسط جهاز، بتقدر تختار الجهاز وتقدم طلب من الموقع، وبعدها الإدارة بتراجع البيانات وبترجعلك بالتحديث.`;
+  if (
+    hasAny(t, [
+      "نصاب", "نصب", "احتيال", "محتال", "حرام", "سرقه", "سرقتو", "نصبتو", "كذاب", "كذب",
+      "شكوي", "شكوى", "بشتكي", "رح اشتكي", "راح اشتكي", "محامي", "شرطه", "شرطة", "جرائم",
+      "حمايه المستهلك", "حماية المستهلك", "مش راح اسكت", "وين جهازي", "تاخير", "تأخير", "مماطله",
+      "زهقت", "قرفت", "عيب", "مش محترمين", "سيئين", "اسوا", "أسوأ", "لعب", "تلاعب", "سرقين", "ما بتردو",
+    ])
+  ) {
+    return "complaint";
   }
 
-  if (asksAboutRequirements(customerText)) {
-    return `${opening}
-
-الشروط بشكل عام بتكون حسب دراسة الطلب، بس عادةً بنحتاج:
-
-- بياناتك الأساسية ورقم هاتف صحيح.
-- صورة هوية واضحة حسب نموذج الطلب.
-- معلومات الدخل/العمل حتى تنعمل الدراسة.
-- كفيل فقط إذا طلبته الإدارة من صفحة الطلب.
-
-المهم: التقديم أو إرسال البيانات لا يعني موافقة نهائية. الموافقة بتطلع بعد الدراسة.
-
-وإذا تم تأهيل الطلب مبدئيًا، رسوم فتح الملف تكون 5 دنانير فقط، ومستردة بالكامل في حال عدم الموافقة. القسط الأول ما بندفع الآن، يكون بعد الاستلام حسب الاتفاق.
-
-للتقديم أو المتابعة:
-${baseUrl}`;
+  if (hasAny(t, ["استرداد", "استرجاع", "رجعولي", "بدي فلوسي", "رجعوا فلوسي", "refund", "استرجع الرسوم"])) {
+    return "refund";
   }
 
-  if (asksAboutPaymentOrFee(customerText)) {
-    return `${opening}
-
-رسوم فتح الملف مش لكل الناس من البداية.
-
-إذا طلبك تأهل مبدئيًا، وقتها بنطلب رسوم فتح ملف 5 دنانير فقط حتى ينتقل الطلب للدراسة النهائية.
-
-مهم تعرف:
-- الرسوم مستردة بالكامل إذا ما تمت الموافقة.
-- القسط الأول ما بندفع الآن.
-- القسط الأول يكون بعد الاستلام حسب الاتفاق.
-- دفع رسوم فتح الملف لا يعني موافقة نهائية، هو إجراء لاستكمال الدراسة.
-
-إذا عندك طلب موجود، ابعث رقم التتبع ورقم الهاتف وبفحصلك حالته.`;
+  if (hasAny(t, ["موظف", "حد يحكي معي", "اتصال", "رن علي", "رنه", "كلموني", "اداره", "إدارة", "مسؤول", "مندوب", "انسان", "بني ادم"])) {
+    return "human_agent";
   }
 
-  if (asksHowToApply(customerText)) {
-    return `${opening}
-
-طريقة التقديم بسيطة:
-
-1. بتدخل على الموقع.
-2. بتختار الجهاز والمدة المناسبة.
-3. بتعبي بيانات الطلب بدقة.
-4. الإدارة بتراجع الطلب.
-5. إذا تأهل مبدئيًا، بنرسل لك تعليمات فتح الملف ورسومها 5 دنانير فقط.
-
-والقسط الأول ما بندفع الآن، يكون بعد الاستلام حسب الاتفاق.
-
-رابط التقديم والمتابعة:
-${baseUrl}`;
+  if (hasAny(t, ["قرض", "قروض", "كاش", "نقدي", "مصاري", "تمويل شخصي", "سلفه", "سلفة", "سلف", "دينار كاش"])) {
+    return "loan";
   }
 
-  return `${opening}
+  if (hasAny(t, ["موقعكم", "موقع", "الرابط", "لينك", "ويب سايت", "website", "رابطكم", "لينككم", "ابلكيشن", "تطبيق", "السايت"])) {
+    return "website";
+  }
 
-نظامنا باختصار: بنقسط أجهزة إلكترونية وهواتف فقط، مش قروض نقدية ولا تمويل شخصي.
+  if (hasAny(t, ["عنوان", "عنوانكم", "وين مكانكم", "مكانكم", "موقعكم وين", "لوكيشن", "location", "المحل", "فرع", "وينكم", "وين انتو"])) {
+    return "location";
+  }
 
-بتختار الجهاز وبتقدم الطلب من الموقع، وبعدها الإدارة بتراجع البيانات. إذا الطلب تأهل مبدئيًا، بنطلب رسوم فتح ملف 5 دنانير فقط لاستكمال الدراسة النهائية.
+  if (
+    hasAny(t, [
+      "كيف الاقساط", "كيف التقسيط", "كيف بدي اقسط", "بدي اقسط", "طريقه التقسيط", "طريقة التقسيط", "نظام التقسيط",
+      "شو نظامكم", "كيف النظام", "تفاصيل التقسيط", "اقساط", "أقساط", "تقسيط", "كم القسط", "حاسبه", "حاسبة",
+      "دفعه اولي", "دفعة اولى", "مده", "مدة", "اشهر", "24 شهر", "36 شهر",
+    ])
+  ) {
+    return "installment_info";
+  }
 
-الرسوم مستردة بالكامل إذا ما تمت الموافقة، والقسط الأول ما بندفع الآن؛ يكون بعد الاستلام حسب الاتفاق.
+  if (
+    hasAny(t, [
+      "الشروط", "شروط", "المتطلبات", "شو المطلوب", "شو بدكم", "اوراق", "الاوراق", "الأوراق", "وثائق", "كفيل",
+      "كشف راتب", "راتب", "ضمان", "ضمان اجتماعي", "هويه", "هوية", "هل بحتاج كفيل",
+    ])
+  ) {
+    return "requirements";
+  }
 
-إذا بدك أتابع طلب موجود، ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب.
+  if (hasAny(t, ["اقدم", "أقدم", "تقديم", "طلب جديد", "اعمل طلب", "أعمل طلب", "وين اقدم", "وين أقدم", "رابط التقديم", "قدم طلب", "بدي جهاز", "بدي تلفون", "بدي موبايل", "بدي ايفون", "بدي سامسونج", "اشتري"])) {
+    return "apply";
+  }
 
-للتقديم أو المتابعة:
-${baseUrl}`;
+  if (hasAny(t, ["اجهزه", "أجهزة", "الاجهزه", "تلفونات", "موبايلات", "ايفون", "سامسونج", "هونر", "تكنو", "شاومي", "اسعار", "السعر", "متوفر", "ذاكره", "ذاكرة", "256", "512"])) {
+    return "products";
+  }
+
+  if (hasAny(t, ["دفع", "ادفع", "دفعت", "رسوم", "خمسه", "خمسة", "5", "٥", "وصل", "ايصال", "إيصال", "كليك", "محفظه", "محفظة", "اورنج", "orange", "فتح ملف", "الدفعه", "حواله"])) {
+    return "payment";
+  }
+
+  if (hasAny(t, ["موعد", "الاحد", "الأحد", "استلام", "تسليم", "متي", "متى", "بعد العيد", "31/05", "31-05", "وين وصل", "وصل الجهاز", "التسليم", "تاخر الجهاز", "تأخر الجهاز"])) {
+    return "delivery";
+  }
+
+  if (hasAny(t, ["طلبي", "طلب", "حاله", "حالة", "شو صار", "وين الطلب", "رقم تتبع", "تتبع", "راجع الطلب", "افحص الطلب", "شيك", "check"])) {
+    return "order_status";
+  }
+
+  if (isGreeting(t)) return "greeting";
+
+  if (hasAny(t, ["شكرا", "يسلمو", "تمام", "يعطيك العافيه", "مشكور"])) {
+    return "thanks";
+  }
+
+  return "unknown";
+}
+
+function looksSensitive(text: string) {
+  const intent = classifyIntent(text);
+  return intent === "complaint" || intent === "refund";
 }
 
 function trackUrl(baseUrl: string, app: ApplicationRecord) {
@@ -418,35 +302,216 @@ function delayUrl(baseUrl: string, app: ApplicationRecord) {
 
 function statusHumanLabel(status: string) {
   switch (status) {
-    case "preliminary_qualified":
-      return "مؤهل مبدئيًا";
-    case "customer_confirmed_continue":
-      return "تم تأكيد رغبتكم بالاستمرار";
-    case "under_review":
-      return "قيد الدراسة النهائية";
-    case "approved":
-      return "موافقة نهائية";
-    case "rejected":
-      return "غير موافق عليه حاليًا";
-    case "needs_salary_slip":
-      return "بانتظار كشف راتب / شهادة راتب";
-    case "needs_guarantor":
-      return "بانتظار بيانات كفيل";
-    case "guarantor_submitted":
-      return "تم استلام بيانات الكفيل";
-    case "customer_accepts_delivery_delay":
-      return "تم اختيار الانتظار للموعد الجديد";
-    case "delivery_delay_notice_sent":
-      return "بانتظار اختيار التمديد أو الاسترداد";
-    case "refund_requested":
-      return "طلب استرداد مسجل";
-    case "refund_completed":
-      return "تم تنفيذ الاسترداد";
-    case "cancelled":
-      return "طلب ملغي";
-    default:
-      return "قيد المتابعة";
+    case "preliminary_qualified": return "مؤهل مبدئيًا";
+    case "customer_confirmed_continue": return "تم تأكيد رغبتكم بالاستمرار";
+    case "under_review": return "قيد الدراسة النهائية";
+    case "approved": return "موافقة نهائية";
+    case "rejected": return "غير موافق عليه حاليًا";
+    case "needs_salary_slip": return "بانتظار كشف راتب / شهادة راتب";
+    case "needs_guarantor": return "بانتظار بيانات كفيل";
+    case "guarantor_submitted": return "تم استلام بيانات الكفيل";
+    case "customer_accepts_delivery_delay": return "تم اختيار الانتظار للموعد الجديد";
+    case "delivery_delay_notice_sent": return "بانتظار اختيار التمديد أو الاسترداد";
+    case "refund_requested": return "طلب استرداد مسجل";
+    case "refund_completed": return "تم تنفيذ الاسترداد";
+    case "cancelled": return "طلب ملغي";
+    default: return "قيد المتابعة";
   }
+}
+
+function apologyLine() {
+  return "نعتذر منك بصدق وبكل احترام عن أي تأخير أو لخبطة صارت. حقك علينا يكون الرد واضح ومريح، ومش مقبول تظل بحيرة.";
+}
+
+function complaintReply(baseUrl: string, from: string, app?: ApplicationRecord | null) {
+  const opening = humanOpening(`${from}:complaint`);
+  const tracking = app?.tracking_id || app?.id || "";
+  const status = app?.status || "";
+
+  if (app) {
+    return `${opening}
+
+أولًا حقك علينا، ونعتذر منك بصدق إذا صار تأخير أو حسّيت إن الموضوع مش واضح.
+
+أكيد ما بنقبل توصل معك الصورة لهالشعور، وطلبك ظاهر عندي الآن وحالته:
+${statusHumanLabel(status)}
+
+${status === "approved" ? `طلبك عليه موافقة نهائية، والتسليم المعتمد للأجهزة الموافق عليها سيكون ${POST_EID_DELIVERY_TEXT} حسب جدول الإدارة.` : `المتابعة المعتمدة ستكون ${POST_EID_DELIVERY_TEXT}، وبالنسبة للطلبات غير المسلّمة القرار النهائي يعتمد على حالة الطلب وما يظهر من الإدارة.`}
+
+رقم التتبع:
+${tracking}
+
+رح أرفع المحادثة للمتابعة حتى تنشاف من الإدارة بشكل أوضح، وحقك علينا نرتب الموضوع بدون جدال.
+
+رابط المتابعة:
+${trackUrl(baseUrl, app)}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `${opening}
+
+حقك علينا، وبعتذر منك بصدق إذا صار أي تأخير أو عدم وضوح. خليني أكون واضح معك: ما رح أدخل معك بجدال، ورح أتعامل مع الموضوع كمتابعة جدية.
+
+حتى أقدر أرفعها صح وأربطها بالطلب، ابعثلي أي واحد من هذول:
+- رقم التتبع إذا موجود
+- رقم الهاتف المستخدم بالطلب
+- أو صورة الطلب
+
+وبمجرد توصلني البيانات بفحصها مباشرة وبرد عليك حسب الحالة، وإذا الموضوع فيه استرداد أو تأخير بنحوّله للمتابعة.
+
+${BUSINESS_NAME}`;
+}
+
+function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | null) {
+  const opening = humanOpening(`${from}:refund`);
+
+  if (app) {
+    return `${opening}
+
+وصلني طلبك بخصوص الاسترداد، وحقك يكون الموضوع واضح.
+
+حالة الطلب الحالية:
+${statusHumanLabel(app.status || "")}
+
+إذا كان طلب الاسترداد مسجل من صفحة القرار، يتم مراجعته حسب ترتيب الطلبات وبيانات التحويل المدخلة. وإذا لم يتم تسجيله بعد، ابعثلي تأكيد رغبتك بالاسترداد أو استخدم الرابط المخصص إذا وصلك.
+
+رقم التتبع:
+${app.tracking_id || app.id}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `${opening}
+
+أكيد، بقدر أساعدك بموضوع الاسترداد.
+
+حتى أقدر أربطه بالطلب وما نعطيك جواب عام، ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب. وإذا عندك صورة الطلب أو وصل الدفع ابعثها هون، وبفحصها لك.
+
+${BUSINESS_NAME}`;
+}
+
+function websiteReply(baseUrl: string, from: string) {
+  const opening = humanOpening(`${from}:website`);
+  return `${opening}
+
+رابط موقعنا للتقديم والمتابعة:
+${baseUrl}
+
+من خلال الموقع بتقدر:
+- تشوف الأجهزة المتاحة.
+- تقدم طلب تقسيط.
+- تتابع حالة طلبك برقم الهاتف ورقم التتبع.
+- ترفع وصل رسوم فتح الملف إذا تم تأهيل طلبك مبدئيًا.
+
+تنويه سريع: ${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، وما بنقدم قروض نقدية أو تمويل شخصي.`;
+}
+
+function locationReply(from: string) {
+  const opening = humanOpening(`${from}:location`);
+  return `${opening}
+
+عنواننا:
+${BUSINESS_ADDRESS}
+
+للتواصل:
+${BUSINESS_PHONE_DISPLAY}
+
+ومع هيك، الأفضل تتابع كتابيًا على واتساب لأن المتابعة بتكون أوضح وموثقة، خصوصًا إذا عندك رقم طلب أو استفسار عن موافقة/تسليم.`;
+}
+
+function loanReply(from: string) {
+  const opening = humanOpening(`${from}:loan`);
+  return `${opening}
+
+للتوضيح بكل احترام: إحنا في ${BUSINESS_NAME} ما بنقدم قروض نقدية، ولا سلف، ولا تمويل شخصي.
+
+خدمتنا فقط تقسيط أجهزة إلكترونية وهواتف.
+
+إذا بدك تقسط جهاز، ابعثلي نوع الجهاز اللي بدك إياه أو ادخل على الموقع وقدّم الطلب، وبعدها الإدارة بتراجع البيانات.`;
+}
+
+function installmentInfoReply(baseUrl: string, from: string) {
+  const opening = humanOpening(`${from}:installment`);
+  return `${opening}
+
+أكيد، نظام التقسيط عندنا باختصار:
+
+1. بتختار الجهاز المناسب.
+2. بتقدم الطلب من الموقع.
+3. الإدارة بتراجع البيانات.
+4. إذا تأهل الطلب مبدئيًا، بنرسل لك تعليمات فتح الملف.
+5. رسوم فتح الملف 5 دنانير فقط، ومستردة بالكامل في حال عدم الموافقة.
+6. القسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
+
+مهم: التقديم أو دفع رسوم فتح الملف لا يعني موافقة نهائية، الموافقة بتطلع بعد الدراسة.
+
+رابط التقديم والمتابعة:
+${baseUrl}`;
+}
+
+function requirementsReply(baseUrl: string, from: string) {
+  const opening = humanOpening(`${from}:requirements`);
+  return `${opening}
+
+الشروط والمتطلبات بشكل عام بتعتمد على دراسة الطلب، لكن عادةً بنحتاج:
+
+- بيانات شخصية صحيحة.
+- رقم هاتف شغال.
+- صور الهوية حسب نموذج الطلب.
+- معلومات العمل/الدخل.
+- كفيل فقط إذا طلبته الإدارة من صفحة الطلب.
+- كشف راتب أو شهادة راتب إذا تم طلبها لاحقًا.
+
+وإذا تأهل الطلب مبدئيًا، رسوم فتح الملف 5 دنانير فقط ومستردة إذا ما تمت الموافقة.
+
+للتقديم:
+${baseUrl}`;
+}
+
+function applyReply(baseUrl: string, from: string) {
+  const opening = humanOpening(`${from}:apply`);
+  return `${opening}
+
+للتقديم على طلب جديد، ادخل من الرابط:
+${baseUrl}
+
+اختار الجهاز، عبّي البيانات بدقة، وبعدها الإدارة بتراجع الطلب.
+
+إذا صار الطلب مؤهل مبدئيًا بنرسل لك تعليمات فتح الملف. رسوم فتح الملف 5 دنانير فقط ومستردة بالكامل إذا لم تتم الموافقة.
+
+والقسط الأول لا يُدفع الآن، يكون بعد الاستلام حسب الاتفاق.`;
+}
+
+function productsReply(baseUrl: string, from: string) {
+  const opening = humanOpening(`${from}:products`);
+  return `${opening}
+
+الأجهزة والأسعار بتتحدث من خلال الموقع حسب المتوفر.
+
+رابط الموقع:
+${baseUrl}
+
+ادخل على قسم الأجهزة، اختار الجهاز المناسب، وشوف تفاصيله، وبعدها بتقدر تقدم طلب التقسيط مباشرة.
+
+إذا بدك جهاز محدد، اكتبلي اسمه أو صورته وبحاول أوجهك للطريقة الأنسب.`;
+}
+
+function paymentGeneralReply(from: string) {
+  const opening = humanOpening(`${from}:payment`);
+  return `${opening}
+
+بالنسبة للدفع: ما بنطلب أي مبلغ من البداية.
+
+رسوم فتح الملف تكون فقط إذا تأهل الطلب مبدئيًا، وقيمتها 5 دنانير فقط.
+
+مهم جدًا:
+- الرسوم مستردة بالكامل في حال عدم الموافقة.
+- القسط الأول لا يُدفع الآن.
+- القسط الأول يكون بعد الاستلام حسب الاتفاق.
+- دفع رسوم فتح الملف لا يعني موافقة نهائية، هو فقط لاستكمال الدراسة.
+
+إذا عندك طلب موجود، ابعث رقم التتبع وبفحصلك هل مطلوب منك دفع أو لا.`;
 }
 
 function paymentMessage(app: ApplicationRecord, baseUrl: string) {
@@ -464,8 +529,8 @@ ${device}
 رقم التتبع:
 ${tracking}
 
-لاستكمال فتح الملف، المطلوب فقط رسوم فتح الملف:
-5 دنانير
+لاستكمال فتح الملف، المطلوب فقط:
+5 دنانير رسوم فتح الملف
 
 مهم جدًا:
 ✅ الرسوم مستردة بالكامل في حال عدم الموافقة.
@@ -492,7 +557,7 @@ function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
   if (status === "approved") {
     return `أهلًا ${name} 🌿
 
-بدايةً نعتذر منكم بصدق وبكل احترام عن أي تأخير أو لخبطة صارت بخصوص موعد التسليم. حقكم علينا يكون الكلام واضح ومرتب، وما نترككم بحيرة.
+${apologyLine()}
 
 طلبكم عليه موافقة نهائية ✅
 
@@ -500,8 +565,6 @@ function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
 ${POST_EID_DELIVERY_STRICT_TEXT}.
 
 يعني لا يوجد تسليم قبل هذا التاريخ، وبعد 31/05/2026 يتم ترتيب التسليم حسب جدول الإدارة وأولوية الطلبات.
-
-ما بدي أعطيك ساعة أو موعد دقيق من عندي حتى ما أوعدك بشي غير مؤكد، لكن حالة طلبكم ظاهرة لدينا كموافقة نهائية.
 
 رقم التتبع:
 ${tracking}
@@ -516,13 +579,11 @@ ${BUSINESS_NAME}`;
     const delayText = formatJordanDateTime(app.delivery_delay_until);
     return `أهلًا ${name} 🌿
 
-نعتذر منكم بصدق عن التأخير، وبنقدّر انتظاركم وتفهمكم. بعرف إن الانتظار مزعج، وحقكم يكون الموعد واضح.
+نعتذر منكم بصدق عن التأخير، وبنقدّر انتظاركم وتفهمكم.
 
 اختياركم بالانتظار مسجل لدينا.
 
-${delayText ? `الموعد الجديد الظاهر على الطلب:
-${delayText}` : `التحديث المعتمد للتسليم والمتابعة:
-${POST_EID_DELIVERY_STRICT_TEXT}.`}
+${delayText ? `الموعد الجديد الظاهر على الطلب:\n${delayText}` : `التحديث المعتمد للتسليم والمتابعة:\n${POST_EID_DELIVERY_STRICT_TEXT}.`}
 
 لا يوجد أي دفع مطلوب حاليًا.
 
@@ -559,7 +620,7 @@ ${BUSINESS_NAME}`;
 
   return `أهلًا ${name} 🌿
 
-نعتذر منكم بصدق عن أي تأخير أو عدم وضوح بخصوص الموعد. حقكم علينا نكون صريحين وواضحين.
+${apologyLine()}
 
 بالنسبة للتسليم:
 ${POST_EID_DELIVERY_STRICT_TEXT}.
@@ -578,19 +639,18 @@ ${url}
 ${BUSINESS_NAME}`;
 }
 
-
-function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "") {
+function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", intent: CustomerIntent = "order_status") {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
   const status = app.status || "";
   const paymentStatus = app.payment_status || "";
   const url = trackUrl(baseUrl, app);
 
-  if (asksAboutDeliveryDate(customerText)) {
-    return deliveryDateReply(app, baseUrl);
-  }
+  if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app);
+  if (intent === "refund") return refundReply(baseUrl, app.phone || tracking, app);
+  if (intent === "delivery") return deliveryDateReply(app, baseUrl);
 
-  if (asksAboutPaymentOrFee(customerText)) {
+  if (intent === "payment") {
     if (
       status === "preliminary_qualified" ||
       status === "customer_confirmed_continue" ||
@@ -635,20 +695,6 @@ ${url}
 
 ${BUSINESS_NAME}`;
     }
-
-    return `أهلًا ${name} 🌿
-
-حاليًا لا يظهر عندي أي دفع مطلوب على طلبكم.
-
-رسوم فتح الملف تكون 5 دنانير فقط، ولا نطلبها إلا إذا كان الطلب مؤهل مبدئيًا أو تم إرسال تعليمات الدفع لكم من الإدارة.
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
   }
 
   if (paymentStatus === "customer_claimed_paid") {
@@ -872,10 +918,10 @@ ${BUSINESS_NAME}`;
 
 طلبكم ظاهر لدينا وقيد المتابعة.
 
-لا يوجد أي دفع مطلوب حاليًا إلا إذا تم تأهيل الطلب مبدئيًا وإرسال تعليمات رسوم فتح الملف لكم.
-
 حالة الطلب:
 ${statusHumanLabel(status)}
+
+لا يوجد أي دفع مطلوب حاليًا إلا إذا تم تأهيل الطلب مبدئيًا وإرسال تعليمات رسوم فتح الملف لكم.
 
 رقم التتبع:
 ${tracking}
@@ -886,82 +932,49 @@ ${url}
 ${BUSINESS_NAME}`;
 }
 
-function defaultAskForTracking(baseUrl: string, customerText = "", from = "") {
-  const opening = humanOpening(from);
+function unknownReply(from: string) {
+  const opening = humanOpening(`${from}:unknown`);
+  return `${opening}
 
-  if (asksAboutLoan(customerText)) {
-    return `${opening}
+وصلتني رسالتك، بس حتى أجاوبك بدقة أكثر احكيلي شو المطلوب بالضبط:
 
-للتوضيح فقط: إحنا في ${BUSINESS_NAME} مختصين بتقسيط الأجهزة الإلكترونية والهواتف فقط.
+- بدك تعرف طريقة التقسيط؟
+- بدك رابط الموقع؟
+- بدك العنوان؟
+- بدك تتابع طلب؟
+- بدك تستفسر عن الدفع أو رسوم فتح الملف؟
+- عندك شكوى أو تأخير؟
 
-ما بنقدم قروض نقدية أو تمويل شخصي.
-
-إذا عندك طلب تقسيط جهاز، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب، وبفحصلك الحالة مباشرة.`;
-  }
-
-  if (asksAboutDeliveryDate(customerText)) {
-    return `${opening}
-
-حتى أعطيك جواب دقيق عن الموعد، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
-
-بكل وضوح واعتذار كبير:
-جميع مواعيد التسليم والمتابعة المعتمدة ستكون بعد العيد، ابتداءً من الأحد 31/05/2026.
-
-- الطلبات اللي عليها موافقة نهائية: يتم ترتيب تسليمها بعد 31/05/2026 حسب جدول الإدارة.
-- الطلبات اللي لسه قيد الدراسة أو ناقصها كفيل/كشف راتب: متابعتها بعد العيد، والموعد النهائي يعتمد على نتيجة الدراسة وما يظهر من الإدارة.
-
-مثال:
-AM-XXXXXXXXXX
-078XXXXXXX
+اكتبلي طلبك بجملة بسيطة وبرد عليك مباشرة.
 
 ${BUSINESS_NAME}`;
-  }
-
-  return `${opening}
-
-حتى أقدر أطلعلك الطلب بدقة، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب.
-
-مثال:
-AM-XXXXXXXXXX
-078XXXXXXX
-
-وبسبب ضغط الطلبات، المتابعة الكتابية على واتساب أفضل وأسرع من الاتصال لأنها بتضل موثقة وواضحة.
-
-تنويه سريع:
-${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولا يقدم قروضًا نقدية أو تمويلًا شخصيًا.`;
-}
-
-function defaultGreeting(baseUrl: string, from = "") {
-  const opening = humanOpening(from);
-
-  return `${opening}
-
-كيف بقدر أساعدك؟
-
-إذا بدك تتابع طلب موجود، ابعثلي رقم التتبع ورقم الهاتف المستخدم بالطلب وبفحصلك الحالة مباشرة.
-
-مثال:
-AM-XXXXXXXXXX
-078XXXXXXX
-
-وللتقديم أو المتابعة من خلال الموقع:
-${baseUrl}
-
-ملاحظة مهمة:
-إحنا مختصين بتقسيط الأجهزة الإلكترونية والهواتف فقط، وما بنقدم قروض نقدية أو تمويل شخصي.`;
 }
 
 async function findApplicationByPhone(phone: string) {
   const localPhone = normalizeJordanPhone(phone);
   if (!localPhone) return null;
 
-  const { data } = await supabaseAdmin
+  const phoneVariants = Array.from(
+    new Set([
+      localPhone,
+      normalizeWhatsAppToSend(localPhone),
+      `+${normalizeWhatsAppToSend(localPhone)}`,
+      localPhone.startsWith("0") ? localPhone.slice(1) : localPhone,
+    ].filter(Boolean))
+  );
+
+  const { data, error } = await supabaseAdmin
     .from("applications")
     .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
-    .eq("phone", localPhone)
+    .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle();
+
+  if (error) {
+    console.error("findApplicationByPhone error:", error.message);
+    return null;
+  }
 
   return (data || null) as ApplicationRecord | null;
 }
@@ -1118,8 +1131,8 @@ function sanitizeAiReply(reply: string, fallback: string) {
     return fallback;
   }
 
-  if (clean.length > 2800) {
-    clean = clean.slice(0, 2700).trim();
+  if (clean.length > 2400) {
+    clean = clean.slice(0, 2300).trim();
   }
 
   return clean || fallback;
@@ -1134,15 +1147,19 @@ async function generateAiReply(input: AiReplyInput) {
   }
 
   const systemInstructions = `
-أنت موظف خدمة عملاء واتساب حقيقي لدى "الأمين للأقساط" في الأردن.
+أنت موظف/موظفة خدمة عملاء واتساب حقيقي لدى "الأمين للأقساط" في الأردن.
+
+القاعدة الذهبية:
+- افهم نية العميل أولًا.
+- لا تطلب رقم التتبع إلا إذا كان السؤال عن طلب محدد أو المتابعة تحتاج ربط الطلب.
+- إذا العميل غاضب أو كتب "نصب" أو اتهام أو شكوى: لا تطلب رقم التتبع فورًا، ابدأ بتهدئة واعتذار وتأكيد حقه، ثم اطلب البيانات كخطوة متابعة إذا لزم.
+- إذا العميل سأل سؤالًا عامًا مثل: موقعكم، عنوانكم، كيف الأقساط، الشروط، الدفع، الأجهزة: أجب مباشرة ولا تحوّل الرد لمتابعة طلب.
 
 شخصيتك وأسلوبك:
 - رد كإنسان طبيعي على واتساب، مش كنص رسمي جامد.
-- استخدم لهجة أردنية مهذبة وخفيفة، بدون مبالغة.
-- لا تكرر نفس الافتتاحية كل مرة، وغيّر اسم الموظف/الموظفة وطريقة الترحيب حسب الافتتاحية الموجودة في الرد الآمن.
-- خليك راقٍ، واضح، ومطمئن.
-- إذا العميل متضايق، ابدأ بتهدئة واحترام.
-- لا تكتب ردود طويلة بلا داعي.
+- استخدم لهجة أردنية مهذبة وواضحة.
+- لا تكرر نفس الافتتاحية.
+- خليك راقٍ، مختصر، ومطمئن.
 - استخدم إيموجي خفيف جدًا مثل 🌿 أو ✅ فقط عند الحاجة.
 - لا تقول إنك ذكاء اصطناعي.
 - لا تكتب JSON ولا شرح داخلي.
@@ -1151,43 +1168,36 @@ async function generateAiReply(input: AiReplyInput) {
 - الاسم الصحيح: "الأمين للأقساط".
 - النشاط فقط تقسيط أجهزة إلكترونية وهواتف.
 - لا نقدم قروضًا نقدية، ولا تمويلًا شخصيًا، ولا كاش.
-- إذا سأل العميل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
-- لا تذكر "الأمين للتمويل الأصغر" إلا للتوضيح إذا لزم.
+- إذا سأل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
 
 قواعد الدفع:
-- لا تطلب أي دفع إلا إذا الرد الآمن الأساسي يذكر صراحة رسوم فتح الملف.
 - رسوم فتح الملف 5 دنانير فقط.
 - الرسوم مستردة بالكامل في حال عدم الموافقة.
 - القسط الأول لا يُدفع الآن، بل بعد الاستلام حسب الاتفاق.
 - دفع رسوم فتح الملف لا يعني الموافقة النهائية.
+- لا تطلب دفعًا إلا إذا الرد الآمن الأساسي يذكر ذلك.
 
 قواعد المواعيد:
 - لا تخترع موعد تسليم.
-- يجب تأكيد أن جميع مواعيد التسليم والمتابعة ستكون بعد العيد، ابتداءً من الأحد 31/05/2026.
-- للأجهزة التي عليها موافقة نهائية فقط: التسليم بعد 31/05/2026 حسب جدول الإدارة وأولوية الطلبات.
-- الطلبات التي ما زالت قيد الدراسة، بحاجة كفيل، بحاجة كشف راتب، أو قيد مراجعة: المتابعة بعد العيد أيضًا، لكن الموعد النهائي يعتمد على نتيجة الدراسة وما يظهر من صفحة الإدارة.
-- إذا سأل العميل عن الأحد أو موعده، ابدأ باعتذار راقٍ جدًا عن التأخير، ثم وضح أن الموعد المعتمد بعد العيد 31/05/2026 حسب الحالة.
-- الاعتذار يجب أن يكون دافئًا ومحترمًا جدًا، وكأنه موظف حقيقي يحاول حفظ خاطر العميل.
+- جميع مواعيد التسليم والمتابعة بعد العيد، ابتداءً من الأحد 31/05/2026.
+- الموافق عليه نهائيًا: التسليم بعد 31/05/2026 حسب جدول الإدارة وأولوية الطلبات.
+- قيد الدراسة/كفيل/كشف راتب: المتابعة بعد العيد، لكن الموعد النهائي حسب نتيجة الدراسة وصفحة الإدارة.
 
-قواعد حالات الطلب:
-- إذا الحالة approved فقط، يجوز قول "موافقة نهائية".
-- إذا الحالة under_review أو confirmed payment تحت الدراسة، لا تقل موافقة.
-- إذا الحالة needs_guarantor، اطلب بيانات الكفيل بلطف ووضح أنها لاستكمال الدراسة وليست رفضًا.
-- إذا الحالة needs_salary_slip، اطلب كشف راتب أو شهادة راتب حديثة بلطف.
-- إذا الحالة refund_requested، أكد تسجيل طلب الاسترداد بدون تحديد وقت تنفيذ.
-- إذا الحالة customer_claimed_paid، أكد أن الوصل قيد مراجعة الإدارة واطلب عدم إعادة الدفع.
-- إذا لا يوجد طلب معروف، اطلب رقم التتبع ورقم الهاتف فقط إذا لم يكونا موجودين في رسالة العميل. إذا أرسلهما العميل ولم يتم العثور على الطلب، اعتذر بلطف واطلب التأكد من الرقمين.
-- التواصل الكتابي عبر واتساب أفضل من الاتصال بسبب ضغط الطلبات وتوثيق المتابعة.
+قواعد الحالات:
+- approved فقط تعني موافقة نهائية.
+- under_review ليست موافقة.
+- needs_guarantor يعني بحاجة كفيل لاستكمال الدراسة وليس رفضًا.
+- needs_salary_slip يعني بحاجة كشف راتب أو شهادة راتب.
+- refund_requested يعني طلب استرداد مسجل دون وعد بوقت تنفيذ.
+- customer_claimed_paid يعني الوصل قيد مراجعة الإدارة ولا يكرر الدفع.
 
-طريقة استخدام الرد الآمن:
-- الرد الآمن الأساسي هو مصدر الحقيقة.
-- أعد صياغته بشكل بشري ولطيف، لكن لا تخالفه.
-- لا تضف معلومة جديدة غير موجودة.
-- لا تغير حالة الطلب.
-- لا تتعهد بشيء غير موجود.
+استخدم "الرد الآمن الأساسي" كمصدر حقيقة، وصغه إنسانيًا دون مخالفة أو إضافة وعود.
 `;
 
   const userInput = `
+نية العميل المصنفة:
+${input.intent}
+
 رسالة العميل:
 ${input.customerText || "(لا يوجد نص واضح)"}
 
@@ -1219,8 +1229,8 @@ ${input.deterministicReply}
         model,
         instructions: systemInstructions,
         input: userInput,
-        temperature: 0.65,
-        max_output_tokens: 1000,
+        temperature: 0.75,
+        max_output_tokens: 900,
       }),
     });
 
@@ -1243,39 +1253,25 @@ async function buildReply(request: Request, from: string, text: string) {
   const baseUrl = getBaseUrl(request);
   const tracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
+  const intent = classifyIntent(text);
   const sensitive = looksSensitive(text);
 
   let app: ApplicationRecord | null = null;
 
   if (tracking && typedPhone) {
-    // أولًا نحاول المطابقة الصارمة: رقم التتبع + رقم الهاتف المكتوب بالرسالة.
     app = await findApplicationByTrackingAndPhone(tracking, typedPhone);
-
-    // إذا العميل كتب رقم الهاتف غلط أو الطلب محفوظ بصيغة مختلفة، رقم التتبع نفسه يكفي لأنه فريد.
-    if (!app) {
-      app = await findApplicationByTracking(tracking);
-    }
+    if (!app) app = await findApplicationByTracking(tracking);
   } else if (tracking) {
-    // مهم جدًا: إذا العميل أرسل رقم التتبع فقط، لا نربطه برقم واتساب المرسل.
-    // قد يكون العميل يراسل من رقم مختلف عن رقم الطلب، لذلك نبحث بالتتبع مباشرة.
     app = await findApplicationByTracking(tracking);
-
-    // احتياط إضافي لو كان التتبع مكررًا أو غير واضح.
-    if (!app) {
-      app = await findApplicationByTrackingAndPhone(tracking, from);
-    }
-  } else {
+    if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
+  } else if (intent === "order_status" || intent === "delivery" || intent === "payment" || intent === "refund" || intent === "complaint") {
     app = await findApplicationByPhone(from);
   }
 
+  let deterministicReply: string;
+
   if (app) {
-    let deterministicReply = safeReply(app, baseUrl, text);
-
-    if (sensitive) {
-      deterministicReply = `${deterministicReply}
-
-ولا يهمك، رح أرفع المحادثة للمتابعة حتى تنشاف بشكل أوضح من الإدارة.`;
-    }
+    deterministicReply = safeReply(app, baseUrl, text, intent);
 
     return generateAiReply({
       customerText: text,
@@ -1287,40 +1283,47 @@ async function buildReply(request: Request, from: string, text: string) {
       deviceName: app.device_name || null,
       isSensitive: sensitive,
       hasApplication: true,
+      intent,
     });
   }
 
-  if (tracking && typedPhone) {
-    const opening = humanOpening(from);
+  if (intent === "complaint") {
+    deterministicReply = complaintReply(baseUrl, from, null);
+  } else if (intent === "refund") {
+    deterministicReply = refundReply(baseUrl, from, null);
+  } else if (intent === "human_agent") {
+    deterministicReply = `${humanOpening(`${from}:human`)}
 
-    return generateAiReply({
-      customerText: text,
-      deterministicReply: `${opening}
+أكيد، بقدر أحوّل طلبك للمتابعة.
 
-فحصت رقم التتبع ورقم الهاتف اللي وصلوني، بس ما ظهر عندي طلب مطابق عليهم.
+اكتبلي باختصار شو المشكلة أو ابعث رقم التتبع إذا الموضوع متعلق بطلب، وأنا برتب لك الرد بطريقة واضحة.`;
+  } else if (intent === "loan") {
+    deterministicReply = loanReply(from);
+  } else if (intent === "website") {
+    deterministicReply = websiteReply(baseUrl, from);
+  } else if (intent === "location") {
+    deterministicReply = locationReply(from);
+  } else if (intent === "installment_info") {
+    deterministicReply = installmentInfoReply(baseUrl, from);
+  } else if (intent === "requirements") {
+    deterministicReply = requirementsReply(baseUrl, from);
+  } else if (intent === "apply") {
+    deterministicReply = applyReply(baseUrl, from);
+  } else if (intent === "products") {
+    deterministicReply = productsReply(baseUrl, from);
+  } else if (intent === "payment") {
+    deterministicReply = paymentGeneralReply(from);
+  } else if (intent === "delivery") {
+    deterministicReply = `${humanOpening(`${from}:delivery`)}
 
-خليني أتأكد معك من البيانات:
+نعتذر منك بصدق عن أي تأخير أو عدم وضوح بخصوص المواعيد.
 
-رقم التتبع:
-${tracking}
+التحديث المعتمد حاليًا:
+${POST_EID_DELIVERY_STRICT_TEXT}.
 
-رقم الهاتف:
-${typedPhone}
-
-ممكن يكون الرقم مسجل بطريقة مختلفة أو الطلب مربوط على رقم ثاني. إذا عندك صورة الطلب أو رقم تتبع آخر ابعثه وبفحصه لك.
-
-${BUSINESS_NAME}`,
-      isSensitive: sensitive,
-      hasApplication: false,
-    });
-  }
-
-  if (tracking && !typedPhone) {
-    const opening = humanOpening(from);
-
-    return generateAiReply({
-      customerText: text,
-      deterministicReply: `${opening}
+إذا بدك أفحص موعد طلبك تحديدًا، ابعث رقم التتبع، وبعطيك الحالة الموجودة عندي بدون تخمين.`;
+  } else if (tracking) {
+    deterministicReply = `${humanOpening(`${from}:tracking`)}
 
 فحصت رقم التتبع اللي وصلني:
 ${tracking}
@@ -1329,26 +1332,18 @@ ${tracking}
 
 ممكن يكون في رقم ناقص أو خطأ بسيط بالتتبع. ابعثلي صورة الطلب أو رقم الهاتف المستخدم بالطلب، وبراجعه لك فورًا.
 
-${BUSINESS_NAME}`,
-      isSensitive: sensitive,
-      hasApplication: false,
-    });
-  }
+${BUSINESS_NAME}`;
+  } else if (intent === "greeting") {
+    deterministicReply = `${humanOpening(`${from}:greeting`)}
 
-  let deterministicReply: string;
+كيف بقدر أساعدك اليوم؟
 
-  if (
-    asksAboutInstallmentInfo(text) ||
-    asksAboutRequirements(text) ||
-    asksHowToApply(text) ||
-    asksAboutLoan(text) ||
-    asksAboutPaymentOrFee(text)
-  ) {
-    deterministicReply = generalInstallmentInfoReply(baseUrl, from, text);
+اسألني مباشرة عن التقسيط، الشروط، الموقع، العنوان، الدفع، أو متابعة طلب، وبجاوبك بدون لف ودوران.`;
+  } else if (intent === "thanks") {
+    deterministicReply = `العفو 🌿
+بخدمتك بأي وقت.`;
   } else {
-    deterministicReply = isGreeting(text)
-      ? defaultGreeting(baseUrl, `${from}:${text}`)
-      : defaultAskForTracking(baseUrl, text, `${from}:${text}`);
+    deterministicReply = unknownReply(from);
   }
 
   return generateAiReply({
@@ -1356,6 +1351,7 @@ ${BUSINESS_NAME}`,
     deterministicReply,
     isSensitive: sensitive,
     hasApplication: false,
+    intent,
   });
 }
 
@@ -1405,9 +1401,9 @@ export async function POST(request: Request) {
         if (type !== "text" && type !== "image") {
           const reply = `أهلًا وسهلًا 🌿
 
-وصلتنا رسالتكم، لكن حاليًا أقدر أتعامل مع الرسائل النصية والصور فقط.
+وصلتنا رسالتكم، لكن حاليًا بقدر أتعامل مع الرسائل النصية والصور فقط.
 
-ابعث رقم التتبع ورقم الهاتف المستخدم بالطلب، وبفحصلك الحالة.
+اكتبلي طلبك نصيًا: تقسيط، متابعة طلب، دفع، عنوان، موقع، أو شكوى، وبساعدك مباشرة.
 
 ${BUSINESS_NAME}`;
 
