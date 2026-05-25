@@ -22,13 +22,42 @@ type WhatsAppMessage = {
   image?: { caption?: string };
 };
 
+type WhatsAppStatus = {
+  id?: string;
+  recipient_id?: string;
+  status?: string;
+  timestamp?: string;
+  conversation?: {
+    id?: string;
+    expiration_timestamp?: string;
+    origin?: { type?: string };
+  };
+  pricing?: {
+    billable?: boolean;
+    pricing_model?: string;
+    category?: string;
+  };
+  errors?: Array<{
+    code?: number;
+    title?: string;
+    message?: string;
+    error_data?: { details?: string };
+  }>;
+};
+
+type WhatsAppSendResult = {
+  ok: boolean;
+  messageId?: string | null;
+  responseText?: string;
+};
+
 type WhatsAppWebhookBody = {
   entry?: Array<{
     changes?: Array<{
       value?: {
         contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>;
         messages?: WhatsAppMessage[];
-        statuses?: unknown[];
+        statuses?: WhatsAppStatus[];
       };
     }>;
   }>;
@@ -1034,18 +1063,31 @@ async function findApplicationByTrackingAndPhone(tracking: string, phone: string
   return (data || null) as ApplicationRecord | null;
 }
 
-async function sendWhatsAppText(to: string, body: string) {
+async function sendWhatsAppText(to: string, body: string): Promise<WhatsAppSendResult> {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const graphVersion = process.env.GRAPH_API_VERSION || "v20.0";
 
   if (!token || !phoneNumberId) {
-    console.error("Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_NUMBER_ID");
-    return;
+    const responseText = "Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_NUMBER_ID";
+    console.error(responseText);
+
+    return {
+      ok: false,
+      messageId: null,
+      responseText,
+    };
   }
 
   const cleanTo = normalizeWhatsAppToSend(to);
-  if (!cleanTo) return;
+
+  if (!cleanTo) {
+    return {
+      ok: false,
+      messageId: null,
+      responseText: "Missing or invalid WhatsApp recipient",
+    };
+  }
 
   const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
     method: "POST",
@@ -1061,9 +1103,32 @@ async function sendWhatsAppText(to: string, body: string) {
     }),
   });
 
+  const responseText = await response.text();
+
   if (!response.ok) {
-    console.error("WhatsApp send failed:", await response.text());
+    console.error("WhatsApp send failed:", responseText);
+
+    return {
+      ok: false,
+      messageId: null,
+      responseText,
+    };
   }
+
+  let messageId: string | null = null;
+
+  try {
+    const data = JSON.parse(responseText);
+    messageId = data?.messages?.[0]?.id || null;
+  } catch {
+    messageId = null;
+  }
+
+  return {
+    ok: true,
+    messageId,
+    responseText,
+  };
 }
 
 async function logMessage(input: {
@@ -1071,8 +1136,10 @@ async function logMessage(input: {
   direction: "incoming" | "outgoing";
   body: string;
   customerName?: string;
-  messageId?: string;
+  messageId?: string | null;
   messageType?: string;
+  status?: string | null;
+  rawPayload?: unknown;
 }) {
   try {
     await supabaseAdmin.from("whatsapp_messages").insert({
@@ -1082,9 +1149,59 @@ async function logMessage(input: {
       message_id: input.messageId || null,
       message_type: input.messageType || "text",
       body: input.body,
+      status: input.status || null,
+      raw_payload: input.rawPayload || null,
     });
   } catch {
-    // لا نوقف الرد إذا جدول النسخ الاحتياطي غير موجود
+    // لا نوقف الرد إذا جدول النسخ الاحتياطي غير موجود أو فيه أعمدة ناقصة.
+  }
+}
+
+async function logStatusUpdate(status: WhatsAppStatus) {
+  const messageId = status.id || "";
+  const waId = status.recipient_id || "";
+  const statusValue = status.status || "unknown";
+  const statusTimestamp = status.timestamp
+    ? new Date(Number(status.timestamp) * 1000).toISOString()
+    : new Date().toISOString();
+
+  if (!messageId && !waId) return;
+
+  try {
+    if (messageId) {
+      const { data: existingRows } = await supabaseAdmin
+        .from("whatsapp_messages")
+        .select("id")
+        .eq("message_id", messageId)
+        .limit(1);
+
+      if (existingRows && existingRows.length > 0) {
+        await supabaseAdmin
+          .from("whatsapp_messages")
+          .update({
+            status: statusValue,
+            status_timestamp: statusTimestamp,
+            raw_payload: status,
+          })
+          .eq("message_id", messageId);
+
+        return;
+      }
+    }
+
+    await supabaseAdmin.from("whatsapp_messages").insert({
+      wa_id: waId || null,
+      direction: "status",
+      customer_name: null,
+      message_id: messageId || null,
+      message_type: "status",
+      body: statusValue,
+      status: statusValue,
+      status_timestamp: statusTimestamp,
+      raw_payload: status,
+    });
+  } catch {
+    // لا نوقف webhook إذا جدول الرسائل غير موجود أو فيه اختلاف أعمدة.
   }
 }
 
@@ -1383,6 +1500,10 @@ export async function POST(request: Request) {
       const value = change.value;
       const contactName = value?.contacts?.[0]?.profile?.name || "";
 
+      for (const status of value?.statuses || []) {
+        await logStatusUpdate(status);
+      }
+
       for (const message of value?.messages || []) {
         const from = message.from || "";
         const type = message.type || "unknown";
@@ -1402,6 +1523,7 @@ export async function POST(request: Request) {
           customerName: contactName,
           messageId: message.id,
           messageType: type,
+          rawPayload: message,
         });
 
         if (type !== "text" && type !== "image") {
@@ -1413,14 +1535,33 @@ export async function POST(request: Request) {
 
 ${BUSINESS_NAME}`;
 
-          await sendWhatsAppText(from, reply);
-          await logMessage({ waId: from, direction: "outgoing", body: reply });
+          const sendResult = await sendWhatsAppText(from, reply);
+
+          await logMessage({
+            waId: from,
+            direction: "outgoing",
+            body: reply,
+            messageId: sendResult.messageId || null,
+            messageType: "text",
+            status: sendResult.ok ? "sent_to_meta" : "failed",
+            rawPayload: sendResult,
+          });
+
           continue;
         }
 
         const reply = await buildReply(request, from, text);
-        await sendWhatsAppText(from, reply);
-        await logMessage({ waId: from, direction: "outgoing", body: reply });
+        const sendResult = await sendWhatsAppText(from, reply);
+
+        await logMessage({
+          waId: from,
+          direction: "outgoing",
+          body: reply,
+          messageId: sendResult.messageId || null,
+          messageType: "text",
+          status: sendResult.ok ? "sent_to_meta" : "failed",
+          rawPayload: sendResult,
+        });
       }
     }
   }
