@@ -68,6 +68,11 @@ type ApplicationRecord = {
   payment_status?: string | null;
   delivery_delay_started_at?: string | null;
   delivery_delay_until?: string | null;
+
+  preliminary_qualified_at?: string | null;
+  preliminary_whatsapp_sent_at?: string | null;
+  preliminary_whatsapp_status?: string | null;
+  preliminary_whatsapp_error?: string | null;
 };
 
 type DocumentRecord = {
@@ -1023,6 +1028,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       status?: string;
       payment_status?: string;
       payment_confirmed_at?: string;
+      preliminary_qualified_at?: string;
     } = {};
 
     if (nextStatus) updatePayload.status = nextStatus;
@@ -1030,6 +1036,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
     if (nextPaymentStatus === "confirmed") {
       updatePayload.payment_confirmed_at = new Date().toISOString();
+    }
+
+    if (nextStatus === "preliminary_qualified") {
+      updatePayload.preliminary_qualified_at = new Date().toISOString();
     }
 
     if (Object.keys(updatePayload).length === 0) {
