@@ -1028,11 +1028,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       status?: string;
       payment_status?: string;
       payment_confirmed_at?: string;
-      paid_clicked_at?: string;
       preliminary_qualified_at?: string;
-      preliminary_whatsapp_sent_at?: string | null;
-      preliminary_whatsapp_status?: string | null;
-      preliminary_whatsapp_error?: string | null;
     } = {};
 
     if (nextStatus) updatePayload.status = nextStatus;
@@ -1042,15 +1038,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       updatePayload.payment_confirmed_at = new Date().toISOString();
     }
 
-    if (nextPaymentStatus === "customer_claimed_paid") {
-      updatePayload.paid_clicked_at = new Date().toISOString();
-    }
-
     if (nextStatus === "preliminary_qualified") {
       updatePayload.preliminary_qualified_at = new Date().toISOString();
-      updatePayload.preliminary_whatsapp_sent_at = null;
-      updatePayload.preliminary_whatsapp_status = null;
-      updatePayload.preliminary_whatsapp_error = null;
     }
 
     if (Object.keys(updatePayload).length === 0) {
@@ -1282,55 +1271,17 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               action={updateApplicationAction}
             />
 
-            <StatusActionButton
-              applicationId={app.id}
-              status="customer_confirmed_continue"
-              paymentStatus="payment_info_sent"
-              label="العميل وافق / أرسل الدفع"
-              className="border border-[#d6b56b]/30 bg-[#d6b56b]/15 text-[#f3dfac] hover:bg-[#d6b56b]/25"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="pending_payment_confirmation"
-              paymentStatus="customer_claimed_paid"
-              label="وصل مرفوع / بانتظار التأكيد"
-              className="border border-sky-300/25 bg-sky-950/25 text-sky-100 hover:bg-sky-950/40"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="under_review"
-              paymentStatus="confirmed"
-              label="تأكيد الدفع / قيد الدراسة"
-              className="green-button"
-              action={updateApplicationAction}
+            <WhatsAppButton
+              href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+              label="طلب إضافة الهوية"
+              className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
             />
 
             <StatusActionButton
               applicationId={app.id}
               status="needs_salary_slip"
-              label="بحاجة كشف راتب"
+              label="بحاجة كشف راتب / أو دفع القسط الأول"
               className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="salary_slip_uploaded"
-              label="تم استلام كشف الراتب"
-              className="border border-purple-300/25 bg-purple-950/20 text-purple-100 hover:bg-purple-950/35"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="first_installment_requested"
-              paymentStatus="first_installment_whatsapp"
-              label="طلب القسط الأول"
-              className="border border-[#d6b56b]/25 bg-[#d6b56b]/10 text-[#f3dfac] hover:bg-[#d6b56b]/20"
               action={updateApplicationAction}
             />
 
@@ -1352,35 +1303,18 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
             <StatusActionButton
               applicationId={app.id}
+              status="under_review"
+              paymentStatus="confirmed"
+              label="تأكيد الدفع / قيد الدراسة"
+              className="green-button"
+              action={updateApplicationAction}
+            />
+
+            <StatusActionButton
+              applicationId={app.id}
               status="approved"
               label="قبول الطلب"
               className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.20)]"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="refund_requested"
-              paymentStatus="refund_requested"
-              label="طلب استرداد"
-              className="border border-orange-300/25 bg-orange-950/25 text-orange-100 hover:bg-orange-950/40"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="refund_completed"
-              paymentStatus="refund_completed"
-              label="تم تنفيذ الاسترداد"
-              className="border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0] hover:bg-[rgba(105,217,123,0.18)]"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="customer_declined_continue"
-              label="العميل لا يرغب بالاستمرار"
-              className="border border-red-400/25 bg-red-950/20 text-red-100 hover:bg-red-950/35"
               action={updateApplicationAction}
             />
 
@@ -1402,7 +1336,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           </div>
 
           <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
-            فلو العمل: كل زر يحدّث حالة الطلب والدفع فورًا، والـ WhatsApp AI يقرأ هذه الحالة عند سؤال العميل. ردود "أود الاستمرار" و"لا أرغب" و"دفعت/أرسلت الوصل" أصبحت تُحدّث الطلب تلقائيًا من واتساب عند ربط الرقم أو رقم التتبع.
+            فلو العمل: الطلب يدخل كـ طلب مبدئي، ثم تقرر الإدارة: مؤهل مبدئياً، أو بحاجة كشف راتب / خيار دفع القسط الأول، أو بحاجة كفيل عبر رابط خاص، أو رفض.
           </div>
         </section>
 
