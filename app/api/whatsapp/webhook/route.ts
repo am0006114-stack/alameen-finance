@@ -402,12 +402,15 @@ function statusHumanLabel(status: string) {
   switch (status) {
     case "preliminary_qualified": return "مؤهل مبدئيًا";
     case "customer_confirmed_continue": return "تم تأكيد رغبتكم بالاستمرار";
+    case "customer_declined_continue": return "العميل لا يرغب بالاستمرار";
     case "under_review": return "قيد الدراسة النهائية";
     case "approved": return "موافقة نهائية";
     case "rejected": return "غير موافق عليه حاليًا";
     case "needs_identity": return "بانتظار صورة الهوية";
     case "identity_requested": return "بانتظار صورة الهوية";
     case "needs_salary_slip": return "بانتظار كشف راتب / شهادة راتب";
+    case "salary_slip_uploaded": return "تم استلام كشف الراتب";
+    case "first_installment_requested": return "بانتظار دفع القسط الأول";
     case "needs_guarantor": return "بانتظار بيانات كفيل";
     case "guarantor_submitted": return "تم استلام بيانات الكفيل";
     case "customer_accepts_delivery_delay": return "تم اختيار الانتظار للموعد الجديد";
@@ -904,6 +907,53 @@ ${BUSINESS_NAME}`;
 
 رقم التتبع:
 ${tracking}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "customer_declined_continue") {
+    return `أهلًا ${name} 🌿
+
+تم تسجيل عدم رغبتكم بالاستمرار حاليًا.
+
+الطلب ظاهر لدينا كغير مستمر، ولا يوجد أي دفع مطلوب.
+
+إذا كان هذا القرار بالخطأ أو رغبتكم بإعادة المتابعة لاحقًا، ابعثوا رقم التتبع وسنحوّله للمتابعة.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "salary_slip_uploaded") {
+    return `أهلًا ${name} 🌿
+
+تم استلام كشف الراتب / شهادة الراتب وربطها بطلبكم.
+
+الطلب الآن بانتظار متابعة الإدارة للخطوة التالية. لا يوجد أي دفع مطلوب حاليًا إلا إذا ظهرت تعليمات جديدة من الإدارة.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "first_installment_requested" || paymentStatus === "first_installment_whatsapp") {
+    return `أهلًا ${name} 🌿
+
+حسب تحديث الإدارة، مطلوب اختيار/استكمال إجراء القسط الأول قبل المتابعة النهائية.
+
+يرجى متابعة التعليمات التي وصلتكم من الإدارة أو إرسال رقم التتبع ليتم تحويل الحالة للمتابعة.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
 
 ${BUSINESS_NAME}`;
   }
