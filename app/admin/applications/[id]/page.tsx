@@ -1271,12 +1271,6 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               action={updateApplicationAction}
             />
 
-            <WhatsAppButton
-              href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
-              label="طلب إضافة الهوية"
-              className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
-            />
-
             <StatusActionButton
               applicationId={app.id}
               status="needs_salary_slip"
@@ -1332,6 +1326,12 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               label="إلغاء الطلب"
               className="soft-button"
               action={updateApplicationAction}
+            />
+
+            <WhatsAppButton
+              href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+              label="طلب إضافة الهوية"
+              className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
             />
           </div>
 
