@@ -193,124 +193,6 @@ function isGreeting(text: string) {
   return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t);
 }
 
-function isCustomerContinueReply(text: string) {
-  const t = normalizeArabicText(text);
-
-  if (!t) return false;
-
-  return hasAny(t, [
-    "اود الاستمرار",
-    "اود الاستمرار",
-    "اريد الاستمرار",
-    "بدي استمر",
-    "بدي اكمل",
-    "بدي اكمل الطلب",
-    "بكمل",
-    "اكمل",
-    "استمر",
-    "استمرار",
-    "موافق على الاستمرار",
-    "اوافق على الاستمرار",
-    "موافق اكمل",
-    "موافق كمل",
-    "تمام كمل",
-    "كمل",
-    "افتح الملف",
-    "فتح الملف",
-    "حول الطلب للدراسة",
-    "نعم اود",
-    "نعم بدي اكمل",
-    "yes continue",
-    "continue",
-  ]);
-}
-
-function isCustomerDeclineReply(text: string) {
-  const t = normalizeArabicText(text);
-
-  if (!t) return false;
-
-  return hasAny(t, [
-    "لا ارغب",
-    "لا اريد",
-    "لا بدي",
-    "ما بدي",
-    "مش حاب اكمل",
-    "مش حابه اكمل",
-    "ما بدي اكمل",
-    "لا تكمل",
-    "لا تكملوا",
-    "الغاء الطلب",
-    "الغاء",
-    "الغي الطلب",
-    "الغوه",
-    "لغوه",
-    "بدي الغي",
-    "بدي الغي الطلب",
-    "ما عاد بدي",
-    "مش مهتم",
-    "غير مهتم",
-    "لا ارغب بالاستمرار حاليا",
-    "no continue",
-    "cancel",
-  ]);
-}
-
-function customerDeclinedMessage(app: ApplicationRecord) {
-  const name = firstTwoNames(app.full_name);
-  const tracking = app.tracking_id || app.id;
-
-  return `تم ${name} 🌿
-
-بناءً على ردّكم، تم إلغاء طلبكم تلقائيًا وعدم الاستمرار بفتح الملف.
-
-رقم التتبع:
-${tracking}
-
-لن يتم طلب أي دفع منكم على هذا الطلب.
-وإذا حبيتوا تقدموا من جديد لاحقًا، أهلاً وسهلًا فيكم بأي وقت.
-
-${BUSINESS_NAME}`;
-}
-
-async function applyCustomerContinueDecision(app: ApplicationRecord) {
-  const { data, error } = await supabaseAdmin
-    .from("applications")
-    .update({
-      status: "customer_confirmed_continue",
-      payment_status: "payment_info_sent",
-    })
-    .eq("id", app.id)
-    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to apply customer continue decision:", error.message);
-    return app;
-  }
-
-  return (data || app) as ApplicationRecord;
-}
-
-async function applyCustomerDeclineDecision(app: ApplicationRecord) {
-  const { data, error } = await supabaseAdmin
-    .from("applications")
-    .update({
-      status: "cancelled",
-      payment_status: "not_requested_yet",
-    })
-    .eq("id", app.id)
-    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
-    .maybeSingle();
-
-  if (error) {
-    console.error("Failed to apply customer decline decision:", error.message);
-    return app;
-  }
-
-  return (data || app) as ApplicationRecord;
-}
-
 
 const ANGRY_CUSTOMER_KEYWORDS = [
   // اتهامات نصب / احتيال / سرقة
@@ -523,6 +405,8 @@ function statusHumanLabel(status: string) {
     case "under_review": return "قيد الدراسة النهائية";
     case "approved": return "موافقة نهائية";
     case "rejected": return "غير موافق عليه حاليًا";
+    case "needs_identity": return "بانتظار صورة الهوية";
+    case "identity_requested": return "بانتظار صورة الهوية";
     case "needs_salary_slip": return "بانتظار كشف راتب / شهادة راتب";
     case "needs_guarantor": return "بانتظار بيانات كفيل";
     case "guarantor_submitted": return "تم استلام بيانات الكفيل";
@@ -1024,6 +908,26 @@ ${tracking}
 ${BUSINESS_NAME}`;
   }
 
+  if (status === "needs_identity" || status === "identity_requested") {
+    return `أهلًا ${name} 🌿
+
+طلبكم بحاجة صورة هوية واضحة لاستكمال المراجعة.
+
+يرجى إرسال صورة هوية مقدم الطلب:
+- الوجه الأمامي
+- الوجه الخلفي
+
+ملاحظة مهمة: لا يمكن استكمال دراسة الطلب قبل وصول صور الهوية بشكل واضح.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
   if (status === "needs_salary_slip") {
     return `أهلًا ${name} 🌿
 
@@ -1338,139 +1242,6 @@ async function logMessage(input: {
   }
 }
 
-
-function getDiscordWebhookUrl() {
-  return (
-    process.env.DISCORD_WEBHOOK_URL ||
-    process.env.DISCORD_NOTIFICATIONS_WEBHOOK_URL ||
-    process.env.DISCORD_ORDERS_WEBHOOK_URL ||
-    process.env.DISCORD_WEBHOOK ||
-    ""
-  );
-}
-
-function trimForDiscord(value: string | null | undefined, max = 950) {
-  const text = String(value || "").trim();
-  if (!text) return "—";
-  return text.length > max ? `${text.slice(0, max - 3)}...` : text;
-}
-
-function applicationAdminUrl(baseUrl: string, app: ApplicationRecord | null | undefined) {
-  if (!app?.id) return baseUrl;
-  return `${baseUrl}/admin/applications/${encodeURIComponent(app.id)}`;
-}
-
-async function notifyDiscordCustomerDecision(input: {
-  decision: "continue" | "decline" | "unmatched_continue" | "unmatched_decline";
-  app?: ApplicationRecord | null;
-  from: string;
-  customerText: string;
-  replyText: string;
-  baseUrl: string;
-}) {
-  const webhookUrl = getDiscordWebhookUrl();
-
-  if (!webhookUrl) {
-    console.warn("Missing Discord webhook env var. Set DISCORD_WEBHOOK_URL to receive customer decision notifications.");
-    return;
-  }
-
-  const cleanPhone = normalizeWhatsAppToSend(input.from);
-  const isContinue = input.decision === "continue" || input.decision === "unmatched_continue";
-  const isUnmatched = input.decision === "unmatched_continue" || input.decision === "unmatched_decline";
-  const app = input.app || null;
-  const title = isUnmatched
-    ? isContinue
-      ? "⚠️ عميل وافق على الاستمرار لكن لم يتم العثور على الطلب"
-      : "⚠️ عميل رفض الاستمرار لكن لم يتم العثور على الطلب"
-    : isContinue
-      ? "✅ العميل وافق على الاستمرار — تم إرسال تعليمات الدفع"
-      : "❌ العميل رفض الاستمرار — تم إلغاء الطلب تلقائيًا";
-
-  const color = isUnmatched ? 0xf59e0b : isContinue ? 0x22c55e : 0xef4444;
-  const mention = process.env.DISCORD_ADMIN_MENTION || "";
-
-  const fields = [
-    {
-      name: "العميل",
-      value: trimForDiscord(app?.full_name || "غير معروف"),
-      inline: true,
-    },
-    {
-      name: "رقم واتساب",
-      value: cleanPhone ? `+${cleanPhone}` : trimForDiscord(input.from),
-      inline: true,
-    },
-    {
-      name: "رقم التتبع",
-      value: trimForDiscord(app?.tracking_id || app?.id || "غير مربوط بطلب"),
-      inline: true,
-    },
-    {
-      name: "الجهاز",
-      value: trimForDiscord(app?.device_name || "—"),
-      inline: true,
-    },
-    {
-      name: "الحالة الجديدة",
-      value: isUnmatched
-        ? "لم يتم تنفيذ أي تعديل لأن الطلب غير معروف"
-        : isContinue
-          ? "customer_confirmed_continue / payment_info_sent"
-          : "cancelled / not_requested_yet",
-      inline: false,
-    },
-    {
-      name: "رسالة العميل",
-      value: trimForDiscord(input.customerText, 900),
-      inline: false,
-    },
-    {
-      name: "رد النظام",
-      value: trimForDiscord(input.replyText, 900),
-      inline: false,
-    },
-  ];
-
-  if (app?.id) {
-    fields.push({
-      name: "رابط الطلب في الأدمن",
-      value: applicationAdminUrl(input.baseUrl, app),
-      inline: false,
-    });
-  }
-
-  try {
-    const response = await fetch(webhookUrl, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        content: mention || undefined,
-        username: "Al Ameen WhatsApp AI",
-        embeds: [
-          {
-            title,
-            color,
-            fields,
-            timestamp: new Date().toISOString(),
-            footer: {
-              text: "الأمين للأقساط | WhatsApp Automation",
-            },
-          },
-        ],
-      }),
-    });
-
-    if (!response.ok) {
-      console.error("Discord customer decision notification failed:", await response.text());
-    }
-  } catch (error) {
-    console.error("Discord customer decision notification error:", error);
-  }
-}
-
 function extractOpenAiText(data: any) {
   if (typeof data?.output_text === "string" && data.output_text.trim()) {
     return data.output_text.trim();
@@ -1580,6 +1351,7 @@ async function generateAiReply(input: AiReplyInput) {
 - approved فقط تعني موافقة نهائية.
 - under_review ليست موافقة.
 - needs_guarantor يعني بحاجة كفيل لاستكمال الدراسة وليس رفضًا.
+- needs_identity أو identity_requested يعني بحاجة صورة الهوية الأمامية والخلفية لاستكمال الدراسة.
 - needs_salary_slip يعني بحاجة كشف راتب أو شهادة راتب.
 - refund_requested يعني طلب استرداد مسجل دون وعد بوقت تنفيذ.
 - customer_claimed_paid يعني الوصل قيد مراجعة الإدارة ولا يكرر الدفع.
@@ -1648,8 +1420,6 @@ async function buildReply(request: Request, from: string, text: string) {
   const typedPhone = extractJordanPhoneFromText(text);
   const intent = classifyIntent(text);
   const sensitive = looksSensitive(text);
-  const wantsToContinue = isCustomerContinueReply(text);
-  const wantsToDecline = isCustomerDeclineReply(text);
 
   let app: ApplicationRecord | null = null;
 
@@ -1659,64 +1429,11 @@ async function buildReply(request: Request, from: string, text: string) {
   } else if (tracking) {
     app = await findApplicationByTracking(tracking);
     if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
-  } else if (wantsToContinue || wantsToDecline || intent === "order_status" || intent === "delivery" || intent === "payment" || intent === "refund" || intent === "complaint") {
+  } else if (intent === "order_status" || intent === "delivery" || intent === "payment" || intent === "refund" || intent === "complaint") {
     app = await findApplicationByPhone(from);
   }
 
   let deterministicReply: string;
-
-  if (app && wantsToContinue && !wantsToDecline) {
-    const updatedApp = await applyCustomerContinueDecision(app);
-    const reply = paymentMessage(updatedApp, baseUrl);
-
-    await notifyDiscordCustomerDecision({
-      decision: "continue",
-      app: updatedApp,
-      from,
-      customerText: text,
-      replyText: reply,
-      baseUrl,
-    });
-
-    return reply;
-  }
-
-  if (app && wantsToDecline) {
-    const updatedApp = await applyCustomerDeclineDecision(app);
-    const reply = customerDeclinedMessage(updatedApp);
-
-    await notifyDiscordCustomerDecision({
-      decision: "decline",
-      app: updatedApp,
-      from,
-      customerText: text,
-      replyText: reply,
-      baseUrl,
-    });
-
-    return reply;
-  }
-
-  if (!app && (wantsToContinue || wantsToDecline)) {
-    deterministicReply = `${humanOpening(`${from}:customer-decision`)}
-
-وصلني ردّك، لكن ما قدرت أربطه بطلب محدد من رقم الواتساب الحالي.
-
-ابعثلي رقم التتبع الذي يبدأ بـ AM- أو رقم الهاتف المستخدم في الطلب، وبس أوصل للطلب بعمل الإجراء مباشرة.
-
-${BUSINESS_NAME}`;
-
-    await notifyDiscordCustomerDecision({
-      decision: wantsToContinue ? "unmatched_continue" : "unmatched_decline",
-      app: null,
-      from,
-      customerText: text,
-      replyText: deterministicReply,
-      baseUrl,
-    });
-
-    return deterministicReply;
-  }
 
   if (app) {
     deterministicReply = safeReply(app, baseUrl, text, intent);

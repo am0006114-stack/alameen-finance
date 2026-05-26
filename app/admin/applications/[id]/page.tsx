@@ -240,6 +240,10 @@ function translateStatus(status: string | null | undefined) {
       return "طلب استرداد الرسوم";
     case "refund_completed":
       return "تم تنفيذ الاسترداد";
+    case "needs_identity":
+      return "بحاجة صورة الهوية";
+    case "identity_requested":
+      return "تم طلب صورة الهوية";
     case "needs_salary_slip":
       return "بحاجة كشف راتب";
     case "salary_slip_link_sent":
@@ -351,6 +355,8 @@ function statusClass(status: string | null | undefined) {
       return "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]";
     case "rejected":
     case "customer_declined_continue":
+    case "needs_identity":
+    case "identity_requested":
       return "border-red-400/30 bg-red-950/25 text-red-200";
     case "preliminary_qualified":
     case "qualification_link_sent":
@@ -1273,6 +1279,14 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
             <StatusActionButton
               applicationId={app.id}
+              status="needs_identity"
+              label="طلب صورة الهوية"
+              className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
+              action={updateApplicationAction}
+            />
+
+            <StatusActionButton
+              applicationId={app.id}
               status="needs_salary_slip"
               label="بحاجة كشف راتب / أو دفع القسط الأول"
               className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
@@ -1327,16 +1341,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               className="soft-button"
               action={updateApplicationAction}
             />
-
-            <WhatsAppButton
-              href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
-              label="طلب إضافة الهوية"
-              className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
-            />
           </div>
 
           <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
-            فلو العمل: الطلب يدخل كـ طلب مبدئي، ثم تقرر الإدارة: مؤهل مبدئياً، أو بحاجة كشف راتب / خيار دفع القسط الأول، أو بحاجة كفيل عبر رابط خاص، أو رفض.
+            فلو العمل: الطلب يدخل كـ طلب مبدئي، ثم تقرر الإدارة: مؤهل مبدئياً، أو طلب صورة الهوية، أو بحاجة كشف راتب / خيار دفع القسط الأول، أو بحاجة كفيل عبر رابط خاص، أو رفض. عند اختيار طلب صورة الهوية سيقرأ WhatsApp AI الحالة تلقائياً ويرد على العميل بطلب الهوية عند سؤاله أو مراسلته.
           </div>
         </section>
 
