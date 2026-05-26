@@ -46,6 +46,9 @@ type CustomerIntent =
   | "apply"
   | "products"
   | "payment"
+  | "payment_receipt"
+  | "continue_request"
+  | "decline_continue"
   | "delivery"
   | "order_status"
   | "greeting"
@@ -253,6 +256,143 @@ function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   return finalIntent === "complaint" || finalIntent === "refund" || finalIntent === "human_agent" || isAngryCustomerText(text);
 }
 
+
+const CONTINUE_REQUEST_KEYWORDS = [
+  "اود الاستمرار", "أود الاستمرار", "ارغب بالاستمرار", "أرغب بالاستمرار", "بدي استمر", "بدي أكمل", "بدي اكمل",
+  "موافق", "موافقه", "موافقة", "تمام كمل", "كمل", "كمّل", "استمر", "افتح الملف", "فتح الملف", "اكمل الطلب",
+  "نعم اريد", "نعم أريد", "yes", "continue", "ok continue", "تمام افتح", "بدي افتح الملف", "انا موافق",
+];
+
+const DECLINE_CONTINUE_KEYWORDS = [
+  "لا ارغب", "لا أرغب", "لا اريد", "لا أريد", "مش حاب", "مش حابه", "ما بدي", "بديش", "الغاء", "إلغاء",
+  "الغي الطلب", "إلغي الطلب", "الغوا الطلب", "إلغوا الطلب", "cancel", "stop", "مش مكمل", "ما بدي اكمل",
+  "لا تكمل", "خلص بلاش", "بلاش", "مش مهتم", "لا حاليا", "لا حاليًا",
+];
+
+const PAYMENT_RECEIPT_KEYWORDS = [
+  "دفعت", "تم الدفع", "حولت", "حوّلت", "حواله", "حوالة", "بعتت الوصل", "بعثت الوصل", "ارسلت الوصل", "أرسلت الوصل",
+  "رفعت الوصل", "رفعت الايصال", "رفعت الإيصال", "وصل الدفع", "ايصال الدفع", "إيصال الدفع", "هاي صورة الدفع",
+  "هاي الوصل", "هاي الايصال", "هاي الإيصال", "attached receipt", "payment receipt", "paid", "i paid",
+];
+
+function isContinueRequestText(text: string) {
+  return hasAny(text, CONTINUE_REQUEST_KEYWORDS);
+}
+
+function isDeclineContinueText(text: string) {
+  return hasAny(text, DECLINE_CONTINUE_KEYWORDS);
+}
+
+function isPaymentReceiptText(text: string) {
+  return hasAny(text, PAYMENT_RECEIPT_KEYWORDS);
+}
+
+function canSendPaymentInfo(app: ApplicationRecord) {
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+
+  return (
+    status === "preliminary_qualified" ||
+    status === "qualification_link_sent" ||
+    status === "customer_confirmed_continue" ||
+    paymentStatus === "not_requested_yet" ||
+    paymentStatus === "pending" ||
+    paymentStatus === "pending_payment" ||
+    paymentStatus === "payment_info_sent"
+  );
+}
+
+async function updateApplicationWorkflowState(
+  app: ApplicationRecord,
+  payload: {
+    status?: string;
+    payment_status?: string;
+    payment_confirmed_at?: string | null;
+    preliminary_qualified_at?: string | null;
+  }
+) {
+  if (!app.id || Object.keys(payload).length === 0) return;
+
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .update(payload)
+    .eq("id", app.id);
+
+  if (error) {
+    console.error("Failed to update WhatsApp workflow state:", error.message);
+  }
+}
+
+function confirmedContinueReply(app: ApplicationRecord, baseUrl: string) {
+  return paymentMessage(
+    {
+      ...app,
+      status: "customer_confirmed_continue",
+      payment_status: "payment_info_sent",
+    },
+    baseUrl
+  );
+}
+
+function declinedContinueReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+تم تسجيل رغبتكم بعدم الاستمرار في فتح ملف الدراسة النهائية حاليًا.
+
+لن يتم طلب أي رسوم فتح ملف على هذا الطلب، وبإمكانكم التقديم لاحقًا عند الحاجة.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+}
+
+function paymentReceiptReceivedReply(app: ApplicationRecord, baseUrl: string, messageType = "text") {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const uploadedText =
+    messageType === "image"
+      ? "تم استلام صورة الوصل / الإيصال من خلال واتساب."
+      : "تم تسجيل إشعاركم بخصوص الدفع.";
+
+  return `أهلًا ${name} 🌿
+
+${uploadedText}
+
+سيتم مراجعة وصل الدفع من الإدارة، والطلب الآن بانتظار تأكيد الدفع.
+
+يرجى عدم إعادة الدفع مرة ثانية حتى لا يصير تكرار بالدفع.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${trackUrl(baseUrl, app)}
+
+${BUSINESS_NAME}`;
+}
+
+function receiptUploadRequiredReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+إذا تم الدفع، يرجى رفع صورة وصل الدفع من الرابط التالي حتى تقدر الإدارة تراجعه وتؤكد فتح الملف:
+
+${receiptUrl(baseUrl, app)}
+
+رقم التتبع:
+${tracking}
+
+تنبيه مهم: لا تعيد الدفع مرة ثانية إذا كنت دفعت بالفعل، فقط ارفع الوصل.
+
+${BUSINESS_NAME}`;
+}
+
 function complaintReasonLabel(text: string) {
   const t = normalizeArabicText(text);
   const reasons: string[] = [];
@@ -305,6 +445,18 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isAngryCustomerText(t)) {
     return "complaint";
+  }
+
+  if (isDeclineContinueText(t)) {
+    return "decline_continue";
+  }
+
+  if (isContinueRequestText(t)) {
+    return "continue_request";
+  }
+
+  if (isPaymentReceiptText(t)) {
+    return "payment_receipt";
   }
 
   if (hasAny(t, ["استرداد", "استرجاع", "رجعولي", "بدي فلوسي", "رجعوا فلوسي", "refund", "استرجع الرسوم"])) {
@@ -402,10 +554,15 @@ function statusHumanLabel(status: string) {
   switch (status) {
     case "preliminary_qualified": return "مؤهل مبدئيًا";
     case "customer_confirmed_continue": return "تم تأكيد رغبتكم بالاستمرار";
+    case "customer_declined_continue": return "تم تسجيل عدم الرغبة بالاستمرار";
+    case "payment_info_sent": return "تم إرسال معلومات الدفع";
     case "under_review": return "قيد الدراسة النهائية";
     case "approved": return "موافقة نهائية";
     case "rejected": return "غير موافق عليه حاليًا";
     case "needs_salary_slip": return "بانتظار كشف راتب / شهادة راتب";
+    case "salary_slip_link_sent": return "تم إرسال رابط كشف الراتب";
+    case "salary_slip_uploaded": return "تم استلام كشف الراتب";
+    case "first_installment_requested": return "بانتظار اختيار/دفع القسط الأول";
     case "needs_guarantor": return "بانتظار بيانات كفيل";
     case "guarantor_submitted": return "تم استلام بيانات الكفيل";
     case "customer_accepts_delivery_delay": return "تم اختيار الانتظار للموعد الجديد";
@@ -758,6 +915,72 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 
   if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "refund") return refundReply(baseUrl, app.phone || tracking, app);
+  if (intent === "continue_request") {
+    if (canSendPaymentInfo(app)) return paymentMessage(app, baseUrl);
+
+    return `أهلًا ${name} 🌿
+
+تم استلام رغبتكم بالاستمرار سابقًا أو أن الطلب انتقل لمرحلة أخرى.
+
+حالة الطلب الحالية:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+  if (intent === "decline_continue") {
+    return `أهلًا ${name} 🌿
+
+طلبكم ظاهر لدينا بالحالة التالية:
+${statusHumanLabel(status)}
+
+إذا رغبتكم هي إلغاء الاستمرار أو إيقاف الطلب، سيتم تحويل الرسالة للمتابعة حتى يتم تأكيدها على الطلب الصحيح.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+  }
+  if (intent === "payment_receipt") {
+    if (paymentStatus === "customer_claimed_paid") {
+      return `أهلًا ${name} 🌿
+
+وصل الدفع أو إشعار الدفع مسجل لدينا بالفعل، والطلب بانتظار تأكيد الإدارة.
+
+يرجى عدم إعادة الدفع مرة ثانية.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+    }
+
+    if (paymentStatus === "confirmed") {
+      return `أهلًا ${name} 🌿
+
+رسوم فتح الملف مؤكدة لدينا ✅
+
+لا يوجد أي دفع مطلوب حاليًا، والطلب ضمن المتابعة حسب حالته الحالية.
+
+حالة الطلب:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+    }
+
+    return receiptUploadRequiredReply(app, baseUrl);
+  }
   if (intent === "delivery") return deliveryDateReply(app, baseUrl);
 
   if (intent === "payment") {
@@ -848,6 +1071,51 @@ ${BUSINESS_NAME}`;
     paymentStatus === "payment_info_sent"
   ) {
     return paymentMessage(app, baseUrl);
+  }
+
+  if (status === "customer_declined_continue") {
+    return `أهلًا ${name} 🌿
+
+تم تسجيل عدم رغبتكم بالاستمرار في فتح ملف الدراسة النهائية حاليًا.
+
+لا يوجد أي دفع مطلوب على هذا الطلب، وبإمكانكم التقديم لاحقًا عند الحاجة.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "salary_slip_uploaded") {
+    return `أهلًا ${name} 🌿
+
+تم استلام كشف الراتب / شهادة الراتب وربطه بطلبكم.
+
+الطلب الآن بانتظار مراجعة الإدارة للخطوة التالية، ولا يوجد أي دفع مطلوب حاليًا إلا إذا ظهر لكم طلب رسمي من الإدارة.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "first_installment_requested" || paymentStatus === "first_installment_whatsapp") {
+    return `أهلًا ${name} 🌿
+
+حسب تحديث الإدارة، يوجد خيار متعلق بدفع القسط الأول لاستكمال الإجراء.
+
+يرجى الالتزام فقط بالتعليمات الرسمية المرسلة لكم من صفحة الإدارة أو رابط كشف الراتب / القسط الأول، وعدم إرسال أي دفعات إضافية دون تأكيد واضح.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
   }
 
   if (status === "delivery_delay_notice_sent") {
@@ -1391,7 +1659,7 @@ ${input.deterministicReply}
   }
 }
 
-async function buildReply(request: Request, from: string, text: string) {
+async function buildReply(request: Request, from: string, text: string, messageType = "text") {
   const baseUrl = getBaseUrl(request);
   const tracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
@@ -1406,13 +1674,94 @@ async function buildReply(request: Request, from: string, text: string) {
   } else if (tracking) {
     app = await findApplicationByTracking(tracking);
     if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
-  } else if (intent === "order_status" || intent === "delivery" || intent === "payment" || intent === "refund" || intent === "complaint") {
+  } else if (
+    intent === "order_status" ||
+    intent === "delivery" ||
+    intent === "payment" ||
+    intent === "payment_receipt" ||
+    intent === "refund" ||
+    intent === "complaint" ||
+    intent === "continue_request" ||
+    intent === "decline_continue" ||
+    messageType === "image"
+  ) {
     app = await findApplicationByPhone(from);
   }
 
   let deterministicReply: string;
 
   if (app) {
+    if (intent === "continue_request" && canSendPaymentInfo(app)) {
+      await updateApplicationWorkflowState(app, {
+        status: "customer_confirmed_continue",
+        payment_status: "payment_info_sent",
+      });
+
+      deterministicReply = confirmedContinueReply(app, baseUrl);
+
+      return generateAiReply({
+        customerText: text,
+        deterministicReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: "customer_confirmed_continue",
+        paymentStatus: "payment_info_sent",
+        deviceName: app.device_name || null,
+        isSensitive: false,
+        hasApplication: true,
+        intent,
+      });
+    }
+
+    if (intent === "decline_continue") {
+      await updateApplicationWorkflowState(app, {
+        status: "customer_declined_continue",
+      });
+
+      deterministicReply = declinedContinueReply(app);
+
+      return generateAiReply({
+        customerText: text,
+        deterministicReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: "customer_declined_continue",
+        paymentStatus: app.payment_status || null,
+        deviceName: app.device_name || null,
+        isSensitive: false,
+        hasApplication: true,
+        intent,
+      });
+    }
+
+    if (intent === "payment_receipt" || messageType === "image") {
+      if (app.payment_status === "confirmed") {
+        deterministicReply = safeReply(app, baseUrl, text, "payment_receipt");
+      } else if (app.payment_status === "customer_claimed_paid") {
+        deterministicReply = safeReply(app, baseUrl, text, "payment_receipt");
+      } else {
+        await updateApplicationWorkflowState(app, {
+          status: "pending_payment_confirmation",
+          payment_status: "customer_claimed_paid",
+        });
+
+        deterministicReply = paymentReceiptReceivedReply(app, baseUrl, messageType);
+      }
+
+      return generateAiReply({
+        customerText: text,
+        deterministicReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: "pending_payment_confirmation",
+        paymentStatus: "customer_claimed_paid",
+        deviceName: app.device_name || null,
+        isSensitive: false,
+        hasApplication: true,
+        intent: "payment_receipt",
+      });
+    }
+
     deterministicReply = safeReply(app, baseUrl, text, intent);
 
     return generateAiReply({
@@ -1431,6 +1780,30 @@ async function buildReply(request: Request, from: string, text: string) {
 
   if (intent === "complaint") {
     deterministicReply = complaintReply(baseUrl, from, null, text);
+  } else if (intent === "continue_request") {
+    deterministicReply = `${humanOpening(`${from}:continue`)}
+
+وصلتني رغبتك بالاستمرار، لكن ما قدرت أربط الرسالة بطلب واضح من رقم واتسابك.
+
+ابعث رقم التتبع الذي يبدأ بـ AM- أو رقم الهاتف المستخدم في الطلب حتى أفتح لك تعليمات المرحلة التالية بدقة.
+
+${BUSINESS_NAME}`;
+  } else if (intent === "decline_continue") {
+    deterministicReply = `${humanOpening(`${from}:decline`)}
+
+وصلتني رغبتك بعدم الاستمرار حاليًا.
+
+حتى يتم تسجيل ذلك على الطلب الصحيح، ابعث رقم التتبع أو رقم الهاتف المستخدم في الطلب.
+
+${BUSINESS_NAME}`;
+  } else if (intent === "payment_receipt") {
+    deterministicReply = `${humanOpening(`${from}:receipt`)}
+
+وصلني كلامك بخصوص الدفع/الوصل، لكن ما قدرت أربطه بطلب واضح من رقم واتسابك.
+
+ابعث رقم التتبع أو رقم الهاتف المستخدم في الطلب، وإذا عندك صورة الوصل ابعثها هنا أو ارفعها من رابط الطلب الرسمي.
+
+${BUSINESS_NAME}`;
   } else if (intent === "refund") {
     deterministicReply = refundReply(baseUrl, from, null);
   } else if (intent === "human_agent") {
@@ -1611,7 +1984,7 @@ ${BUSINESS_NAME}`;
           continue;
         }
 
-        const reply = await buildReply(request, from, text);
+        const reply = await buildReply(request, from, text, type);
         const outgoingMessageId = await sendWhatsAppText(from, reply);
         await logMessage({
           waId: from,

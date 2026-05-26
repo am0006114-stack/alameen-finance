@@ -16,6 +16,11 @@ type WhatsAppMessageRecord = {
   body?: string | null;
   status?: string | null;
   status_timestamp?: string | null;
+  intent?: string | null;
+  tracking_id?: string | null;
+  application_id?: string | null;
+  needs_human_review?: boolean | null;
+  handled_by_ai?: boolean | null;
 };
 
 function formatDateTime(value: string | null | undefined) {
@@ -98,7 +103,7 @@ export default async function AdminWhatsAppInboxPage() {
   const { data, error } = await supabaseAdmin
     .from("whatsapp_messages")
     .select(
-      "id, created_at, wa_id, direction, customer_name, message_id, message_type, body, status, status_timestamp"
+      "id, created_at, wa_id, direction, customer_name, message_id, message_type, body, status, status_timestamp, intent, tracking_id, application_id, needs_human_review, handled_by_ai"
     )
     .order("created_at", { ascending: false })
     .limit(250);
@@ -108,6 +113,7 @@ export default async function AdminWhatsAppInboxPage() {
   const incomingCount = messages.filter((item) => item.direction === "incoming").length;
   const outgoingCount = messages.filter((item) => item.direction === "outgoing").length;
   const failedCount = messages.filter((item) => item.status === "failed").length;
+  const humanReviewCount = messages.filter((item) => item.needs_human_review).length;
   const uniqueCustomers = new Set(messages.map((item) => item.wa_id).filter(Boolean)).size;
 
   return (
@@ -142,7 +148,7 @@ export default async function AdminWhatsAppInboxPage() {
           </section>
         ) : (
           <>
-            <section className="mb-6 grid gap-4 md:grid-cols-4">
+            <section className="mb-6 grid gap-4 md:grid-cols-5">
               <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
                 <p className="text-xs font-black text-[#aeb9af]">عملاء مختلفون</p>
                 <p className="mt-2 text-3xl font-black text-white">{uniqueCustomers}</p>
@@ -162,11 +168,16 @@ export default async function AdminWhatsAppInboxPage() {
                 <p className="text-xs font-black text-red-100">فشل</p>
                 <p className="mt-2 text-3xl font-black text-white">{failedCount}</p>
               </div>
+
+              <div className="rounded-[24px] border border-orange-300/20 bg-orange-950/20 p-5">
+                <p className="text-xs font-black text-orange-100">تحتاج متابعة</p>
+                <p className="mt-2 text-3xl font-black text-white">{humanReviewCount}</p>
+              </div>
             </section>
 
             <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[980px] border-collapse text-right">
+                <table className="w-full min-w-[1200px] border-collapse text-right">
                   <thead>
                     <tr className="border-b border-white/10 bg-black/20 text-xs text-[#f3dfac]">
                       <th className="px-4 py-4 font-black">الوقت</th>
@@ -174,6 +185,7 @@ export default async function AdminWhatsAppInboxPage() {
                       <th className="px-4 py-4 font-black">الاتجاه</th>
                       <th className="px-4 py-4 font-black">الحالة</th>
                       <th className="px-4 py-4 font-black">نوع الرسالة</th>
+                      <th className="px-4 py-4 font-black">النية / متابعة</th>
                       <th className="px-4 py-4 font-black">الرسالة</th>
                       <th className="px-4 py-4 font-black">إجراءات</th>
                     </tr>
@@ -182,14 +194,14 @@ export default async function AdminWhatsAppInboxPage() {
                   <tbody>
                     {messages.length === 0 ? (
                       <tr>
-                        <td colSpan={7} className="px-4 py-10 text-center text-sm font-bold text-[#aeb9af]">
+                        <td colSpan={8} className="px-4 py-10 text-center text-sm font-bold text-[#aeb9af]">
                           لا توجد رسائل محفوظة بعد.
                         </td>
                       </tr>
                     ) : (
                       messages.map((message) => {
                         const waLink = cleanPhoneForWaLink(message.wa_id);
-                        const tracking = extractTracking(message.body);
+                        const tracking = message.tracking_id || extractTracking(message.body);
 
                         return (
                           <tr key={message.id} className="border-b border-white/10 align-top hover:bg-white/[0.03]">
@@ -225,6 +237,26 @@ export default async function AdminWhatsAppInboxPage() {
 
                             <td className="px-4 py-4 text-xs font-bold text-[#d7ddd5]">
                               {message.message_type || "text"}
+                            </td>
+
+                            <td className="px-4 py-4">
+                              <div className="flex flex-col gap-2">
+                                <span className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[#d7ddd5]">
+                                  {message.intent || "—"}
+                                </span>
+
+                                {message.needs_human_review ? (
+                                  <span className="inline-flex rounded-full border border-orange-300/25 bg-orange-950/25 px-3 py-1 text-xs font-black text-orange-100">
+                                    متابعة بشرية
+                                  </span>
+                                ) : null}
+
+                                {message.handled_by_ai === true ? (
+                                  <span className="inline-flex rounded-full border border-emerald-300/20 bg-emerald-950/20 px-3 py-1 text-[11px] font-black text-emerald-100">
+                                    AI
+                                  </span>
+                                ) : null}
+                              </div>
                             </td>
 
                             <td className="max-w-[420px] px-4 py-4">
