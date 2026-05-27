@@ -1455,12 +1455,14 @@ async function updateCustomerDecision(input: {
       .from("applications")
       .update({
         status: "customer_confirmed_continue",
+        payment_status: "payment_info_sent",
       })
       .eq("id", input.app.id);
 
     return {
       ...input.app,
       status: "customer_confirmed_continue",
+      payment_status: "payment_info_sent",
     } as ApplicationRecord;
   }
 
@@ -1653,8 +1655,8 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا سأل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
 
 قواعد الدفع:
-- إذا كتب العميل: موافق، أود الاستمرار، بدي أكمل، أو أي صيغة استمرار: لا ترسل تعليمات الدفع ولا رابط رفع الوصل تلقائيًا. فقط أكد أن رغبة الاستمرار تم تسجيلها.
-- رسالة رسوم فتح الملف أو تعليمات الدفع تُرسل فقط من مسار الإدارة/الموافقة المبدئية، وليس كرد تلقائي على كلمة موافق.
+- إذا كتب العميل: موافق، أود الاستمرار، بدي أكمل، أو أي صيغة استمرار، وكان الطلب حالته مؤهل مبدئيًا: سجّل رغبته بالاستمرار ثم أرسل تعليمات الدفع ورابط رفع الوصل تلقائيًا.
+- لا ترسل تعليمات الدفع عند كلمة موافق إلا إذا كان الطلب مرتبطًا وواضحًا وحالته مؤهل مبدئيًا.
 - رسوم فتح الملف 5 دنانير فقط.
 - لا تُذكر رسوم فتح الملف كطلب دفع إلا إذا كان الطلب مؤهلًا مبدئيًا / عليه موافقة مبدئية من صفحة الإدارة، أو إذا الرد الآمن الأساسي يذكر صراحة أن تعليمات الدفع مطلوبة.
 - لا تطلب رسوم فتح الملف في الأسئلة العامة أو قبل مراجعة الطلب.
@@ -1773,12 +1775,52 @@ async function buildReply(request: Request, from: string, text: string) {
   let deterministicReply: string;
 
   if (app && intent === "continue_decision") {
+    if (app.status !== "preliminary_qualified") {
+      deterministicReply = `${humanOpening(`${from}:continue_guard`)}
+
+وصلني ردك بخصوص الاستمرار، لكن هذا الخيار مرتبط فقط بطلب تم تأهيله مبدئيًا.
+
+حالة طلبك الحالية:
+${statusHumanLabel(app.status || "")}
+
+لا يوجد أي دفع مطلوب الآن من خلال هذه الرسالة.
+
+رقم التتبع:
+${app.tracking_id || app.id}
+
+${BUSINESS_NAME}`;
+
+      await sendDiscordNotification({
+        title: "⚠️ رد استمرار خارج حالة التأهيل المبدئي",
+        description: "العميل أرسل موافقة على الاستمرار، لكن حالة الطلب ليست preliminary_qualified، لذلك لم يتم إرسال معلومات الدفع.",
+        color: 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+
+      return generateAiReply({
+        customerText: text,
+        deterministicReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: app.status || null,
+        paymentStatus: app.payment_status || null,
+        deviceName: app.device_name || null,
+        isSensitive: sensitive,
+        hasApplication: true,
+        intent,
+      });
+    }
+
     const updatedApp = await updateCustomerDecision({ app, decision: "continue" });
-    deterministicReply = continueConfirmationMessage(updatedApp);
+    deterministicReply = paymentMessage(updatedApp, baseUrl);
 
     await sendDiscordNotification({
-      title: "✅ العميل وافق على الاستمرار",
-      description: "تم تسجيل موافقة العميل فقط. لم يتم إرسال تعليمات الدفع تلقائيًا.",
+      title: "✅ العميل وافق على الاستمرار — تم إرسال معلومات الدفع",
+      description: "تم تسجيل موافقة العميل على الاستمرار وإرسال معلومات فتح الملف ورابط رفع الوصل تلقائيًا.",
       color: 0x57f287,
       app: updatedApp,
       customerPhone: from,
