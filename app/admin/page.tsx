@@ -590,12 +590,16 @@ function IdentityThumbnailGroup({
 }
 
 function canBulkPreliminaryQualify(app: Application) {
-  return (
-    !app.status ||
-    app.status === "preliminary_application" ||
-    app.status === "submitted" ||
-    app.status === "under_review"
-  );
+  const blockedStatuses = new Set([
+    "approved",
+    "rejected",
+    "cancelled",
+    "customer_declined_continue",
+    "refund_requested",
+    "refund_completed",
+  ]);
+
+  return !blockedStatuses.has(String(app.status || ""));
 }
 
 
@@ -609,7 +613,7 @@ function CompactMobileRequest({ app, identityDocuments }: { app: Application; id
       )}`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
-        <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-[rgba(214,181,107,0.28)] bg-[rgba(214,181,107,0.10)] px-4 py-3 text-xs font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.18)]">
+        <label className="relative z-10 flex shrink-0 cursor-pointer select-none items-center gap-2 rounded-xl border border-[rgba(214,181,107,0.35)] bg-[rgba(214,181,107,0.13)] px-4 py-3 text-xs font-black text-[#f3dfac] hover:bg-[rgba(214,181,107,0.20)]">
           <input
             type="checkbox"
             name="applicationIds"
@@ -627,7 +631,7 @@ function CompactMobileRequest({ app, identityDocuments }: { app: Application; id
                 🔔 جديد
               </span>
             )}
-            <h3 className="truncate text-sm font-black text-white">
+            <h3 className="max-w-[130px] truncate text-xs font-black text-white">
               {app.tracking_id || app.id.slice(0, 8)}
             </h3>
           </div>
@@ -661,12 +665,6 @@ function CompactMobileRequest({ app, identityDocuments }: { app: Application; id
           </p>
         </div>
 
-        <div className="rounded-xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] px-3 py-2">
-          <p className="mb-1 font-bold text-[#aeb9af]">GPS</p>
-          <p className="truncate font-black text-white">
-            {hasGpsLocation(app) ? "موجود" : "غير محدد"}
-          </p>
-        </div>
       </div>
 
       <div className="mt-3 rounded-2xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] p-3">
@@ -825,16 +823,6 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     (app) => app.status === "refund_requested" || app.payment_status === "refund_requested",
   ).length;
 
-  const gpsCount = safeApplications.filter(hasGpsLocation).length;
-  const noGpsCount = safeApplications.length - gpsCount;
-
-  const averageSalary =
-    safeApplications.length > 0
-      ? safeApplications.reduce(
-          (sum, app) => sum + moneyNumber(app.salary),
-          0,
-        ) / safeApplications.length
-      : 0;
 
   const urgentApplications = safeApplications
     .filter((app) => isNeedsAction(app) || isNewApplication(app))
@@ -850,10 +838,12 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   async function bulkPreliminaryQualifiedAction(formData: FormData) {
     "use server";
 
-    const selectedIds = formData
-      .getAll("applicationIds")
-      .map((value) => String(value || "").trim())
-      .filter(Boolean);
+    const selectedIds = Array.from(new Set(
+      formData
+        .getAll("applicationIds")
+        .map((value) => String(value || "").trim())
+        .filter(Boolean),
+    ));
 
     const returnHref = String(formData.get("returnHref") || "/admin");
 
@@ -864,7 +854,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     const { data: selectedApplications, error: selectedApplicationsError } =
       await supabaseAdmin
         .from("applications")
-        .select("id, created_at, status")
+        .select("id, status")
         .in("id", selectedIds);
 
     if (selectedApplicationsError) {
@@ -886,11 +876,15 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
         status: "preliminary_qualified",
         payment_status: "not_requested_yet",
         preliminary_qualified_at: new Date().toISOString(),
+        preliminary_whatsapp_sent_at: null,
+        preliminary_whatsapp_status: null,
+        preliminary_whatsapp_error: null,
       })
       .in("id", allowedIds);
 
     if (updateError) {
       console.error("Failed to bulk preliminary qualify applications:", updateError);
+      redirect(returnHref);
     }
 
     revalidatePath("/admin");
@@ -986,20 +980,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <StatBox label="تأكيد دفع" value={awaitingPaymentConfirmationCount} />
           <StatBox label="مؤهلين" value={qualifiedCount} />
           <StatBox label="مقبولة" value={approvedCount} />
-          <StatBox label="GPS" value={gpsCount} />
         </section>
 
-        <section className="mt-4 grid gap-3 md:grid-cols-3">
-          <MiniInsight
-            label="متوسط الرواتب"
-            value={formatMoney(averageSalary)}
-            note="مؤشر سريع لجودة الطلبات"
-          />
-          <MiniInsight
-            label="طلبات بدون GPS"
-            value={noGpsCount}
-            note="تحتاج متابعة عنوان أو واتساب"
-          />
+        <section className="mt-4 grid gap-3 md:grid-cols-2">
           <MiniInsight
             label="أولوية المتابعة"
             value={urgentApplications.length}
@@ -1068,7 +1051,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <div className="mb-4">
             <h2 className="text-lg font-black text-white">البحث والفلترة</h2>
             <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
-              ابحث بالاسم، الهاتف، رقم التتبع، الرقم الوطني، المحافظة أو الجهاز.
+              ابحث بالاسم، الهاتف، رقم التتبع، الرقم الوطني أو المحافظة.
             </p>
           </div>
 
@@ -1280,7 +1263,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                       اعتماد مبدئي جماعي
                     </h3>
                     <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
-                      علّم الطلبات من علامة الصح، ثم اضغط الزر. حتى لو علّمت طلبًا غير مناسب، النظام سيحدّث فقط الطلبات المسموح بها إلى مؤهل مبدئيًا، والكرون يرسل رسالة "هل تود الاستمرار؟".
+                      علّم الطلبات المطلوبة من علامة الصح، ثم اضغط الزر. سيتم تحديث الطلبات غير المنتهية فقط إلى مؤهل مبدئيًا، وإعادة تهيئتها للكرون حتى يرسل رسالة "هل تود الاستمرار؟".
                     </p>
                   </div>
 
@@ -1308,7 +1291,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               <div className="hidden md:block">
                 <div className="overflow-hidden rounded-3xl border border-[rgba(214,181,107,0.14)]">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1540px] border-collapse text-right">
+                    <table className="w-full min-w-[1080px] border-collapse text-right">
                       <thead className="bg-[rgba(3,18,14,0.86)] text-white">
                         <tr>
                           <th className="px-4 py-4 text-sm font-black">
@@ -1317,8 +1300,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                           <th className="px-4 py-4 text-sm font-black">
                             أولوية
                           </th>
-                          <th className="px-4 py-4 text-sm font-black">
-                            رقم التتبع
+                          <th className="px-3 py-4 text-xs font-black">
+                            التتبع
                           </th>
                           <th className="px-4 py-4 text-sm font-black">
                             الاسم
@@ -1329,15 +1312,8 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                           <th className="px-4 py-4 text-sm font-black">
                             المحافظة
                           </th>
-                          <th className="px-4 py-4 text-sm font-black">GPS</th>
                           <th className="px-4 py-4 text-sm font-black">
                             الهوية
-                          </th>
-                          <th className="px-4 py-4 text-sm font-black">
-                            الراتب
-                          </th>
-                          <th className="px-4 py-4 text-sm font-black">
-                            الجهاز
                           </th>
                           <th className="px-4 py-4 text-sm font-black">
                             حالة الطلب
@@ -1363,7 +1339,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             )}`}
                           >
                             <td className="px-4 py-4 text-sm">
-                              <label className="flex cursor-pointer items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.08)] px-3 py-3 transition hover:bg-[rgba(214,181,107,0.16)]">
+                              <label className="relative z-10 flex cursor-pointer select-none items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] p-3 hover:bg-[rgba(214,181,107,0.18)]">
                                 <input
                                   type="checkbox"
                                   name="applicationIds"
@@ -1381,14 +1357,14 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                               </span>
                             </td>
 
-                            <td className="px-4 py-4 text-sm font-black text-white">
-                              <div className="flex items-center gap-2">
+                            <td className="px-3 py-4 text-xs font-black text-white">
+                              <div className="flex max-w-[150px] items-center gap-1">
                                 {isNewApplication(app) && (
-                                  <span className="inline-flex rounded-full border border-red-400/40 bg-red-950/40 px-2 py-1 text-[10px] font-black text-red-100">
-                                    🔔 جديد
+                                  <span className="inline-flex shrink-0 rounded-full border border-red-400/40 bg-red-950/40 px-1.5 py-0.5 text-[9px] font-black text-red-100">
+                                    جديد
                                   </span>
                                 )}
-                                <span>
+                                <span className="truncate">
                                   {app.tracking_id || app.id.slice(0, 8)}
                                 </span>
                               </div>
@@ -1410,31 +1386,11 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             </td>
 
                             <td className="px-4 py-4 text-sm">
-                              <span
-                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${
-                                  hasGpsLocation(app)
-                                    ? "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]"
-                                    : "border-white/10 bg-white/5 text-[#aeb9af]"
-                                }`}
-                              >
-                                {hasGpsLocation(app) ? "موجود" : "لا يوجد"}
-                              </span>
-                            </td>
-
-                            <td className="px-4 py-4 text-sm">
                               <IdentityThumbnailGroup
                                 documents={
                                   identityDocumentsByApplicationId.get(app.id) || { other: [] }
                                 }
                               />
-                            </td>
-
-                            <td className="px-4 py-4 text-sm font-bold text-[#d7ddd5]">
-                              {formatMoney(app.salary)}
-                            </td>
-
-                            <td className="px-4 py-4 text-sm text-[#cbd6cb]">
-                              {app.device_name || "—"}
                             </td>
 
                             <td className="px-4 py-4 text-sm">
