@@ -37,6 +37,8 @@ type WhatsAppWebhookBody = {
 type CustomerIntent =
   | "complaint"
   | "refund"
+  | "continue_decision"
+  | "decline_decision"
   | "human_agent"
   | "loan"
   | "website"
@@ -163,7 +165,10 @@ function extractJordanPhoneFromText(text: string) {
   return "";
 }
 
-const agentNames = ["سلمى", "ديما", "لين", "رنا", "نور", "تالا", "مي", "لانا", "جود", "هبة"];
+const agentNames = [
+  "علي", "لؤي", "خالد", "عمر", "سامر", "أحمد", "رامي", "محمد", "أنس", "يزن",
+  "سلمى", "ديما", "لين", "رنا", "نور", "تالا", "مي", "لانا", "جود", "هبة", "سمر",
+];
 
 function pickAgentName(seed: string) {
   const digits = digitsOnly(seed);
@@ -245,6 +250,22 @@ const ANGRY_CUSTOMER_KEYWORDS = [
   // أخطاء كتابة متوقعة
   "نصبب", "نصابيين", "نصابينن", "احتييال", "استردادد", "فلوسيي", "تاخيرر", "تأخيرر",
   "مماطله", "ممطالة", "ما بتردوو", "ما بتردووش", "حراميي", "حرمية", "سرقةة",
+
+  // عبارات غضب/تهديد إضافية بصيغ واتساب واقعية
+  "وينكم من الصبح", "ليش ما حدا برد", "ليش محد برد", "ليش بتطنشوني", "ليش مطنشين",
+  "ما حد عبرني", "ما حدا عبرني", "بدي جواب", "اعطوني جواب", "جوابكم مش واضح",
+  "كل شوي بتغيرو الحكي", "كل شوي حكي", "حكي فاضي", "كله وعود", "وعود كذابه", "وعد كاذب",
+  "عيب عليكم", "قلة ذوق", "قلة مهنية", "شركة مش محترمة", "خدمة سيئة جدا", "خدمة زفت",
+  "حرقتوا دمي", "رفعتولي ضغطي", "جننتوني", "تعبتوني", "ضيعتوا وقتي", "ضيعتو وقتي",
+  "فلوسي عندكم", "رسومي عندكم", "وين رسوم فتح الملف", "رجعو الرسوم", "رجعوا الرسوم",
+  "مش متنازل", "مش مسامح", "راح اوصلها", "بوصلها للقضاء", "برفع دعوى", "دعوى قضائية",
+  "بروح عالشرطة", "بروح على حماية المستهلك", "بشتكي للوزارة", "بشتكي للبنك المركزي",
+  "بدي رقم الشكوى", "اعطوني رقم شكوى", "وين رقم الشكوى", "وين الترخيص", "وين السجل",
+  "راح اشهر فيكم", "بشهر فيكم", "بنزل سكرينات", "رح انزل سكرينات", "كل الناس رح تعرف",
+  "نصب عيني عينك", "احتيال عيني عينك", "لعبة", "مسرحية", "فلم", "بتضحكو عالناس",
+  "ضحك عالناس", "ما عندكم مصداقية", "فقدت الثقة", "مش واثق فيكم", "خربتوا ثقتي",
+  "وين الجهاز تبعي", "وين تلفوني", "وين الموبايل", "ليش ما استلمت", "متى بستلم جد",
+  "لا تماطلوني", "بلا مماطلة", "بلا لف ودوران", "بدون لف ودوران", "رد واضح",
 ];
 
 function isAngryCustomerText(text: string) {
@@ -326,10 +347,56 @@ function complaintApologyParagraph(seed: string) {
 
   return variants[index];
 }
+function isContinueDecisionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const positivePhrases = [
+    "اود الاستمرار", "أود الاستمرار", "ارغب بالاستمرار", "أرغب بالاستمرار",
+    "بدي استمر", "بدي اكمل", "بدي أكمل", "اكمل", "أكمل", "كمل", "كملي", "كملوا",
+    "موافق", "موافقين", "موافقة", "تمام كمل", "تمام اكمل", "تمام", "اوكي", "ok", "okay",
+    "افتح الملف", "افتحو الملف", "افتحولي الملف", "فتح الملف", "بدي افتح الملف",
+    "بدي ادفع", "وين ادفع", "ابعث الدفع", "ابعت الدفع", "ارسل تعليمات الدفع",
+    "جاهز ادفع", "خلينا نكمل", "نكمل", "استمر", "استمرار", "مستمر", "yes", "نعم",
+  ];
+
+  const hasPositive = hasAny(t, positivePhrases);
+  const hasContext = hasAny(t, ["استمرار", "اكمل", "كمل", "ملف", "دفع", "موافق", "نعم", "تمام", "اوكي", "ok"]);
+
+  return hasPositive && hasContext;
+}
+
+function isDeclineDecisionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const negativePhrases = [
+    "لا ارغب", "لا أرغب", "لا اريد", "لا أريد", "ما بدي", "مش بدي", "ما بدي اكمل", "ما بدي أكمل",
+    "مش حاب اكمل", "مش حاب أكمل", "مش حابه اكمل", "مش حابة أكمل",
+    "بدي الغي", "بدي ألغي", "الغاء", "إلغاء", "الغي الطلب", "ألغي الطلب",
+    "الغوا الطلب", "لغوا الطلب", "لغي الطلب", "كنسل", "cancel", "cancelled",
+    "مش موافق", "غير موافق", "لا تكمل", "لا تكملوا", "وقف الطلب", "وقفو الطلب",
+    "بطلت", "بطلت بدي", "صرف نظر", "ما رح اكمل", "ما راح اكمل", "لا شكرا", "لا شكرًا", "no",
+  ];
+
+  const hasNegative = hasAny(t, negativePhrases);
+  const hasContext = hasAny(t, ["ارغب", "اكمل", "الغي", "الغاء", "لغي", "كنسل", "cancel", "موافق", "وقف", "بطلت", "لا"]);
+
+  return hasNegative && hasContext;
+}
+
 function classifyIntent(text: string): CustomerIntent {
   const t = normalizeArabicText(text);
 
   if (!t) return "unknown";
+
+  if (isContinueDecisionText(t)) {
+    return "continue_decision";
+  }
+
+  if (isDeclineDecisionText(t)) {
+    return "decline_decision";
+  }
 
   if (isAngryCustomerText(t)) {
     return "complaint";
@@ -1281,6 +1348,142 @@ async function sendWhatsAppText(to: string, body: string) {
   }
 }
 
+function adminApplicationUrl(baseUrl: string, app: ApplicationRecord) {
+  return `${baseUrl}/admin/applications/${app.id}`;
+}
+
+async function sendDiscordNotification(input: {
+  title: string;
+  description: string;
+  color?: number;
+  app?: ApplicationRecord | null;
+  customerPhone?: string;
+  customerMessage?: string;
+  systemReply?: string;
+  baseUrl?: string;
+}) {
+  const webhookUrl = process.env.DISCORD_WEBHOOK_URL;
+  if (!webhookUrl) return;
+
+  const mention = process.env.DISCORD_ADMIN_MENTION || "";
+  const app = input.app || null;
+  const baseUrl = input.baseUrl || "";
+
+  const fields: Array<{ name: string; value: string; inline?: boolean }> = [];
+
+  if (app) {
+    fields.push(
+      { name: "رقم التتبع", value: app.tracking_id || app.id || "—", inline: true },
+      { name: "العميل", value: app.full_name || "—", inline: true },
+      { name: "رقم واتساب", value: input.customerPhone || app.phone || "—", inline: true },
+      { name: "الجهاز", value: app.device_name || "—", inline: true },
+      { name: "الحالة الحالية", value: app.status || "—", inline: true },
+      { name: "حالة الدفع", value: app.payment_status || "—", inline: true },
+    );
+
+    if (baseUrl) {
+      fields.push({
+        name: "رابط الطلب في الأدمن",
+        value: adminApplicationUrl(baseUrl, app),
+        inline: false,
+      });
+    }
+  } else if (input.customerPhone) {
+    fields.push({ name: "رقم واتساب", value: input.customerPhone, inline: true });
+  }
+
+  if (input.customerMessage) {
+    fields.push({
+      name: "رسالة العميل",
+      value: input.customerMessage.slice(0, 900) || "—",
+      inline: false,
+    });
+  }
+
+  if (input.systemReply) {
+    fields.push({
+      name: "رد النظام",
+      value: input.systemReply.slice(0, 900) || "—",
+      inline: false,
+    });
+  }
+
+  try {
+    await fetch(webhookUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: mention || undefined,
+        embeds: [
+          {
+            title: input.title,
+            description: input.description,
+            color: input.color ?? 0xd6b56b,
+            fields,
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      }),
+    });
+  } catch (error) {
+    console.error("Discord notification failed:", error);
+  }
+}
+
+async function updateCustomerDecision(input: {
+  app: ApplicationRecord;
+  decision: "continue" | "decline";
+}) {
+  const now = new Date().toISOString();
+
+  if (input.decision === "continue") {
+    await supabaseAdmin
+      .from("applications")
+      .update({
+        status: "customer_confirmed_continue",
+        payment_status: "payment_info_sent",
+      })
+      .eq("id", input.app.id);
+
+    return {
+      ...input.app,
+      status: "customer_confirmed_continue",
+      payment_status: "payment_info_sent",
+    } as ApplicationRecord;
+  }
+
+  await supabaseAdmin
+    .from("applications")
+    .update({
+      status: "cancelled",
+      payment_status: "not_requested_yet",
+      payment_reference: "customer_declined_continue",
+    })
+    .eq("id", input.app.id);
+
+  return {
+    ...input.app,
+    status: "cancelled",
+    payment_status: "not_requested_yet",
+  } as ApplicationRecord;
+}
+
+function declineConfirmationMessage(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+تم تسجيل عدم رغبتكم بالاستمرار حاليًا، وتم إلغاء الطلب.
+
+لا يوجد أي دفع مطلوب عليكم.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+}
+
 async function logMessage(input: {
   waId: string;
   direction: "incoming" | "outgoing";
@@ -1524,11 +1727,106 @@ async function buildReply(request: Request, from: string, text: string) {
   } else if (tracking) {
     app = await findApplicationByTracking(tracking);
     if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
-  } else if (intent === "order_status" || intent === "delivery" || intent === "payment" || intent === "refund" || intent === "complaint") {
+  } else if (
+    intent === "order_status" ||
+    intent === "delivery" ||
+    intent === "payment" ||
+    intent === "refund" ||
+    intent === "complaint" ||
+    intent === "continue_decision" ||
+    intent === "decline_decision"
+  ) {
     app = await findApplicationByPhone(from);
   }
 
   let deterministicReply: string;
+
+  if (app && intent === "continue_decision") {
+    const updatedApp = await updateCustomerDecision({ app, decision: "continue" });
+    deterministicReply = paymentMessage(updatedApp, baseUrl);
+
+    await sendDiscordNotification({
+      title: "✅ العميل وافق على الاستمرار",
+      description: "تم تحديث الطلب تلقائيًا وإرسال تعليمات الدفع.",
+      color: 0x57f287,
+      app: updatedApp,
+      customerPhone: from,
+      customerMessage: text,
+      systemReply: deterministicReply,
+      baseUrl,
+    });
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply,
+      customerName: firstTwoNames(updatedApp.full_name),
+      trackingId: updatedApp.tracking_id || updatedApp.id,
+      status: updatedApp.status || null,
+      paymentStatus: updatedApp.payment_status || null,
+      deviceName: updatedApp.device_name || null,
+      isSensitive: sensitive,
+      hasApplication: true,
+      intent,
+    });
+  }
+
+  if (app && intent === "decline_decision") {
+    const updatedApp = await updateCustomerDecision({ app, decision: "decline" });
+    deterministicReply = declineConfirmationMessage(updatedApp);
+
+    await sendDiscordNotification({
+      title: "❌ العميل رفض الاستمرار",
+      description: "تم إلغاء الطلب تلقائيًا بناءً على رد العميل.",
+      color: 0xed4245,
+      app: updatedApp,
+      customerPhone: from,
+      customerMessage: text,
+      systemReply: deterministicReply,
+      baseUrl,
+    });
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply,
+      customerName: firstTwoNames(updatedApp.full_name),
+      trackingId: updatedApp.tracking_id || updatedApp.id,
+      status: updatedApp.status || null,
+      paymentStatus: updatedApp.payment_status || null,
+      deviceName: updatedApp.device_name || null,
+      isSensitive: sensitive,
+      hasApplication: true,
+      intent,
+    });
+  }
+
+  if (!app && (intent === "continue_decision" || intent === "decline_decision")) {
+    deterministicReply = `${humanOpening(`${from}:decision`)}
+
+وصلني قرارك بخصوص الاستمرار، لكن حتى أربطه بالطلب الصحيح ابعث رقم الطلب الذي يبدأ بـ AM-.
+
+مثال:
+AM-177...
+
+${BUSINESS_NAME}`;
+
+    await sendDiscordNotification({
+      title: "⚠️ رد استمرار/إلغاء بدون طلب مرتبط",
+      description: "العميل أرسل قرار استمرار أو إلغاء، لكن لم يتم العثور على طلب من رقمه.",
+      color: 0xfee75c,
+      customerPhone: from,
+      customerMessage: text,
+      systemReply: deterministicReply,
+      baseUrl,
+    });
+
+    return generateAiReply({
+      customerText: text,
+      deterministicReply,
+      isSensitive: sensitive,
+      hasApplication: false,
+      intent,
+    });
+  }
 
   if (app) {
     deterministicReply = safeReply(app, baseUrl, text, intent);
