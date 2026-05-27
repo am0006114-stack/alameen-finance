@@ -609,13 +609,12 @@ function CompactMobileRequest({ app, identityDocuments }: { app: Application; id
       )}`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
-        <label className="flex shrink-0 items-center gap-2 rounded-xl border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.08)] px-3 py-2 text-xs font-black text-[#f3dfac]">
+        <label className="flex shrink-0 cursor-pointer items-center gap-2 rounded-xl border border-[rgba(214,181,107,0.28)] bg-[rgba(214,181,107,0.10)] px-4 py-3 text-xs font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.18)]">
           <input
             type="checkbox"
             name="applicationIds"
             value={app.id}
-            disabled={!canBulkPreliminaryQualify(app)}
-            className="h-4 w-4 accent-[#d6b56b] disabled:opacity-40"
+            className="h-5 w-5 cursor-pointer accent-[#d6b56b]"
           />
           تحديد
         </label>
@@ -1281,7 +1280,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                       اعتماد مبدئي جماعي
                     </h3>
                     <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
-                      علّم الطلبات المناسبة من علامة الصح، ثم اضغط الزر. سيتم تحديث الطلبات المسموح بها فقط إلى مؤهل مبدئيًا، والكرون يرسل رسالة "هل تود الاستمرار؟".
+                      علّم الطلبات من علامة الصح، ثم اضغط الزر. حتى لو علّمت طلبًا غير مناسب، النظام سيحدّث فقط الطلبات المسموح بها إلى مؤهل مبدئيًا، والكرون يرسل رسالة "هل تود الاستمرار؟".
                     </p>
                   </div>
 
@@ -1364,13 +1363,12 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             )}`}
                           >
                             <td className="px-4 py-4 text-sm">
-                              <label className="flex items-center justify-center">
+                              <label className="flex cursor-pointer items-center justify-center rounded-2xl border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.08)] px-3 py-3 transition hover:bg-[rgba(214,181,107,0.16)]">
                                 <input
                                   type="checkbox"
                                   name="applicationIds"
                                   value={app.id}
-                                  disabled={!canBulkPreliminaryQualify(app)}
-                                  className="h-5 w-5 accent-[#d6b56b] disabled:opacity-35"
+                                  className="h-6 w-6 cursor-pointer accent-[#d6b56b]"
                                 />
                               </label>
                             </td>
