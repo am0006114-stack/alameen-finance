@@ -862,7 +862,6 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (intent === "payment") {
     if (
       status === "preliminary_qualified" ||
-      status === "customer_confirmed_continue" ||
       paymentStatus === "pending" ||
       paymentStatus === "pending_payment" ||
       paymentStatus === "payment_info_sent"
@@ -941,12 +940,27 @@ ${BUSINESS_NAME}`;
 
   if (
     status === "preliminary_qualified" ||
-    status === "customer_confirmed_continue" ||
     paymentStatus === "pending" ||
     paymentStatus === "pending_payment" ||
     paymentStatus === "payment_info_sent"
   ) {
     return paymentMessage(app, baseUrl);
+  }
+
+  if (status === "customer_confirmed_continue") {
+    return `أهلًا ${name} 🌿
+
+رغبتكم بالاستمرار مسجلة لدينا.
+
+لا يوجد أي دفع مطلوب حاليًا من خلال هذه الرسالة. إذا ظهرت أي خطوة إضافية سيتم توضيحها حسب حالة الطلب.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
   }
 
   if (status === "delivery_delay_notice_sent") {
@@ -1441,14 +1455,12 @@ async function updateCustomerDecision(input: {
       .from("applications")
       .update({
         status: "customer_confirmed_continue",
-        payment_status: "payment_info_sent",
       })
       .eq("id", input.app.id);
 
     return {
       ...input.app,
       status: "customer_confirmed_continue",
-      payment_status: "payment_info_sent",
     } as ApplicationRecord;
   }
 
@@ -1466,6 +1478,23 @@ async function updateCustomerDecision(input: {
     status: "cancelled",
     payment_status: "not_requested_yet",
   } as ApplicationRecord;
+}
+
+function continueConfirmationMessage(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+تم تسجيل رغبتكم بالاستمرار، والطلب الآن بانتظار الخطوة التالية حسب حالة الملف.
+
+لا يوجد أي دفع مطلوب الآن من خلال هذه الرسالة.
+إذا كان مطلوبًا أي إجراء إضافي، سيظهر حسب حالة الطلب أو من خلال رابط المتابعة.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
 }
 
 function declineConfirmationMessage(app: ApplicationRecord) {
@@ -1624,6 +1653,8 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا سأل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
 
 قواعد الدفع:
+- إذا كتب العميل: موافق، أود الاستمرار، بدي أكمل، أو أي صيغة استمرار: لا ترسل تعليمات الدفع ولا رابط رفع الوصل تلقائيًا. فقط أكد أن رغبة الاستمرار تم تسجيلها.
+- رسالة رسوم فتح الملف أو تعليمات الدفع تُرسل فقط من مسار الإدارة/الموافقة المبدئية، وليس كرد تلقائي على كلمة موافق.
 - رسوم فتح الملف 5 دنانير فقط.
 - لا تُذكر رسوم فتح الملف كطلب دفع إلا إذا كان الطلب مؤهلًا مبدئيًا / عليه موافقة مبدئية من صفحة الإدارة، أو إذا الرد الآمن الأساسي يذكر صراحة أن تعليمات الدفع مطلوبة.
 - لا تطلب رسوم فتح الملف في الأسئلة العامة أو قبل مراجعة الطلب.
@@ -1743,11 +1774,11 @@ async function buildReply(request: Request, from: string, text: string) {
 
   if (app && intent === "continue_decision") {
     const updatedApp = await updateCustomerDecision({ app, decision: "continue" });
-    deterministicReply = paymentMessage(updatedApp, baseUrl);
+    deterministicReply = continueConfirmationMessage(updatedApp);
 
     await sendDiscordNotification({
       title: "✅ العميل وافق على الاستمرار",
-      description: "تم تحديث الطلب تلقائيًا وإرسال تعليمات الدفع.",
+      description: "تم تسجيل موافقة العميل فقط. لم يتم إرسال تعليمات الدفع تلقائيًا.",
       color: 0x57f287,
       app: updatedApp,
       customerPhone: from,
