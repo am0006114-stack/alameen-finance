@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { isAdminLoggedIn, clearAdminSession } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 
@@ -52,6 +53,31 @@ type Application = {
   payment_status?: string | null;
   delivery_delay_started_at?: string | null;
   delivery_delay_until?: string | null;
+};
+
+
+
+
+type DocumentRecord = {
+  id?: string;
+  created_at?: string | null;
+  application_id?: string | null;
+  document_type?: string | null;
+  type?: string | null;
+  file_url?: string | null;
+  public_url?: string | null;
+  url?: string | null;
+  file_path?: string | null;
+  path?: string | null;
+  storage_path?: string | null;
+  filename?: string | null;
+  name?: string | null;
+};
+
+type IdentityDocuments = {
+  front?: DocumentRecord;
+  back?: DocumentRecord;
+  other: DocumentRecord[];
 };
 
 const PAGE_SIZE = 50;
@@ -450,8 +476,132 @@ function buildTrackLink(app: Application) {
 
 
 
+function getDocumentTypeValue(document: DocumentRecord) {
+  return document.document_type || document.type || "";
+}
 
-function CompactMobileRequest({ app }: { app: Application }) {
+function isApplicantFrontDocument(document: DocumentRecord) {
+  const type = getDocumentTypeValue(document);
+
+  return type === "applicant_id_front" || type === "applicant_front";
+}
+
+function isApplicantBackDocument(document: DocumentRecord) {
+  const type = getDocumentTypeValue(document);
+
+  return type === "applicant_id_back" || type === "applicant_back";
+}
+
+function getDocumentUrl(document: DocumentRecord | undefined) {
+  if (!document) return "";
+
+  if (document.file_url) return document.file_url;
+  if (document.public_url) return document.public_url;
+  if (document.url) return document.url;
+
+  const storagePath =
+    document.file_path || document.path || document.storage_path || "";
+
+  if (!storagePath) return "";
+
+  const { data } = supabaseAdmin.storage
+    .from("documents")
+    .getPublicUrl(storagePath);
+
+  return data.publicUrl || "";
+}
+
+function getIdentityDocuments(documents: DocumentRecord[]) {
+  const identity: IdentityDocuments = { other: [] };
+
+  for (const document of documents) {
+    if (isApplicantFrontDocument(document)) {
+      identity.front = identity.front || document;
+    } else if (isApplicantBackDocument(document)) {
+      identity.back = identity.back || document;
+    } else {
+      identity.other.push(document);
+    }
+  }
+
+  return identity;
+}
+
+function IdentityThumbnail({
+  label,
+  document,
+}: {
+  label: string;
+  document?: DocumentRecord;
+}) {
+  const documentUrl = getDocumentUrl(document);
+
+  if (!documentUrl) {
+    return (
+      <div className="flex h-16 w-16 items-center justify-center rounded-2xl border border-red-400/25 bg-red-950/25 text-[10px] font-black text-red-100">
+        ناقص
+      </div>
+    );
+  }
+
+  return (
+    <a
+      href={documentUrl}
+      target="_blank"
+      rel="noreferrer"
+      title={label}
+      className="group relative block h-16 w-16 overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(3,18,14,0.58)]"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={documentUrl}
+        alt={label}
+        className="h-full w-full object-cover transition group-hover:scale-110"
+      />
+      <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 py-0.5 text-center text-[9px] font-black text-white">
+        {label}
+      </span>
+    </a>
+  );
+}
+
+function IdentityThumbnailGroup({
+  documents,
+}: {
+  documents: IdentityDocuments;
+}) {
+  const isComplete = Boolean(documents.front && documents.back);
+
+  return (
+    <div className="flex items-center gap-2">
+      <IdentityThumbnail label="أمامي" document={documents.front} />
+      <IdentityThumbnail label="خلفي" document={documents.back} />
+      <span
+        className={`inline-flex rounded-full border px-2 py-1 text-[10px] font-black ${
+          isComplete
+            ? "border-[rgba(105,217,123,0.32)] bg-[rgba(105,217,123,0.10)] text-[#b8f3c0]"
+            : "border-red-400/30 bg-red-950/25 text-red-200"
+        }`}
+      >
+        {isComplete ? "مكتملة" : "ناقصة"}
+      </span>
+    </div>
+  );
+}
+
+function canBulkPreliminaryQualify(app: Application) {
+  return (
+    !app.status ||
+    app.status === "preliminary_application" ||
+    app.status === "submitted" ||
+    app.status === "under_review"
+  );
+}
+
+
+
+
+function CompactMobileRequest({ app, identityDocuments }: { app: Application; identityDocuments: IdentityDocuments }) {
   return (
     <article
       className={`glass-panel gold-outline rounded-2xl p-4 shadow-sm ${newApplicationCardClass(
@@ -459,6 +609,17 @@ function CompactMobileRequest({ app }: { app: Application }) {
       )}`}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
+        <label className="flex shrink-0 items-center gap-2 rounded-xl border border-[rgba(214,181,107,0.22)] bg-[rgba(214,181,107,0.08)] px-3 py-2 text-xs font-black text-[#f3dfac]">
+          <input
+            type="checkbox"
+            name="applicationIds"
+            value={app.id}
+            disabled={!canBulkPreliminaryQualify(app)}
+            className="h-4 w-4 accent-[#d6b56b] disabled:opacity-40"
+          />
+          تحديد
+        </label>
+
         <div className="min-w-0">
           <p className="text-[11px] font-bold text-[#aeb9af]">رقم التتبع</p>
           <div className="flex items-center gap-2">
@@ -507,6 +668,11 @@ function CompactMobileRequest({ app }: { app: Application }) {
             {hasGpsLocation(app) ? "موجود" : "غير محدد"}
           </p>
         </div>
+      </div>
+
+      <div className="mt-3 rounded-2xl border border-[rgba(214,181,107,0.12)] bg-[rgba(255,255,255,0.035)] p-3">
+        <p className="mb-2 text-[11px] font-black text-[#f3dfac]">صور الهوية</p>
+        <IdentityThumbnailGroup documents={identityDocuments} />
       </div>
 
       <div className="mt-3 flex flex-wrap gap-2">
@@ -580,6 +746,44 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
   const pageEndIndex = pageStartIndex + PAGE_SIZE;
   const paginatedApplications = filteredApplications.slice(pageStartIndex, pageEndIndex);
 
+  const paginatedApplicationIds = paginatedApplications.map((app) => app.id);
+
+  let safeDocuments: DocumentRecord[] = [];
+
+  if (paginatedApplicationIds.length > 0) {
+    const { data: documentsData, error: documentsError } = await supabaseAdmin
+      .from("documents")
+      .select("*")
+      .in("application_id", paginatedApplicationIds);
+
+    if (documentsError) {
+      console.error("Failed to fetch application documents:", documentsError);
+    }
+
+    safeDocuments = (documentsData || []) as DocumentRecord[];
+  }
+
+  const documentsByApplicationId = new Map<string, DocumentRecord[]>();
+
+  for (const document of safeDocuments) {
+    const applicationId = document.application_id;
+
+    if (!applicationId) continue;
+
+    const currentDocuments = documentsByApplicationId.get(applicationId) || [];
+    currentDocuments.push(document);
+    documentsByApplicationId.set(applicationId, currentDocuments);
+  }
+
+  const identityDocumentsByApplicationId = new Map<string, IdentityDocuments>();
+
+  for (const app of paginatedApplications) {
+    identityDocumentsByApplicationId.set(
+      app.id,
+      getIdentityDocuments(documentsByApplicationId.get(app.id) || []),
+    );
+  }
+
   const totalApplications = safeApplications.length;
 
   const needsActionCount = safeApplications.filter(
@@ -643,6 +847,63 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     await clearAdminSession();
     redirect("/admin/login");
   }
+
+  async function bulkPreliminaryQualifiedAction(formData: FormData) {
+    "use server";
+
+    const selectedIds = formData
+      .getAll("applicationIds")
+      .map((value) => String(value || "").trim())
+      .filter(Boolean);
+
+    const returnHref = String(formData.get("returnHref") || "/admin");
+
+    if (selectedIds.length === 0) {
+      redirect(returnHref);
+    }
+
+    const { data: selectedApplications, error: selectedApplicationsError } =
+      await supabaseAdmin
+        .from("applications")
+        .select("id, created_at, status")
+        .in("id", selectedIds);
+
+    if (selectedApplicationsError) {
+      console.error("Failed to validate selected applications:", selectedApplicationsError);
+      redirect(returnHref);
+    }
+
+    const allowedIds = ((selectedApplications || []) as Application[])
+      .filter(canBulkPreliminaryQualify)
+      .map((app) => app.id);
+
+    if (allowedIds.length === 0) {
+      redirect(returnHref);
+    }
+
+    const { error: updateError } = await supabaseAdmin
+      .from("applications")
+      .update({
+        status: "preliminary_qualified",
+        payment_status: "not_requested_yet",
+        preliminary_qualified_at: new Date().toISOString(),
+      })
+      .in("id", allowedIds);
+
+    if (updateError) {
+      console.error("Failed to bulk preliminary qualify applications:", updateError);
+    }
+
+    revalidatePath("/admin");
+    redirect(returnHref);
+  }
+
+  const currentAdminHref = buildPageHref({
+    q,
+    status: selectedStatus,
+    payment: selectedPayment,
+    page: currentPage,
+  });
 
   return (
     <main
@@ -1010,19 +1271,50 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
               </p>
             </div>
           ) : (
-            <>
+            <form action={bulkPreliminaryQualifiedAction}>
+              <input type="hidden" name="returnHref" value={currentAdminHref} />
+
+              <div className="mb-4 rounded-3xl border border-[rgba(214,181,107,0.20)] bg-[rgba(214,181,107,0.07)] p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <h3 className="text-base font-black text-white">
+                      اعتماد مبدئي جماعي
+                    </h3>
+                    <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
+                      علّم الطلبات المناسبة من علامة الصح، ثم اضغط الزر. سيتم تحديث الطلبات المسموح بها فقط إلى مؤهل مبدئيًا، والكرون يرسل رسالة "هل تود الاستمرار؟".
+                    </p>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className="gold-button rounded-2xl px-5 py-3 text-sm font-black transition"
+                  >
+                    اعتماد مبدئي للطلبات المحددة
+                  </button>
+                </div>
+              </div>
+
               <div className="grid gap-3 md:hidden">
                 {paginatedApplications.map((app) => (
-                  <CompactMobileRequest key={app.id} app={app} />
+                  <CompactMobileRequest
+                    key={app.id}
+                    app={app}
+                    identityDocuments={
+                      identityDocumentsByApplicationId.get(app.id) || { other: [] }
+                    }
+                  />
                 ))}
               </div>
 
               <div className="hidden md:block">
                 <div className="overflow-hidden rounded-3xl border border-[rgba(214,181,107,0.14)]">
                   <div className="overflow-x-auto">
-                    <table className="w-full min-w-[1340px] border-collapse text-right">
+                    <table className="w-full min-w-[1540px] border-collapse text-right">
                       <thead className="bg-[rgba(3,18,14,0.86)] text-white">
                         <tr>
+                          <th className="px-4 py-4 text-sm font-black">
+                            اختيار
+                          </th>
                           <th className="px-4 py-4 text-sm font-black">
                             أولوية
                           </th>
@@ -1039,6 +1331,9 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                             المحافظة
                           </th>
                           <th className="px-4 py-4 text-sm font-black">GPS</th>
+                          <th className="px-4 py-4 text-sm font-black">
+                            الهوية
+                          </th>
                           <th className="px-4 py-4 text-sm font-black">
                             الراتب
                           </th>
@@ -1068,6 +1363,18 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                               app,
                             )}`}
                           >
+                            <td className="px-4 py-4 text-sm">
+                              <label className="flex items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  name="applicationIds"
+                                  value={app.id}
+                                  disabled={!canBulkPreliminaryQualify(app)}
+                                  className="h-5 w-5 accent-[#d6b56b] disabled:opacity-35"
+                                />
+                              </label>
+                            </td>
+
                             <td className="px-4 py-4 text-sm">
                               <span
                                 className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${priorityClass(app)}`}
@@ -1114,6 +1421,14 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                               >
                                 {hasGpsLocation(app) ? "موجود" : "لا يوجد"}
                               </span>
+                            </td>
+
+                            <td className="px-4 py-4 text-sm">
+                              <IdentityThumbnailGroup
+                                documents={
+                                  identityDocumentsByApplicationId.get(app.id) || { other: [] }
+                                }
+                              />
                             </td>
 
                             <td className="px-4 py-4 text-sm font-bold text-[#d7ddd5]">
@@ -1174,7 +1489,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
                 currentPage={currentPage}
                 totalPages={totalPages}
               />
-            </>
+            </form>
           )}
         </section>
       </div>
