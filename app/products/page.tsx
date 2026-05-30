@@ -32,11 +32,6 @@ function ProductCard({ product }: { product: Product }) {
     });
   }, [product.price, months, downPaymentNumber]);
 
-  const applyHref = `/apply?product=${encodeURIComponent(
-    product.id
-  )}&months=${encodeURIComponent(String(months))}&downPayment=${encodeURIComponent(
-    String(calculation.downPayment)
-  )}`;
 
   return (
     <article className="glass-panel gold-outline overflow-hidden rounded-[24px] transition hover:-translate-y-1 hover:shadow-2xl sm:rounded-[30px]">
@@ -140,12 +135,9 @@ function ProductCard({ product }: { product: Product }) {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
-          <Link
-            href={applyHref}
-            className="green-button rounded-2xl px-3 py-3 text-center text-xs font-black transition sm:text-sm"
-          >
-            قدّم على هذا الجهاز
-          </Link>
+          <div className="rounded-2xl border border-red-400/30 bg-red-950/25 px-3 py-3 text-center text-xs font-black text-red-100 sm:text-sm">
+            التقديم متوقف للصيانة
+          </div>
 
           <button
             type="button"
@@ -222,13 +214,22 @@ export default function ProductsPage() {
           </nav>
 
           <Link
-            href="/apply"
+            href="/track"
             className="green-button rounded-2xl px-4 py-3 text-xs font-black shadow-xl transition sm:px-5 sm:text-sm"
           >
-            طلب عام
+            تتبع الطلب
           </Link>
         </div>
       </header>
+
+      <section className="relative mx-auto max-w-7xl px-4 pt-5">
+        <div className="rounded-[28px] border border-red-400/35 bg-[linear-gradient(135deg,rgba(127,29,29,0.44),rgba(214,181,107,0.10),rgba(3,18,14,0.88))] p-5 shadow-[0_18px_55px_rgba(127,29,29,0.20)]">
+          <p className="text-lg font-black text-red-100">تنبيه مهم — لا نستقبل طلبات جديدة حاليًا</p>
+          <p className="mt-2 text-sm font-bold leading-7 text-[#f7d6d6]">
+            نعتذر، تم إيقاف استقبال الطلبات الجديدة مؤقتًا بسبب صيانة عاجلة للأنظمة. متابعة الطلبات الحالية مستمرة وسيتم الرد على جميع الطلبات القائمة بحد أقصى يوم الاثنين. خدمة تتبع الطلبات ما زالت متاحة بشكل طبيعي.
+          </p>
+        </div>
+      </section>
 
       <section className="mx-auto max-w-7xl px-4 py-6 sm:py-8">
         <div className="site-shell pattern-lines overflow-hidden rounded-[30px] p-1 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:rounded-[40px]">
@@ -275,10 +276,10 @@ export default function ProductsPage() {
                 <div className="section-divider my-6" />
 
                 <Link
-                  href="/apply"
+                  href="/track"
                   className="gold-button block rounded-2xl px-6 py-4 text-center text-sm font-black transition"
                 >
-                  تقديم طلب بدون جهاز محدد
+                  التتبع متاح فقط
                 </Link>
               </div>
             </div>

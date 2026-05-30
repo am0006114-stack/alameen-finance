@@ -1553,22 +1553,20 @@ async function logMessage(input: {
   }
 }
 
-function extractOpenAiText(data: any) {
-  if (typeof data?.output_text === "string" && data.output_text.trim()) {
-    return data.output_text.trim();
+function extractDeepSeekText(data: any) {
+  const directContent = data?.choices?.[0]?.message?.content;
+
+  if (typeof directContent === "string" && directContent.trim()) {
+    return directContent.trim();
   }
 
-  const chunks: string[] = [];
+  const deltaContent = data?.choices?.[0]?.delta?.content;
 
-  for (const item of data?.output || []) {
-    for (const content of item?.content || []) {
-      if (typeof content?.text === "string") {
-        chunks.push(content.text);
-      }
-    }
+  if (typeof deltaContent === "string" && deltaContent.trim()) {
+    return deltaContent.trim();
   }
 
-  return chunks.join("\n").trim();
+  return "";
 }
 
 function sanitizeAiReply(reply: string, fallback: string) {
@@ -1617,10 +1615,12 @@ function sanitizeAiReply(reply: string, fallback: string) {
 }
 
 async function generateAiReply(input: AiReplyInput) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  const model = process.env.OPENAI_MODEL || "gpt-4o";
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
+  const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
 
   if (!apiKey) {
+    console.error("Missing DEEPSEEK_API_KEY");
     return input.deterministicReply;
   }
 
@@ -1715,7 +1715,7 @@ ${input.deterministicReply}
 `;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -1723,24 +1723,33 @@ ${input.deterministicReply}
       },
       body: JSON.stringify({
         model,
-        instructions: systemInstructions,
-        input: userInput,
-        temperature: 0.75,
-        max_output_tokens: 900,
+        messages: [
+          {
+            role: "system",
+            content: systemInstructions,
+          },
+          {
+            role: "user",
+            content: userInput,
+          },
+        ],
+        temperature: 0.65,
+        max_tokens: 900,
+        thinking: { type: "disabled" },
       }),
     });
 
     if (!response.ok) {
-      console.error("OpenAI reply failed:", await response.text());
+      console.error("DeepSeek reply failed:", await response.text());
       return input.deterministicReply;
     }
 
     const data = await response.json();
-    const aiText = extractOpenAiText(data);
+    const aiText = extractDeepSeekText(data);
 
     return sanitizeAiReply(aiText, input.deterministicReply);
   } catch (error) {
-    console.error("OpenAI reply error:", error);
+    console.error("DeepSeek reply error:", error);
     return input.deterministicReply;
   }
 }

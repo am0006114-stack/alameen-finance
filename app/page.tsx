@@ -7,7 +7,7 @@ const legalRegistrationText =
 const featuredBenefits = [
   {
     title: "تقديم أونلاين بالكامل",
-    description: "قدّم طلبك من البيت خلال دقائق بدون زيارة أولية لمكاتبنا.",
+    description: "استقبال الطلبات الجديدة متوقف مؤقتًا، وخدمة التتبع تعمل بشكل طبيعي.",
   },
   {
     title: "دراسة خلال 24 - 72 ساعة",
@@ -25,14 +25,14 @@ const featuredBenefits = [
 
 const steps = [
   ["1", "اختر الجهاز", "تصفح أجهزة iPhone و Samsung واختر الأنسب لك."],
-  ["2", "قدّم الطلب", "عبّئ البيانات وارفع صور الهويات المطلوبة."],
+  ["2", "التقديم متوقف", "استقبال الطلبات الجديدة متوقف مؤقتًا للصيانة العاجلة."],
   ["3", "ادفع رسوم الملف", "ادفع 5 دنانير وأدخل رقم الوصل أو رقم الحركة."],
   ["4", "انتظر الدراسة", "تتم مراجعة الطلب خلال 24 إلى 72 ساعة عمل."],
   ["5", "استلم جهازك", "بعد الموافقة، يتم شراء الجهاز وتسليمه مع توقيع العقد."],
 ];
 
 const faqItems = [
-  "هل التقديم أونلاين؟ نعم، التقديم ودراسة الطلب تتم أونلاين فقط.",
+  "هل التقديم متاح الآن؟ لا، استقبال الطلبات الجديدة متوقف مؤقتًا للصيانة.",
   "كم مدة دراسة الطلب؟ من 24 إلى 72 ساعة عمل بعد اكتمال البيانات.",
   "هل الدفعة الأولى إجبارية؟ لا، الدفعة الأولى اختيارية حسب قدرة العميل.",
   "متى يتم شراء الجهاز؟ بعد الموافقة على طلب التمويل واستكمال الإجراءات.",
@@ -134,6 +134,22 @@ export default function HomePage() {
         </div>
       </header>
 
+      <section className="relative mx-auto max-w-7xl px-4 pt-5">
+        <div className="rounded-[28px] border border-red-400/35 bg-[linear-gradient(135deg,rgba(127,29,29,0.44),rgba(214,181,107,0.10),rgba(3,18,14,0.88))] p-5 shadow-[0_18px_55px_rgba(127,29,29,0.20)]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-lg font-black text-red-100">تنبيه مهم — استقبال الطلبات الجديدة متوقف مؤقتًا</p>
+              <p className="mt-2 text-sm font-bold leading-7 text-[#f7d6d6]">
+                نعتذر، تم إيقاف استقبال الطلبات الجديدة مؤقتًا بسبب صيانة عاجلة للأنظمة. متابعة الطلبات الحالية مستمرة وسيتم الرد على جميع الطلبات القائمة بحد أقصى يوم الاثنين. خدمة تتبع الطلبات ما زالت متاحة بشكل طبيعي.
+              </p>
+            </div>
+            <Link href="/track" className="soft-button rounded-2xl px-5 py-3 text-center text-sm font-black transition">
+              تتبع طلبك
+            </Link>
+          </div>
+        </div>
+      </section>
+
       <section className="mx-auto max-w-7xl px-4 pt-6 sm:pt-8 lg:pt-10">
         <div className="site-shell pattern-lines overflow-hidden rounded-[32px] p-1 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:rounded-[42px]">
           <div className="relative overflow-hidden rounded-[30px] border border-[rgba(214,181,107,0.14)] px-5 py-6 sm:px-8 sm:py-10 lg:px-12 lg:py-14">
@@ -153,8 +169,8 @@ export default function HomePage() {
 
                 <p className="mt-5 max-w-3xl text-sm font-bold leading-8 text-[#d3ddd3] sm:text-lg sm:leading-9">
                   اختر جهاز <span dir="ltr">iPhone</span> أو{" "}
-                  <span dir="ltr">Samsung</span>، وقدّم طلبك أونلاين خلال دقائق.
-                  نحافظ على تجربة فاخرة وواضحة من أول خطوة حتى المتابعة والاستلام.
+                  <span dir="ltr">Samsung</span>، وتابع طلبك الحالي من خلال رقم التتبع.
+                  استقبال الطلبات الجديدة متوقف مؤقتًا بسبب صيانة عاجلة، والتتبع يعمل بشكل طبيعي.
                 </p>
 
                 <div className="mt-7 grid gap-3 sm:flex sm:flex-wrap">
@@ -166,10 +182,10 @@ export default function HomePage() {
                   </Link>
 
                   <Link
-                    href="/apply"
+                    href="/track"
                     className="gold-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
                   >
-                    قدّم الآن
+                    تتبع طلبك الحالي
                   </Link>
 
                   <Link

@@ -36,35 +36,6 @@ function normalizePhone(value: string) {
   return value.trim().replace(/\D/g, "");
 }
 
-function getWhatsAppFollowUpUrl(message: string) {
-  const number = process.env.NEXT_PUBLIC_WHATSAPP_NUMBER || "";
-  const cleanNumber = number.replace(/\D/g, "");
-  const encodedMessage = encodeURIComponent(message);
-
-  if (cleanNumber) {
-    return `https://wa.me/${cleanNumber}?text=${encodedMessage}`;
-  }
-
-  return `https://wa.me/?text=${encodedMessage}`;
-}
-
-function getTrackWhatsAppMessage(app: Application, statusView: StatusView) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-
-  return `مرحباً، أريد متابعة طلبي لدى الأمين للأقساط والتمويل.
-
-رقم التتبع:
-${tracking}
-
-رقم الهاتف:
-${phone}
-
-حالة الطلب الحالية:
-${statusView.title}
-
-أرغب بالمساعدة أو معرفة الخطوة التالية.`;
-}
 
 function maskName(name: string | null | undefined) {
   if (!name) return "—";
@@ -203,7 +174,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "طلبك وصل للإدارة",
         message:
-          "تم استلام طلبك كمراجعة مبدئية. إذا احتجنا أي معلومة إضافية سيتم التواصل معك عبر واتساب.",
+          "تم استلام طلبك كمراجعة مبدئية. ستتم متابعة الطلبات القائمة بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.",
         tone: "new",
         step: 1,
       };
@@ -211,7 +182,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "مؤهل مبدئياً",
         message:
-          "طلبك مؤهل مبدئياً لاستكمال الخطوات التالية. يرجى متابعة واتساب لأن الإدارة سترسل لك المطلوب بشكل واضح.",
+          "طلبك مؤهل مبدئياً لاستكمال الخطوات التالية. سيتم استكمال المتابعة بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.",
         tone: "success",
         step: 2,
       };
@@ -219,7 +190,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "بحاجة كشف راتب",
         message:
-          "نحتاج كشف راتب أو شهادة راتب حديثة لاستكمال دراسة الطلب. يرجى متابعة رسالة واتساب من الإدارة.",
+          "نحتاج كشف راتب أو شهادة راتب حديثة لاستكمال دراسة الطلب. سيتم ترتيب المتابعة بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.",
         tone: "warning",
         step: 2,
       };
@@ -227,7 +198,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "بحاجة كفيل",
         message:
-          "نحتاج إدخال بيانات كفيل لاستكمال دراسة الملف. سيتم إرسال رابط خاص عبر واتساب لتعبئة بيانات الكفيل داخل الموقع.",
+          "نحتاج إدخال بيانات كفيل لاستكمال دراسة الملف. سيتم ترتيب إرسال الرابط بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.",
         tone: "warning",
         step: 2,
       };
@@ -244,7 +215,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "بانتظار استكمال خطوة",
         message:
-          "طلبك بانتظار استكمال خطوة مطلوبة من الإدارة. يرجى متابعة واتساب أو انتظار تحديث الحالة.",
+          "طلبك بانتظار استكمال خطوة مطلوبة من الإدارة. يرجى انتظار تحديث الحالة، وسيتم متابعة الطلبات القائمة بحد أقصى يوم الاثنين.",
         tone: "warning",
         step: 3,
       };
@@ -252,7 +223,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "قيد الدراسة",
         message:
-          "طلبك قيد الدراسة حالياً. سيتم التواصل معك عند صدور القرار أو في حال الحاجة لأي معلومات إضافية.",
+          "طلبك قيد الدراسة حالياً. سيتم تحديث الحالة ومتابعة الطلبات القائمة بحد أقصى يوم الاثنين.",
         tone: "new",
         step: 4,
       };
@@ -260,7 +231,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "تمت الموافقة المبدئية",
         message:
-          "تمت الموافقة المبدئية على طلبك. سيتم التواصل معك لاستكمال الإجراءات النهائية، ويكون التسليم من مكاتبنا بعد توقيع العقد.",
+          "تمت الموافقة المبدئية على طلبك. سيتم استكمال الإجراءات النهائية بعد انتهاء الصيانة، وبحد أقصى يوم الاثنين.",
         tone: "success",
         step: 5,
       };
@@ -276,7 +247,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "الطلب ملغي",
         message:
-          "تم إلغاء هذا الطلب. إذا كان الإلغاء بالخطأ، يرجى التواصل مع الإدارة.",
+          "تم إلغاء هذا الطلب. إذا كان الإلغاء بالخطأ، ستتم مراجعته بعد انتهاء الصيانة.",
         tone: "neutral",
         step: 5,
       };
@@ -284,7 +255,7 @@ function getStatusView(app: Application): StatusView {
       return {
         title: "قيد المتابعة",
         message:
-          "طلبك قيد المتابعة. يرجى مراجعة الحالة لاحقاً أو انتظار التواصل عبر واتساب.",
+          "طلبك قيد المتابعة. يرجى مراجعة الحالة لاحقاً، وسيتم متابعة الطلبات القائمة بحد أقصى يوم الاثنين.",
         tone: "neutral",
         step: 1,
       };
@@ -437,7 +408,7 @@ function paymentStageClass(tone: "success" | "warning" | "neutral") {
 
 function nextStepText(app: Application, statusView: StatusView) {
   if (app.payment_status === "confirmed") {
-    return "الآن المطلوب منك فقط انتظار نتيجة الدراسة النهائية خلال 24 إلى 72 ساعة، مع إبقاء واتساب متاحاً لأي استفسار من الإدارة.";
+    return "الآن المطلوب منك فقط انتظار نتيجة الدراسة النهائية خلال 24 إلى 72 ساعة، وستظهر أي تحديثات مهمة على صفحة التتبع.";
   }
 
   if (app.payment_status === "customer_claimed_paid") {
@@ -445,19 +416,19 @@ function nextStepText(app: Application, statusView: StatusView) {
   }
 
   if (app.status === "preliminary_qualified") {
-    return "تابع واتساب لأن الإدارة سترسل لك تعليمات فتح الملف والخطوة التالية بشكل واضح.";
+    return "انتظر تحديث الحالة، وسيتم متابعة الطلبات القائمة بحد أقصى يوم الاثنين.";
   }
 
   if (app.status === "needs_salary_slip") {
-    return "أرسل كشف راتب أو شهادة راتب حديثة عبر واتساب حتى نكمل دراسة الطلب.";
+    return "سيتم ترتيب استلام كشف الراتب أو شهادة الراتب بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.";
   }
 
   if (app.status === "needs_guarantor") {
-    return "افتح رابط الكفيل المرسل عبر واتساب وأكمل بياناته حتى يتحرك الطلب للخطوة التالية.";
+    return "سيتم ترتيب رابط الكفيل بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.";
   }
 
   if (app.status === "approved") {
-    return "تابع واتساب لاستكمال توقيع العقد وترتيب الاستلام من مكاتبنا.";
+    return "سيتم استكمال توقيع العقد وترتيب الاستلام بعد انتهاء الصيانة وبحد أقصى يوم الاثنين.";
   }
 
   if (app.status === "rejected") {
@@ -546,9 +517,6 @@ export default async function TrackPage({
   const minimumReviewTime = application ? getMinimumReviewTime(application) : null;
   const reviewDeadline = application ? getReviewDeadline(application) : null;
   const countdown = formatCountdownParts(reviewDeadline || null);
-  const whatsappMessage =
-    application && statusView ? getTrackWhatsAppMessage(application, statusView) : "";
-  const whatsappHref = whatsappMessage ? getWhatsAppFollowUpUrl(whatsappMessage) : "#";
   const fileStatus = application ? fileOpenStatus(application) : null;
 
   const timeline = [
@@ -591,11 +559,18 @@ export default async function TrackPage({
 
               <p className="mx-auto mt-4 max-w-2xl text-sm font-bold leading-8 text-[#cbd6cb]">
                 أدخل رقم الهاتف المستخدم في الطلب مع رقم التتبع لمعرفة آخر حالة
-                للطلب. إذا احتجنا أي إجراء إضافي سيتم التواصل معك عبر واتساب.
+                للطلب. استقبال الطلبات الجديدة متوقف مؤقتًا، وسيتم متابعة الطلبات الحالية بحد أقصى يوم الاثنين.
               </p>
             </div>
           </div>
         </header>
+
+        <section className="mb-6 rounded-[28px] border border-red-400/35 bg-[linear-gradient(135deg,rgba(127,29,29,0.44),rgba(214,181,107,0.10),rgba(3,18,14,0.88))] p-5 shadow-[0_18px_55px_rgba(127,29,29,0.20)]">
+          <p className="text-lg font-black text-red-100">تنبيه صيانة — التتبع يعمل فقط</p>
+          <p className="mt-2 text-sm font-bold leading-7 text-[#f7d6d6]">
+            نعتذر، تم إيقاف استقبال الطلبات الجديدة مؤقتًا بسبب صيانة عاجلة للأنظمة. متابعة الطلبات الحالية مستمرة وسيتم الرد على جميع الطلبات القائمة بحد أقصى يوم الاثنين. خدمة تتبع الطلبات ما زالت متاحة بشكل طبيعي.
+          </p>
+        </section>
 
         <section className="glass-panel gold-outline rounded-[32px] p-6 shadow-xl">
           <form className="grid gap-4 md:grid-cols-2">
@@ -725,14 +700,9 @@ export default async function TrackPage({
                         تم تأكيد خطوة الدفع بنجاح. تبدأ مدة المراجعة النهائية من لحظة تأكيد الدفع، والرد المتوقع يكون خلال 24 إلى 72 ساعة حسب ضغط الطلبات والتحقق من البيانات.
                       </p>
 
-                      <a
-                        href={whatsappHref}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-5 inline-flex rounded-2xl border border-[rgba(105,217,123,0.38)] bg-[linear-gradient(135deg,#69d97b,#35c98e)] px-5 py-3 text-sm font-black text-[#03120e] shadow-[0_14px_40px_rgba(105,217,123,0.18)] transition hover:scale-[1.01]"
-                      >
-                        تواصل معنا على واتساب بخصوص الدراسة النهائية
-                      </a>
+                      <div className="mt-5 inline-flex rounded-2xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.10)] px-5 py-3 text-sm font-black text-[#f3dfac]">
+                        المتابعة عبر التتبع حاليًا لحين انتهاء الصيانة
+                      </div>
                     </div>
 
                     <div className="rounded-3xl border border-[rgba(214,181,107,0.22)] bg-[rgba(2,18,14,0.72)] p-5 text-center">
@@ -836,18 +806,13 @@ export default async function TrackPage({
                     </p>
 
                     <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
-                      افتح واتساب برسالة جاهزة تحتوي رقم التتبع وحالة طلبك الحالية حتى نقدر نساعدك بسرعة.
+                      خدمة واتساب متوقفة مؤقتًا بسبب الصيانة. خدمة التتبع تعمل بشكل طبيعي وسيتم متابعة الطلبات القائمة بحد أقصى يوم الاثنين.
                     </p>
                   </div>
 
-                  <a
-                    href={whatsappHref}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="green-button rounded-2xl px-5 py-4 text-center text-sm font-black transition"
-                  >
-                    تواصل معنا على واتساب
-                  </a>
+                  <div className="rounded-2xl border border-[rgba(214,181,107,0.28)] bg-[rgba(214,181,107,0.10)] px-5 py-4 text-center text-sm font-black text-[#f3dfac]">
+                    التتبع متاح فقط الآن
+                  </div>
                 </div>
               </div>
             </div>
