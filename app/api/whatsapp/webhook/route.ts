@@ -47,6 +47,7 @@ type CustomerIntent =
   | "decline_decision"
   | "human_agent"
   | "loan"
+  | "contact_info"
   | "website"
   | "location"
   | "installment_info"
@@ -76,6 +77,8 @@ type AiReplyInput = {
 const BUSINESS_NAME = "الأمين للأقساط";
 const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني - مقابل مستشفى العيون - شارع المدينة المنورة";
 const BUSINESS_PHONE_DISPLAY = "0788500337";
+const BUSINESS_PHONE_E164 = "+962788500337";
+const BUSINESS_WEBSITE = "https://www.ameenfinance.co";
 const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب الطلبات المؤكدة خلال هذا الأسبوع بإذن الله";
 const POST_EID_DELIVERY_STRICT_TEXT =
   "سيتم التواصل مع أصحاب الطلبات المؤكدة خلال هذا الأسبوع بإذن الله لترتيب إجراءات التسليم فور وصول الأجهزة وتأكيد جدول التوزيع";
@@ -202,6 +205,28 @@ function humanOpening(seed: string) {
 function isGreeting(text: string) {
   const t = normalizeArabicText(text);
   return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t);
+}
+
+
+const CONTACT_INFO_KEYWORDS = [
+  "رقمكم", "رقمكو", "رقم الشركة", "رقم الشركه", "رقم المحل", "رقم الفرع", "رقم التواصل",
+  "تواصل معكم", "اتواصل معكم", "كيف اتواصل", "كيف أتواصل", "بدي رقمكم", "اعطيني رقمكم",
+  "ابعث رقمكم", "ارسل رقمكم", "واتسابكم", "واتس ابكم", "واتساب الشركة", "واتس اب الشركة",
+  "phone", "number", "contact", "whatsapp number", "whatsapp",
+  "شو رقمكم", "ايش رقمكم", "ما رقمكم", "رقم تلفون", "رقم هاتف", "هاتفكم", "تلفونكم",
+  "اتصل فيكم", "اتصال", "رن عليكم", "احكي معكم", "اكلمكم"
+];
+
+function isContactInfoText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  if (hasAny(t, CONTACT_INFO_KEYWORDS)) return true;
+
+  const hasPhoneWord = hasAny(t, ["رقم", "تلفون", "هاتف", "واتساب", "واتس", "اتصال", "تواصل", "contact", "phone"]);
+  const hasCompanyContext = hasAny(t, ["الشركة", "الشركه", "الامين", "الأمين", "عندكم", "لكم", "معكم", "المحل", "الفرع"]);
+
+  return hasPhoneWord && hasCompanyContext;
 }
 
 
@@ -512,6 +537,10 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (hasAny(t, ["قرض", "قروض", "كاش", "نقدي", "مصاري", "تمويل شخصي", "سلفه", "سلفة", "سلف", "دينار كاش"])) {
     return "loan";
+  }
+
+  if (isContactInfoText(t)) {
+    return "contact_info";
   }
 
   if (hasAny(t, ["موقعكم", "موقع", "الرابط", "لينك", "ويب سايت", "website", "رابطكم", "لينككم", "ابلكيشن", "تطبيق", "السايت"])) {
@@ -849,6 +878,29 @@ ${BUSINESS_NAME}`;
 حتى أقدر أربطه بالطلب وما نعطيك جواب عام، ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب. وإذا عندك صورة الطلب أو وصل الدفع ابعثها هون، وبفحصها لك.
 
 ${BUSINESS_NAME}`;
+}
+
+function contactInfoReply(baseUrl: string, from: string) {
+  const opening = humanOpening(`${from}:contact_info`);
+  return `${opening}
+
+معلومات التواصل الرسمية لدى ${BUSINESS_NAME}:
+
+واتساب الشركة:
+${BUSINESS_PHONE_E164}
+
+الرقم المحلي:
+${BUSINESS_PHONE_DISPLAY}
+
+الموقع الرسمي:
+${BUSINESS_WEBSITE}
+
+العنوان:
+${BUSINESS_ADDRESS}
+
+تنبيه بسيط: أي رقم آخر غير هذه البيانات لا يُعتبر رقمًا رسميًا من طرفنا.
+
+إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبراجع الحالة مباشرة.`;
 }
 
 function websiteReply(baseUrl: string, from: string) {
@@ -1893,6 +1945,7 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "سيتم رفع المحادثة",
     "رفع المحادثة",
     "تم تصعيد",
+    "0795733001",
   ];
 
   if (forbidden.some((word) => clean.includes(word))) {
@@ -1918,6 +1971,15 @@ async function generateAiReply(input: AiReplyInput) {
 
   const systemInstructions = `
 أنت تمثل خدمة عملاء واتساب حقيقية لدى "الأمين للأقساط" في الأردن.
+
+حقائق رسمية ثابتة ممنوع تغييرها أو اختراع بدائل عنها:
+- رقم واتساب الشركة الرسمي: ${BUSINESS_PHONE_E164}
+- الرقم المحلي الرسمي: ${BUSINESS_PHONE_DISPLAY}
+- الموقع الرسمي: ${BUSINESS_WEBSITE}
+- العنوان الرسمي: ${BUSINESS_ADDRESS}
+- رسوم فتح الملف الرسمية: 5 دنانير فقط.
+- ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
+- إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
 
 القاعدة الذهبية:
 - افهم نية العميل أولًا.
@@ -2254,6 +2316,8 @@ ${BUSINESS_NAME}`;
 بساعدك مباشرة حسب البيانات الظاهرة عندي وبعطيك الخطوة المناسبة بدون لف ودوران.`;
   } else if (intent === "loan") {
     deterministicReply = loanReply(from);
+  } else if (intent === "contact_info") {
+    deterministicReply = contactInfoReply(baseUrl, from);
   } else if (intent === "website") {
     deterministicReply = websiteReply(baseUrl, from);
   } else if (intent === "location") {
@@ -2299,6 +2363,25 @@ ${BUSINESS_NAME}`;
 بخدمتك بأي وقت.`;
   } else {
     deterministicReply = unknownReply(from);
+  }
+
+  const factualIntentNeedsExactReply = [
+    "contact_info",
+    "website",
+    "location",
+    "loan",
+    "installment_info",
+    "requirements",
+    "apply",
+    "products",
+    "payment",
+    "delivery",
+    "greeting",
+    "thanks",
+  ].includes(intent);
+
+  if (factualIntentNeedsExactReply) {
+    return deterministicReply;
   }
 
   return generateAiReply({
