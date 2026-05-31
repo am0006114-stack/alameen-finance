@@ -35,6 +35,12 @@ type WhatsAppWebhookBody = {
 };
 
 type CustomerIntent =
+  | "abuse"
+  | "legal_threat"
+  | "social_media_threat"
+  | "scam_accusation"
+  | "payment_dispute"
+  | "device_delay_rage"
   | "complaint"
   | "refund"
   | "continue_decision"
@@ -199,6 +205,92 @@ function isGreeting(text: string) {
 }
 
 
+const ABUSE_KEYWORDS = [
+  // إساءة مباشرة / بذاءة عربية وأردنية شائعة — تعامل معها كحدود احترام، لا كتحية ولا كسؤال عادي
+  "كس اختك", "كس اختكم", "كس امك", "كس امكم", "كس امه", "كس عرضك", "كس شرفك", "كسمك", "كسمكم", "كسمكو",
+  "انيك", "انيكك", "انيك اختك", "انيك امك", "نيك", "منيوك", "منيك", "منايك", "متناك", "متناكة", "متناكه",
+  "عرص", "عرصة", "عرصه", "معرص", "معرصين", "قواد", "قحبة", "قحبه", "شرموط", "شرموطة", "شرموطه",
+  "ابن حرام", "ولاد حرام", "يا حرامي يا ابن", "يا ابن الكلب", "ابن كلب", "كلب", "كلاب", "يا كلب", "يا كلاب",
+  "خرا", "خره", "زب", "زبي", "طيزي", "طز فيك", "طقع", "تفوو", "تف عليك", "يلعن", "يلعن امك", "يلعن اختك", "لعنة الله",
+  "احا", "احه", "يلعن شرف", "يا وسخ", "وسخ", "وسخين", "حقير", "حقيرين", "حيوان", "بقر", "جحش", "حمار", "يا حمار",
+  "غبي", "اغبياء", "تافه", "ساقط", "نذل", "واطي", "واطيين", "قذر", "قذرين", "خنزير", "خنازير",
+
+  // إساءة إنجليزية/فرانكو محتملة
+  "fuck", "fucking", "motherfucker", "bitch", "son of a bitch", "asshole", "dick", "shit", "bastard", "wtf",
+  "kos omak", "kos okhtak", "koss omak", "koss ekhtak", "kess ekhtak", "ayre", "ayri", "airi", "sharmout", "sharmoota",
+
+  // اختصارات/كتابة محرفة
+  "ك*س", "ك س امك", "ك س اختك", "كسختك", "كسامك", "كسمكو", "كسامكو", "منيكين", "متناكين", "عرصات",
+];
+
+const LEGAL_THREAT_KEYWORDS = [
+  "محامي", "محاميه", "محامية", "قضيه", "قضية", "محكمه", "محكمة", "شرطة", "شرطه", "مركز امني", "مركز أمني",
+  "جرائم الكترونية", "جرائم إلكترونية", "الجرائم الالكترونيه", "الجرائم الإلكترونية", "حماية المستهلك", "حمايه المستهلك",
+  "وزارة الصناعة", "وزارة الصناعة والتجارة", "البنك المركزي", "المدعي العام", "النائب العام", "حق قانوني", "قانونيا", "قانونيًا",
+  "راح ارفع عليكم", "برفع عليكم", "بدي ارفع قضية", "ارفع قضية", "دعوى", "دعوى قضائية", "بشتكي", "رح اشتكي", "راح اشتكي", "هشتكي",
+  "complaint", "lawyer", "police", "lawsuit", "court", "report",
+];
+
+const SOCIAL_MEDIA_THREAT_KEYWORDS = [
+  "بفضحكم", "افضحكم", "رح افضحكم", "راح افضحكم", "بنشر عليكم", "انشر عليكم", "سوشال ميديا", "فيسبوك", "تيك توك", "انستغرام",
+  "بوست", "منشور", "جروبات", "قروبات", "الناس تعرف", "بحذر الناس", "احذر الناس", "بنزل سكرينات", "سكرينات", "سكرين شوت",
+  "تقييم سيء", "review", "facebook", "instagram", "tiktok",
+];
+
+const SCAM_ACCUSATION_KEYWORDS = [
+  "نصب", "نصاب", "نصابه", "نصابين", "بتنصبوا", "نصبتو", "نصبتوا", "منصوب علي", "احتيال", "محتال", "محتالين",
+  "سرقه", "سرقة", "سارق", "سراق", "حرامي", "حراميه", "حرامية", "سرقتوني", "سرقتو", "سرقتوا",
+  "شركة وهمية", "وهمية", "وهم", "خداع", "مخادعين", "ضحكتوا علينا", "بتضحكوا علينا", "scam", "fraud", "scammer",
+];
+
+const PAYMENT_DISPUTE_KEYWORDS = [
+  "بدي فلوسي", "رجعوا فلوسي", "رجعولي فلوسي", "مصاريي", "فلوسي راحت", "استرداد", "استرجاع", "refund",
+  "رجعولي الرسوم", "استرجع الرسوم", "وين مصاري", "وين المصاري", "دفعت", "دافع", "حواله", "حوالة", "وصل", "ايصال", "إيصال",
+  "اخذتوا مصاري", "اكلتوا مصاري", "رسوم فتح الملف", "وين رسوم فتح الملف",
+];
+
+const DEVICE_DELAY_RAGE_KEYWORDS = [
+  "وين جهازي", "وين الجهاز", "وين تلفوني", "وين الموبايل", "وين طلبي", "وين الطلب", "متى بستلم", "ليش ما استلمت",
+  "تسليم", "استلام", "تأخير الجهاز", "تاخير الجهاز", "طولتوا", "صارلي", "بستنى", "مستني", "ما في تحديث", "ما وصلني",
+];
+
+function isAbuseText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, ABUSE_KEYWORDS);
+}
+
+function isLegalThreatText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, LEGAL_THREAT_KEYWORDS);
+}
+
+function isSocialMediaThreatText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, SOCIAL_MEDIA_THREAT_KEYWORDS);
+}
+
+function isScamAccusationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, SCAM_ACCUSATION_KEYWORDS);
+}
+
+function isPaymentDisputeText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, PAYMENT_DISPUTE_KEYWORDS);
+}
+
+function isDeviceDelayRageText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, DEVICE_DELAY_RAGE_KEYWORDS) && hasAny(t, ["تاخير", "تأخير", "طولت", "صارلي", "بستنى", "مستني", "وين", "ليش", "ما وصل", "ما استلم"]);
+}
+
+
 const ANGRY_CUSTOMER_KEYWORDS = [
   // اتهامات نصب / احتيال / سرقة
   "نصب", "نصاب", "نصابه", "نصابين", "بتنصبوا", "نصبتو", "نصبتوا", "منصوب علي", "انضحك علي",
@@ -283,7 +375,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return finalIntent === "complaint" || finalIntent === "refund" || finalIntent === "human_agent" || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "human_agent"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -390,6 +482,14 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (!t) return "unknown";
 
+  // حدود الاحترام والرسائل الحساسة يجب أن تُصنّف قبل التحيات أو الأسئلة العامة
+  if (isAbuseText(t)) return "abuse";
+  if (isScamAccusationText(t)) return "scam_accusation";
+  if (isLegalThreatText(t)) return "legal_threat";
+  if (isSocialMediaThreatText(t)) return "social_media_threat";
+  if (isPaymentDisputeText(t)) return "payment_dispute";
+  if (isDeviceDelayRageText(t)) return "device_delay_rage";
+
   if (isContinueDecisionText(t)) {
     return "continue_decision";
   }
@@ -472,7 +572,7 @@ function classifyIntent(text: string): CustomerIntent {
 
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
-  return intent === "complaint" || intent === "refund" || shouldFlagHumanReview(text, intent);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund"].includes(intent) || shouldFlagHumanReview(text, intent);
 }
 
 function trackUrl(baseUrl: string, app: ApplicationRecord) {
@@ -519,6 +619,161 @@ function statusHumanLabel(status: string) {
 
 function apologyLine(seed = "0") {
   return complaintApologyParagraph(seed);
+}
+
+
+function abuseReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  const tracking = app?.tracking_id || app?.id || "";
+  const status = app?.status || "";
+
+  if (app) {
+    return `واضح إنك منزعج، وبنعتذر إذا صار معك أي تأخير أو إرباك.
+
+بس خلينا نحافظ على الاحترام حتى أقدر أساعدك فعليًا.
+
+طلبك ظاهر عندي الآن، وحالته:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+اكتبلي المشكلة نفسها بجملة واضحة، مثل: "تأخر التسليم" أو "بدي أعرف حالة الطلب"، وبجاوبك مباشرة حسب الحالة الموجودة عندي.
+
+${BUSINESS_NAME}`;
+  }
+
+  return `واضح إنك منزعج، وبنعتذر إذا صار معك أي إزعاج.
+
+بس حتى أقدر أساعدك، خلينا نحافظ على الاحترام ونحكي بالمشكلة نفسها.
+
+اكتبلي رقم التتبع أو رقم الهاتف المستخدم بالطلب، أو احكيلي شو صار بجملة واضحة، وبراجعها لك مباشرة.
+
+${BUSINESS_NAME}`;
+}
+
+function legalThreatReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  const tracking = app?.tracking_id || app?.id || "";
+  const status = app?.status || "";
+
+  if (app) {
+    return `حقك تطلب توضيح واضح، وبنعتذر إذا حسّيت إن المتابعة ما كانت كافية.
+
+حسب البيانات الظاهرة عندي، حالة طلبك الحالية:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+خلينا نمشي على الموجود رسميًا: إذا عندك وصل دفع أو صورة من الطلب أو أي ملاحظة محددة، ابعثها هون وبوضح لك الخطوة المناسبة حسب حالة الطلب.
+
+${trackUrl(baseUrl, app)}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `حقك تطلب توضيح، وبنعتذر إذا صار أي تأخير أو عدم وضوح.
+
+حتى أقدر أراجع الموضوع بدقة، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وإذا عندك وصل دفع أو صورة طلب ابعثها هون.
+
+بعدها بعطيك الحالة والخطوة القادمة بدون كلام عام.
+
+${BUSINESS_NAME}`;
+}
+
+function socialMediaThreatReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  if (app) {
+    return `فاهمين إنك منزعج، وحقك يكون عندك تحديث واضح قبل ما تضطر تصعّد الموضوع بأي مكان.
+
+حالة طلبك الحالية:
+${statusHumanLabel(app.status || "")}
+
+رقم التتبع:
+${app.tracking_id || app.id}
+
+خلينا نحلها بهدوء: احكيلي النقطة المحددة اللي مضايقتك — تأخير، دفع، تسليم، أو مستند ناقص — وبوضحها لك حسب البيانات الظاهرة.
+
+رابط المتابعة:
+${trackUrl(baseUrl, app)}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `فاهمين انزعاجك، وحقك يكون عندك جواب واضح.
+
+قبل أي تصعيد، ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبراجعها لك مباشرة وأعطيك الحالة الحالية والخطوة المطلوبة.
+
+${BUSINESS_NAME}`;
+}
+
+function scamAccusationReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  if (app) {
+    return `${complaintApologyParagraph(`${from}:scam:${customerText}`)}
+
+ما رح أجادلك باتهامك، الأهم نعطيك وضع الطلب حسب البيانات الظاهرة.
+
+حالة الطلب الحالية:
+${statusHumanLabel(app.status || "")}
+
+رقم التتبع:
+${app.tracking_id || app.id}
+
+إذا عندك اعتراض على دفع أو تأخير أو تسليم، اكتبلي النقطة نفسها وبوضحها لك حسب الحالة بدون تهرب.
+
+رابط المتابعة:
+${trackUrl(baseUrl, app)}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `${complaintApologyParagraph(`${from}:scam:${customerText}`)}
+
+حتى ما نعطيك كلام عام، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبراجع الحالة مباشرة.
+
+إذا في وصل دفع أو صورة من الطلب، ابعثها هون كمان.
+
+${BUSINESS_NAME}`;
+}
+
+function paymentDisputeReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  if (app) {
+    return `وصلني اعتراضك بخصوص الدفع أو الرسوم، وحقك يكون الموضوع واضح.
+
+حالة الطلب:
+${statusHumanLabel(app.status || "")}
+
+حالة الدفع:
+${app.payment_status || "قيد المتابعة"}
+
+رقم التتبع:
+${app.tracking_id || app.id}
+
+مهم: رسوم فتح الملف 5 دنانير فقط، وتكون مستردة في حال عدم الموافقة النهائية. وإذا كان عندك وصل أو إثبات دفع، ابعثه هون حتى نربطه بالحالة الصحيحة.
+
+رابط المتابعة:
+${trackUrl(baseUrl, app)}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `أكيد، خلينا نراجع موضوع الدفع بدون لخبطة.
+
+ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب، ومعه صورة الوصل إن وجدت، وبوضح لك هل الدفع مسجل وما هي الحالة الحالية.
+
+${BUSINESS_NAME}`;
+}
+
+function deviceDelayRageReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  if (app) {
+    return deliveryDateReply(app, baseUrl);
+  }
+
+  return `حقك علينا، التأخير بدون تحديث واضح مزعج وبنقدّر قلقك.
+
+حتى أفحص لك وضع الجهاز تحديدًا، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
+
+إذا كان الطلب عليه موافقة نهائية، التحديث المعتمد أن التواصل مع أصحاب الطلبات المؤكدة سيكون خلال هذا الأسبوع بإذن الله حسب توريد الأجهزة وجدول التسليم.
+
+${BUSINESS_NAME}`;
 }
 
 function complaintReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
@@ -879,6 +1134,12 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   const paymentStatus = app.payment_status || "";
   const url = trackUrl(baseUrl, app);
 
+  if (intent === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
+  if (intent === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
+  if (intent === "social_media_threat") return socialMediaThreatReply(baseUrl, app.phone || tracking, app, customerText);
+  if (intent === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
+  if (intent === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
+  if (intent === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "refund") return refundReply(baseUrl, app.phone || tracking, app);
   if (intent === "delivery") return deliveryDateReply(app, baseUrl);
@@ -1663,7 +1924,9 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تطلب رقم التتبع إلا إذا كان السؤال عن طلب محدد أو المتابعة تحتاج ربط الطلب.
 - ممنوع تمامًا أن تقول للعميل: سيتم تحويلك، متابعة بشرية، مراجعة بشرية، موظف مختص، سيتم رفع المحادثة، تم تصعيد المحادثة، أو أي صياغة تكشف أن الرد انتقل لجهة أخرى.
 - إذا العميل طلب موظف أو اتصال أو قال "بدي أحكي مع حدا": رد كأنك قادر تساعده داخل نفس المحادثة، واطلب منه شرح المشكلة أو رقم التتبع فقط عند الحاجة.
-- إذا العميل غاضب أو كتب كلمات مثل: نصب، احتيال، حرامية، سرقة، كذب، مماطلة، تأخير، ما بتردو، بدي فلوسي، شكوى، محامي، شرطة، جرائم إلكترونية، حماية المستهلك، بفضحكم، بنشر عليكم: لا تجادله، لا تدافع، ولا تبدأ بطلب رقم التتبع.
+- إذا العميل كتب شتيمة مباشرة أو بذاءة أو إهانة شخصية: لا ترد بتحية، لا تقل وعليكم السلام، لا تعتذر بشكل مبالغ، ولا تدخل في جدال. رد بهدوء وحدود احترام: "واضح إنك منزعج، بس خلينا نحافظ على الاحترام حتى أقدر أساعدك" ثم اطلب المشكلة نفسها أو رقم الطلب عند الحاجة.
+- لا تكافئ الشتائم برد طويل. اجعل الرد قصيرًا، ثابتًا، ومهنيًا.
+- إذا العميل غاضب أو كتب كلمات مثل: نصب، احتيال، حرامية، سرقة، كذب، مماطلة، تأخير، ما بتردو، بدي فلوسي، شكوى، محامي، شرطة، جرائم إلكترونية، حماية المستهلك، بفضحكم، بنشر عليكم: لا تجادله، لا تدافع، ولا تبدأ بطلب رقم التتبع إلا إذا لا توجد أي حالة طلب معروفة.
 - في الرسائل الغاضبة: ابدأ باعتذار واضح ومتنوع، اعترف بحقه بالاستياء، ثم وضّح الحالة إن كانت معروفة، أو اطلب رقم التتبع/الهاتف بهدوء إذا لم يكن الطلب معروفًا.
 - لا تستخدم جملة اعتذار واحدة دائمًا. نوّع بين: "حقك علينا"، "بنعتذر بصدق"، "فاهمين غضبك"، "آسفين إن التجربة وصلت لهالشكل"، "حقك يكون عندك جواب واضح"، "خلينا نراجعها بدون جدال".
 - لا تعترف قانونيًا بأن الشركة نصبت أو سرقت. استخدم اعتذارًا عن التجربة/التأخير/عدم الوضوح، وليس اعترافًا باتهام.
@@ -1809,6 +2072,12 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "payment" ||
     intent === "refund" ||
     intent === "complaint" ||
+    intent === "abuse" ||
+    intent === "legal_threat" ||
+    intent === "social_media_threat" ||
+    intent === "scam_accusation" ||
+    intent === "payment_dispute" ||
+    intent === "device_delay_rage" ||
     intent === "continue_decision" ||
     intent === "decline_decision"
   ) {
@@ -1961,7 +2230,19 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (intent === "complaint") {
+  if (intent === "abuse") {
+    deterministicReply = abuseReply(baseUrl, from, null, text);
+  } else if (intent === "legal_threat") {
+    deterministicReply = legalThreatReply(baseUrl, from, null, text);
+  } else if (intent === "social_media_threat") {
+    deterministicReply = socialMediaThreatReply(baseUrl, from, null, text);
+  } else if (intent === "scam_accusation") {
+    deterministicReply = scamAccusationReply(baseUrl, from, null, text);
+  } else if (intent === "payment_dispute") {
+    deterministicReply = paymentDisputeReply(baseUrl, from, null, text);
+  } else if (intent === "device_delay_rage") {
+    deterministicReply = deviceDelayRageReply(baseUrl, from, null, text);
+  } else if (intent === "complaint") {
     deterministicReply = complaintReply(baseUrl, from, null, text);
   } else if (intent === "refund") {
     deterministicReply = refundReply(baseUrl, from, null);
