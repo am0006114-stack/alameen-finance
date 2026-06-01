@@ -1068,10 +1068,17 @@ ${tracking}
 
 ${fileOpeningFeeExplanation()}
 
-معلومات الدفع الرسمية:
-اسم المستفيد: AMEENPAY
-اسم المحفظة: Orange Money
-الاسم: ABDUL RAHMAN ALHARAHSHEH
+معلومات الدفع الرسمية عبر Orange Money:
+
+الخيار الأول:
+اسم المحفظة / الاسم التجاري: AMENPAY
+اسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH
+
+الخيار الثاني:
+اسم المحفظة / الاسم التجاري: PAYAMEEN
+اسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH
+
+ملاحظة مهمة: الاثنين أورنج موني، وإذا ظهر اسم المستفيد ABDUL RAHMAN ALHARAHSHEH فهذا صحيح.
 
 بعد الدفع، ارفعوا وصل الدفع من هذا الرابط:
 ${receiptUrl(baseUrl, app)}
