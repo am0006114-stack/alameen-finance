@@ -1932,6 +1932,79 @@ async function logMessage(input: {
   }
 }
 
+
+async function claimIncomingWhatsAppMessage(input: {
+  messageId?: string;
+  waId: string;
+  body: string;
+  messageType: string;
+  rawPayload?: unknown;
+}) {
+  const messageId = String(input.messageId || "").trim();
+
+  if (!messageId) {
+    return { shouldProcess: true, duplicate: false, reason: "missing_message_id" };
+  }
+
+  try {
+    const { error } = await supabaseAdmin.from("whatsapp_incoming_message_dedupe").insert({
+      message_id: messageId,
+      wa_id: input.waId,
+      body: input.body,
+      message_type: input.messageType,
+      raw_payload: input.rawPayload || null,
+      received_at: new Date().toISOString(),
+    });
+
+    if (!error) {
+      return { shouldProcess: true, duplicate: false, reason: "claimed" };
+    }
+
+    if ((error as any).code === "23505") {
+      return { shouldProcess: false, duplicate: true, reason: "duplicate_message_id" };
+    }
+
+    if ((error as any).code !== "42P01") {
+      console.error("whatsapp_incoming_message_dedupe insert failed:", error);
+    }
+  } catch (error) {
+    console.error("whatsapp_incoming_message_dedupe claim failed:", error);
+  }
+
+  // Fallback only if the dedicated dedupe table has not been created yet.
+  // This is less race-safe than the unique table, but prevents obvious duplicate replies.
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("direction", "incoming")
+      .eq("message_id", messageId)
+      .limit(1);
+
+    if (!error && data && data.length > 0) {
+      return { shouldProcess: false, duplicate: true, reason: "duplicate_existing_log" };
+    }
+  } catch (error) {
+    console.error("whatsapp_messages duplicate fallback failed:", error);
+  }
+
+  return { shouldProcess: true, duplicate: false, reason: "fallback_process" };
+}
+
+async function markIncomingWhatsAppMessageProcessed(messageId?: string) {
+  const cleanMessageId = String(messageId || "").trim();
+  if (!cleanMessageId) return;
+
+  try {
+    await supabaseAdmin
+      .from("whatsapp_incoming_message_dedupe")
+      .update({ processed_at: new Date().toISOString() })
+      .eq("message_id", cleanMessageId);
+  } catch (error) {
+    console.error("whatsapp_incoming_message_dedupe processed update failed:", error);
+  }
+}
+
 function extractDeepSeekText(data: any) {
   const directContent = data?.choices?.[0]?.message?.content;
 
@@ -2548,6 +2621,23 @@ export async function POST(request: Request) {
 
         if (!from) continue;
 
+        const incomingClaim = await claimIncomingWhatsAppMessage({
+          messageId: message.id,
+          waId: from,
+          body: text,
+          messageType: type,
+          rawPayload: message,
+        });
+
+        if (!incomingClaim.shouldProcess) {
+          console.log("WhatsApp duplicate incoming message skipped:", {
+            messageId: message.id,
+            waId: from,
+            reason: incomingClaim.reason,
+          });
+          continue;
+        }
+
         const incomingIntent = classifyIntent(text);
         const incomingTracking = extractTracking(text);
         const needsHumanReview = shouldFlagHumanReview(text, incomingIntent);
@@ -2586,6 +2676,7 @@ ${BUSINESS_NAME}`;
             needsHumanReview,
             handledByAi: true,
           });
+          await markIncomingWhatsAppMessageProcessed(message.id);
           continue;
         }
 
@@ -2601,6 +2692,7 @@ ${BUSINESS_NAME}`;
           needsHumanReview,
           handledByAi: true,
         });
+        await markIncomingWhatsAppMessageProcessed(message.id);
       }
     }
   }
