@@ -88,17 +88,54 @@ function cleanPhoneForWaLink(value: string | null | undefined) {
   return digits;
 }
 
+function normalizeJordanPhoneDisplay(value: string | null | undefined) {
+  const digits = String(value || "").replace(/\D/g, "");
+
+  if (!digits) return "";
+  if (digits.startsWith("962") && digits.length === 12) return `0${digits.slice(3)}`;
+  if (digits.startsWith("7") && digits.length === 9) return `0${digits}`;
+  if (digits.startsWith("07") && digits.length === 10) return digits;
+
+  return digits;
+}
+
 function extractTracking(body: string | null | undefined) {
   const match = String(body || "").match(/AM-\d{8,}/i);
   return match ? match[0].toUpperCase() : "";
 }
 
-export default async function AdminWhatsAppInboxPage() {
+function getCustomerKey(message: WhatsAppMessageRecord) {
+  const wa = cleanPhoneForWaLink(message.wa_id);
+  if (wa) return wa;
+  return message.wa_id || message.application_id || message.message_id || message.id;
+}
+
+function getCustomerDisplay(message: WhatsAppMessageRecord) {
+  const name = String(message.customer_name || "").trim();
+  const phone = normalizeJordanPhoneDisplay(message.wa_id) || message.wa_id || "";
+
+  if (name && phone) return { title: name, subtitle: phone };
+  if (phone) return { title: phone, subtitle: "رقم واتساب العميل" };
+  if (name) return { title: name, subtitle: "بدون رقم محفوظ" };
+
+  return { title: "—", subtitle: "غير مربوط برقم" };
+}
+
+type PageProps = {
+  searchParams?: Promise<{
+    phone?: string;
+  }>;
+};
+
+export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps) {
   const loggedIn = await isAdminLoggedIn();
 
   if (!loggedIn) {
     redirect("/admin/login");
   }
+
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const phoneFilter = cleanPhoneForWaLink(resolvedSearchParams?.phone);
 
   const { data, error } = await supabaseAdmin
     .from("whatsapp_messages")
@@ -106,15 +143,67 @@ export default async function AdminWhatsAppInboxPage() {
       "id, created_at, wa_id, direction, customer_name, message_id, message_type, body, status, status_timestamp, intent, tracking_id, application_id, needs_human_review, handled_by_ai"
     )
     .order("created_at", { ascending: false })
-    .limit(250);
+    .limit(500);
 
-  const messages = (data || []) as WhatsAppMessageRecord[];
+  const rawMessages = (data || []) as WhatsAppMessageRecord[];
 
-  const incomingCount = messages.filter((item) => item.direction === "incoming").length;
-  const outgoingCount = messages.filter((item) => item.direction === "outgoing").length;
-  const failedCount = messages.filter((item) => item.status === "failed").length;
-  const humanReviewCount = messages.filter((item) => item.needs_human_review).length;
-  const uniqueCustomers = new Set(messages.map((item) => item.wa_id).filter(Boolean)).size;
+  // Status webhooks مثل sent / delivered / read ليست محادثات فعلية.
+  // يتم تحديث حالة الرسالة الأصلية من webhook، وهنا نخفي أي سجلات قديمة من نوع status حتى لا تظهر كسطور فاضية.
+  const conversationMessages = rawMessages.filter((item) => item.direction !== "status");
+
+  const filteredMessages = phoneFilter
+    ? conversationMessages.filter((item) => cleanPhoneForWaLink(item.wa_id) === phoneFilter)
+    : conversationMessages;
+
+  const customerMap = new Map<string, WhatsAppMessageRecord[]>();
+
+  for (const message of conversationMessages) {
+    const key = getCustomerKey(message);
+    if (!key) continue;
+    const current = customerMap.get(key) || [];
+    current.push(message);
+    customerMap.set(key, current);
+  }
+
+  const conversations = Array.from(customerMap.entries())
+    .map(([key, items]) => {
+      const latest = [...items].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return bTime - aTime;
+      })[0];
+
+      const incoming = items.filter((item) => item.direction === "incoming").length;
+      const outgoing = items.filter((item) => item.direction === "outgoing").length;
+      const needsHuman = items.some((item) => item.needs_human_review);
+      const failed = items.some((item) => item.status === "failed");
+
+      return {
+        key,
+        latest,
+        total: items.length,
+        incoming,
+        outgoing,
+        needsHuman,
+        failed,
+      };
+    })
+    .filter((item) => cleanPhoneForWaLink(item.latest.wa_id))
+    .sort((a, b) => {
+      const aTime = new Date(a.latest.created_at || 0).getTime();
+      const bTime = new Date(b.latest.created_at || 0).getTime();
+      return bTime - aTime;
+    })
+    .slice(0, 30);
+
+  const incomingCount = conversationMessages.filter((item) => item.direction === "incoming").length;
+  const outgoingCount = conversationMessages.filter((item) => item.direction === "outgoing").length;
+  const failedCount = conversationMessages.filter((item) => item.status === "failed").length;
+  const humanReviewCount = conversationMessages.filter((item) => item.needs_human_review).length;
+  const uniqueCustomers = new Set(
+    conversationMessages.map((item) => cleanPhoneForWaLink(item.wa_id)).filter(Boolean)
+  ).size;
+  const hiddenStatusCount = rawMessages.filter((item) => item.direction === "status").length;
 
   return (
     <main dir="rtl" className="min-h-screen bg-[#03120e] px-4 py-8 text-[#f7f3e8]">
@@ -124,16 +213,27 @@ export default async function AdminWhatsAppInboxPage() {
             <p className="mb-2 text-sm font-bold text-[#d6b56b]">الأمين للأقساط</p>
             <h1 className="text-3xl font-black text-white">مراقبة رسائل واتساب</h1>
             <p className="mt-2 text-sm font-bold text-[#aeb9af]">
-              آخر 250 سجل من الرسائل الواردة والصادرة وحالات التسليم.
+              آخر 500 سجل، مع إخفاء سجلات الحالة الفارغة وربط كل محادثة برقم واتساب.
             </p>
           </div>
 
-          <Link
-            href="/admin"
-            className="rounded-2xl border border-[#d6b56b]/30 bg-[#d6b56b]/10 px-5 py-3 text-center text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/20"
-          >
-            العودة للوحة الأدمن
-          </Link>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            {phoneFilter ? (
+              <Link
+                href="/dashboard/whatsapp"
+                className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-black text-white transition hover:bg-white/10"
+              >
+                عرض كل الأرقام
+              </Link>
+            ) : null}
+
+            <Link
+              href="/admin"
+              className="rounded-2xl border border-[#d6b56b]/30 bg-[#d6b56b]/10 px-5 py-3 text-center text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/20"
+            >
+              العودة للوحة الأدمن
+            </Link>
+          </div>
         </div>
 
         {error ? (
@@ -148,9 +248,9 @@ export default async function AdminWhatsAppInboxPage() {
           </section>
         ) : (
           <>
-            <section className="mb-6 grid gap-4 md:grid-cols-5">
+            <section className="mb-6 grid gap-4 md:grid-cols-6">
               <div className="rounded-[24px] border border-white/10 bg-white/[0.04] p-5">
-                <p className="text-xs font-black text-[#aeb9af]">عملاء مختلفون</p>
+                <p className="text-xs font-black text-[#aeb9af]">أرقام مختلفة</p>
                 <p className="mt-2 text-3xl font-black text-white">{uniqueCustomers}</p>
               </div>
 
@@ -173,15 +273,94 @@ export default async function AdminWhatsAppInboxPage() {
                 <p className="text-xs font-black text-orange-100">تحتاج متابعة</p>
                 <p className="mt-2 text-3xl font-black text-white">{humanReviewCount}</p>
               </div>
+
+              <div className="rounded-[24px] border border-[#d6b56b]/20 bg-[#d6b56b]/10 p-5">
+                <p className="text-xs font-black text-[#f3dfac]">حالات مخفية</p>
+                <p className="mt-2 text-3xl font-black text-white">{hiddenStatusCount}</p>
+              </div>
+            </section>
+
+            <section className="mb-6 overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
+              <div className="border-b border-white/10 px-5 py-4">
+                <h2 className="text-lg font-black text-white">المحادثات حسب رقم واتساب</h2>
+                <p className="mt-1 text-xs font-bold leading-6 text-[#aeb9af]">
+                  اضغط على أي رقم لعرض رسائله فقط. الربط هنا يعتمد على wa_id وليس اسم العميل.
+                </p>
+              </div>
+
+              {conversations.length === 0 ? (
+                <div className="px-5 py-8 text-center text-sm font-bold text-[#aeb9af]">
+                  لا توجد محادثات مرتبطة بأرقام حتى الآن.
+                </div>
+              ) : (
+                <div className="grid gap-3 p-4 md:grid-cols-2 xl:grid-cols-3">
+                  {conversations.map((conversation) => {
+                    const customer = getCustomerDisplay(conversation.latest);
+                    const waLink = cleanPhoneForWaLink(conversation.latest.wa_id);
+                    const isActive = phoneFilter && waLink === phoneFilter;
+
+                    return (
+                      <Link
+                        key={conversation.key}
+                        href={`/dashboard/whatsapp?phone=${encodeURIComponent(waLink)}`}
+                        className={`rounded-2xl border p-4 transition ${
+                          isActive
+                            ? "border-[#d6b56b]/50 bg-[#d6b56b]/15"
+                            : "border-white/10 bg-black/15 hover:bg-white/[0.06]"
+                        }`}
+                      >
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-black text-white">{customer.title}</p>
+                            <p dir="ltr" className="mt-1 text-xs font-bold text-[#aeb9af]">
+                              {customer.subtitle}
+                            </p>
+                          </div>
+
+                          {conversation.needsHuman ? (
+                            <span className="rounded-full border border-orange-300/25 bg-orange-950/25 px-2 py-1 text-[10px] font-black text-orange-100">
+                              متابعة
+                            </span>
+                          ) : conversation.failed ? (
+                            <span className="rounded-full border border-red-300/25 bg-red-950/25 px-2 py-1 text-[10px] font-black text-red-100">
+                              فشل
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <p className="mt-3 line-clamp-2 min-h-[42px] text-xs font-bold leading-6 text-[#d7ddd5]">
+                          {conversation.latest.body || "لا يوجد نص محفوظ لهذه الرسالة"}
+                        </p>
+
+                        <div className="mt-3 flex items-center justify-between text-[11px] font-black text-[#aeb9af]">
+                          <span>{conversation.total} رسالة</span>
+                          <span>
+                            وارد {conversation.incoming} / صادر {conversation.outgoing}
+                          </span>
+                        </div>
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
             </section>
 
             <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
+              <div className="border-b border-white/10 px-5 py-4">
+                <h2 className="text-lg font-black text-white">
+                  {phoneFilter ? "رسائل الرقم المحدد" : "آخر الرسائل"}
+                </h2>
+                <p className="mt-1 text-xs font-bold text-[#aeb9af]">
+                  سجلات status القديمة مخفية من هذا الجدول حتى لا تظهر كسطور فاضية.
+                </p>
+              </div>
+
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1200px] border-collapse text-right">
                   <thead>
                     <tr className="border-b border-white/10 bg-black/20 text-xs text-[#f3dfac]">
                       <th className="px-4 py-4 font-black">الوقت</th>
-                      <th className="px-4 py-4 font-black">العميل</th>
+                      <th className="px-4 py-4 font-black">العميل / الرقم</th>
                       <th className="px-4 py-4 font-black">الاتجاه</th>
                       <th className="px-4 py-4 font-black">الحالة</th>
                       <th className="px-4 py-4 font-black">نوع الرسالة</th>
@@ -192,16 +371,17 @@ export default async function AdminWhatsAppInboxPage() {
                   </thead>
 
                   <tbody>
-                    {messages.length === 0 ? (
+                    {filteredMessages.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="px-4 py-10 text-center text-sm font-bold text-[#aeb9af]">
-                          لا توجد رسائل محفوظة بعد.
+                          لا توجد رسائل محفوظة لهذا العرض.
                         </td>
                       </tr>
                     ) : (
-                      messages.map((message) => {
+                      filteredMessages.map((message) => {
                         const waLink = cleanPhoneForWaLink(message.wa_id);
                         const tracking = message.tracking_id || extractTracking(message.body);
+                        const customer = getCustomerDisplay(message);
 
                         return (
                           <tr key={message.id} className="border-b border-white/10 align-top hover:bg-white/[0.03]">
@@ -210,11 +390,9 @@ export default async function AdminWhatsAppInboxPage() {
                             </td>
 
                             <td className="px-4 py-4">
-                              <p className="text-sm font-black text-white">
-                                {message.customer_name || "—"}
-                              </p>
+                              <p className="text-sm font-black text-white">{customer.title}</p>
                               <p dir="ltr" className="mt-1 text-xs font-bold text-[#aeb9af]">
-                                {message.wa_id || "—"}
+                                {customer.subtitle}
                               </p>
                             </td>
 
@@ -284,9 +462,18 @@ export default async function AdminWhatsAppInboxPage() {
                                   </a>
                                 ) : null}
 
+                                {waLink ? (
+                                  <Link
+                                    href={`/dashboard/whatsapp?phone=${encodeURIComponent(waLink)}`}
+                                    className="rounded-xl border border-sky-300/25 bg-sky-950/25 px-3 py-2 text-center text-xs font-black text-sky-100 hover:bg-sky-950/40"
+                                  >
+                                    محادثة الرقم
+                                  </Link>
+                                ) : null}
+
                                 {tracking ? (
                                   <Link
-                                    href={`/track?tracking=${encodeURIComponent(tracking)}`}
+                                    href={`/track?tracking=${encodeURIComponent(tracking)}${waLink ? `&phone=${encodeURIComponent(message.wa_id || "")}` : ""}`}
                                     className="rounded-xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-2 text-center text-xs font-black text-[#f3dfac] hover:bg-[#d6b56b]/20"
                                   >
                                     تتبع الطلب

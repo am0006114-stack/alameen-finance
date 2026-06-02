@@ -2583,27 +2583,45 @@ export async function POST(request: Request) {
         if (!statusMessageId && !statusValue) continue;
 
         try {
+          let matchedExistingMessage = false;
+
           if (statusMessageId) {
-            await supabaseAdmin
+            const { data: updatedRows, error: updateError } = await supabaseAdmin
               .from("whatsapp_messages")
               .update({
                 status: statusValue || null,
                 status_timestamp: statusTimestamp,
                 raw_payload: statusEvent,
               })
-              .eq("message_id", statusMessageId);
+              .eq("message_id", statusMessageId)
+              .select("id")
+              .limit(1);
+
+            if (updateError) {
+              throw updateError;
+            }
+
+            matchedExistingMessage = Array.isArray(updatedRows) && updatedRows.length > 0;
           }
 
-          await logMessage({
-            waId: recipientId,
-            direction: "outgoing",
-            body: "",
-            messageId: statusMessageId || undefined,
-            messageType: "status",
-            status: statusValue || null,
-            statusTimestamp,
-            rawPayload: statusEvent,
-          });
+          // Meta sends sent/delivered/read webhooks for messages we already logged when sending.
+          // Do not insert every status event as a new conversation row, otherwise the dashboard
+          // shows duplicate empty outgoing rows and sometimes cannot display a linked customer.
+          // Only create a fallback row if Meta sends a status for a message ID that we do not
+          // have stored locally.
+          if (!matchedExistingMessage && statusMessageId) {
+            const statusPhone = recipientId || "";
+            await logMessage({
+              waId: statusPhone,
+              direction: "outgoing",
+              body: "",
+              messageId: statusMessageId,
+              messageType: "status",
+              status: statusValue || null,
+              statusTimestamp,
+              rawPayload: statusEvent,
+            });
+          }
         } catch (error) {
           console.error("Failed to process WhatsApp status:", error);
         }
