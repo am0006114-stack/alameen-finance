@@ -155,6 +155,20 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
     ? conversationMessages.filter((item) => cleanPhoneForWaLink(item.wa_id) === phoneFilter)
     : conversationMessages;
 
+  const selectedConversationMessages = phoneFilter
+    ? [...filteredMessages].sort((a, b) => {
+        const aTime = new Date(a.created_at || 0).getTime();
+        const bTime = new Date(b.created_at || 0).getTime();
+        return aTime - bTime;
+      })
+    : [];
+
+  const selectedLatestMessage = selectedConversationMessages.length
+    ? selectedConversationMessages[selectedConversationMessages.length - 1]
+    : null;
+
+  const selectedCustomer = selectedLatestMessage ? getCustomerDisplay(selectedLatestMessage) : null;
+
   const customerMap = new Map<string, WhatsAppMessageRecord[]>();
 
   for (const message of conversationMessages) {
@@ -345,10 +359,124 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
               )}
             </section>
 
+            {phoneFilter ? (
+              <section className="mb-6 overflow-hidden rounded-[28px] border border-[#d6b56b]/20 bg-[#061b14] shadow-2xl shadow-black/30">
+                <div className="flex flex-col gap-4 border-b border-white/10 bg-black/20 px-5 py-4 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <p className="text-xs font-black text-[#d6b56b]">عرض محادثة كاملة</p>
+                    <h2 className="mt-1 text-xl font-black text-white">
+                      {selectedCustomer?.title || normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter}
+                    </h2>
+                    <p dir="ltr" className="mt-1 text-sm font-bold text-[#aeb9af]">
+                      {selectedCustomer?.subtitle || phoneFilter}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <a
+                      href={`https://wa.me/${phoneFilter}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="rounded-2xl border border-emerald-300/25 bg-emerald-950/25 px-5 py-3 text-center text-sm font-black text-emerald-100 hover:bg-emerald-950/40"
+                    >
+                      فتح واتساب خارجي
+                    </a>
+
+                    <Link
+                      href="/admin/whatsapp"
+                      className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-black text-white hover:bg-white/10"
+                    >
+                      إغلاق المحادثة
+                    </Link>
+                  </div>
+                </div>
+
+                {selectedConversationMessages.length === 0 ? (
+                  <div className="px-5 py-10 text-center text-sm font-bold text-[#aeb9af]">
+                    لا توجد رسائل محفوظة لهذا الرقم.
+                  </div>
+                ) : (
+                  <div className="max-h-[650px] space-y-4 overflow-y-auto bg-[radial-gradient(circle_at_top_left,rgba(214,181,107,0.08),transparent_35%),linear-gradient(135deg,rgba(255,255,255,0.03),transparent)] p-5">
+                    {selectedConversationMessages.map((message) => {
+                      const isIncoming = message.direction === "incoming";
+                      const isOutgoing = message.direction === "outgoing";
+                      const tracking = message.tracking_id || extractTracking(message.body);
+
+                      return (
+                        <div
+                          key={message.id}
+                          className={`flex ${isOutgoing ? "justify-start" : "justify-end"}`}
+                        >
+                          <div
+                            className={`max-w-[92%] rounded-[24px] border px-5 py-4 md:max-w-[72%] ${
+                              isIncoming
+                                ? "border-sky-300/20 bg-sky-950/30 text-sky-50"
+                                : "border-emerald-300/20 bg-emerald-950/35 text-emerald-50"
+                            }`}
+                          >
+                            <div className="mb-2 flex flex-wrap items-center gap-2">
+                              <span
+                                className={`rounded-full border px-3 py-1 text-[11px] font-black ${directionClass(
+                                  message.direction
+                                )}`}
+                              >
+                                {directionLabel(message.direction)}
+                              </span>
+
+                              {message.handled_by_ai === true ? (
+                                <span className="rounded-full border border-emerald-300/20 bg-emerald-950/20 px-3 py-1 text-[11px] font-black text-emerald-100">
+                                  AI
+                                </span>
+                              ) : null}
+
+                              {message.intent ? (
+                                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-[11px] font-black text-[#d7ddd5]">
+                                  {message.intent}
+                                </span>
+                              ) : null}
+
+                              {message.needs_human_review ? (
+                                <span className="rounded-full border border-orange-300/25 bg-orange-950/25 px-3 py-1 text-[11px] font-black text-orange-100">
+                                  تحتاج متابعة
+                                </span>
+                              ) : null}
+                            </div>
+
+                            <p className="whitespace-pre-wrap break-words text-sm font-bold leading-8 text-white">
+                              {message.body || "—"}
+                            </p>
+
+                            {tracking ? (
+                              <p
+                                dir="ltr"
+                                className="mt-3 inline-flex rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]"
+                              >
+                                {tracking}
+                              </p>
+                            ) : null}
+
+                            <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] font-bold text-[#aeb9af]">
+                              <span>{formatDateTime(message.created_at)}</span>
+
+                              <span className={`rounded-full border px-2 py-1 ${statusClass(message.status)}`}>
+                                {message.status || "بدون حالة"}
+                              </span>
+
+                              <span>{message.message_type || "text"}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
+            ) : null}
+
             <section className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
               <div className="border-b border-white/10 px-5 py-4">
                 <h2 className="text-lg font-black text-white">
-                  {phoneFilter ? "رسائل الرقم المحدد" : "آخر الرسائل"}
+                  {phoneFilter ? "سجل رسائل الرقم المحدد" : "آخر الرسائل"}
                 </h2>
                 <p className="mt-1 text-xs font-bold text-[#aeb9af]">
                   سجلات status القديمة مخفية من هذا الجدول حتى لا تظهر كسطور فاضية.
@@ -397,21 +525,13 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                             </td>
 
                             <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${directionClass(
-                                  message.direction
-                                )}`}
-                              >
+                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${directionClass(message.direction)}`}>
                                 {directionLabel(message.direction)}
                               </span>
                             </td>
 
                             <td className="px-4 py-4">
-                              <span
-                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(
-                                  message.status
-                                )}`}
-                              >
+                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(message.status)}`}>
                                 {message.status || "—"}
                               </span>
                               {message.status_timestamp ? (
@@ -451,10 +571,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                               </p>
 
                               {tracking ? (
-                                <p
-                                  dir="ltr"
-                                  className="mt-2 inline-flex rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]"
-                                >
+                                <p dir="ltr" className="mt-2 inline-flex rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]">
                                   {tracking}
                                 </p>
                               ) : null}
@@ -484,9 +601,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
 
                                 {tracking ? (
                                   <Link
-                                    href={`/track?tracking=${encodeURIComponent(tracking)}${
-                                      waLink ? `&phone=${encodeURIComponent(message.wa_id || "")}` : ""
-                                    }`}
+                                    href={`/track?tracking=${encodeURIComponent(tracking)}${waLink ? `&phone=${encodeURIComponent(message.wa_id || "")}` : ""}`}
                                     className="rounded-xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-2 text-center text-xs font-black text-[#f3dfac] hover:bg-[#d6b56b]/20"
                                   >
                                     تتبع الطلب
