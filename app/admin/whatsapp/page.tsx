@@ -220,7 +220,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
           <div className="flex flex-col gap-2 sm:flex-row">
             {phoneFilter ? (
               <Link
-                href="/dashboard/whatsapp"
+                href="/admin/whatsapp"
                 className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-center text-sm font-black text-white transition hover:bg-white/10"
               >
                 عرض كل الأرقام
@@ -302,7 +302,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                     return (
                       <Link
                         key={conversation.key}
-                        href={`/dashboard/whatsapp?phone=${encodeURIComponent(waLink)}`}
+                        href={`/admin/whatsapp?phone=${encodeURIComponent(waLink)}`}
                         className={`rounded-2xl border p-4 transition ${
                           isActive
                             ? "border-[#d6b56b]/50 bg-[#d6b56b]/15"
@@ -397,13 +397,21 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                             </td>
 
                             <td className="px-4 py-4">
-                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${directionClass(message.direction)}`}>
+                              <span
+                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${directionClass(
+                                  message.direction
+                                )}`}
+                              >
                                 {directionLabel(message.direction)}
                               </span>
                             </td>
 
                             <td className="px-4 py-4">
-                              <span className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(message.status)}`}>
+                              <span
+                                className={`inline-flex rounded-full border px-3 py-1 text-xs font-black ${statusClass(
+                                  message.status
+                                )}`}
+                              >
                                 {message.status || "—"}
                               </span>
                               {message.status_timestamp ? (
@@ -443,7 +451,10 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                               </p>
 
                               {tracking ? (
-                                <p dir="ltr" className="mt-2 inline-flex rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]">
+                                <p
+                                  dir="ltr"
+                                  className="mt-2 inline-flex rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]"
+                                >
                                   {tracking}
                                 </p>
                               ) : null}
@@ -464,7 +475,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
 
                                 {waLink ? (
                                   <Link
-                                    href={`/dashboard/whatsapp?phone=${encodeURIComponent(waLink)}`}
+                                    href={`/admin/whatsapp?phone=${encodeURIComponent(waLink)}`}
                                     className="rounded-xl border border-sky-300/25 bg-sky-950/25 px-3 py-2 text-center text-xs font-black text-sky-100 hover:bg-sky-950/40"
                                   >
                                     محادثة الرقم
@@ -473,7 +484,9 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
 
                                 {tracking ? (
                                   <Link
-                                    href={`/track?tracking=${encodeURIComponent(tracking)}${waLink ? `&phone=${encodeURIComponent(message.wa_id || "")}` : ""}`}
+                                    href={`/track?tracking=${encodeURIComponent(tracking)}${
+                                      waLink ? `&phone=${encodeURIComponent(message.wa_id || "")}` : ""
+                                    }`}
                                     className="rounded-xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-2 text-center text-xs font-black text-[#f3dfac] hover:bg-[#d6b56b]/20"
                                   >
                                     تتبع الطلب
