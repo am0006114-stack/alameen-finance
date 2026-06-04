@@ -1933,6 +1933,168 @@ async function logMessage(input: {
 }
 
 
+type AiSuccessfulReplyRecord = {
+  id?: string;
+  intent?: string | null;
+  customer_message?: string | null;
+  ai_reply?: string | null;
+  score?: number | null;
+};
+
+function compactForAiMemory(value: string | null | undefined, maxLength = 500) {
+  const clean = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (clean.length <= maxLength) return clean;
+  return `${clean.slice(0, maxLength).trim()}...`;
+}
+
+function textSimilarityScore(a: string, b: string) {
+  const aWords = new Set(
+    normalizeArabicText(a)
+      .split(" ")
+      .filter((word) => word.length >= 3)
+  );
+  const bWords = new Set(
+    normalizeArabicText(b)
+      .split(" ")
+      .filter((word) => word.length >= 3)
+  );
+
+  if (!aWords.size || !bWords.size) return 0;
+
+  let overlap = 0;
+  for (const word of aWords) {
+    if (bWords.has(word)) overlap += 1;
+  }
+
+  return overlap / Math.max(aWords.size, bWords.size);
+}
+
+async function findSimilarSuccessfulReplies(intent: CustomerIntent, customerText: string) {
+  try {
+    const normalizedText = normalizeArabicText(customerText);
+    if (!normalizedText || normalizedText.length < 3) return "";
+
+    const { data, error } = await supabaseAdmin
+      .from("ai_successful_replies")
+      .select("id,intent,customer_message,ai_reply,score")
+      .or(`intent.eq.${intent},intent.eq.unknown`)
+      .order("score", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(30);
+
+    if (error) {
+      if ((error as any).code !== "42P01") {
+        console.error("ai_successful_replies select failed:", error);
+      }
+      return "";
+    }
+
+    const rows = ((data || []) as AiSuccessfulReplyRecord[])
+      .map((row) => ({
+        ...row,
+        similarity: textSimilarityScore(customerText, row.customer_message || ""),
+      }))
+      .filter((row) => row.ai_reply && row.customer_message && (row.similarity >= 0.12 || Number(row.score || 0) > 0))
+      .sort((a, b) => {
+        const bScore = Number(b.score || 0) + b.similarity * 10;
+        const aScore = Number(a.score || 0) + a.similarity * 10;
+        return bScore - aScore;
+      })
+      .slice(0, 5);
+
+    if (!rows.length) return "";
+
+    return rows
+      .map((row, index) => {
+        return `مثال ${index + 1}:\nسؤال سابق: ${compactForAiMemory(row.customer_message, 220)}\nرد ناجح: ${compactForAiMemory(row.ai_reply, 650)}\nالتقييم: ${Number(row.score || 0)}`;
+      })
+      .join("\n\n");
+  } catch (error) {
+    console.error("findSimilarSuccessfulReplies failed:", error);
+    return "";
+  }
+}
+
+async function logAiConversation(input: {
+  phone: string;
+  customerMessage: string;
+  aiReply: string;
+  intent: CustomerIntent;
+  applicationStatus?: string | null;
+}) {
+  try {
+    await supabaseAdmin.from("ai_conversations").insert({
+      phone: normalizeWhatsAppToSend(input.phone) || input.phone || null,
+      customer_message: input.customerMessage,
+      ai_reply: input.aiReply,
+      intent: input.intent,
+      application_status: input.applicationStatus || null,
+      customer_replied: false,
+    });
+  } catch (error) {
+    if ((error as any)?.code !== "42P01") {
+      console.error("ai_conversations insert failed:", error);
+    }
+  }
+}
+
+async function findApplicationForAiMemory(from: string, text: string, intent: CustomerIntent) {
+  const tracking = extractTracking(text);
+  const typedPhone = extractJordanPhoneFromText(text);
+
+  try {
+    if (tracking && typedPhone) {
+      return (await findApplicationByTrackingAndPhone(tracking, typedPhone)) || (await findApplicationByTracking(tracking));
+    }
+
+    if (tracking) {
+      return (await findApplicationByTracking(tracking)) || (await findApplicationByTrackingAndPhone(tracking, from));
+    }
+
+    if ([
+      "order_status",
+      "delivery",
+      "payment",
+      "refund",
+      "complaint",
+      "abuse",
+      "legal_threat",
+      "social_media_threat",
+      "scam_accusation",
+      "payment_dispute",
+      "device_delay_rage",
+      "continue_decision",
+      "decline_decision",
+    ].includes(intent)) {
+      return await findApplicationByPhone(from);
+    }
+  } catch (error) {
+    console.error("findApplicationForAiMemory failed:", error);
+  }
+
+  return null;
+}
+
+async function markPreviousAiConversationCustomerReplied(phone: string) {
+  try {
+    const normalizedPhone = normalizeWhatsAppToSend(phone) || phone;
+
+    await supabaseAdmin
+      .from("ai_conversations")
+      .update({ customer_replied: true })
+      .eq("phone", normalizedPhone)
+      .eq("customer_replied", false);
+  } catch (error) {
+    if ((error as any)?.code !== "42P01") {
+      console.error("ai_conversations customer_replied update failed:", error);
+    }
+  }
+}
+
+
 async function claimIncomingWhatsAppMessage(input: {
   messageId?: string;
   waId: string;
@@ -2204,6 +2366,8 @@ async function generateAiReply(input: AiReplyInput) {
 استخدم "الرد الآمن الأساسي" كمصدر حقيقة، وصغه إنسانيًا دون مخالفة أو إضافة وعود.
 `;
 
+  const similarSuccessfulReplies = await findSimilarSuccessfulReplies(input.intent, input.customerText);
+
   const userInput = `
 نية العميل المصنفة:
 ${input.intent}
@@ -2223,6 +2387,14 @@ ${input.isSensitive ? "نعم" : "لا"}
 الحالة: ${input.status || "غير متوفرة"}
 حالة الدفع: ${input.paymentStatus || "غير متوفرة"}
 الجهاز: ${input.deviceName || "غير متوفر"}
+
+أمثلة سابقة ناجحة من ذاكرة ${BUSINESS_NAME}:
+${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية حاليًا."}
+
+تعليمات استخدام الأمثلة السابقة:
+- استفد من الأسلوب والنبرة فقط إذا كانت مناسبة.
+- لا تنسخ أي معلومة تخالف الرد الآمن الأساسي.
+- الرد الآمن الأساسي وبيانات الطلب الحالية أقوى من أي مثال سابق.
 
 الرد الآمن الأساسي الذي يجب الالتزام به وعدم مخالفته:
 ${input.deterministicReply}
@@ -2660,6 +2832,8 @@ export async function POST(request: Request) {
         const incomingTracking = extractTracking(text);
         const needsHumanReview = shouldFlagHumanReview(text, incomingIntent);
 
+        await markPreviousAiConversationCustomerReplied(from);
+
         await logMessage({
           waId: from,
           direction: "incoming",
@@ -2710,6 +2884,16 @@ ${BUSINESS_NAME}`;
           needsHumanReview,
           handledByAi: true,
         });
+
+        const aiMemoryApp = await findApplicationForAiMemory(from, text, incomingIntent);
+        await logAiConversation({
+          phone: from,
+          customerMessage: text,
+          aiReply: reply,
+          intent: incomingIntent,
+          applicationStatus: aiMemoryApp?.status || null,
+        });
+
         await markIncomingWhatsAppMessageProcessed(message.id);
       }
     }
