@@ -1,11 +1,14 @@
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import ReceiptWaitClient from "./ReceiptWaitClient";
 
 type PageProps = {
   searchParams?: Promise<{
     tracking?: string;
     phone?: string;
     uploaded?: string;
+    already?: string;
+    wait?: string;
     error?: string;
   }>;
 };
@@ -31,12 +34,56 @@ function firstTwoNames(fullName: string | null | undefined) {
   return `${parts[0]} ${parts[1]}`;
 }
 
+function normalizeJordanPhoneForWhatsApp(phone: string | null | undefined) {
+  if (!phone) return "";
+
+  const digits = phone.replace(/\D/g, "");
+
+  if (digits.startsWith("962")) return digits;
+  if (digits.startsWith("07") && digits.length === 10) return `962${digits.slice(1)}`;
+  if (digits.startsWith("7") && digits.length === 9) return `962${digits}`;
+
+  return digits;
+}
+
+function isReceiptLocked(app: ApplicationRecord) {
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+
+  return (
+    paymentStatus === "customer_claimed_paid" ||
+    paymentStatus === "confirmed" ||
+    status === "pending_payment_confirmation" ||
+    status === "under_review" ||
+    status === "approved" ||
+    status === "needs_guarantor" ||
+    status === "needs_salary_slip" ||
+    status === "rejected" ||
+    status === "cancelled"
+  );
+}
+
+function getWhatsAppMessage(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const name = firstTwoNames(app.full_name);
+
+  return `أهلًا، أنا ${name}
+
+رفعت وصل دفع رسوم فتح الملف وأرغب بمتابعة التأكيد.
+
+رقم التتبع:
+${tracking}
+
+شكرًا لكم.`;
+}
+
 export default async function ReceiptUploadPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
   const tracking = String(params?.tracking || "").trim();
   const phone = String(params?.phone || "").trim();
   const uploaded = params?.uploaded === "1";
+  const already = params?.already === "1";
   const error = String(params?.error || "").trim();
 
   if (!tracking || !phone) {
@@ -56,7 +103,7 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
         <section className="mx-auto max-w-xl rounded-[32px] border border-red-200 bg-white p-7 text-center shadow-xl">
           <h1 className="text-2xl font-black text-red-700">لم يتم العثور على الطلب</h1>
           <p className="mt-4 text-sm font-bold leading-7 text-[#5f6b63]">
-            يرجى فتح الرابط الصحيح المرسل من فريق الأمين للأقساط والتمويل أو التواصل معنا للمساعدة.
+            يرجى فتح الرابط الصحيح المرسل من فريق الأمين للأقساط أو التواصل معنا للمساعدة.
           </p>
         </section>
       </main>
@@ -65,6 +112,10 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
 
   const app = application as ApplicationRecord;
   const customerName = firstTwoNames(app.full_name);
+  const locked = isReceiptLocked(app);
+  const showWaiting = uploaded || already || locked;
+  const officialWhatsAppNumber =
+    normalizeJordanPhoneForWhatsApp(process.env.NEXT_PUBLIC_WHATSAPP_NUMBER) || "962788500337";
 
   return (
     <main dir="rtl" className="relative min-h-screen overflow-x-hidden bg-[#f4ecdd] px-4 py-6 text-[#17261d] sm:py-10">
@@ -77,7 +128,7 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
         <div className="rounded-[36px] border border-[#e0c27a] bg-white/92 p-[1px] shadow-[0_30px_100px_rgba(59,43,18,0.18)] backdrop-blur">
           <div className="rounded-[35px] bg-[linear-gradient(180deg,#ffffff_0%,#fffdf8_55%,#fbf5eb_100%)] p-6 text-center sm:p-9">
             <p className="mx-auto mb-4 inline-flex rounded-full border border-[#d8bd7a] bg-[#fff8e8] px-5 py-2 text-xs font-black text-[#876420]">
-              الأمين للأقساط والتمويل
+              الأمين للأقساط
             </p>
 
             <h1 className="text-3xl font-black leading-[1.7] text-[#123725] sm:text-4xl">
@@ -106,22 +157,24 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
           </div>
 
           <div className="rounded-[28px] border border-[#e2c984] bg-[#fff8e8] p-5 shadow-[0_18px_45px_rgba(67,48,20,0.10)]">
-            <p className="text-xs font-black text-[#7c5b13]">نوع الوصل</p>
+            <p className="text-xs font-black text-[#7c5b13]">حالة الدفع</p>
             <p className="mt-2 text-lg font-black text-[#7c5b13]">
-              رسوم فتح الملف
+              {app.payment_status === "confirmed"
+                ? "تم التأكيد"
+                : app.payment_status === "customer_claimed_paid"
+                ? "قيد التأكيد"
+                : "بانتظار الوصل"}
             </p>
           </div>
         </div>
 
-        {uploaded ? (
-          <section className="mt-5 rounded-[34px] border border-[#b8ddc4] bg-white/94 p-6 text-center shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
-            <h2 className="text-2xl font-black text-[#14723a]">
-              تم استلام وصل الدفع ✅
-            </h2>
-            <p className="mx-auto mt-3 max-w-2xl text-sm font-bold leading-8 text-[#526158]">
-              تم رفع الوصل بنجاح، وسيتم مراجعته من قسم المتابعة وتأكيد حالة الطلب.
-            </p>
-          </section>
+        {showWaiting ? (
+          <ReceiptWaitClient
+            already={already || (locked && !uploaded)}
+            waitSeconds={60}
+            whatsappNumber={officialWhatsAppNumber}
+            whatsappMessage={getWhatsAppMessage(app)}
+          />
         ) : (
           <section className="mt-5 rounded-[34px] border border-[#d8bd7a] bg-white/94 p-6 shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
             {error && (
@@ -186,7 +239,7 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
         <div className="mt-5 rounded-[24px] border border-[#eadcc5] bg-white/70 p-4 shadow-sm">
           <h2 className="text-sm font-black text-[#6b745f]">ملاحظة توضيحية</h2>
           <p className="mt-2 text-xs font-bold leading-7 text-[#7a837c]">
-            رفع الوصل لا يعني تأكيد الدفع تلقائيًا، وسيقوم فريق المتابعة بمراجعة الوصل وتحديث حالة الطلب.
+            رفع الوصل لا يعني تأكيد الدفع تلقائيًا، وسيقوم فريق المتابعة بمراجعة الوصل وتحديث حالة الطلب. لا داعي لرفع الوصل أكثر من مرة.
           </p>
         </div>
       </section>

@@ -2,6 +2,18 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendDiscordNotification } from "@/lib/discord";
 
+type ApplicationRecord = {
+  id: string;
+  tracking_id?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
+  device_name?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+  payment_reference?: string | null;
+  paid_clicked_at?: string | null;
+};
+
 function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
 }
@@ -25,6 +37,23 @@ function extensionFromFileName(fileName: string) {
   return extension;
 }
 
+function isReceiptAlreadyLocked(application: ApplicationRecord) {
+  const status = application.status || "";
+  const paymentStatus = application.payment_status || "";
+
+  return (
+    paymentStatus === "customer_claimed_paid" ||
+    paymentStatus === "confirmed" ||
+    status === "pending_payment_confirmation" ||
+    status === "under_review" ||
+    status === "approved" ||
+    status === "needs_guarantor" ||
+    status === "needs_salary_slip" ||
+    status === "rejected" ||
+    status === "cancelled"
+  );
+}
+
 export async function POST(request: Request) {
   const formData = await request.formData();
 
@@ -43,12 +72,24 @@ export async function POST(request: Request) {
 
   const { data: application, error: fetchError } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name")
+    .select(
+      "id, tracking_id, full_name, phone, device_name, status, payment_status, payment_reference, paid_clicked_at"
+    )
     .eq("id", applicationId)
     .maybeSingle();
 
   if (fetchError || !application) {
     return NextResponse.redirect(`${baseUrl}/`);
+  }
+
+  const currentApplication = application as ApplicationRecord;
+  const appTracking = currentApplication.tracking_id || tracking || "—";
+  const adminApplicationUrl = `${baseUrl}/admin/applications/${applicationId}`;
+
+  if (isReceiptAlreadyLocked(currentApplication)) {
+    return NextResponse.redirect(
+      `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&already=1&wait=60`
+    );
   }
 
   const file = formData.get("receipt");
@@ -98,26 +139,28 @@ export async function POST(request: Request) {
         : "payment_receipt_uploaded",
       paid_clicked_at: new Date().toISOString(),
     })
-    .eq("id", applicationId);
+    .eq("id", applicationId)
+    .in("payment_status", ["pending", "pending_payment", "payment_info_sent", "not_paid"]);
 
-  const customerName = firstTwoNames(application.full_name);
-  const appTracking = application.tracking_id || tracking || "—";
+  const customerName = firstTwoNames(currentApplication.full_name);
 
   await sendDiscordNotification({
-    title: "💳 تم رفع وصل دفع رسوم فتح الملف",
-    description: "العميل رفع وصل الدفع من صفحة رفع الوصل.",
+    title: "💳 العميل رفع وصل الدفع — بانتظار تأكيد الإدارة",
+    description:
+      "تم رفع وصل رسوم فتح الملف. افتح صفحة الطلب من الرابط أدناه ثم اضغط تأكيد الدفع / قيد الدراسة.",
     color: 0x69d97b,
     fields: [
       { name: "الاسم", value: customerName, inline: true },
-      { name: "الهاتف", value: application.phone || phone || "—", inline: true },
+      { name: "الهاتف", value: currentApplication.phone || phone || "—", inline: true },
       { name: "رقم التتبع", value: appTracking, inline: true },
-      { name: "الجهاز", value: application.device_name || "—", inline: false },
+      { name: "الجهاز", value: currentApplication.device_name || "—", inline: false },
       { name: "رابط الوصل", value: publicUrlData.publicUrl || "—", inline: false },
+      { name: "صفحة تأكيد الدفع في الأدمن", value: adminApplicationUrl, inline: false },
       { name: "ملاحظة العميل", value: note || "—", inline: false },
     ],
   });
 
   return NextResponse.redirect(
-    `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&uploaded=1`
+    `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&uploaded=1&wait=60`
   );
 }

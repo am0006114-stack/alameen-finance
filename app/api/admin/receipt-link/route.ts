@@ -2,6 +2,16 @@ import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendDiscordNotification } from "@/lib/discord";
 
+type ApplicationRecord = {
+  id: string;
+  tracking_id?: string | null;
+  full_name?: string | null;
+  phone?: string | null;
+  device_name?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
+};
+
 function getBaseUrl(request: Request) {
   return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
 }
@@ -29,6 +39,23 @@ function firstTwoNames(fullName: string | null | undefined) {
   return `${parts[0]} ${parts[1]}`;
 }
 
+function shouldKeepCurrentPaymentStatus(application: ApplicationRecord) {
+  const status = application.status || "";
+  const paymentStatus = application.payment_status || "";
+
+  return (
+    paymentStatus === "customer_claimed_paid" ||
+    paymentStatus === "confirmed" ||
+    status === "pending_payment_confirmation" ||
+    status === "under_review" ||
+    status === "approved" ||
+    status === "needs_guarantor" ||
+    status === "needs_salary_slip" ||
+    status === "rejected" ||
+    status === "cancelled"
+  );
+}
+
 export async function POST(request: Request) {
   const formData = await request.formData();
   const applicationId = String(formData.get("applicationId") || "").trim();
@@ -41,7 +68,7 @@ export async function POST(request: Request) {
 
   const { data: application, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name")
+    .select("id, tracking_id, full_name, phone, device_name, status, payment_status")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -49,32 +76,39 @@ export async function POST(request: Request) {
     return NextResponse.redirect(`${baseUrl}/admin`);
   }
 
-  const tracking = application.tracking_id || application.id;
-  const phone = application.phone || "";
-  const customerName = firstTwoNames(application.full_name);
+  const currentApplication = application as ApplicationRecord;
+  const tracking = currentApplication.tracking_id || currentApplication.id;
+  const phone = currentApplication.phone || "";
+  const customerName = firstTwoNames(currentApplication.full_name);
   const cleanPhone = normalizeJordanPhoneForWhatsApp(phone);
 
   const receiptLink = `${baseUrl}/receipt?tracking=${encodeURIComponent(
     tracking
   )}&phone=${encodeURIComponent(phone)}`;
 
-  await supabaseAdmin
-    .from("applications")
-    .update({
-      payment_status: "pending",
-    })
-    .eq("id", applicationId);
+  if (!shouldKeepCurrentPaymentStatus(currentApplication)) {
+    await supabaseAdmin
+      .from("applications")
+      .update({
+        payment_status: "pending",
+      })
+      .eq("id", applicationId);
+  }
 
   await sendDiscordNotification({
     title: "📨 تم إرسال رابط رفع وصل الدفع",
-    description: "تم فتح واتساب برسالة رابط رفع وصل رسوم فتح الملف.",
+    description: shouldKeepCurrentPaymentStatus(currentApplication)
+      ? "تم فتح رابط رفع الوصل، لكن لم يتم إرجاع حالة الطلب للخلف لأن الوصل مرفوع/الدفع مؤكد سابقًا."
+      : "تم فتح واتساب برسالة رابط رفع وصل رسوم فتح الملف.",
     color: 0xd6b56b,
     fields: [
       { name: "الاسم", value: customerName, inline: true },
       { name: "الهاتف", value: phone || "—", inline: true },
       { name: "رقم التتبع", value: tracking || "—", inline: true },
-      { name: "الجهاز", value: application.device_name || "—", inline: false },
+      { name: "الجهاز", value: currentApplication.device_name || "—", inline: false },
       { name: "رابط رفع الوصل", value: receiptLink, inline: false },
+      { name: "حالة الدفع الحالية", value: currentApplication.payment_status || "—", inline: true },
+      { name: "حالة الطلب الحالية", value: currentApplication.status || "—", inline: true },
     ],
   });
 
@@ -93,7 +127,7 @@ ${tracking}
 
 بعد رفع الوصل سيتم تحويله لقسم المراجعة وتأكيد العملية.
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 
   return NextResponse.redirect(
     `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
