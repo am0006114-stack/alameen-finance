@@ -8,7 +8,6 @@ type PageProps = {
     phone?: string;
     uploaded?: string;
     already?: string;
-    wait?: string;
     error?: string;
   }>;
 };
@@ -77,6 +76,23 @@ ${tracking}
 شكرًا لكم.`;
 }
 
+function errorMessage(error: string) {
+  switch (error) {
+    case "missing_file":
+      return "يرجى اختيار صورة أو ملف وصل الدفع أولًا.";
+    case "invalid_file":
+      return "نوع الملف غير مدعوم. يرجى رفع صورة أو PDF فقط.";
+    case "file_too_large":
+      return "حجم الملف كبير جدًا. يرجى رفع ملف أقل من 8MB.";
+    case "upload_failed":
+      return "تعذر رفع الوصل مؤقتًا. يرجى المحاولة مرة أخرى.";
+    case "status_update_failed":
+      return "تم رفع الوصل لكن تعذر تحديث حالة الطلب. يرجى التواصل معنا أو المحاولة لاحقًا.";
+    default:
+      return "حدث خطأ مؤقت، يرجى المحاولة مرة أخرى أو التواصل معنا.";
+  }
+}
+
 export default async function ReceiptUploadPage({ searchParams }: PageProps) {
   const params = await searchParams;
 
@@ -113,7 +129,8 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
   const app = application as ApplicationRecord;
   const customerName = firstTwoNames(app.full_name);
   const locked = isReceiptLocked(app);
-  const showWaiting = uploaded || already || locked;
+  const showWaiting = uploaded && locked;
+  const showAlready = already || (locked && !uploaded);
   const officialWhatsAppNumber =
     normalizeJordanPhoneForWhatsApp(process.env.NEXT_PUBLIC_WHATSAPP_NUMBER) || "962788500337";
 
@@ -168,9 +185,9 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
           </div>
         </div>
 
-        {showWaiting ? (
+        {showWaiting || showAlready ? (
           <ReceiptWaitClient
-            already={already || (locked && !uploaded)}
+            already={showAlready}
             waitSeconds={60}
             whatsappNumber={officialWhatsAppNumber}
             whatsappMessage={getWhatsAppMessage(app)}
@@ -181,9 +198,7 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
               <div className="mb-5 rounded-[24px] border border-[#efd0d0] bg-[#fff5f4] p-4 text-center">
                 <h2 className="text-lg font-black text-[#9d2f2f]">تعذر رفع الوصل</h2>
                 <p className="mt-2 text-sm font-bold leading-7 text-[#6a5d5d]">
-                  {error === "missing_file"
-                    ? "يرجى اختيار صورة أو ملف وصل الدفع أولًا."
-                    : "حدث خطأ مؤقت، يرجى المحاولة مرة أخرى أو التواصل معنا."}
+                  {errorMessage(error)}
                 </p>
               </div>
             )}

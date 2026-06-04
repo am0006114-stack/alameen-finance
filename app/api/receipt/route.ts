@@ -88,7 +88,7 @@ export async function POST(request: Request) {
 
   if (isReceiptAlreadyLocked(currentApplication)) {
     return NextResponse.redirect(
-      `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&already=1&wait=60`
+      `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&already=1`
     );
   }
 
@@ -97,6 +97,21 @@ export async function POST(request: Request) {
   if (!(file instanceof File) || file.size === 0) {
     return NextResponse.redirect(
       `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&error=missing_file`
+    );
+  }
+
+  const allowedFileTypes = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif", "application/pdf"];
+  const maxSize = 8 * 1024 * 1024;
+
+  if (file.type && !allowedFileTypes.includes(file.type)) {
+    return NextResponse.redirect(
+      `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&error=invalid_file`
+    );
+  }
+
+  if (file.size > maxSize) {
+    return NextResponse.redirect(
+      `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&error=file_too_large`
     );
   }
 
@@ -129,7 +144,9 @@ export async function POST(request: Request) {
     filename: file.name || "payment-receipt",
   });
 
-  await supabaseAdmin
+  const nowIso = new Date().toISOString();
+
+  const { error: updateError } = await supabaseAdmin
     .from("applications")
     .update({
       status: "pending_payment_confirmation",
@@ -137,10 +154,30 @@ export async function POST(request: Request) {
       payment_reference: note
         ? `payment_receipt_uploaded | ${note}`
         : "payment_receipt_uploaded",
-      paid_clicked_at: new Date().toISOString(),
+      paid_clicked_at: nowIso,
     })
     .eq("id", applicationId)
-    .in("payment_status", ["pending", "pending_payment", "payment_info_sent", "not_paid"]);
+    .not("payment_status", "in", '("customer_claimed_paid","confirmed")');
+
+  if (updateError) {
+    await sendDiscordNotification({
+      title: "⚠️ وصل الدفع ارتفع لكن تحديث حالة الطلب فشل",
+      description:
+        "تم رفع الوصل وتخزينه، لكن تحديث حالة الطلب في قاعدة البيانات فشل. افتح صفحة الطلب وعدّل الحالة يدويًا.",
+      color: 0xff9900,
+      fields: [
+        { name: "رقم التتبع", value: appTracking, inline: true },
+        { name: "الهاتف", value: currentApplication.phone || phone || "—", inline: true },
+        { name: "صفحة الطلب في الأدمن", value: adminApplicationUrl, inline: false },
+        { name: "رابط الوصل", value: publicUrlData.publicUrl || "—", inline: false },
+        { name: "خطأ التحديث", value: updateError.message || "—", inline: false },
+      ],
+    });
+
+    return NextResponse.redirect(
+      `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&error=status_update_failed`
+    );
+  }
 
   const customerName = firstTwoNames(currentApplication.full_name);
 
@@ -161,6 +198,6 @@ export async function POST(request: Request) {
   });
 
   return NextResponse.redirect(
-    `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&uploaded=1&wait=60`
+    `${baseUrl}/receipt?tracking=${safeTracking}&phone=${safePhone}&uploaded=1`
   );
 }

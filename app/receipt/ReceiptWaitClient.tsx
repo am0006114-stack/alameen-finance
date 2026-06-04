@@ -64,6 +64,8 @@ export default function ReceiptWaitClient({
   }, [whatsappMessage, whatsappNumber]);
 
   useEffect(() => {
+    if (already) return;
+
     if (remaining <= 0) {
       const timeout = window.setTimeout(() => {
         window.location.href = whatsappUrl;
@@ -77,7 +79,7 @@ export default function ReceiptWaitClient({
     }, 1000);
 
     return () => window.clearInterval(interval);
-  }, [remaining, waitSeconds, whatsappUrl]);
+  }, [already, remaining, waitSeconds, whatsappUrl]);
 
   return (
     <section className="mt-5 overflow-hidden rounded-[34px] border border-[#b8ddc4] bg-white/94 p-6 text-center shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
@@ -90,8 +92,10 @@ export default function ReceiptWaitClient({
         >
           <div className="absolute inset-3 rounded-full bg-white shadow-[inset_0_6px_20px_rgba(18,55,37,0.08)]" />
           <div className="relative z-10">
-            <div className="text-3xl font-black text-[#14723a]">{remaining}</div>
-            <div className="mt-1 text-[10px] font-black text-[#7a837c]">ثانية</div>
+            <div className="text-3xl font-black text-[#14723a]">{already ? "✓" : remaining}</div>
+            <div className="mt-1 text-[10px] font-black text-[#7a837c]">
+              {already ? "مستلم" : "ثانية"}
+            </div>
           </div>
         </div>
       </div>
@@ -109,17 +113,17 @@ export default function ReceiptWaitClient({
       </p>
 
       <div className="mx-auto mt-6 grid max-w-2xl gap-3 sm:grid-cols-3">
-        <div className={`rounded-2xl border p-4 ${waitSeconds - remaining >= 0 ? "border-[#b8ddc4] bg-[#f2fff4] text-[#14723a]" : "border-[#eadcc5] bg-white text-[#7a837c]"}`}>
+        <div className="rounded-2xl border border-[#b8ddc4] bg-[#f2fff4] p-4 text-[#14723a]">
           <p className="text-xs font-black">1</p>
           <p className="mt-1 text-sm font-black">رفع الوصل</p>
         </div>
 
-        <div className={`rounded-2xl border p-4 ${waitSeconds - remaining >= 18 ? "border-[#b8ddc4] bg-[#f2fff4] text-[#14723a]" : "border-[#eadcc5] bg-white text-[#7a837c]"}`}>
+        <div className={`rounded-2xl border p-4 ${already || waitSeconds - remaining >= 18 ? "border-[#b8ddc4] bg-[#f2fff4] text-[#14723a]" : "border-[#eadcc5] bg-white text-[#7a837c]"}`}>
           <p className="text-xs font-black">2</p>
           <p className="mt-1 text-sm font-black">تأكيد الدفع</p>
         </div>
 
-        <div className={`rounded-2xl border p-4 ${remaining <= 0 ? "border-[#b8ddc4] bg-[#f2fff4] text-[#14723a]" : "border-[#eadcc5] bg-white text-[#7a837c]"}`}>
+        <div className={`rounded-2xl border p-4 ${already || remaining <= 0 ? "border-[#b8ddc4] bg-[#f2fff4] text-[#14723a]" : "border-[#eadcc5] bg-white text-[#7a837c]"}`}>
           <p className="text-xs font-black">3</p>
           <p className="mt-1 text-sm font-black">متابعة واتساب</p>
         </div>
