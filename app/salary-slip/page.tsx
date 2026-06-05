@@ -5,7 +5,6 @@ type PageProps = {
   searchParams?: Promise<{
     tracking?: string;
     phone?: string;
-    amount?: string;
     uploaded?: string;
     error?: string;
   }>;
@@ -17,25 +16,40 @@ type ApplicationRecord = {
   full_name?: string | null;
   phone?: string | null;
   device_name?: string | null;
+  status?: string | null;
+  payment_status?: string | null;
 };
 
 function firstTwoNames(fullName: string | null | undefined) {
   if (!fullName) return "عميلنا الكريم";
+
   const parts = fullName.trim().split(/\s+/).filter(Boolean);
+
   if (parts.length === 0) return "عميلنا الكريم";
   if (parts.length === 1) return parts[0];
+
   return `${parts[0]} ${parts[1]}`;
 }
 
-function normalizeAmount(value: string | undefined) {
-  return String(value || "").trim().replace(/[^\d.]/g, "");
+function errorMessage(error: string) {
+  switch (error) {
+    case "missing_file":
+      return "يرجى اختيار صورة أو ملف كشف الراتب أولًا.";
+    case "invalid_file":
+      return "نوع الملف غير مدعوم. يرجى رفع صورة أو PDF فقط.";
+    case "file_too_large":
+      return "حجم الملف كبير جدًا. يرجى رفع ملف أقل من 8MB.";
+    case "upload_failed":
+      return "تعذر رفع الملف مؤقتًا. يرجى المحاولة مرة أخرى.";
+    default:
+      return "حدث خطأ غير متوقع، يرجى المحاولة مرة أخرى أو التواصل معنا.";
+  }
 }
 
 export default async function SalarySlipPage({ searchParams }: PageProps) {
   const params = await searchParams;
   const tracking = String(params?.tracking || "").trim();
   const phone = String(params?.phone || "").trim();
-  const amount = normalizeAmount(params?.amount);
   const uploaded = params?.uploaded === "1";
   const error = String(params?.error || "").trim();
 
@@ -43,7 +57,7 @@ export default async function SalarySlipPage({ searchParams }: PageProps) {
 
   const { data: application } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name")
+    .select("id, tracking_id, full_name, phone, device_name, status, payment_status")
     .eq("tracking_id", tracking)
     .eq("phone", phone)
     .maybeSingle();
@@ -54,7 +68,7 @@ export default async function SalarySlipPage({ searchParams }: PageProps) {
         <section className="mx-auto max-w-xl rounded-[32px] border border-red-200 bg-white p-7 text-center shadow-xl">
           <h1 className="text-2xl font-black text-red-700">لم يتم العثور على الطلب</h1>
           <p className="mt-4 text-sm font-bold leading-7 text-[#5f6b63]">
-            يرجى فتح الرابط الصحيح المرسل من فريق الأمين للأقساط والتمويل أو التواصل معنا للمساعدة.
+            يرجى فتح الرابط الصحيح المرسل من فريق الأمين للأقساط أو التواصل معنا للمساعدة.
           </p>
         </section>
       </main>
@@ -71,112 +85,103 @@ export default async function SalarySlipPage({ searchParams }: PageProps) {
         <div className="absolute inset-0 opacity-[0.16] [background-image:linear-gradient(135deg,rgba(130,92,30,0.35)_1px,transparent_1px),linear-gradient(45deg,rgba(130,92,30,0.22)_1px,transparent_1px)] [background-size:48px_48px]" />
       </div>
 
-      <section className="relative mx-auto max-w-4xl">
+      <section className="relative mx-auto max-w-3xl">
         <div className="rounded-[36px] border border-[#e0c27a] bg-white/92 p-[1px] shadow-[0_30px_100px_rgba(59,43,18,0.18)] backdrop-blur">
           <div className="rounded-[35px] bg-[linear-gradient(180deg,#ffffff_0%,#fffdf8_55%,#fbf5eb_100%)] p-6 text-center sm:p-9">
             <p className="mx-auto mb-4 inline-flex rounded-full border border-[#d8bd7a] bg-[#fff8e8] px-5 py-2 text-xs font-black text-[#876420]">
-              الأمين للأقساط والتمويل
+              الأمين للأقساط
             </p>
+
             <h1 className="text-3xl font-black leading-[1.7] text-[#123725] sm:text-4xl">
-              أهلاً {customerName}
+              رفع كشف راتب رسمي
             </h1>
+
             <p className="mx-auto mt-3 max-w-2xl text-base font-bold leading-8 text-[#5e6b62]">
-              لاستكمال دراسة الطلب، يرجى اختيار أحد الخيارين التاليين حسب ما تم الاتفاق عليه مع قسم المتابعة.
+              أهلًا {customerName}، لاستكمال إجراءات الدراسة النهائية حسب متطلبات الموافقة، يرجى رفع كشف راتب رسمي حديث أو شهادة راتب صادرة من جهة العمل.
             </p>
           </div>
         </div>
 
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <div className="rounded-[28px] border border-[#eadcc5] bg-white/92 p-5 shadow-[0_18px_45px_rgba(67,48,20,0.10)]">
             <p className="text-xs font-black text-[#818981]">الجهاز المطلوب</p>
-            <p className="mt-2 break-words text-base font-black leading-7 text-[#123725]">{app.device_name || "—"}</p>
+            <p className="mt-2 break-words text-base font-black leading-7 text-[#123725]">
+              {app.device_name || "—"}
+            </p>
           </div>
+
           <div className="rounded-[28px] border border-[#eadcc5] bg-white/92 p-5 shadow-[0_18px_45px_rgba(67,48,20,0.10)]">
             <p className="text-xs font-black text-[#818981]">رقم التتبع</p>
-            <p className="mt-2 break-words text-lg font-black text-[#123725]">{app.tracking_id || app.id}</p>
-          </div>
-          <div className="rounded-[28px] border border-[#e2c984] bg-[#fff8e8] p-5 shadow-[0_18px_45px_rgba(67,48,20,0.10)]">
-            <p className="text-xs font-black text-[#7c5b13]">قيمة القسط الأول</p>
-            <p className="mt-2 text-lg font-black text-[#7c5b13]">{amount ? `${amount} دنانير` : "حسب تحديد الإدارة"}</p>
+            <p className="mt-2 break-words text-lg font-black text-[#123725]">
+              {app.tracking_id || app.id}
+            </p>
           </div>
         </div>
 
-        {uploaded && (
-          <div className="mt-5 rounded-[28px] border border-[#b8ddc4] bg-[#edf9f0] p-5 text-center shadow-sm">
-            <h2 className="text-2xl font-black text-[#14723a]">تم استلام كشف الراتب ✅</h2>
-            <p className="mt-3 text-sm font-bold leading-7 text-[#526158]">تم رفع الملف بنجاح، وسيتم تحويله لقسم المراجعة لاستكمال دراسة الطلب.</p>
-          </div>
-        )}
-
-        {error && (
-          <div className="mt-5 rounded-[28px] border border-[#efd0d0] bg-[#fff5f4] p-5 text-center shadow-sm">
-            <h2 className="text-xl font-black text-[#9d2f2f]">تعذر تنفيذ العملية</h2>
-            <p className="mt-3 text-sm font-bold leading-7 text-[#6a5d5d]">
-              {error === "missing_file" ? "يرجى اختيار صورة أو ملف كشف الراتب أولاً." : "حدث خطأ غير متوقع، يرجى المحاولة مرة أخرى أو التواصل معنا."}
+        {uploaded ? (
+          <section className="mt-5 rounded-[34px] border border-[#b8ddc4] bg-white/94 p-6 text-center shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
+            <div className="mx-auto mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-[#37b75d] text-3xl font-black text-white">
+              ✓
+            </div>
+            <h2 className="text-2xl font-black text-[#14723a]">
+              تم استلام كشف الراتب ✅
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm font-bold leading-8 text-[#526158]">
+              تم رفع الملف بنجاح، وسيتم تحويله لقسم المراجعة لاستكمال دراسة الطلب. لا يلزم إعادة رفع الملف مرة أخرى.
             </p>
-          </div>
-        )}
-
-        {!uploaded && (
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <section className="rounded-[34px] border border-[#d8bd7a] bg-white/94 p-6 shadow-[0_24px_70px_rgba(60,45,20,0.14)]">
-              <div className="mb-5 rounded-[28px] border border-[#e7d8bd] bg-[#fffaf1] p-5">
-                <h2 className="text-2xl font-black text-[#123725]">الخيار الأول: رفع كشف الراتب</h2>
-                <p className="mt-3 text-sm font-bold leading-7 text-[#627064]">ارفع كشف راتب حديث أو شهادة راتب واضحة صادرة من جهة العمل لاستكمال الدراسة.</p>
-              </div>
-
-              <form action="/api/salary-slip" method="POST" encType="multipart/form-data">
-                <input type="hidden" name="applicationId" value={app.id} />
-                <input type="hidden" name="tracking" value={app.tracking_id || app.id} />
-                <input type="hidden" name="phone" value={app.phone || ""} />
-                <input type="hidden" name="amount" value={amount} />
-                <input type="hidden" name="actionType" value="upload_salary_slip" />
-
-                <label className="block rounded-2xl border border-dashed border-[#d8bd7a] bg-[#fffaf1] p-5 text-center">
-                  <span className="block text-sm font-black text-[#7c5b13]">اختر صورة أو ملف PDF</span>
-                  <input required type="file" name="salarySlip" accept="image/*,.pdf" className="mt-4 w-full rounded-2xl border border-[#eadcc5] bg-white px-4 py-3 text-sm font-bold text-[#123725]" />
-                </label>
-
-                <button type="submit" className="mt-4 w-full rounded-2xl bg-[#37b75d] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:bg-[#2fa553]">
-                  رفع كشف الراتب وإرساله للمراجعة
-                </button>
-              </form>
-            </section>
-
-            <section className="rounded-[34px] border border-[#e2c984] bg-[#fff8e8] p-6 shadow-[0_24px_70px_rgba(60,45,20,0.12)]">
-              <div className="mb-5 rounded-[28px] border border-[#e2c984] bg-white/65 p-5">
-                <h2 className="text-2xl font-black text-[#7c5b13]">الخيار الثاني: دفع القسط الأول</h2>
-                <p className="mt-3 text-sm font-bold leading-7 text-[#594c2c]">
-                  في حال رغبتكم بتثبيت الطلب من خلال دفع القسط الأول بدل رفع كشف الراتب، اضغطوا على الزر التالي ليتم تحويلكم إلى واتساب.
-                </p>
-                <p className="mt-3 rounded-2xl border border-[#e2c984] bg-[#fffaf1] p-4 text-sm font-black text-[#7c5b13]">
-                  قيمة القسط الأول: {amount ? `${amount} دنانير` : "يتم تحديدها من قسم المتابعة"}
+          </section>
+        ) : (
+          <section className="mt-5 rounded-[34px] border border-[#d8bd7a] bg-white/94 p-6 shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
+            {error && (
+              <div className="mb-5 rounded-[24px] border border-[#efd0d0] bg-[#fff5f4] p-4 text-center">
+                <h2 className="text-lg font-black text-[#9d2f2f]">تعذر رفع كشف الراتب</h2>
+                <p className="mt-2 text-sm font-bold leading-7 text-[#6a5d5d]">
+                  {errorMessage(error)}
                 </p>
               </div>
+            )}
 
-              <form action="/api/salary-slip" method="POST">
-                <input type="hidden" name="applicationId" value={app.id} />
-                <input type="hidden" name="tracking" value={app.tracking_id || app.id} />
-                <input type="hidden" name="phone" value={app.phone || ""} />
-                <input type="hidden" name="amount" value={amount} />
-                <input type="hidden" name="actionType" value="first_installment_whatsapp" />
-
-                <button type="submit" className="w-full rounded-2xl bg-[#123725] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:opacity-90">
-                  أريد دفع القسط الأول عبر واتساب
-                </button>
-              </form>
-
-              <p className="mt-4 text-xs font-bold leading-6 text-[#7b6b47]">
-                ملاحظة: الدفع لا يعني الموافقة النهائية إلا بعد استكمال المراجعة والإجراءات المطلوبة حسب سياسة الشركة.
+            <div className="mb-5 rounded-[28px] border border-[#e7d8bd] bg-[#fffaf1] p-5 text-center">
+              <h2 className="text-2xl font-black text-[#123725]">
+                يرجى اختيار كشف الراتب الرسمي
+              </h2>
+              <p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-[#627064]">
+                ارفع صورة واضحة أو ملف PDF لكشف راتب حديث أو شهادة راتب من جهة العمل. هذه الخطوة لاستكمال إجراءات الملف فقط ولا تعني رفض الطلب.
               </p>
-            </section>
-          </div>
+            </div>
+
+            <form action="/api/salary-slip" method="POST" encType="multipart/form-data">
+              <input type="hidden" name="applicationId" value={app.id} />
+              <input type="hidden" name="tracking" value={app.tracking_id || app.id} />
+              <input type="hidden" name="phone" value={app.phone || ""} />
+
+              <label className="block rounded-2xl border border-dashed border-[#d8bd7a] bg-[#fffaf1] p-5 text-center">
+                <span className="block text-sm font-black text-[#7c5b13]">
+                  اختر صورة أو ملف PDF
+                </span>
+                <input
+                  required
+                  type="file"
+                  name="salarySlip"
+                  accept="image/*,.pdf"
+                  className="mt-4 w-full rounded-2xl border border-[#eadcc5] bg-white px-4 py-3 text-sm font-bold text-[#123725]"
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="mt-5 w-full rounded-2xl bg-[#37b75d] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:bg-[#2fa553]"
+              >
+                رفع كشف الراتب وإرساله للمراجعة
+              </button>
+            </form>
+          </section>
         )}
 
         <div className="mt-5 rounded-[24px] border border-[#eadcc5] bg-white/70 p-4 shadow-sm">
           <h2 className="text-sm font-black text-[#6b745f]">ملاحظة توضيحية</h2>
           <p className="mt-2 text-xs font-bold leading-7 text-[#7a837c]">
-            جميع المعلومات والملفات المرسلة تستخدم فقط لاستكمال دراسة طلب التمويل لدى الأمين للأقساط والتمويل.
+            طلب كشف الراتب الرسمي هو إجراء تنظيمي لاستكمال الدراسة النهائية لبعض الملفات حسب سياسة الموافقة، ولا يعني رفض الطلب أو وجود مشكلة في الطلب.
           </p>
         </div>
       </section>
