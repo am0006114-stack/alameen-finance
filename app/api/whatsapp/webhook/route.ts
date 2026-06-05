@@ -5,14 +5,12 @@ export const dynamic = "force-dynamic";
 
 type ApplicationRecord = {
   id: string;
-  created_at?: string | null;
   tracking_id?: string | null;
   full_name?: string | null;
   phone?: string | null;
   status?: string | null;
   payment_status?: string | null;
   device_name?: string | null;
-  salary?: number | string | null;
   delivery_delay_until?: string | null;
 };
 
@@ -639,96 +637,6 @@ function delayUrl(baseUrl: string, app: ApplicationRecord) {
   const phone = app.phone || "";
   return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
-
-function guarantorFormUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/guarantor?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-function salarySlipFormUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/salary-slip?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-function numericSalary(value: number | string | null | undefined) {
-  if (value === null || value === undefined || value === "") return null;
-  const numeric = Number(String(value).replace(/[^\d.]/g, ""));
-  return Number.isFinite(numeric) ? numeric : null;
-}
-
-function isWithinLastDays(value: string | null | undefined, days: number) {
-  if (!value) return false;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return false;
-
-  const maxAgeMs = days * 24 * 60 * 60 * 1000;
-  return Date.now() - date.getTime() <= maxAgeMs;
-}
-
-function canSendPostPaymentRequirements(app: ApplicationRecord) {
-  return (
-    app.payment_status === "confirmed" &&
-    app.status === "under_review" &&
-    isWithinLastDays(app.created_at, 12)
-  );
-}
-
-function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
-  const name = firstTwoNames(app.full_name);
-  const tracking = app.tracking_id || app.id;
-  const salary = numericSalary(app.salary);
-  const guarantorUrl = guarantorFormUrl(baseUrl, app);
-  const salarySlipUrl = salarySlipFormUrl(baseUrl, app);
-  const track = trackUrl(baseUrl, app);
-
-  if (!canSendPostPaymentRequirements(app)) {
-    return "";
-  }
-
-  if (salary !== null && salary < 350) {
-    return `أهلًا ${name} 🌿
-
-تم فتح ملفكم وتحويله للدراسة النهائية.
-
-لاستكمال إجراءات الملف حسب متطلبات الموافقة، نحتاج تزويدنا بالتالي:
-
-1. تعبئة بيانات الكفيل من الرابط:
-${guarantorUrl}
-
-2. رفع كشف راتب رسمي حديث أو شهادة راتب من جهة العمل من الرابط:
-${salarySlipUrl}
-
-هذه الخطوة إجراء تنظيمي لاستكمال الدراسة، ولا تعني رفض الطلب.
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${track}
-
-${BUSINESS_NAME}`;
-  }
-
-  return `أهلًا ${name} 🌿
-
-تم فتح ملفكم وتحويله للدراسة النهائية.
-
-لاستكمال إجراءات الملف حسب سياسة الموافقة، نحتاج تعبئة بيانات الكفيل من الرابط:
-${guarantorUrl}
-
-هذه الخطوة إجراء تنظيمي لاستكمال الدراسة، ولا تعني رفض الطلب.
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${track}
-
-${BUSINESS_NAME}`;
-}
-
 
 function statusHumanLabel(status: string) {
   switch (status) {
@@ -1378,19 +1286,13 @@ ${BUSINESS_NAME}`;
   }
 
   if (paymentStatus === "confirmed" && status === "under_review") {
-    const requirementsMessage = postPaymentRequirementsReply(app, baseUrl);
-
-    if (requirementsMessage) {
-      return requirementsMessage;
-    }
-
     return `تمام ${name} 🌿
 
 رسوم فتح الملف مؤكدة، وطلبكم الآن قيد الدراسة النهائية.
 
 نعتذر منكم بصدق عن أي تأخير بالمتابعة، ونقدّر صبركم خصوصًا مع فترة العطلة الطويلة خلال الموسم.
 
-لا يوجد قرار نهائي ظاهر على الطلب حتى الآن. سيتم التواصل معكم فور ظهور أي تحديث جديد على الملف.
+لا يوجد أي دفع مطلوب حاليًا، ولا يوجد قرار نهائي ظاهر على الطلب حتى الآن. سيتم التواصل معكم فور ظهور أي تحديث جديد على الملف.
 
 رقم التتبع:
 ${tracking}
@@ -1558,16 +1460,11 @@ ${BUSINESS_NAME}`;
   }
 
   if (status === "needs_salary_slip") {
-    const salarySlipLink =
-      paymentStatus === "confirmed"
-        ? `\nرابط رفع كشف الراتب الرسمي:\n${salarySlipFormUrl(baseUrl, app)}\n`
-        : "";
-
     return `أهلًا ${name} 🌿
 
-لاستكمال إجراءات الملف حسب متطلبات الدراسة النهائية، نحتاج كشف راتب رسمي حديث أو شهادة راتب من جهة العمل.
-${salarySlipLink}
-إرسال المستند لا يعني الموافقة النهائية، لكنه إجراء تنظيمي لاستكمال مراجعة الملف.
+طلبكم بحاجة كشف راتب أو شهادة راتب حديثة لاستكمال الدراسة.
+
+إرسال المستند لا يعني الموافقة النهائية، لكنه مطلوب حتى تقدر الإدارة تكمل مراجعة الملف.
 
 رقم التتبع:
 ${tracking}
@@ -1579,22 +1476,21 @@ ${BUSINESS_NAME}`;
   }
 
   if (status === "needs_guarantor") {
-    const guarantorLink =
-      paymentStatus === "confirmed"
-        ? `\nرابط تعبئة بيانات الكفيل:\n${guarantorFormUrl(baseUrl, app)}\n`
-        : "";
-
     return `أهلًا ${name} 🌿
 
-لاستكمال إجراءات الملف حسب سياسة الدراسة النهائية، نحتاج تعبئة بيانات الكفيل.
-${guarantorLink}
-هذه الخطوة إجراء تنظيمي لاستكمال الملف، ولا تعني رفض الطلب.
+الحالة الحالية للطلب تشير إلى أن الملف بحاجة استكمال متطلبات الكفيل.
+
+نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع فترة العطلة الطويلة خلال الموسم.
+
+فور استكمال المتطلبات ومراجعتها من الإدارة سيتم تحديث الحالة وإبلاغكم بالمستجدات.
 
 رقم التتبع:
 ${tracking}
 
 رابط المتابعة:
 ${url}
+
+كل عام وأنتم بخير 🌿
 
 ${BUSINESS_NAME}`;
   }
@@ -1738,7 +1634,7 @@ async function findApplicationByPhone(phone: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
+    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1758,7 +1654,7 @@ async function findApplicationByTracking(tracking: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
+    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1788,7 +1684,7 @@ async function findApplicationByTrackingAndPhone(tracking: string, phone: string
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
+    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
@@ -2457,10 +2353,6 @@ async function generateAiReply(input: AiReplyInput) {
 - needs_guarantor يعني بحاجة كفيل لاستكمال الدراسة وليس رفضًا.
 - needs_identity أو identity_requested يعني بحاجة صورة الهوية الأمامية والخلفية لاستكمال الدراسة.
 - needs_salary_slip يعني بحاجة كشف راتب أو شهادة راتب.
-- بعد تأكيد رسوم فتح الملف فقط، قد يطلب النظام كفيلًا أو كشف راتب رسميًا حسب سياسة الدراسة النهائية.
-- ممنوع تمامًا أن تذكر للعميل أن طلب كشف الراتب أو الكفيل بسبب أن الراتب قليل أو أقل من 350 أو غير كافٍ.
-- استخدم دائمًا صياغات محايدة مثل: حسب متطلبات الدراسة النهائية، لاستكمال إجراءات الملف، حسب سياسة الموافقة، إجراء تنظيمي لاستكمال الدراسة.
-- لا ترسل رابط كفيل أو كشف راتب إذا لم تكن رسوم فتح الملف مؤكدة في الرد الآمن الأساسي.
 - refund_requested يعني طلب استرداد مسجل دون وعد بوقت تنفيذ.
 - refund_completed فقط تعني أن الاسترداد تم.
 - customer_claimed_paid يعني الوصل قيد مراجعة الإدارة ولا يكرر الدفع.

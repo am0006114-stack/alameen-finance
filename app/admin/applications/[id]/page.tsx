@@ -500,7 +500,7 @@ function currentStatusMessage(app: ApplicationRecord) {
 يمكنك متابعة حالة الطلب من خلال الرابط:
 ${trackUrl}
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function preliminaryApprovalWithFeeQuestionMessage(app: ApplicationRecord) {
@@ -530,7 +530,7 @@ ${tracking}
 أو
 ❌ لا أرغب بالاستمرار حاليًا
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function preliminaryQualificationMessage(app: ApplicationRecord) {
@@ -553,7 +553,7 @@ ${tracking}
 
 ${continueUrl}
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function paymentInfoMessage(app: ApplicationRecord) {
@@ -578,7 +578,7 @@ function paymentInfoMessage(app: ApplicationRecord) {
 
 بعد التحويل يرجى إرسال صورة أو لقطة شاشة لوصل الدفع عبر واتساب ليتم فتح الملف وتحويله لقسم الدراسة النهائية.
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function underReviewMessage(app: ApplicationRecord) {
@@ -598,7 +598,7 @@ function underReviewMessage(app: ApplicationRecord) {
 يمكنك متابعة الطلب من الرابط:
 ${trackUrl}
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function salarySlipRequestMessage(app: ApplicationRecord) {
@@ -608,7 +608,7 @@ function salarySlipRequestMessage(app: ApplicationRecord) {
 
   return `أهلًا ${name}،
 
-لاستكمال دراسة طلب التمويل الخاص بك لدى الأمين للأقساط، نرجو تزويدنا بكشف راتب حديث أو شهادة راتب حديثة صادرة من جهة العمل.
+لاستكمال دراسة طلب التمويل الخاص بك لدى الأمين للأقساط والتمويل، نرجو تزويدنا بكشف راتب حديث أو شهادة راتب حديثة صادرة من جهة العمل.
 
 رقم التتبع: ${tracking}
 
@@ -620,7 +620,7 @@ function salarySlipRequestMessage(app: ApplicationRecord) {
 رابط متابعة الطلب:
 ${trackUrl}
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function guarantorRequestMessage(app: ApplicationRecord) {
@@ -630,16 +630,17 @@ function guarantorRequestMessage(app: ApplicationRecord) {
 
   return `أهلًا ${name}،
 
-لاستكمال إجراءات الملف حسب سياسة الدراسة النهائية، نحتاج تعبئة بيانات الكفيل.
+بعد مراجعة طلبك لدى الأمين للأقساط والتمويل، نحتاج إلى إضافة كفيل لاستكمال دراسة الملف.
 
 يرجى تعبئة بيانات الكفيل ورفع صور الهوية من خلال الرابط التالي:
 ${guarantorUrl}
 
 رقم التتبع: ${tracking}
 
-ملاحظة مهمة: طلب الكفيل لا يعني رفض الطلب، وإنما إجراء تنظيمي لاستكمال دراسة الملف حسب سياسة الموافقة.
+ملاحظة مهمة: طلب الكفيل لا يعني رفض الطلب، وإنما إجراء لاستكمال دراسة الملف حسب سياسة الموافقة.
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل
+Al Ameen for Financial Services`;
 }
 
 function approvedMessage(app: ApplicationRecord, customPickupDate?: string | null) {
@@ -651,7 +652,7 @@ function approvedMessage(app: ApplicationRecord, customPickupDate?: string | nul
 
   return `أهلًا ${name} 🌟
 
-يسعدنا إبلاغك بأنه تمت الموافقة على طلبك لدى الأمين للأقساط ✅
+يسعدنا إبلاغك بأنه تمت الموافقة على طلبك لدى الأمين للأقساط والتمويل ✅
 
 تفاصيل الجهاز:
 ${deviceDetails}
@@ -664,7 +665,7 @@ ${tracking}
 رابط متابعة الطلب:
 ${trackUrl}
 
-أهلًا وسهلًا فيك مع الأمين للأقساط 💚
+أهلًا وسهلًا فيك مع الأمين للأقساط والتمويل 💚
 
 عنواننا:
 رنا سنتر – الطابق الثاني
@@ -686,7 +687,7 @@ function rejectedMessage(app: ApplicationRecord) {
 يمكنك متابعة حالة الطلب من الرابط:
 ${trackUrl}
 
-الأمين للأقساط`;
+الأمين للأقساط والتمويل`;
 }
 
 function missingIdentityDocumentsMessage(app: ApplicationRecord) {
@@ -696,7 +697,7 @@ function missingIdentityDocumentsMessage(app: ApplicationRecord) {
 
   return `أهلًا ${name}،
 
-وصل طلبك لدى الأمين للأقساط، لكن صور الهوية غير ظاهرة لدينا أو لم تصل بشكل صحيح.
+وصل طلبك لدى الأمين للأقساط والتمويل، لكن صور الهوية غير ظاهرة لدينا أو لم تصل بشكل صحيح.
 
 نرجو إرسال صورة واضحة لهوية مقدم الطلب:
 - الوجه الأمامي
@@ -710,7 +711,7 @@ ${trackUrl}
 
 ملاحظة: لا يمكن استكمال مراجعة الطلب قبل وصول صور الهوية بشكل واضح.
 
-الأمين للأقساط
+الأمين للأقساط والتمويل
 Al Ameen for Financial Services`;
 }
 
@@ -931,15 +932,23 @@ function SalarySlipLinkAction({
     >
       <input type="hidden" name="applicationId" value={applicationId} />
 
-      <div className="mb-3 rounded-xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] px-3 py-3 text-xs font-bold leading-6 text-[#d7ddd5]">
-        يتم إرسال رابط رفع كشف راتب رسمي فقط، بدون خيار دفع القسط الأول.
-      </div>
+      <label className="block">
+        <span className="mb-2 block text-xs font-black text-[#f3dfac]">
+          قيمة القسط الأول — اختياري عند اختيار الدفع
+        </span>
+        <input
+          name="amount"
+          inputMode="decimal"
+          placeholder="مثال: 65"
+          className="mb-3 w-full rounded-xl border border-[rgba(214,181,107,0.22)] bg-[rgba(3,18,14,0.58)] px-3 py-3 text-right text-sm font-bold text-white outline-none placeholder:text-[#8d998f] focus:border-[#d6b56b]"
+        />
+      </label>
 
       <button
         type="submit"
         className="flex w-full items-center justify-center rounded-xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.18)] px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.26)]"
       >
-        إرسال رابط كشف راتب رسمي
+        إرسال رابط كشف الراتب / أو دفع القسط الأول
       </button>
     </form>
   );
@@ -1321,6 +1330,15 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
             <StatusActionButton
               applicationId={app.id}
+              status="first_installment_requested"
+              paymentStatus="first_installment_whatsapp"
+              label="طلب القسط الأول"
+              className="border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.18)]"
+              action={updateApplicationAction}
+            />
+
+            <StatusActionButton
+              applicationId={app.id}
               status="needs_guarantor"
               label="بحاجة كفيل"
               className="border border-orange-300/25 bg-orange-950/30 text-orange-100 hover:bg-orange-950/45"
@@ -1526,7 +1544,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, salarySlipRequestMessage(app))}
-                label="طلب كشف راتب رسمي"
+                label="طلب كشف راتب قديم"
                 className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
               />
 
