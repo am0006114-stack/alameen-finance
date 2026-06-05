@@ -5,12 +5,14 @@ export const dynamic = "force-dynamic";
 
 type ApplicationRecord = {
   id: string;
+  created_at?: string | null;
   tracking_id?: string | null;
   full_name?: string | null;
   phone?: string | null;
   status?: string | null;
   payment_status?: string | null;
   device_name?: string | null;
+  salary?: number | string | null;
   delivery_delay_until?: string | null;
 };
 
@@ -636,6 +638,90 @@ function delayUrl(baseUrl: string, app: ApplicationRecord) {
   const tracking = app.tracking_id || app.id;
   const phone = app.phone || "";
   return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+}
+
+function guarantorUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/guarantor?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+}
+
+function salarySlipUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/salary-slip?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+}
+
+function getSalaryNumber(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+
+  const numberValue = Number(String(value).replace(/[^\d.]/g, ""));
+
+  return Number.isFinite(numberValue) ? numberValue : null;
+}
+
+function isCreatedWithinLastDays(value: string | null | undefined, days: number) {
+  if (!value) return false;
+
+  const createdAt = new Date(value).getTime();
+
+  if (Number.isNaN(createdAt)) return false;
+
+  const ageMs = Date.now() - createdAt;
+  const maxAgeMs = days * 24 * 60 * 60 * 1000;
+
+  return ageMs >= 0 && ageMs <= maxAgeMs;
+}
+
+function canShowPostPaymentRequirements(app: ApplicationRecord) {
+  return (
+    app.payment_status === "confirmed" &&
+    app.status === "under_review" &&
+    isCreatedWithinLastDays(app.created_at, 12)
+  );
+}
+
+function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const salary = getSalaryNumber(app.salary);
+  const guarantorLink = guarantorUrl(baseUrl, app);
+  const salaryLink = salarySlipUrl(baseUrl, app);
+
+  if (salary !== null && salary < 350) {
+    return `أهلًا ${name} 🌿
+
+تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+
+لاستكمال إجراءات الملف حسب متطلبات الموافقة، نحتاج تزويدنا بالتالي:
+
+1. تعبئة بيانات الكفيل من الرابط:
+${guarantorLink}
+
+2. رفع كشف راتب رسمي حديث أو شهادة راتب صادرة من جهة العمل من الرابط:
+${salaryLink}
+
+هذه الخطوة إجراء تنظيمي لاستكمال الدراسة، ولا تعني رفض الطلب.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+  }
+
+  return `أهلًا ${name} 🌿
+
+تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+
+لاستكمال إجراءات الملف حسب سياسة الموافقة، نحتاج تعبئة بيانات الكفيل من الرابط التالي:
+${guarantorLink}
+
+هذه الخطوة إجراء تنظيمي لاستكمال الدراسة، ولا تعني رفض الطلب.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
 }
 
 function statusHumanLabel(status: string) {
@@ -1286,6 +1372,10 @@ ${BUSINESS_NAME}`;
   }
 
   if (paymentStatus === "confirmed" && status === "under_review") {
+    if (canShowPostPaymentRequirements(app)) {
+      return postPaymentRequirementsReply(app, baseUrl);
+    }
+
     return `تمام ${name} 🌿
 
 رسوم فتح الملف مؤكدة، وطلبكم الآن قيد الدراسة النهائية.
@@ -1634,7 +1724,7 @@ async function findApplicationByPhone(phone: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1654,7 +1744,7 @@ async function findApplicationByTracking(tracking: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1684,7 +1774,7 @@ async function findApplicationByTrackingAndPhone(tracking: string, phone: string
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, status, payment_status, device_name, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
@@ -2459,6 +2549,7 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "order_status" ||
     intent === "delivery" ||
     intent === "payment" ||
+    intent === "requirements" ||
     intent === "refund" ||
     intent === "complaint" ||
     intent === "abuse" ||

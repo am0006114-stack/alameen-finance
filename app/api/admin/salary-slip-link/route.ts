@@ -29,15 +29,10 @@ function firstTwoNames(fullName: string | null | undefined) {
   return `${parts[0]} ${parts[1]}`;
 }
 
-function cleanAmount(value: string) {
-  return value.trim().replace(/[^\d.]/g, "");
-}
-
 export async function POST(request: Request) {
   const formData = await request.formData();
 
   const applicationId = String(formData.get("applicationId") || "").trim();
-  const amount = cleanAmount(String(formData.get("amount") || ""));
 
   const baseUrl = getBaseUrl(request);
 
@@ -47,7 +42,7 @@ export async function POST(request: Request) {
 
   const { data: application, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name")
+    .select("id, tracking_id, full_name, phone, device_name, status, payment_status")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -62,33 +57,28 @@ export async function POST(request: Request) {
 
   const salarySlipUrl = `${baseUrl}/salary-slip?tracking=${encodeURIComponent(
     tracking
-  )}&phone=${encodeURIComponent(phone)}${
-    amount ? `&amount=${encodeURIComponent(amount)}` : ""
-  }`;
+  )}&phone=${encodeURIComponent(phone)}`;
 
   await supabaseAdmin
     .from("applications")
     .update({
       status: "salary_slip_link_sent",
-      payment_status: "not_requested_yet",
     })
-    .eq("id", applicationId);
+    .eq("id", applicationId)
+    .eq("payment_status", "confirmed");
 
   await sendDiscordNotification({
-    title: "📨 تم إرسال رابط كشف الراتب / القسط الأول",
+    title: "📨 تم إرسال رابط كشف راتب رسمي",
     description:
-      "تم فتح واتساب برسالة رابط استكمال الدراسة للعميل من لوحة الإدارة.",
+      "تم فتح واتساب برسالة رابط رفع كشف راتب رسمي لاستكمال الدراسة النهائية.",
     color: 0xd6b56b,
     fields: [
       { name: "الاسم", value: customerName, inline: true },
       { name: "الهاتف", value: phone || "—", inline: true },
       { name: "رقم التتبع", value: tracking || "—", inline: true },
       { name: "الجهاز", value: application.device_name || "—", inline: false },
-      {
-        name: "قيمة القسط الأول",
-        value: amount ? `${amount} دنانير` : "لم يتم تحديدها",
-        inline: true,
-      },
+      { name: "رابط كشف الراتب", value: salarySlipUrl, inline: false },
+      { name: "حالة الدفع", value: application.payment_status || "—", inline: true },
     ],
   });
 
@@ -96,25 +86,18 @@ export async function POST(request: Request) {
     return NextResponse.redirect(`${baseUrl}/admin/applications/${applicationId}`);
   }
 
-  const amountLine = amount
-    ? `\nقيمة القسط الأول في حال اختيار الدفع: ${amount} دنانير`
-    : "";
-
   const message = `أهلًا ${customerName} 🌿
 
-لاستكمال دراسة طلبكم لدى الأمين للأقساط والتمويل، يرجى الدخول إلى الرابط التالي واختيار أحد الخيارين:
+لاستكمال إجراءات الدراسة النهائية حسب متطلبات الموافقة، يرجى رفع كشف راتب رسمي حديث أو شهادة راتب صادرة من جهة العمل عبر الرابط التالي:
 
-1. رفع كشف راتب حديث
-أو
-2. اختيار دفع القسط الأول بدل رفع كشف الراتب${amountLine}
+${salarySlipUrl}
 
 رقم التتبع:
 ${tracking}
 
-رابط الاستكمال:
-${salarySlipUrl}
+هذه الخطوة إجراء تنظيمي لاستكمال الملف، ولا تعني رفض الطلب.
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 
   return NextResponse.redirect(
     `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`
