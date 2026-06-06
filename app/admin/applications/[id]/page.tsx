@@ -250,8 +250,6 @@ function translateStatus(status: string | null | undefined) {
       return "تم إرسال رابط كشف الراتب";
     case "salary_slip_uploaded":
       return "تم رفع كشف الراتب";
-    case "first_installment_requested":
-      return "اختار دفع القسط الأول";
     case "needs_guarantor":
       return "بحاجة كفيل";
     case "guarantor_submitted":
@@ -287,8 +285,6 @@ function translatePaymentStatus(status: string | null | undefined) {
       return "تم إرسال معلومات الدفع";
     case "refund_requested":
       return "طلب استرداد الرسوم";
-    case "first_installment_whatsapp":
-      return "طلب دفع القسط الأول عبر واتساب";
     case "pending_payment":
       return "بانتظار الدفع";
     case "customer_claimed_paid":
@@ -370,8 +366,6 @@ function statusClass(status: string | null | undefined) {
     case "needs_salary_slip":
     case "salary_slip_link_sent":
     case "salary_slip_uploaded":
-    case "first_installment_requested":
-    case "first_installment_whatsapp":
     case "needs_guarantor":
       return "border-purple-300/25 bg-purple-950/25 text-purple-100";
     case "preliminary_application":
@@ -932,23 +926,17 @@ function SalarySlipLinkAction({
     >
       <input type="hidden" name="applicationId" value={applicationId} />
 
-      <label className="block">
-        <span className="mb-2 block text-xs font-black text-[#f3dfac]">
-          قيمة القسط الأول — اختياري عند اختيار الدفع
-        </span>
-        <input
-          name="amount"
-          inputMode="decimal"
-          placeholder="مثال: 65"
-          className="mb-3 w-full rounded-xl border border-[rgba(214,181,107,0.22)] bg-[rgba(3,18,14,0.58)] px-3 py-3 text-right text-sm font-bold text-white outline-none placeholder:text-[#8d998f] focus:border-[#d6b56b]"
-        />
-      </label>
+      <div className="mb-3 rounded-xl border border-[rgba(214,181,107,0.18)] bg-[rgba(3,18,14,0.30)] px-3 py-3">
+        <p className="text-xs font-black leading-6 text-[#f3dfac]">
+          يرسل رابط رفع كشف راتب رسمي فقط، بدون خيار دفع القسط الأول.
+        </p>
+      </div>
 
       <button
         type="submit"
         className="flex w-full items-center justify-center rounded-xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.18)] px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.26)]"
       >
-        إرسال رابط كشف الراتب / أو دفع القسط الأول
+        إرسال رابط كشف راتب رسمي
       </button>
     </form>
   );
@@ -1056,6 +1044,9 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       .from("applications")
       .update(updatePayload)
       .eq("id", applicationId);
+
+    revalidatePath("/admin");
+    revalidatePath(`/admin/applications/${applicationId}`);
 
     redirect(`/admin/applications/${applicationId}`);
   }
@@ -1323,17 +1314,9 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             <StatusActionButton
               applicationId={app.id}
               status="salary_slip_uploaded"
+              paymentStatus="confirmed"
               label="تم استلام كشف الراتب"
               className="border border-sky-300/25 bg-sky-950/30 text-sky-100 hover:bg-sky-950/45"
-              action={updateApplicationAction}
-            />
-
-            <StatusActionButton
-              applicationId={app.id}
-              status="first_installment_requested"
-              paymentStatus="first_installment_whatsapp"
-              label="طلب القسط الأول"
-              className="border border-[rgba(214,181,107,0.24)] bg-[rgba(214,181,107,0.10)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.18)]"
               action={updateApplicationAction}
             />
 
@@ -1544,7 +1527,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               <WhatsAppButton
                 href={makeWhatsAppUrl(app.phone, salarySlipRequestMessage(app))}
-                label="طلب كشف راتب قديم"
+                label="رسالة كشف راتب نصية"
                 className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
               />
 
