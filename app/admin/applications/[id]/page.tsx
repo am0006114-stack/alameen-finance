@@ -812,7 +812,7 @@ function WhatsAppButton({
       href={href}
       target="_blank"
       rel="noreferrer"
-      className={`flex w-full items-center justify-center rounded-2xl px-4 py-3 text-sm font-black transition ${className}`}
+      className={`flex w-full cursor-pointer items-center justify-center rounded-2xl px-4 py-3 text-sm font-black transition ${className}`}
     >
       {label}
     </a>
@@ -865,7 +865,7 @@ function ReceiptLinkAction({
       <input type="hidden" name="applicationId" value={applicationId} />
       <button
         type="submit"
-        className="flex w-full items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] px-4 py-3 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
+        className="flex w-full cursor-pointer items-center justify-center rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] px-4 py-3 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
       >
         إرسال رابط رفع وصل الدفع
       </button>
@@ -904,7 +904,7 @@ function DeliveryDelayLinkAction({
 
       <button
         type="submit"
-        className="flex w-full items-center justify-center rounded-xl border border-[#d6b56b]/30 bg-[#d6b56b]/15 px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/25"
+        className="flex w-full cursor-pointer items-center justify-center rounded-xl border border-[#d6b56b]/30 bg-[#d6b56b]/15 px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[#d6b56b]/25"
       >
         إرسال رابط التمديد / الاسترداد بتاريخ مخصص
       </button>
@@ -934,7 +934,7 @@ function SalarySlipLinkAction({
 
       <button
         type="submit"
-        className="flex w-full items-center justify-center rounded-xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.18)] px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.26)]"
+        className="flex w-full cursor-pointer items-center justify-center rounded-xl border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.18)] px-4 py-3 text-sm font-black text-[#f3dfac] transition hover:bg-[rgba(214,181,107,0.26)]"
       >
         إرسال رابط كشف راتب رسمي
       </button>
@@ -966,7 +966,7 @@ function StatusActionButton({
       )}
       <button
         type="submit"
-        className={`w-full rounded-2xl px-4 py-3 text-sm font-black transition ${className}`}
+        className={`w-full cursor-pointer rounded-2xl px-4 py-3 text-sm font-black transition ${className}`}
       >
         {label}
       </button>
@@ -1040,15 +1040,20 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       redirect(`/admin/applications/${applicationId}`);
     }
 
-    await supabaseAdmin
+    const { error: updateError } = await supabaseAdmin
       .from("applications")
       .update(updatePayload)
       .eq("id", applicationId);
 
+    if (updateError) {
+      console.error("Failed to update application status:", updateError);
+      redirect(`/admin/applications/${applicationId}?status=error`);
+    }
+
     revalidatePath("/admin");
     revalidatePath(`/admin/applications/${applicationId}`);
 
-    redirect(`/admin/applications/${applicationId}`);
+    redirect(`/admin/applications/${applicationId}?status=success`);
   }
 
   async function updateWhatsAppPhoneOnlyAction(formData: FormData) {
