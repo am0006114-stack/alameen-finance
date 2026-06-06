@@ -11,6 +11,7 @@ type ApplicationRecord = {
   phone?: string | null;
   status?: string | null;
   payment_status?: string | null;
+  payment_confirmed_at?: string | null;
   device_name?: string | null;
   salary?: number | string | null;
   delivery_delay_until?: string | null;
@@ -673,13 +674,50 @@ function isCreatedWithinLastDays(value: string | null | undefined, days: number)
   return ageMs >= 0 && ageMs <= maxAgeMs;
 }
 
+function isDateOlderThanHours(value: string | null | undefined, hours: number) {
+  if (!value) return false;
+
+  const timestamp = new Date(value).getTime();
+
+  if (Number.isNaN(timestamp)) return false;
+
+  const ageMs = Date.now() - timestamp;
+  const minAgeMs = hours * 60 * 60 * 1000;
+
+  return ageMs >= minAgeMs;
+}
+
+function paymentRequirementsPendingReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const url = trackUrl(baseUrl, app);
+
+  return `أهلًا ${name} 🌿
+
+رسوم فتح الملف مؤكدة، وطلبكم الآن قيد الدراسة النهائية.
+
+حاليًا لا يوجد أي إجراء مطلوب منكم، وسيتم التواصل معكم إذا احتاج قسم الدراسة أي مستندات إضافية أو بيانات داعمة.
+
+نقدّر صبركم وثقتكم، وحقكم يكون عندكم تحديث واضح بدون استعجال أو إرباك.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+}
+
 function canShowPostPaymentRequirements(app: ApplicationRecord) {
   return (
     app.payment_status === "confirmed" &&
     app.status === "under_review" &&
-    isCreatedWithinLastDays(app.created_at, 12)
+    isCreatedWithinLastDays(app.created_at, 12) &&
+    isDateOlderThanHours(app.payment_confirmed_at, 48)
   );
 }
+
 
 function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
@@ -1376,23 +1414,7 @@ ${BUSINESS_NAME}`;
       return postPaymentRequirementsReply(app, baseUrl);
     }
 
-    return `تمام ${name} 🌿
-
-رسوم فتح الملف مؤكدة، وطلبكم الآن قيد الدراسة النهائية.
-
-نعتذر منكم بصدق عن أي تأخير بالمتابعة، ونقدّر صبركم خصوصًا مع فترة العطلة الطويلة خلال الموسم.
-
-لا يوجد أي دفع مطلوب حاليًا، ولا يوجد قرار نهائي ظاهر على الطلب حتى الآن. سيتم التواصل معكم فور ظهور أي تحديث جديد على الملف.
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-كل عام وأنتم بخير 🌿
-
-${BUSINESS_NAME}`;
+    return paymentRequirementsPendingReply(app, baseUrl);
   }
 
   if (
@@ -1724,7 +1746,7 @@ async function findApplicationByPhone(phone: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, device_name, salary, delivery_delay_until")
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1744,7 +1766,7 @@ async function findApplicationByTracking(tracking: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, device_name, salary, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -1774,7 +1796,7 @@ async function findApplicationByTrackingAndPhone(tracking: string, phone: string
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, device_name, salary, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, device_name, salary, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
