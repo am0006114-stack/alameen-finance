@@ -59,6 +59,7 @@ type CustomerIntent =
   | "products"
   | "payment"
   | "delivery"
+  | "review_time"
   | "order_status"
   | "greeting"
   | "thanks"
@@ -224,6 +225,135 @@ function humanOpening(seed: string) {
 function isGreeting(text: string) {
   const t = normalizeArabicText(text);
   return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t);
+}
+
+function isCasualWellbeingText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "كيفك",
+    "كيفكم",
+    "كيف الحال",
+    "كيف حالك",
+    "كيف امورك",
+    "كيف أمورك",
+    "كيف الوضع",
+    "شخبارك",
+    "شو اخبارك",
+    "شو أخبارك",
+    "اخبارك",
+    "أخبارك",
+    "طمني عنك",
+    "تمام؟",
+    "عامل ايه",
+    "عاملين ايه",
+    "how are you",
+    "how r u",
+  ]);
+}
+
+function isReviewTimeText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const hasQuestionContext = hasAny(t, [
+    "قديش",
+    "كم",
+    "متى",
+    "امتى",
+    "شو المدة",
+    "شو المده",
+    "مدة الطلب",
+    "مده الطلب",
+    "متى الرد",
+    "وقت الرد",
+    "الطلب باخذ",
+    "الطلب بياخذ",
+    "بتاخذ",
+    "بياخذ",
+    "بستغرق",
+  ]);
+
+  const hasReviewContext = hasAny(t, [
+    "الطلب",
+    "الدراسة",
+    "الدراسه",
+    "المراجعة",
+    "المراجعه",
+    "الموافقة",
+    "الموافقه",
+    "النتيجة",
+    "النتيجه",
+    "الرد",
+    "كم يوم",
+    "كم ساعة",
+    "كم ساعه",
+  ]);
+
+  return hasQuestionContext && hasReviewContext;
+}
+
+function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
+  const opening = humanOpening(`${from}:review_time`);
+  const tracking = app?.tracking_id || app?.id || "";
+  const status = app?.status || "";
+  const url = app && baseUrl ? trackUrl(baseUrl, app) : "";
+
+  if (app) {
+    return `${opening}
+
+بشكل عام، مراجعة الطلب بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات.
+
+الجمعة والسبت عطلة رسمية ولا تُحسب ضمن أيام العمل.
+
+حالة طلبك الحالية:
+${statusHumanLabel(status)}
+
+${app.payment_status === "confirmed" && status === "under_review" ? "بما أن رسوم فتح الملف مؤكدة والطلب قيد الدراسة النهائية، سيتم التواصل معك عند وجود أي تحديث أو إذا احتاج قسم الدراسة مستندات إضافية." : "إذا احتاجت الإدارة أي مستند إضافي أو خطوة جديدة، رح يوصلك التحديث بشكل واضح."}
+
+رقم التتبع:
+${tracking}
+
+${url ? `رابط المتابعة:\n${url}\n\n` : ""}${BUSINESS_NAME}`;
+  }
+
+  return `${opening}
+
+عادةً مراجعة الطلب بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات.
+
+الجمعة والسبت عطلة رسمية ولا تُحسب ضمن أيام العمل.
+
+بعض الملفات ممكن تحتاج وقتًا إضافيًا إذا كان في تدقيق إضافي أو مستندات ناقصة.
+
+إذا عندك رقم تتبع أو رقم الهاتف المستخدم بالطلب ابعته، وبفحصلك الحالة مباشرة 🌿
+
+${BUSINESS_NAME}`;
+}
+
+function socialGreetingReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
+  const opening = humanOpening(`${from}:social_greeting`);
+  const tracking = app?.tracking_id || app?.id || "";
+  const status = app?.status || "";
+  const url = app && baseUrl ? trackUrl(baseUrl, app) : "";
+
+  if (app) {
+    return `${opening}
+
+الحمدلله تمام، إن شاء الله تكون بخير 🌿
+
+طلبك ظاهر عندي وحالته الحالية:
+${statusHumanLabel(status)}
+
+${tracking ? `رقم التتبع:\n${tracking}\n\n` : ""}${url ? `رابط المتابعة:\n${url}\n\n` : ""}كيف بقدر أساعدك بخصوص الطلب؟`;
+  }
+
+  return `${opening}
+
+الحمدلله تمام، إن شاء الله تكون بخير 🌿
+
+كيف بقدر أساعدك اليوم؟
+إذا بدك تتابع طلبك ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.`;
 }
 
 
@@ -601,6 +731,10 @@ function classifyIntent(text: string): CustomerIntent {
     return "payment";
   }
 
+  if (isReviewTimeText(t)) {
+    return "review_time";
+  }
+
   if (hasAny(t, ["موعد", "الاحد", "الأحد", "استلام", "تسليم", "متي", "متى", "بعد العيد", "31/05", "31-05", "وين وصل", "وصل الجهاز", "التسليم", "تاخر الجهاز", "تأخر الجهاز"])) {
     return "delivery";
   }
@@ -609,7 +743,7 @@ function classifyIntent(text: string): CustomerIntent {
     return "order_status";
   }
 
-  if (isGreeting(t)) return "greeting";
+  if (isGreeting(t) || isCasualWellbeingText(t)) return "greeting";
 
   if (hasAny(t, ["شكرا", "يسلمو", "تمام", "يعطيك العافيه", "مشكور"])) {
     return "thanks";
@@ -1353,6 +1487,8 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "refund") return refundReply(baseUrl, app.phone || tracking, app);
   if (intent === "delivery") return deliveryDateReply(app, baseUrl);
+  if (intent === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl);
+  if (intent === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl);
 
   if (intent === "payment") {
     if (
@@ -1733,6 +1869,14 @@ ${tracking}
 ${url}
 
 ${BUSINESS_NAME}`;
+}
+
+function generalGreetingReply(from: string) {
+  return socialGreetingReply(from, null, undefined);
+}
+
+function generalReviewTimeReply(from: string) {
+  return reviewTimeReply(from, null, undefined);
 }
 
 function unknownReply(from: string) {
