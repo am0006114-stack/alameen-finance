@@ -653,6 +653,12 @@ function salarySlipUrl(baseUrl: string, app: ApplicationRecord) {
   return `${baseUrl}/salary-slip?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
 
+function identityUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+}
+
 function getSalaryNumber(value: number | string | null | undefined) {
   if (value === null || value === undefined || value === "") return null;
 
@@ -772,6 +778,7 @@ function statusHumanLabel(status: string) {
     case "rejected": return "غير موافق عليه حاليًا";
     case "needs_identity": return "بانتظار صورة الهوية";
     case "identity_requested": return "بانتظار صورة الهوية";
+    case "identity_uploaded": return "تم استلام صور الهوية";
     case "needs_salary_slip": return "بانتظار كشف راتب / شهادة راتب";
     case "salary_slip_uploaded": return "تم استلام كشف الراتب";
     case "first_installment_requested": return "بانتظار دفع القسط الأول";
@@ -1554,13 +1561,28 @@ ${BUSINESS_NAME}`;
   if (status === "needs_identity" || status === "identity_requested") {
     return `أهلًا ${name} 🌿
 
-طلبكم بحاجة صورة هوية واضحة لاستكمال المراجعة.
+لاستكمال مراجعة طلبكم، نحتاج رفع صور الهوية بشكل واضح من خلال الرابط الرسمي التالي:
 
-يرجى إرسال صورة هوية مقدم الطلب:
-- الوجه الأمامي
-- الوجه الخلفي
+${identityUrl(baseUrl, app)}
 
-ملاحظة مهمة: لا يمكن استكمال دراسة الطلب قبل وصول صور الهوية بشكل واضح.
+المطلوب:
+1. صورة الوجه الأمامي للهوية
+2. صورة الوجه الخلفي للهوية
+
+يرجى أن تكون الصور واضحة، غير مقصوصة، وبدون انعكاس قوي على البيانات.
+
+رقم التتبع:
+${tracking}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (status === "identity_uploaded") {
+    return `أهلًا ${name} 🌿
+
+تم استلام صور الهوية وربطها بطلبكم بنجاح.
+
+الملف الآن بانتظار مراجعة الإدارة للوثائق واستكمال الخطوة التالية حسب حالة الطلب.
 
 رقم التتبع:
 ${tracking}
