@@ -54,9 +54,22 @@ function firstTwoNames(fullName: string | null | undefined) {
   return `${parts[0]} ${parts[1]}`;
 }
 
-function safeTemplateParameter(value: string | null | undefined) {
-  const clean = String(value || "").trim();
+function safeTemplateParameter(value: string | number | null | undefined) {
+  const clean = String(value ?? "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .replace(/ {5,}/g, " ")
+    .trim();
+
   return clean || "—";
+}
+
+function safeErrorText(value: string | null | undefined) {
+  return String(value || "")
+    .replace(/[\r\n\t]+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim()
+    .slice(0, 1500);
 }
 
 function buildPreviewText(app: ApplicationRecord) {
@@ -112,9 +125,9 @@ async function sendPreliminaryApprovalTemplate(app: ApplicationRecord): Promise<
     to: cleanTo,
     type: "template",
     template: {
-      name: templateName,
+      name: safeTemplateParameter(templateName),
       language: {
-        code: templateLanguage,
+        code: safeTemplateParameter(templateLanguage),
       },
       components: [
         {
@@ -260,7 +273,7 @@ export async function GET(request: Request) {
         sent: true,
       });
     } else {
-      const errorMessage = sendResult.responseText.slice(0, 1500);
+      const errorMessage = safeErrorText(sendResult.responseText);
 
       await supabaseAdmin
         .from("applications")
