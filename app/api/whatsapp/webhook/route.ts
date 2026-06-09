@@ -158,28 +158,30 @@ ${BUSINESS_NAME}`;
 }
 
 function socialGreetingReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
-  const opening = humanOpening(`${from}:social_greeting`);
-  const tracking = app?.tracking_id || app?.id || "";
-  const status = app?.status || "";
-  const url = app && baseUrl ? trackUrl(baseUrl, app) : "";
+  const variants = [
+    "الحمدلله تمام، إن شاء الله تكون بخير 🌿\nشو حاب تعرف أو أساعدك فيه؟",
+    "تمام الحمدلله، الله يسعدك 🌿\nاحكيلي شو عندك وأنا بجاوبك مباشرة.",
+    "بخير الحمدلله، إن شاء الله أمورك طيبة 🌿\nتفضل، شو بدك أراجع لك؟",
+    "الحمدلله تمام يا رب تكون بخير 🌿\nابعثلي سؤالك أو رقم التتبع إذا بدك أشيك على طلبك.",
+    "تمام الحمدلله 🌿\nأنا معك، احكيلي شو الموضوع وبساعدك.",
+  ];
+
+  const digits = digitsOnly(from);
+  const casualText = variants[Number(digits.slice(-2) || "0") % variants.length];
 
   if (app) {
-    return `${opening}
+    const tracking = app.tracking_id || app.id;
+    const url = baseUrl ? trackUrl(baseUrl, app) : "";
 
-الحمدلله تمام، إن شاء الله تكون بخير 🌿
+    return `${casualText}
 
-طلبك ظاهر عندي وحالته الحالية:
-${statusHumanLabel(status)}
+طلبك ظاهر عندي، فإذا بدك أراجع حالته الحالية هذا رقم التتبع:
+${tracking}
 
-${tracking ? `رقم التتبع:\n${tracking}\n\n` : ""}${url ? `رابط المتابعة:\n${url}\n\n` : ""}كيف بقدر أساعدك بخصوص الطلب؟`;
+${url ? `رابط المتابعة:\n${url}\n\n` : ""}${BUSINESS_NAME}`;
   }
 
-  return `${opening}
-
-الحمدلله تمام، إن شاء الله تكون بخير 🌿
-
-كيف بقدر أساعدك اليوم؟
-إذا بدك تتابع طلبك ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.`;
+  return casualText;
 }
 
 
@@ -1670,21 +1672,15 @@ function generalReviewTimeReply(from: string) {
 }
 
 function unknownReply(from: string) {
-  const opening = humanOpening(`${from}:unknown`);
-  return `${opening}
+  const variants = [
+    "وصلتني رسالتك 🌿\nبس وضّحلي أكثر شو المطلوب حتى أجاوبك صح.",
+    "تمام، بس محتاج أفهم قصدك أكثر شوي 🌿\nبدك تتابع طلب، تسأل عن التقسيط، أو عندك مشكلة معينة؟",
+    "أنا معك 🌿\nاكتبلي سؤالك بجملة أو ابعث رقم التتبع إذا الموضوع متعلق بطلب.",
+    "وصلت 🌿\nاحكيلي شو بدك بالضبط وبرد عليك مباشرة بدون لف ودوران.",
+  ];
 
-وصلتني رسالتك، بس حتى أجاوبك بدقة أكثر احكيلي شو المطلوب بالضبط:
-
-- بدك تعرف طريقة التقسيط؟
-- بدك رابط الموقع؟
-- بدك العنوان؟
-- بدك تتابع طلب؟
-- بدك تستفسر عن الدفع أو رسوم فتح الملف؟
-- عندك شكوى أو تأخير؟
-
-اكتبلي طلبك بجملة بسيطة وبرد عليك مباشرة.
-
-${BUSINESS_NAME}`;
+  const digits = digitsOnly(from);
+  return variants[Number(digits.slice(-2) || "0") % variants.length];
 }
 
 async function sendWhatsAppText(to: string, body: string) {
@@ -2387,7 +2383,10 @@ async function generateAiReply(input: AiReplyInput) {
 - اجعل الرد يبدو كموظف خدمة عملاء ذكي وهادئ، لا كرسالة محفوظة.
 - لا تكرر نفس افتتاحية الرد الآمن إذا كانت غير مناسبة. يجوز إعادة صياغتها بشرط عدم تغيير الحقائق.
 - إذا كان الرد الآمن الأساسي يحتوي رابطًا أو رقم تتبع أو حالة طلب، يجب المحافظة عليها كما هي.
-- لا تطل الرد بلا داعي. الأفضل من 3 إلى 8 أسطر واتساب، إلا إذا كان الرد الآمن يحتاج تفاصيل أكثر.
+- لا تطل الرد بلا داعي. الأفضل من 2 إلى 6 أسطر واتساب، إلا إذا كان الرد الآمن يحتاج تفاصيل أكثر.
+- ممنوع تحويل التحية إلى قائمة خيارات طويلة.
+- ممنوع تكرار جملة "كيف بقدر أساعدك اليوم؟" بشكل آلي.
+- في التحيات والأسئلة الخفيفة، رد طبيعي مثل موظف واتساب: "تمام الحمدلله، شو حاب تعرف؟" فقط.
 
 استخدم "الرد الآمن الأساسي" كمصدر حقيقة، وصغه إنسانيًا دون مخالفة أو إضافة وعود.
 `;
@@ -2667,11 +2666,11 @@ ${BUSINESS_NAME}`;
   } else if (intent === "refund") {
     deterministicReply = refundReply(baseUrl, from, null);
   } else if (intent === "human_agent") {
-    deterministicReply = `${humanOpening(`${from}:human`)}
+    deterministicReply = `أنا معك 🌿
 
-أكيد، احكيلي شو المشكلة باختصار، أو ابعث رقم التتبع إذا الموضوع متعلق بطلب.
+احكيلي شو المشكلة باختصار، وإذا الموضوع متعلق بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
 
-بساعدك مباشرة حسب البيانات الظاهرة عندي وبعطيك الخطوة المناسبة بدون لف ودوران.`;
+براجع لك الموجود وبعطيك الخطوة المناسبة بدون لف ودوران.`;
   } else if (intent === "loan") {
     deterministicReply = loanReply(from);
   } else if (intent === "contact_info") {
