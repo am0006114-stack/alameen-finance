@@ -2235,6 +2235,21 @@ function sanitizeAiReply(reply: string, fallback: string) {
   return clean || fallback;
 }
 
+function canUseSafeHumanConversation(input: AiReplyInput) {
+  const safeHumanIntents: CustomerIntent[] = [
+    "greeting",
+    "thanks",
+    "review_time",
+    "order_status",
+    "unknown",
+    "human_agent",
+  ];
+
+  if (input.isSensitive) return false;
+
+  return safeHumanIntents.includes(input.intent);
+}
+
 async function generateAiReply(input: AiReplyInput) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
@@ -2263,7 +2278,19 @@ async function generateAiReply(input: AiReplyInput) {
     return input.deterministicReply;
   }
 
-  if (input.hasApplication && ["approved", "under_review", "needs_guarantor", "customer_accepts_delivery_delay", "delivery_delay_notice_sent"].includes(String(input.status || ""))) {
+  const lockedApplicationStatuses = [
+    "approved",
+    "under_review",
+    "needs_guarantor",
+    "customer_accepts_delivery_delay",
+    "delivery_delay_notice_sent",
+  ];
+
+  if (
+    input.hasApplication &&
+    lockedApplicationStatuses.includes(String(input.status || "")) &&
+    !canUseSafeHumanConversation(input)
+  ) {
     return input.deterministicReply;
   }
 
@@ -2351,6 +2378,17 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تعطي وعدًا بوقت تنفيذ استرداد أو تسليم نهائي. حاليًا جميع مواعيد التسليم معلقة حتى وصول الأجهزة واعتماد جدول التوزيع من الإدارة.
 - لا تقول موافقة نهائية إلا إذا الحالة approved.
 
+منطق المحادثة الآمنة البشرية:
+- لا ترد كقالب ثابت. اقرأ رسالة العميل ورد على نفس المعنى.
+- إذا قال العميل "كيفك؟" أو "شخبارك؟" أو سأل سؤالًا خفيفًا، جاوبه طبيعيًا باختصار ثم اسأله كيف تساعده.
+- إذا سأل عن مدة الطلب، اذكر: من يومين إلى ثلاث أيام عمل حسب الضغط واكتمال البيانات، والجمعة والسبت عطلة رسمية ولا تُحسب.
+- إذا كانت رسالة العميل فيها سؤالان، جاوبهما بنفس الترتيب إن أمكن.
+- لا تخترع معلومة غير موجودة في الرد الآمن الأساسي.
+- اجعل الرد يبدو كموظف خدمة عملاء ذكي وهادئ، لا كرسالة محفوظة.
+- لا تكرر نفس افتتاحية الرد الآمن إذا كانت غير مناسبة. يجوز إعادة صياغتها بشرط عدم تغيير الحقائق.
+- إذا كان الرد الآمن الأساسي يحتوي رابطًا أو رقم تتبع أو حالة طلب، يجب المحافظة عليها كما هي.
+- لا تطل الرد بلا داعي. الأفضل من 3 إلى 8 أسطر واتساب، إلا إذا كان الرد الآمن يحتاج تفاصيل أكثر.
+
 استخدم "الرد الآمن الأساسي" كمصدر حقيقة، وصغه إنسانيًا دون مخالفة أو إضافة وعود.
 `;
 
@@ -2407,7 +2445,7 @@ ${input.deterministicReply}
             content: userInput,
           },
         ],
-        temperature: 0.65,
+        temperature: 0.55,
         max_tokens: 900,
         thinking: { type: "disabled" },
       }),
@@ -2457,7 +2495,11 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "payment_dispute" ||
     intent === "device_delay_rage" ||
     intent === "continue_decision" ||
-    intent === "decline_decision"
+    intent === "decline_decision" ||
+    intent === "review_time" ||
+    intent === "greeting" ||
+    intent === "thanks" ||
+    intent === "human_agent"
   ) {
     app = await findApplicationByPhone(from);
   }
@@ -2657,6 +2699,8 @@ ${BUSINESS_NAME}`;
 ${POST_EID_DELIVERY_STRICT_TEXT}.
 
 لا يوجد موعد تسليم نهائي محدد حاليًا. إذا بدك أفحص حالة طلبك تحديدًا، ابعث رقم التتبع، وبعطيك الحالة الموجودة عندي بدون تخمين.`;
+  } else if (intent === "review_time") {
+    deterministicReply = generalReviewTimeReply(from);
   } else if (tracking) {
     deterministicReply = `${humanOpening(`${from}:tracking`)}
 
@@ -2669,11 +2713,7 @@ ${tracking}
 
 ${BUSINESS_NAME}`;
   } else if (intent === "greeting") {
-    deterministicReply = `${humanOpening(`${from}:greeting`)}
-
-كيف بقدر أساعدك اليوم؟
-
-اسألني مباشرة عن التقسيط، الشروط، الموقع، العنوان، الدفع، أو متابعة طلب، وبجاوبك بدون لف ودوران.`;
+    deterministicReply = generalGreetingReply(from);
   } else if (intent === "thanks") {
     deterministicReply = `العفو 🌿
 بخدمتك بأي وقت.`;
@@ -2692,8 +2732,6 @@ ${BUSINESS_NAME}`;
     "products",
     "payment",
     "delivery",
-    "greeting",
-    "thanks",
   ].includes(intent);
 
   if (factualIntentNeedsExactReply) {
