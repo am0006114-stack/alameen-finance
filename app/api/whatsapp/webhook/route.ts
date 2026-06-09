@@ -39,6 +39,7 @@ import {
   salarySlipUrl,
   trackUrl,
 } from "./_lib/links";
+import { getConversationMemory } from "./_lib/conversationMemory";
 
 import {
   findApplicationByPhone,
@@ -2246,6 +2247,30 @@ function canUseSafeHumanConversation(input: AiReplyInput) {
   return safeHumanIntents.includes(input.intent);
 }
 
+function hasRepeatedAssistantPhrase(input: AiReplyInput, phrase: string) {
+  const cleanPhrase = phrase.trim();
+
+  if (!cleanPhrase || !input.lastAssistantReplies?.length) return false;
+
+  return input.lastAssistantReplies.some((reply) => reply.includes(cleanPhrase));
+}
+
+function safeShortHumanFallback(input: AiReplyInput) {
+  if (input.intent === "greeting") {
+    if (hasRepeatedAssistantPhrase(input, "شو حاب") || hasRepeatedAssistantPhrase(input, "أساعدك")) {
+      return "تمام الحمدلله 🌿\nتفضل، معك.";
+    }
+
+    return input.deterministicReply;
+  }
+
+  if (input.intent === "thanks") {
+    return "العفو 🌿";
+  }
+
+  return input.deterministicReply;
+}
+
 async function generateAiReply(input: AiReplyInput) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
@@ -2253,7 +2278,7 @@ async function generateAiReply(input: AiReplyInput) {
 
   if (!apiKey) {
     console.error("Missing DEEPSEEK_API_KEY");
-    return input.deterministicReply;
+    return safeShortHumanFallback(input);
   }
 
   const strictDeterministicIntents: CustomerIntent[] = [
@@ -2413,8 +2438,21 @@ ${input.isSensitive ? "نعم" : "لا"}
 حالة الدفع: ${input.paymentStatus || "غير متوفرة"}
 الجهاز: ${input.deviceName || "غير متوفر"}
 
+آخر سياق مختصر من نفس محادثة واتساب:
+${input.conversationContext || "لا يوجد سياق سابق كافٍ."}
+
+آخر ردود أرسلها النظام لهذا العميل:
+${input.lastAssistantReplies?.length ? input.lastAssistantReplies.map((reply, index) => `${index + 1}. ${reply}`).join("\n") : "لا توجد ردود سابقة قريبة."}
+
 أمثلة سابقة ناجحة من ذاكرة ${BUSINESS_NAME}:
 ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية حاليًا."}
+
+تعليمات استخدام السياق:
+- لا تبدأ كأنها أول رسالة إذا السياق يوضح أن العميل يتابع نفس الحديث.
+- لا تكرر نفس الجملة أو نفس الافتتاحية الموجودة في آخر ردود النظام.
+- إذا كانت رسالة العميل قصيرة جدًا مثل "طيب؟" أو "يعني؟" أو "تمام؟"، افهمها بناءً على آخر سياق.
+- إذا كان آخر رد طلب رقم التتبع، لا تطلبه مرة ثانية بنفس الصيغة؛ قلها بشكل أقصر أو اسأل سؤالًا أوضح.
+- إذا آخر الحديث كان تحية، لا ترد بتحية طويلة ثانية. رد طبيعي وقصير.
 
 تعليمات استخدام الأمثلة السابقة:
 - استفد من الأسلوب والنبرة فقط إذا كانت مناسبة.
@@ -2452,7 +2490,7 @@ ${input.deterministicReply}
 
     if (!response.ok) {
       console.error("DeepSeek reply failed:", await response.text());
-      return input.deterministicReply;
+      return safeShortHumanFallback(input);
     }
 
     const data = await response.json();
@@ -2461,7 +2499,7 @@ ${input.deterministicReply}
     return sanitizeAiReply(aiText, input.deterministicReply);
   } catch (error) {
     console.error("DeepSeek reply error:", error);
-    return input.deterministicReply;
+    return safeShortHumanFallback(input);
   }
 }
 
@@ -2471,6 +2509,14 @@ async function buildReply(request: Request, from: string, text: string) {
   const typedPhone = extractJordanPhoneFromText(text);
   const intent = classifyIntent(text);
   const sensitive = looksSensitive(text);
+  const conversationMemory = await getConversationMemory(from);
+
+  const humanizeReply = (input: AiReplyInput) =>
+    generateAiReply({
+      ...input,
+      conversationContext: conversationMemory.conversationContext,
+      lastAssistantReplies: conversationMemory.lastAssistantReplies,
+    });
 
   let app: ApplicationRecord | null = null;
 
@@ -2532,7 +2578,7 @@ ${BUSINESS_NAME}`;
         baseUrl,
       });
 
-      return generateAiReply({
+      return humanizeReply({
         customerText: text,
         deterministicReply,
         customerName: firstTwoNames(app.full_name),
@@ -2560,7 +2606,7 @@ ${BUSINESS_NAME}`;
       baseUrl,
     });
 
-    return generateAiReply({
+    return humanizeReply({
       customerText: text,
       deterministicReply,
       customerName: firstTwoNames(updatedApp.full_name),
@@ -2589,7 +2635,7 @@ ${BUSINESS_NAME}`;
       baseUrl,
     });
 
-    return generateAiReply({
+    return humanizeReply({
       customerText: text,
       deterministicReply,
       customerName: firstTwoNames(updatedApp.full_name),
@@ -2623,7 +2669,7 @@ ${BUSINESS_NAME}`;
       baseUrl,
     });
 
-    return generateAiReply({
+    return humanizeReply({
       customerText: text,
       deterministicReply,
       isSensitive: sensitive,
@@ -2635,7 +2681,7 @@ ${BUSINESS_NAME}`;
   if (app) {
     deterministicReply = safeReply(app, baseUrl, text, intent);
 
-    return generateAiReply({
+    return humanizeReply({
       customerText: text,
       deterministicReply,
       customerName: firstTwoNames(app.full_name),
@@ -2737,7 +2783,7 @@ ${BUSINESS_NAME}`;
     return deterministicReply;
   }
 
-  return generateAiReply({
+  return humanizeReply({
     customerText: text,
     deterministicReply,
     isSensitive: sensitive,

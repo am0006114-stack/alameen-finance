@@ -71,4 +71,6 @@ export type AiReplyInput = {
   isSensitive: boolean;
   hasApplication: boolean;
   intent: CustomerIntent;
+  conversationContext?: string;
+  lastAssistantReplies?: string[];
 };
