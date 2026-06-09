@@ -53,6 +53,7 @@ export type CustomerIntent =
   | "apply"
   | "products"
   | "payment"
+  | "payment_trust_question"
   | "delivery"
   | "review_time"
   | "order_status"

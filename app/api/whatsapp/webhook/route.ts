@@ -287,6 +287,36 @@ function isPaymentDisputeText(text: string) {
   return hasAny(t, PAYMENT_DISPUTE_KEYWORDS);
 }
 
+function isPaymentTrustQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const trustWords = [
+    "بضمن", "اضمن", "أضمن", "ضمان", "مضمون", "اثق", "أثق", "ثقه", "ثقة",
+    "امان", "أمان", "امنه", "آمنه", "خايف", "خايفه", "متخوف", "متخوفه",
+    "اطمن", "أطمن", "تطمن", "حقي", "حقي محفوظ", "شو بضمنلي", "كيف اضمن",
+    "كيف اضمن حقي", "اذا دفعت", "لو دفعت", "ادفع و", "قبل ما ادفع",
+    "مش نصب", "مش احتيال", "كيف بعرف", "كيف اتاكد", "كيف أتأكد",
+  ];
+
+  const moneyWords = [
+    "رسوم", "فتح ملف", "دفع", "ادفع", "دفعت", "خمسه", "خمسة", "5", "٥",
+    "كليك", "محفظه", "محفظة", "اورنج", "orange", "حواله", "حوالة",
+  ];
+
+  const hasTrust = hasAny(t, trustWords);
+  const hasMoney = hasAny(t, moneyWords);
+  const hasQuestionTone = hasAny(t, ["شو", "كيف", "ليش", "هل", "اذا", "لو", "؟", "?", "بدي اعرف", "وضح"]);
+
+  // سؤال ثقة قبل الدفع، وليس اعتراض دفع بعد حصول مشكلة.
+  if (hasTrust && (hasMoney || hasQuestionTone)) return true;
+
+  return (
+    hasAny(t, ["شو بضمنلي", "كيف اضمن حقي", "كيف اثق فيكم", "كيف أثق فيكم", "اذا دفعت شو الضمان", "لو دفعت شو بصير"]) ||
+    (hasAny(t, ["بضمنلي", "اضمن حقي", "اثق فيكم", "اتطمن"]) && hasMoney)
+  );
+}
+
 function isDeviceDelayRageText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -487,6 +517,10 @@ function classifyIntent(text: string): CustomerIntent {
 
   // حدود الاحترام والرسائل الحساسة يجب أن تُصنّف قبل التحيات أو الأسئلة العامة
   if (isAbuseText(t)) return "abuse";
+
+  // سؤال الضمان قبل الدفع ليس اعتراضًا، لا تحوله إلى payment_dispute.
+  if (isPaymentTrustQuestionText(t)) return "payment_trust_question";
+
   if (isScamAccusationText(t)) return "scam_accusation";
   if (isLegalThreatText(t)) return "legal_threat";
   if (isSocialMediaThreatText(t)) return "social_media_threat";
@@ -835,6 +869,74 @@ ${BUSINESS_NAME}`;
 إذا في وصل دفع أو صورة من الطلب، ابعثها هون كمان.
 
 ${BUSINESS_NAME}`;
+}
+
+function paymentTrustQuestionReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  const tracking = app?.tracking_id || app?.id || "";
+  const status = app?.status || "";
+  const url = app ? trackUrl(baseUrl, app) : "";
+  const hasActivePaymentStep =
+    app &&
+    (status === "preliminary_qualified" ||
+      app.payment_status === "pending" ||
+      app.payment_status === "pending_payment" ||
+      app.payment_status === "payment_info_sent");
+
+  if (app && hasActivePaymentStep) {
+    return `فاهم عليك، وحقك تسأل قبل أي دفع 🌿
+
+طلبك ظاهر عندي كمؤهل مبدئيًا، يعني لسه ما في موافقة نهائية، لكن في إمكانية نكمل دراسة الملف.
+
+الضمان عندك إن كل شيء مربوط برقم تتبع وصفحة متابعة، ورسوم فتح الملف 5 دنانير فقط، وهي مش قسط أول ولا دفعة على الجهاز.
+
+إذا ما تمت الموافقة النهائية، رسوم فتح الملف مستردة بالكامل.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+إذا بدك، أقدر أوضح لك الخطوة قبل ما تعمل أي دفع.`;
+  }
+
+  if (app && app.payment_status === "confirmed") {
+    return `تمام، خليني أوضحها ببساطة 🌿
+
+رسوم فتح الملف مؤكدة عندنا أصلًا، وما في أي دفع إضافي مطلوب منك الآن.
+
+حالة طلبك الحالية:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}`;
+  }
+
+  if (app) {
+    return `فاهم قصدك، وحقك تتأكد قبل أي خطوة 🌿
+
+حالة طلبك الحالية:
+${statusHumanLabel(status)}
+
+بشكل عام: أي دفع رسمي لازم يكون مربوط برقم تتبع واضح وصفحة متابعة، ورسوم فتح الملف لا تُطلب إلا بعد التأهيل المبدئي.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}`;
+  }
+
+  return `سؤالك بمحله 🌿
+
+قبل أي دفع لازم يكون عندك طلب واضح ورقم تتبع، وتقدر تتابع حالته من الموقع.
+
+رسوم فتح الملف لا تُطلب إلا بعد التأهيل المبدئي، وهي 5 دنانير فقط، ومش قسط أول ولا دفعة على الجهاز. وإذا ما تمت الموافقة النهائية فهي مستردة بالكامل.
+
+إذا عندك رقم تتبع ابعته وبشيكلك قبل ما تعمل أي خطوة.`;
 }
 
 function paymentDisputeReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
@@ -1275,6 +1377,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (intent === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "social_media_threat") return socialMediaThreatReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
+  if (intent === "payment_trust_question") return paymentTrustQuestionReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
@@ -2237,6 +2340,7 @@ function canUseSafeHumanConversation(input: AiReplyInput) {
     "greeting",
     "thanks",
     "review_time",
+    "payment_trust_question",
     "order_status",
     "unknown",
     "human_agent",
@@ -2401,8 +2505,11 @@ async function generateAiReply(input: AiReplyInput) {
 
 منطق المحادثة الآمنة البشرية:
 - لا ترد كقالب ثابت. اقرأ رسالة العميل ورد على نفس المعنى.
+- تعامل كموظف عنده مصلحة بإقناع العميل وحماية الشركة بنفس الوقت: طمّن، وضّح، وخليك صادق بدون وعود كاذبة.
 - إذا قال العميل "كيفك؟" أو "شخبارك؟" أو سأل سؤالًا خفيفًا، جاوبه طبيعيًا باختصار ثم اسأله كيف تساعده.
 - إذا سأل عن مدة الطلب، اذكر: من يومين إلى ثلاث أيام عمل حسب الضغط واكتمال البيانات، والجمعة والسبت عطلة رسمية ولا تُحسب.
+- إذا سأل "شو بضمنلي؟" أو "كيف أثق؟" قبل الدفع، لا تعتبره اعتراضًا. اعتبره سؤال ثقة، ووضح أن الطلب مربوط برقم تتبع وصفحة متابعة، وأن دفع رسوم فتح الملف لا يعني موافقة نهائية.
+- لا تذكر رسوم فتح الملف من نفسك إلا إذا سأل العميل عن الدفع/الرسوم/الضمان أو كانت حالة الطلب تتطلب تعليمات الدفع.
 - إذا كانت رسالة العميل فيها سؤالان، جاوبهما بنفس الترتيب إن أمكن.
 - لا تخترع معلومة غير موجودة في الرد الآمن الأساسي.
 - اجعل الرد يبدو كموظف خدمة عملاء ذكي وهادئ، لا كرسالة محفوظة.
@@ -2530,6 +2637,7 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "order_status" ||
     intent === "delivery" ||
     intent === "payment" ||
+    intent === "payment_trust_question" ||
     intent === "requirements" ||
     intent === "refund" ||
     intent === "complaint" ||
@@ -2735,6 +2843,8 @@ ${BUSINESS_NAME}`;
     deterministicReply = productsReply(baseUrl, from);
   } else if (intent === "payment") {
     deterministicReply = paymentGeneralReply(from);
+  } else if (intent === "payment_trust_question") {
+    deterministicReply = paymentTrustQuestionReply(baseUrl, from, null, text);
   } else if (intent === "delivery") {
     deterministicReply = `${humanOpening(`${from}:delivery`)}
 
