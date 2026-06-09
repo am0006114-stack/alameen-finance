@@ -1,226 +1,46 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import type {
+  AiReplyInput,
+  ApplicationRecord,
+  CustomerIntent,
+  WhatsAppMessage,
+  WhatsAppWebhookBody,
+} from "./_lib/types";
+import {
+  BUSINESS_ADDRESS,
+  BUSINESS_NAME,
+  BUSINESS_PHONE_DISPLAY,
+  BUSINESS_PHONE_E164,
+  BUSINESS_WEBSITE,
+  POST_EID_DELIVERY_STRICT_TEXT,
+  POST_EID_DELIVERY_TEXT,
+  fileOpeningFeeExplanation,
+  noPaymentNeededLine,
+} from "./_lib/constants";
+import {
+  digitsOnly,
+  extractJordanPhoneFromText,
+  extractTracking,
+  firstTwoNames,
+  formatJordanDateTime,
+  getBaseUrl,
+  hasAny,
+  humanOpening,
+  normalizeArabicText,
+  normalizeJordanPhone,
+  normalizeWhatsAppToSend,
+} from "./_lib/text";
+import {
+  delayUrl,
+  guarantorUrl,
+  identityUrl,
+  receiptUrl,
+  salarySlipUrl,
+  trackUrl,
+} from "./_lib/links";
 
 export const dynamic = "force-dynamic";
-
-type ApplicationRecord = {
-  id: string;
-  created_at?: string | null;
-  tracking_id?: string | null;
-  full_name?: string | null;
-  phone?: string | null;
-  status?: string | null;
-  payment_status?: string | null;
-  payment_confirmed_at?: string | null;
-  device_name?: string | null;
-  salary?: number | string | null;
-  delivery_delay_until?: string | null;
-};
-
-type WhatsAppMessage = {
-  from?: string;
-  id?: string;
-  type?: string;
-  text?: { body?: string };
-  image?: { caption?: string };
-};
-
-type WhatsAppWebhookBody = {
-  entry?: Array<{
-    changes?: Array<{
-      value?: {
-        contacts?: Array<{ profile?: { name?: string }; wa_id?: string }>;
-        messages?: WhatsAppMessage[];
-        statuses?: unknown[];
-      };
-    }>;
-  }>;
-};
-
-type CustomerIntent =
-  | "abuse"
-  | "legal_threat"
-  | "social_media_threat"
-  | "scam_accusation"
-  | "payment_dispute"
-  | "device_delay_rage"
-  | "complaint"
-  | "refund"
-  | "continue_decision"
-  | "decline_decision"
-  | "human_agent"
-  | "loan"
-  | "contact_info"
-  | "website"
-  | "location"
-  | "installment_info"
-  | "requirements"
-  | "apply"
-  | "products"
-  | "payment"
-  | "delivery"
-  | "review_time"
-  | "order_status"
-  | "greeting"
-  | "thanks"
-  | "unknown";
-
-type AiReplyInput = {
-  customerText: string;
-  deterministicReply: string;
-  customerName?: string;
-  trackingId?: string;
-  status?: string | null;
-  paymentStatus?: string | null;
-  deviceName?: string | null;
-  isSensitive: boolean;
-  hasApplication: boolean;
-  intent: CustomerIntent;
-};
-
-const BUSINESS_NAME = "الأمين للأقساط";
-const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني - مقابل مستشفى العيون - شارع المدينة المنورة";
-const BUSINESS_PHONE_DISPLAY = "0788500337";
-const BUSINESS_PHONE_E164 = "+962788500337";
-const BUSINESS_WEBSITE = "https://www.ameenfinance.co";
-const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة";
-const POST_EID_DELIVERY_STRICT_TEXT =
-  "حتى هذه اللحظة ما زلنا بانتظار تزويدنا بالأجهزة من الوكلاء والموردين المعتمدين، وسيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة";
-
-
-function fileOpeningFeeExplanation() {
-  return `توضيح مهم بخصوص رسوم فتح الملف:
-رسوم فتح الملف هي 5 دنانير فقط، وليست دفعة على الجهاز وليست القسط الأول.
-
-سبب وجودها أن كل ملف يتم تدقيقه يدويًا قبل القرار النهائي، ومع كثرة الطلبات اليومية توجد طلبات غير مكتملة أو غير جادة تعطل مراجعة ملفات العملاء الجادين.
-
-الرسوم تساعد على تخصيص وقت المراجعة للطلبات الجادة واستكمال إجراءات الدراسة، وهي مستردة بالكامل في حال عدم الموافقة النهائية.
-
-والقسط الأول لا يُدفع الآن، وإنما بعد الاستلام حسب الاتفاق.`;
-}
-
-function noPaymentNeededLine() {
-  return `لا يوجد أي دفع مطلوب الآن إلا إذا كان طلبكم مؤهلًا مبدئيًا وتم إرسال تعليمات فتح الملف رسميًا لكم.`;
-}
-
-function getBaseUrl(request: Request) {
-  return process.env.NEXT_PUBLIC_SITE_URL || new URL(request.url).origin;
-}
-
-function digitsOnly(value: string | null | undefined) {
-  return String(value || "").replace(/\D/g, "");
-}
-
-function normalizeArabicText(value: string | null | undefined) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[أإآ]/g, "ا")
-    .replace(/[ى]/g, "ي")
-    .replace(/[ة]/g, "ه")
-    .replace(/[ؤ]/g, "و")
-    .replace(/[ئ]/g, "ي")
-    .replace(/[ًٌٍَُِّْـ]/g, "")
-    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function hasAny(text: string, keywords: string[]) {
-  const t = normalizeArabicText(text);
-  return keywords.some((word) => t.includes(normalizeArabicText(word)));
-}
-
-function normalizeJordanPhone(value: string | null | undefined) {
-  const digits = digitsOnly(value);
-  if (!digits) return "";
-  if (digits.startsWith("00962") && digits.length === 14) return `0${digits.slice(5)}`;
-  if (digits.startsWith("962") && digits.length === 12) return `0${digits.slice(3)}`;
-  if (digits.startsWith("7") && digits.length === 9) return `0${digits}`;
-  return digits;
-}
-
-function normalizeWhatsAppToSend(value: string | null | undefined) {
-  const digits = digitsOnly(value);
-  if (!digits) return "";
-  if (digits.startsWith("00962")) return digits.slice(2);
-  if (digits.startsWith("962")) return digits;
-  if (digits.startsWith("07") && digits.length === 10) return `962${digits.slice(1)}`;
-  if (digits.startsWith("7") && digits.length === 9) return `962${digits}`;
-  return digits;
-}
-
-function firstTwoNames(fullName: string | null | undefined) {
-  if (!fullName) return "عميلنا الكريم";
-  const parts = fullName.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return "عميلنا الكريم";
-  if (parts.length === 1) return parts[0];
-  return `${parts[0]} ${parts[1]}`;
-}
-
-function formatJordanDateTime(value: string | null | undefined) {
-  if (!value) return null;
-  try {
-    return new Intl.DateTimeFormat("ar-JO", {
-      weekday: "long",
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-      timeZone: "Asia/Amman",
-    }).format(new Date(value));
-  } catch {
-    return value;
-  }
-}
-
-function extractTracking(text: string) {
-  const match = text.match(/AM-\d{8,}/i);
-  return match ? match[0].toUpperCase() : "";
-}
-
-function extractJordanPhoneFromText(text: string) {
-  const raw = String(text || "");
-  const candidates = raw.match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
-
-  for (const candidate of candidates) {
-    const normalized = normalizeJordanPhone(candidate);
-    if (/^07[789]\d{7}$/.test(normalized)) {
-      return normalized;
-    }
-  }
-
-  return "";
-}
-
-const agentNames = [
-  "علي", "لؤي", "خالد", "عمر", "سامر", "أحمد", "رامي", "محمد", "أنس", "يزن",
-  "سلمى", "ديما", "لين", "رنا", "نور", "تالا", "مي", "لانا", "جود", "هبة", "سمر",
-];
-
-function pickAgentName(seed: string) {
-  const digits = digitsOnly(seed);
-  const last = Number(digits.slice(-2) || "0");
-  return agentNames[last % agentNames.length];
-}
-
-function humanOpening(seed: string) {
-  const agent = pickAgentName(seed);
-  const variants = [
-    `أهلًا وسهلًا 🌿\nمعك ${agent} من ${BUSINESS_NAME}.`,
-    `هلا فيك 🌿\nمعك ${agent} من فريق ${BUSINESS_NAME}.`,
-    `أهلًا فيك، معك ${agent} 🌿\nخليني أساعدك.`,
-    `يا هلا 🌿\nمعك ${agent} من ${BUSINESS_NAME}، أبشر.`,
-    `مرحبًا 🌿\nمعك ${agent}، كيف بقدر أساعدك؟`,
-    `حيّاك الله 🌿\nمعك ${agent} من ${BUSINESS_NAME}.`,
-  ];
-
-  const digits = digitsOnly(seed);
-  const last = Number(digits.slice(-2) || "0");
-
-  return variants[last % variants.length];
-}
 
 function isGreeting(text: string) {
   const t = normalizeArabicText(text);
@@ -755,42 +575,6 @@ function classifyIntent(text: string): CustomerIntent {
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
   return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund"].includes(intent) || shouldFlagHumanReview(text, intent);
-}
-
-function trackUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/track?phone=${encodeURIComponent(phone)}&tracking=${encodeURIComponent(tracking)}`;
-}
-
-function receiptUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/receipt?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-function delayUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-function guarantorUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/guarantor?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-function salarySlipUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/salary-slip?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-function identityUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
 
 function getSalaryNumber(value: number | string | null | undefined) {
