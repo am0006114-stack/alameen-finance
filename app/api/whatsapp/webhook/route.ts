@@ -1057,32 +1057,71 @@ ${reason}
 
 ${BUSINESS_NAME}`;
 }
+function refundFirstRequestReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const url = delayUrl(baseUrl, app);
+
+  return `تمام ${name}، وصلتني رغبتك بالاسترداد.
+
+سجلت حالة الملف الآن: قيد الاسترداد.
+
+رابط تثبيت بيانات الاسترداد:
+${url}
+
+استخدم الرابط مرة واحدة وعبّي بيانات التحويل بشكل صحيح، وبعدها بتدخل المراجعة حسب ترتيب الطلبات.
+
+رقم التتبع: ${tracking}`;
+}
+
+function refundAlreadyRequestedReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `تمام ${name}، طلب الاسترداد مسجل عندنا مسبقًا وحالة الملف قيد الاسترداد.
+
+ما رح أكرر رابط الاسترداد حتى ما يصير أكثر من طلب على نفس الملف.
+
+إذا عبّيت البيانات، فهي تحت المراجعة حسب ترتيب الطلبات.
+
+رقم التتبع: ${tracking}`;
+}
+
+function refundCompletedReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+الاسترداد ظاهر عندي أنه منفّذ مسبقًا حسب حالة الملف.
+
+إذا عندك أي ملاحظة على التحويل، ابعث رقم التتبع وصورة من الحركة حتى نراجعها.
+
+رقم التتبع: ${tracking}`;
+}
+
 function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | null) {
   const opening = humanOpening(`${from}:refund`);
 
   if (app) {
-    return `${opening}
+    if (app.status === "refund_completed") {
+      return refundCompletedReply(app);
+    }
 
-وصلني طلبك بخصوص الاسترداد، وحقك يكون الموضوع واضح.
+    if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
+      return refundAlreadyRequestedReply(app);
+    }
 
-حالة الطلب الحالية:
-${statusHumanLabel(app.status || "")}
-
-إذا كان طلب الاسترداد مسجل من صفحة القرار، يتم مراجعته حسب ترتيب الطلبات وبيانات التحويل المدخلة. وإذا لم يتم تسجيله بعد، ابعثلي تأكيد رغبتك بالاسترداد أو استخدم الرابط المخصص إذا وصلك.
-
-رقم التتبع:
-${app.tracking_id || app.id}
-
-${BUSINESS_NAME}`;
+    return refundFirstRequestReply(app, baseUrl);
   }
 
   return `${opening}
 
 أكيد، بقدر أساعدك بموضوع الاسترداد.
 
-حتى أقدر أربطه بالطلب وما نعطيك جواب عام، ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب. وإذا عندك صورة الطلب أو وصل الدفع ابعثها هون، وبفحصها لك.
+حتى أربطه بالطلب الصحيح، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
 
-${BUSINESS_NAME}`;
+بعد ما أطلع الطلب، بعطيك رابط الاسترداد الصحيح مرة واحدة وبسجّل الحالة قيد الاسترداد.`;
 }
 
 function contactInfoReply(baseUrl: string, from: string) {
@@ -2027,6 +2066,29 @@ async function sendDiscordNotification(input: {
   }
 }
 
+async function markRefundRequested(app: ApplicationRecord) {
+  if (app.status === "refund_requested" || app.payment_status === "refund_requested" || app.status === "refund_completed") {
+    return app;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .update({
+      status: "refund_requested",
+    })
+    .eq("id", app.id);
+
+  if (error) {
+    console.error("markRefundRequested error:", error.message);
+    return app;
+  }
+
+  return {
+    ...app,
+    status: "refund_requested",
+  } as ApplicationRecord;
+}
+
 async function updateCustomerDecision(input: {
   app: ApplicationRecord;
   decision: "continue" | "decline";
@@ -2827,6 +2889,8 @@ async function generateAiReply(input: AiReplyInput) {
 - needs_identity أو identity_requested يعني بحاجة صورة الهوية الأمامية والخلفية لاستكمال الدراسة.
 - needs_salary_slip يعني بحاجة كشف راتب أو شهادة راتب.
 - refund_requested يعني طلب استرداد مسجل دون وعد بوقت تنفيذ.
+- إذا كانت الحالة refund_requested أو payment_status يساوي refund_requested: ممنوع إرسال رابط الاسترداد مرة ثانية. قل فقط إن الطلب قيد الاسترداد وتحت المراجعة.
+- رابط الاسترداد يرسل مرة واحدة فقط عند أول طلب استرداد، وبعدها يتم تسجيل الحالة قيد الاسترداد.
 - refund_completed فقط تعني أن الاسترداد تم.
 - customer_claimed_paid يعني الوصل قيد مراجعة الإدارة ولا يكرر الدفع.
 - cancelled يعني الطلب ملغي.
@@ -3106,6 +3170,33 @@ ${BUSINESS_NAME}`;
       systemReply: deterministicReply,
       baseUrl,
     });
+
+    return deterministicReply;
+  }
+
+  if (app && intent === "refund") {
+    const alreadyRequested = app.status === "refund_requested" || app.payment_status === "refund_requested";
+    const alreadyCompleted = app.status === "refund_completed";
+
+    if (alreadyCompleted) {
+      deterministicReply = refundCompletedReply(app);
+    } else if (alreadyRequested) {
+      deterministicReply = refundAlreadyRequestedReply(app);
+    } else {
+      const updatedApp = await markRefundRequested(app);
+      deterministicReply = refundFirstRequestReply(updatedApp, baseUrl);
+
+      await sendDiscordNotification({
+        title: "💸 طلب استرداد من واتساب — تم تسجيل الحالة قيد الاسترداد",
+        description: "تم إرسال رابط الاسترداد مرة واحدة فقط وتحديث حالة الطلب تلقائيًا إلى refund_requested.",
+        color: 0xfee75c,
+        app: updatedApp,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+    }
 
     return deterministicReply;
   }
