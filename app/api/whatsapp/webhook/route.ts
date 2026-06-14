@@ -2089,6 +2089,346 @@ async function markRefundRequested(app: ApplicationRecord) {
   } as ApplicationRecord;
 }
 
+function isGuarantorContextText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "كفيل", "الكفيل", "بيانات الكفيل", "معلومات الكفيل", "ضامن", "الضامن", "guarantor",
+    "رابط الكفيل", "لينك الكفيل", "نموذج الكفيل", "عبيت الكفيل", "عبأت الكفيل", "ارسلت الكفيل", "أرسلت الكفيل",
+  ]);
+}
+
+function isSalarySlipContextText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "كشف راتب", "كشف الراتب", "شهادة راتب", "شهاده راتب", "اثبات راتب", "إثبات راتب",
+    "salary slip", "salary certificate", "راتب", "الراتب", "مسير راتب", "مسير الرواتب",
+    "رابط الراتب", "لينك الراتب", "رفعت الراتب", "رفعت كشف", "ارسلت كشف", "أرسلت كشف",
+  ]);
+}
+
+function isDocumentSubmittedText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "تم", "خلص", "خلصت", "عملت", "عبيت", "عبأت", "عبّيت", "عبينا", "ارسلت", "أرسلت", "بعت", "بعثت",
+    "رفعت", "حملت", "رفقته", "رفقت", "عبى", "تمت التعبئه", "تمت التعبئة", "تم الرفع", "تم الارسال", "تم الإرسال",
+    "وصلتكم", "وصل؟", "وصلت", "اكملت", "أكملت", "كملت", "انجزت", "done", "submitted", "uploaded",
+  ]);
+}
+
+function isDocumentLinkRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "رابط", "لينك", "الرابط", "اللينك", "ابعت", "ابعث", "ارسل", "أرسل", "وين", "بدي", "هات", "اعطيني",
+    "ما وصل", "مش واصل", "ضايع", "فتح", "افتح", "نموذج", "form", "link",
+  ]);
+}
+
+async function outgoingMessageAlreadyContains(waId: string, markers: string[], limit = 35) {
+  const cleanWaId = String(waId || "").trim();
+  if (!cleanWaId) return false;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("body")
+      .eq("wa_id", cleanWaId)
+      .eq("direction", "outgoing")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (error || !data?.length) {
+      if (error) console.error("outgoingMessageAlreadyContains error:", error.message);
+      return false;
+    }
+
+    const normalizedMarkers = markers.map((marker) => normalizeArabicText(marker)).filter(Boolean);
+
+    return data.some((message) => {
+      const body = String(message.body || "");
+      const normalizedBody = normalizeArabicText(body);
+      return markers.some((marker) => body.includes(marker)) || normalizedMarkers.some((marker) => normalizedBody.includes(marker));
+    });
+  } catch (error) {
+    console.error("outgoingMessageAlreadyContains failed:", error);
+    return false;
+  }
+}
+
+async function wasGuarantorLinkAlreadySent(waId: string) {
+  return outgoingMessageAlreadyContains(waId, ["/guarantor?", "guarantor?tracking=", "بيانات الكفيل من الرابط", "رابط الكفيل"]);
+}
+
+async function wasSalarySlipLinkAlreadySent(waId: string) {
+  return outgoingMessageAlreadyContains(waId, ["/salary-slip?", "salary-slip?tracking=", "كشف راتب", "شهادة راتب", "رابط كشف"]);
+}
+
+async function markGuarantorSubmitted(app: ApplicationRecord) {
+  if (["guarantor_submitted", "approved", "refund_requested", "refund_completed", "cancelled"].includes(app.status || "")) {
+    return app;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .update({
+      status: "guarantor_submitted",
+    })
+    .eq("id", app.id);
+
+  if (error) {
+    console.error("markGuarantorSubmitted error:", error.message);
+    return app;
+  }
+
+  return {
+    ...app,
+    status: "guarantor_submitted",
+  } as ApplicationRecord;
+}
+
+async function markSalarySlipUploaded(app: ApplicationRecord) {
+  if (["salary_slip_uploaded", "approved", "refund_requested", "refund_completed", "cancelled"].includes(app.status || "")) {
+    return app;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .update({
+      status: "salary_slip_uploaded",
+    })
+    .eq("id", app.id);
+
+  if (error) {
+    console.error("markSalarySlipUploaded error:", error.message);
+    return app;
+  }
+
+  return {
+    ...app,
+    status: "salary_slip_uploaded",
+  } as ApplicationRecord;
+}
+
+function guarantorSubmittedAutoReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `تمام ${name} 🌿
+
+تم استلام معلومات الكفيل وربطها بطلبك.
+
+الملف الآن قيد المتابعة، وإذا احتاج قسم الدراسة أي خطوة إضافية بنحكيلك مباشرة.
+
+رقم التتبع:
+${tracking}`;
+}
+
+function salarySlipUploadedAutoReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `تمام ${name} 🌿
+
+تم استلام كشف الراتب / شهادة الراتب وربطه بطلبك.
+
+الملف الآن قيد المتابعة، وإذا احتاج قسم الدراسة أي خطوة إضافية بنحكيلك مباشرة.
+
+رقم التتبع:
+${tracking}`;
+}
+
+function guarantorLinkFirstReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+لاستكمال إجراءات الملف حسب متطلبات الدراسة، عبّي بيانات الكفيل من الرابط:
+${guarantorUrl(baseUrl, app)}
+
+بعد ما تخلص، ابعثلي: تم تعبئة بيانات الكفيل
+
+رقم التتبع:
+${tracking}`;
+}
+
+function guarantorLinkAlreadySentReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+
+  return `${name}، رابط بيانات الكفيل انرسل لك قبل 🌿
+
+ما رح أكرره حتى ما يصير عندك أكثر من رابط لنفس الطلب.
+
+إذا عبيت البيانات، اكتبلي:
+تم تعبئة بيانات الكفيل`;
+}
+
+function salarySlipLinkFirstReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+
+  return `أهلًا ${name} 🌿
+
+لاستكمال إجراءات الملف حسب متطلبات الدراسة، ارفع كشف راتب رسمي حديث أو شهادة راتب من الرابط:
+${salarySlipUrl(baseUrl, app)}
+
+بعد ما تخلص، ابعثلي: تم رفع كشف الراتب
+
+رقم التتبع:
+${tracking}`;
+}
+
+function salarySlipLinkAlreadySentReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+
+  return `${name}، رابط رفع كشف الراتب انرسل لك قبل 🌿
+
+ما رح أكرره حتى ما يصير عندك أكثر من رابط لنفس الطلب.
+
+إذا رفعته، اكتبلي:
+تم رفع كشف الراتب`;
+}
+
+function postPaymentRequirementsAlreadySentReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+
+  return `${name}، روابط المتطلبات انرسلت لك قبل 🌿
+
+ما رح أكرر الروابط حتى ما يصير عندك أكثر من رابط لنفس الطلب.
+
+إذا خلصت، ابعثلي حسب اللي عملته:
+تم تعبئة بيانات الكفيل
+أو
+تم رفع كشف الراتب`;
+}
+
+async function postPaymentRequirementsReplyOnce(app: ApplicationRecord, baseUrl: string, waId: string) {
+  const salary = getSalaryNumber(app.salary);
+  const needsSalarySlip = salary !== null && salary < 350;
+  const guarantorSent = await wasGuarantorLinkAlreadySent(waId);
+  const salarySent = needsSalarySlip ? await wasSalarySlipLinkAlreadySent(waId) : false;
+
+  if (guarantorSent && (!needsSalarySlip || salarySent)) {
+    return postPaymentRequirementsAlreadySentReply(app);
+  }
+
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const lines: string[] = [
+    `أهلًا ${name} 🌿`,
+    "",
+    "رسوم فتح الملف مؤكدة، والملف الآن قيد الدراسة النهائية.",
+    "",
+    "لاستكمال إجراءات الملف حسب متطلبات الدراسة، نحتاج:",
+  ];
+
+  let index = 1;
+
+  if (!guarantorSent) {
+    lines.push("", `${index}. تعبئة بيانات الكفيل من الرابط:`, guarantorUrl(baseUrl, app));
+    index += 1;
+  }
+
+  if (needsSalarySlip && !salarySent) {
+    lines.push("", `${index}. رفع كشف راتب رسمي حديث أو شهادة راتب من الرابط:`, salarySlipUrl(baseUrl, app));
+  }
+
+  lines.push(
+    "",
+    "هذه الخطوة لاستكمال الدراسة فقط، ولا تعني رفض الطلب.",
+    "",
+    "بعد ما تخلص، ابعثلي: تم تعبئة بيانات الكفيل / تم رفع كشف الراتب",
+    "",
+    "رقم التتبع:",
+    tracking,
+  );
+
+  return lines.join("\n");
+}
+
+async function handleDocumentAutomation(input: {
+  app: ApplicationRecord;
+  baseUrl: string;
+  from: string;
+  text: string;
+  intent: CustomerIntent;
+}) {
+  const { app, baseUrl, from, text, intent } = input;
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  const hasGuarantorContext = isGuarantorContextText(text);
+  const hasSalaryContext = isSalarySlipContextText(text);
+  const submitted = isDocumentSubmittedText(text);
+  const linkRequest = isDocumentLinkRequestText(text);
+
+  if (submitted && hasGuarantorContext) {
+    const updatedApp = await markGuarantorSubmitted(app);
+    const reply = guarantorSubmittedAutoReply(updatedApp);
+
+    await sendDiscordNotification({
+      title: "✅ تم استلام معلومات الكفيل تلقائيًا",
+      description: "العميل أكد تعبئة معلومات الكفيل عبر واتساب، وتم تحديث حالة الطلب تلقائيًا إلى guarantor_submitted.",
+      color: 0x57f287,
+      app: updatedApp,
+      customerPhone: from,
+      customerMessage: text,
+      systemReply: reply,
+      baseUrl,
+    });
+
+    return reply;
+  }
+
+  if (submitted && hasSalaryContext) {
+    const updatedApp = await markSalarySlipUploaded(app);
+    const reply = salarySlipUploadedAutoReply(updatedApp);
+
+    await sendDiscordNotification({
+      title: "✅ تم استلام كشف الراتب تلقائيًا",
+      description: "العميل أكد رفع كشف الراتب عبر واتساب، وتم تحديث حالة الطلب تلقائيًا إلى salary_slip_uploaded.",
+      color: 0x57f287,
+      app: updatedApp,
+      customerPhone: from,
+      customerMessage: text,
+      systemReply: reply,
+      baseUrl,
+    });
+
+    return reply;
+  }
+
+  if (status === "guarantor_submitted" && (hasGuarantorContext || intent === "requirements" || intent === "order_status")) {
+    return guarantorSubmittedAutoReply(app);
+  }
+
+  if (status === "salary_slip_uploaded" && (hasSalaryContext || intent === "requirements" || intent === "order_status")) {
+    return salarySlipUploadedAutoReply(app);
+  }
+
+  if (status === "needs_guarantor" && (hasGuarantorContext || linkRequest || intent === "requirements" || intent === "order_status")) {
+    const alreadySent = await wasGuarantorLinkAlreadySent(from);
+    return alreadySent ? guarantorLinkAlreadySentReply(app) : guarantorLinkFirstReply(app, baseUrl);
+  }
+
+  if (status === "needs_salary_slip" && (hasSalaryContext || linkRequest || intent === "requirements" || intent === "order_status")) {
+    const alreadySent = await wasSalarySlipLinkAlreadySent(from);
+    return alreadySent ? salarySlipLinkAlreadySentReply(app) : salarySlipLinkFirstReply(app, baseUrl);
+  }
+
+  if (paymentStatus === "confirmed" && status === "under_review" && canShowPostPaymentRequirements(app)) {
+    return postPaymentRequirementsReplyOnce(app, baseUrl, from);
+  }
+
+  return null;
+}
+
 async function updateCustomerDecision(input: {
   app: ApplicationRecord;
   decision: "continue" | "decline";
@@ -3199,6 +3539,20 @@ ${BUSINESS_NAME}`;
     }
 
     return deterministicReply;
+  }
+
+  if (app) {
+    const documentAutomationReply = await handleDocumentAutomation({
+      app,
+      baseUrl,
+      from,
+      text,
+      intent,
+    });
+
+    if (documentAutomationReply) {
+      return documentAutomationReply;
+    }
   }
 
   if (!app && (intent === "continue_decision" || intent === "decline_decision" || intent === "cancel_request" || intent === "cancel_confirmed")) {
