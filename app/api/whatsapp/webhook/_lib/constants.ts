@@ -3,9 +3,13 @@ export const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني -
 export const BUSINESS_PHONE_DISPLAY = "0788500337";
 export const BUSINESS_PHONE_E164 = "+962788500337";
 export const BUSINESS_WEBSITE = "https://www.ameenfinance.co";
-export const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة";
+export const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة من المورد/الوكلاء المعتمدين واعتماد جدول التوزيع من الإدارة";
 export const POST_EID_DELIVERY_STRICT_TEXT =
-  "حتى هذه اللحظة ما زلنا بانتظار تزويدنا بالأجهزة من الوكلاء والموردين المعتمدين، وسيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة";
+  "لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا. سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة";
+
+export const FOLLOWUP_AGENT_NAMES = ["تالا", "فدوة", "لينا"] as const;
+export const STUDY_AGENT_NAMES = ["عبدالله", "خالد", "عبدالرحمن"] as const;
+export const ESCALATION_MANAGER_NAME = "عمران";
 
 export function fileOpeningFeeExplanation() {
   return `توضيح مهم بخصوص رسوم فتح الملف:

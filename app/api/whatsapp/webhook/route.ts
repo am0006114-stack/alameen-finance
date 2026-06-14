@@ -365,7 +365,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "human_agent"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -449,22 +449,91 @@ function isContinueDecisionText(text: string) {
 }
 
 function isDeclineDecisionText(text: string) {
+  return isCancelRequestText(text) || isCancelConfirmedText(text);
+}
+
+function isCancelConfirmedText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  const negativePhrases = [
+  const confirmationPhrases = [
+    "اكد الغاء الطلب", "اكد الغاء", "اكد الالغاء", "اكد الإلغاء", "أكد إلغاء الطلب", "أكد الإلغاء",
+    "نعم اكد الغاء", "نعم الغي نهائيا", "نعم ألغي نهائيًا", "الغيه نهائيا", "الغيه نهائيًا",
+    "الغوا نهائيا", "الغوا نهائيًا", "الغاء نهائي", "إلغاء نهائي", "متاكد بدي الغي", "متأكد بدي ألغي",
+    "متاكد الغي", "متأكد ألغي", "خلص الغي نهائي", "خلص ألغي نهائي", "cancel confirmed",
+    "confirm cancel", "yes cancel", "cancel it permanently",
+  ];
+
+  const hasConfirmation = hasAny(t, confirmationPhrases);
+  const hasCancelContext = hasAny(t, ["الغاء", "الغي", "الغيه", "الغوا", "cancel", "كنسل"]);
+  const hasFinalContext = hasAny(t, ["اكد", "أكد", "نعم", "نهائي", "نهائيا", "متاكد", "متأكد", "confirm", "yes"]);
+
+  return hasConfirmation || (hasCancelContext && hasFinalContext);
+}
+
+function isCancelRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  if (isCancelConfirmedText(t)) return false;
+
+  const requestPhrases = [
     "لا ارغب", "لا أرغب", "لا اريد", "لا أريد", "ما بدي", "مش بدي", "ما بدي اكمل", "ما بدي أكمل",
     "مش حاب اكمل", "مش حاب أكمل", "مش حابه اكمل", "مش حابة أكمل",
     "بدي الغي", "بدي ألغي", "الغاء", "إلغاء", "الغي الطلب", "ألغي الطلب",
-    "الغوا الطلب", "لغوا الطلب", "لغي الطلب", "كنسل", "cancel", "cancelled",
+    "الغوا الطلب", "لغوا الطلب", "لغي الطلب", "كنسل", "cancel",
     "مش موافق", "غير موافق", "لا تكمل", "لا تكملوا", "وقف الطلب", "وقفو الطلب",
     "بطلت", "بطلت بدي", "صرف نظر", "ما رح اكمل", "ما راح اكمل", "لا شكرا", "لا شكرًا", "no",
   ];
 
-  const hasNegative = hasAny(t, negativePhrases);
-  const hasContext = hasAny(t, ["ارغب", "اكمل", "الغي", "الغاء", "لغي", "كنسل", "cancel", "موافق", "وقف", "بطلت", "لا"]);
+  const hasRequest = hasAny(t, requestPhrases);
+  const hasContext = hasAny(t, ["ارغب", "اكمل", "الغي", "الغاء", "لغي", "كنسل", "cancel", "موافق", "وقف", "بطلت", "لا", "صرف"]);
 
-  return hasNegative && hasContext;
+  return hasRequest && hasContext;
+}
+
+function isAlternativePaymentSourceText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const noWalletContext = hasAny(t, [
+    "ما عندي محفظه", "ما عندي محفظة", "مش عندي محفظه", "مش عندي محفظة", "ما معي محفظه", "ما معي محفظة",
+    "ما عندي اورنج", "ما عندي orange", "مش معي اورنج", "ما معي اورنج", "ما عندي كليك", "ما عندي بنك",
+  ]);
+
+  const alternativeContext = hasAny(t, [
+    "من محفظه ثانيه", "من محفظة ثانية", "من رقم ثاني", "من حساب ثاني", "من حساب اخوي", "من حساب اختي",
+    "من حساب صاحبي", "من شخص ثاني", "حدا يدفع عني", "واحد يدفع عني", "من بنك", "تحويل بنكي",
+    "كليك", "cliq", "محفظه ثانيه", "محفظة ثانية", "مصدر ثاني", "طرف ثاني", "رقم ثاني",
+  ]);
+
+  const paymentContext = hasAny(t, ["ادفع", "دفع", "احول", "أحول", "تحويل", "حول", "حواله", "حوالة", "رسوم", "وصل", "ايصال", "إيصال"]);
+
+  return noWalletContext || (alternativeContext && paymentContext);
+}
+
+function isReceiptUploadNeededText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const paidContext = hasAny(t, [
+    "دفعت", "دفعتلكم", "دفعت لكم", "حولت", "حواله", "حوالة", "عملت تحويل", "وصلت الحواله", "وصلت الحوالة",
+    "بعت الوصل", "ارسلت الوصل", "ابعت الوصل", "ابعث الوصل", "وين ارفع الوصل", "رابط الوصل", "رفع الوصل",
+    "ايصال", "إيصال", "وصل الدفع", "صوره الوصل", "صورة الوصل", "payment receipt", "receipt",
+  ]);
+
+  const needsUploadContext = hasAny(t, ["رابط", "ارفع", "رفع", "ابعت", "ابعث", "ارسلت", "وصل", "ايصال", "إيصال", "دفعت", "حولت"]);
+
+  return paidContext && needsUploadContext;
+}
+
+function isSupplierDelayQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const deviceContext = hasAny(t, ["اجهزه", "أجهزة", "الجهاز", "جهازي", "تلفون", "موبايل", "ايفون", "سامسونج", "المورد", "الوكلاء", "توريد"]);
+  const delayContext = hasAny(t, ["وصلت", "ما وصلت", "لسه", "لسا", "وين", "متى", "تاخير", "تأخير", "تسليم", "استلام", "صبر", "المورد"]);
+
+  return deviceContext && delayContext;
 }
 
 function classifyIntent(text: string): CustomerIntent {
@@ -480,12 +549,32 @@ function classifyIntent(text: string): CustomerIntent {
   if (isPaymentDisputeText(t)) return "payment_dispute";
   if (isDeviceDelayRageText(t)) return "device_delay_rage";
 
+  if (isCancelConfirmedText(t)) {
+    return "cancel_confirmed";
+  }
+
+  if (isCancelRequestText(t)) {
+    return "cancel_request";
+  }
+
+  if (isAlternativePaymentSourceText(t)) {
+    return "alternative_payment_source";
+  }
+
+  if (isReceiptUploadNeededText(t)) {
+    return "receipt_upload_needed";
+  }
+
+  if (isSupplierDelayQuestionText(t)) {
+    return "supplier_delay_question";
+  }
+
   if (isContinueDecisionText(t)) {
     return "continue_decision";
   }
 
   if (isDeclineDecisionText(t)) {
-    return "decline_decision";
+    return "cancel_request";
   }
 
   if (isAngryCustomerText(t)) {
@@ -570,7 +659,7 @@ function classifyIntent(text: string): CustomerIntent {
 
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund"].includes(intent) || shouldFlagHumanReview(text, intent);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "cancel_request", "cancel_confirmed"].includes(intent) || shouldFlagHumanReview(text, intent);
 }
 
 function getSalaryNumber(value: number | string | null | undefined) {
@@ -861,7 +950,7 @@ function deviceDelayRageReply(baseUrl: string, from: string, app?: ApplicationRe
 
 حتى أفحص لك وضع الجهاز تحديدًا، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
 
-إذا كان الطلب عليه موافقة نهائية، فالتحديث المعتمد حاليًا أن الطلبات المؤكدة بانتظار وصول الأجهزة من الوكلاء والموردين المعتمدين، وسيتم التواصل فور اعتماد جدول التوزيع من الإدارة.
+إذا كان الطلب عليه موافقة نهائية، فالتحديث المعتمد حاليًا أن الطلبات المؤكدة بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين، وسيتم التواصل فور اعتماد جدول التوزيع من الإدارة.
 
 ${BUSINESS_NAME}`;
 }
@@ -884,7 +973,7 @@ ${reason}
 طلبك ظاهر عندي الآن وحالته:
 ${statusHumanLabel(status)}
 
-${status === "approved" ? `طلبك عليه موافقة نهائية، لكن لا يوجد موعد تسليم نهائي محدد حاليًا لأننا بانتظار وصول الأجهزة من الوكلاء والموردين المعتمدين. سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.` : `المتابعة المعتمدة حاليًا تكون حسب حالة الطلب فقط، ولا يوجد موعد تسليم نهائي محدد لأي طلب غير مؤكد أو غير جاهز للتوزيع.`}
+${status === "approved" ? `طلبك عليه موافقة نهائية، لكن لا يوجد موعد تسليم نهائي محدد حاليًا لأننا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين. سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.` : `المتابعة المعتمدة حاليًا تكون حسب حالة الطلب فقط، ولا يوجد موعد تسليم نهائي محدد لأي طلب غير مؤكد أو غير جاهز للتوزيع.`}
 
 رقم التتبع:
 ${tracking}
@@ -1125,7 +1214,9 @@ ${fileOpeningFeeExplanation()}
 
 ملاحظة مهمة: الاثنين أورنج موني، وإذا ظهر اسم المستفيد ABDUL RAHMAN ALHARAHSHEH فهذا صحيح.
 
-بعد الدفع، ارفعوا وصل الدفع من هذا الرابط:
+إذا ما عندكم محفظة أورنج أو التحويل رح يكون من رقم/حساب/شخص ثاني، عادي. المهم يكون التحويل على معلومات الدفع الرسمية أعلاه.
+
+بعد الدفع، ارفعوا وصل الدفع من هذا الرابط حتى نربطه بنفس الطلب:
 ${receiptUrl(baseUrl, app)}
 
 إذا ما حبيتوا تكملوا حاليًا، لا يوجد أي التزام عليكم.
@@ -1146,7 +1237,7 @@ function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
 
 طلبكم عليه موافقة نهائية ✅
 
-حتى هذه اللحظة ما زلنا بانتظار تزويدنا بالأجهزة من الوكلاء والموردين المعتمدين.
+حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين.
 
 لذلك لا يوجد حاليًا موعد تسليم محدد أو نهائي للطلب.
 
@@ -1170,7 +1261,7 @@ ${BUSINESS_NAME}`;
 
 اختياركم بالانتظار مسجل لدينا.
 
-حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من الوكلاء والموردين المعتمدين.
+حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين.
 
 لا يوجد موعد تسليم نهائي محدد حاليًا.
 
@@ -1192,7 +1283,7 @@ ${BUSINESS_NAME}`;
 
 الحالة الحالية للطلب تشير إلى أن الملف بحاجة استكمال متطلبات الكفيل.
 
-نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع فترة العطلة الطويلة وضغط المراجعات.
+نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع ضغط المراجعات وكثرة الملفات.
 
 فور استكمال المتطلبات ومراجعتها من الإدارة سيتم تحديث الحالة وإبلاغكم بالمستجدات.
 
@@ -1212,7 +1303,7 @@ ${BUSINESS_NAME}`;
 
 طلبكم ما زال قيد الدراسة والمتابعة من الإدارة.
 
-نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع فترة العطلة الطويلة وضغط المراجعات.
+نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع ضغط المراجعات وكثرة الملفات.
 
 لا يوجد قرار نهائي ظاهر على الطلب حتى الآن، ولا يوجد موعد تسليم محدد حاليًا.
 
@@ -1266,6 +1357,11 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (intent === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "refund") return refundReply(baseUrl, app.phone || tracking, app);
+  if (intent === "cancel_request") return cancelRequestReply(app, baseUrl, customerText);
+  if (intent === "cancel_confirmed") return declineConfirmationMessage(app);
+  if (intent === "alternative_payment_source") return alternativePaymentSourceReply(app, baseUrl);
+  if (intent === "receipt_upload_needed") return receiptUploadReply(app, baseUrl);
+  if (intent === "supplier_delay_question") return supplierDelayReply(app, baseUrl);
   if (intent === "delivery") return deliveryDateReply(app, baseUrl);
   if (intent === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl);
   if (intent === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl);
@@ -1384,7 +1480,7 @@ ${BUSINESS_NAME}`;
 
 اختياركم بالانتظار مسجل لدينا.
 
-حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من الوكلاء والموردين المعتمدين.
+حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين.
 
 لا يوجد موعد تسليم نهائي محدد حاليًا.
 
@@ -1530,7 +1626,7 @@ ${BUSINESS_NAME}`;
 
 الحالة الحالية للطلب تشير إلى أن الملف بحاجة استكمال متطلبات الكفيل.
 
-نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع فترة العطلة الطويلة خلال الموسم.
+نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع ضغط المراجعات وكثرة الملفات.
 
 فور استكمال المتطلبات ومراجعتها من الإدارة سيتم تحديث الحالة وإبلاغكم بالمستجدات.
 
@@ -1566,7 +1662,7 @@ ${BUSINESS_NAME}`;
 
 طلبكم ما زال قيد الدراسة والمتابعة من الإدارة.
 
-نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع فترة العطلة الطويلة خلال الموسم.
+نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع ضغط المراجعات وكثرة الملفات.
 
 لا يوجد قرار نهائي ظاهر على الطلب حتى الآن، وسيتم التواصل معكم فور ظهور أي تحديث جديد على الملف.
 
@@ -1588,7 +1684,7 @@ ${BUSINESS_NAME}`;
 
 طلبكم عليه موافقة نهائية ✅
 
-حتى هذه اللحظة ما زلنا بانتظار تزويدنا بالأجهزة من الوكلاء والموردين المعتمدين.
+حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين.
 
 لذلك لا يوجد حاليًا موعد تسليم محدد أو نهائي للطلب.
 
@@ -1866,6 +1962,213 @@ ${tracking}
 ${BUSINESS_NAME}`;
 }
 
+function criticalCaseOpening() {
+  return `معك عمران من متابعة الحالات في ${BUSINESS_NAME}.`;
+}
+
+function studyCaseOpening(seed: string) {
+  const agents = ["عبدالله", "خالد", "عبدالرحمن"];
+  const digits = digitsOnly(seed);
+  const agent = agents[Number(digits.slice(-2) || "0") % agents.length];
+  return `معك ${agent} من قسم الدراسة في ${BUSINESS_NAME}.`;
+}
+
+function followupCaseOpening(seed: string) {
+  const agents = ["تالا", "فدوة", "لينا"];
+  const digits = digitsOnly(seed);
+  const agent = agents[Number(digits.slice(-2) || "0") % agents.length];
+  return `معك ${agent} من متابعة ملفات ${BUSINESS_NAME}.`;
+}
+
+function cancelRequestReply(app: ApplicationRecord, baseUrl: string, customerText = "") {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const status = statusHumanLabel(app.status || "");
+  const url = trackUrl(baseUrl, app);
+  const t = normalizeArabicText(customerText);
+
+  const likelyPaymentIssue = isAlternativePaymentSourceText(customerText) || hasAny(t, ["محفظه", "محفظة", "اورنج", "orange", "كليك", "دفع", "رسوم", "حواله", "حوالة"]);
+  const likelyDelayIssue = isSupplierDelayQuestionText(customerText) || hasAny(t, ["تاخير", "تأخير", "طولت", "وين الجهاز", "وين جهازي", "تسليم", "استلام", "المورد"]);
+
+  const reasonLine = likelyPaymentIssue
+    ? `إذا سبب الإلغاء موضوع الدفع أو عدم وجود محفظة، هذا بنقدر نحلّه: ممكن يكون التحويل من رقم/حساب/شخص ثاني على معلومات الدفع الرسمية، وبعدها ترفع صورة الوصل من الرابط المخصص.`
+    : likelyDelayIssue
+      ? `إذا السبب التأخير، أوضحلك بصراحة: لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا. أول ما توصل الأجهزة ويتم اعتماد جدول التوزيع، بنتواصل مع أصحاب الطلبات المؤكدة مباشرة.`
+      : `قبل ما نغلق الملف، احكيلي السبب: التأخير، الدفع، أو صار عندك تغيير بالقرار؟ أحيانًا المشكلة بتكون بخطوة بسيطة وبنحلها بدون ما نخسر الطلب.`;
+
+  return `${criticalCaseOpening()}
+
+هلا ${name}، فهمت إنك بتفكر بإلغاء الطلب.
+
+${reasonLine}
+
+طلبك لسه محفوظ، وما رح يتم إلغاؤه من أول رسالة حتى ما يصير قرار بالغلط.
+
+حالة الملف الحالية:
+${status}
+
+إذا بعد التوضيح لسه بدك تلغي نهائيًا، اكتبلي بالضبط:
+أكد إلغاء الطلب
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}`;
+}
+
+function cancelRequestWithoutAppReply(from: string) {
+  return `${criticalCaseOpening()}
+
+فهمت إنك بتفكر بالإلغاء، بس ما بقدر ألغي أي ملف بدون ما أربطه بالطلب الصحيح.
+
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبراجع الحالة أولًا.
+
+مهم: الإلغاء النهائي ما بصير إلا بعد تأكيد صريح منك بعبارة:
+أكد إلغاء الطلب
+
+${BUSINESS_NAME}`;
+}
+
+function alternativePaymentSourceReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  const receipt = receiptUrl(baseUrl, app);
+
+  if (paymentStatus === "confirmed") {
+    return `هلا ${name} 🌿
+
+الدفع ظاهر عندي مؤكد، فما في داعي لأي تحويل جديد.
+
+حالة الملف الآن:
+${statusHumanLabel(status)}
+
+رقم التتبع:
+${tracking}`;
+  }
+
+  if (paymentStatus === "customer_claimed_paid") {
+    return `هلا ${name} 🌿
+
+وصل الدفع مسجل عندنا وبانتظار تأكيد الإدارة، لا تعيد الدفع مرة ثانية حتى ما يصير تكرار.
+
+إذا عندك وصل أوضح، ارفعه من نفس الرابط:
+${receipt}
+
+رقم التتبع:
+${tracking}`;
+  }
+
+  if (!(status === "preliminary_qualified" || paymentStatus === "pending" || paymentStatus === "pending_payment" || paymentStatus === "payment_info_sent" || status === "customer_confirmed_continue")) {
+    return `هلا ${name} 🌿
+
+فهمت عليك بخصوص الدفع من مصدر ثاني، بس حسب حالة الملف الحالية ما في دفع مطلوب الآن.
+
+حالة الطلب:
+${statusHumanLabel(status)}
+
+لما تكون خطوة فتح الملف مطلوبة رسميًا، بنعطيك تعليمات الدفع ورابط رفع الوصل.
+
+رقم التتبع:
+${tracking}`;
+  }
+
+  return `ولا يهمك ${name} 🌿
+
+عدم وجود محفظة أورنج مش مشكلة. ممكن يكون التحويل من رقم/حساب/شخص ثاني، المهم يكون على معلومات الدفع الرسمية اللي وصلتك.
+
+بعد التحويل ضروري ترفع صورة الوصل من الرابط حتى نربطه بطلبك:
+${receipt}
+
+يفضل يكون الوصل واضح فيه المبلغ ووقت التحويل واسم/رقم الجهة المحوّل منها.
+
+رقم التتبع:
+${tracking}`;
+}
+
+function alternativePaymentSourceWithoutAppReply(from: string) {
+  return `${followupCaseOpening(`${from}:alternative_payment`)}
+
+عادي، إذا ما عندك محفظة ممكن يكون التحويل من مصدر أو رقم ثاني، لكن لازم نربطه بطلبك الصحيح.
+
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبعطيك رابط رفع الوصل المناسب.
+
+${BUSINESS_NAME}`;
+}
+
+function receiptUploadReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const receipt = receiptUrl(baseUrl, app);
+
+  if (app.payment_status === "confirmed") {
+    return `هلا ${name} 🌿
+
+الدفع ظاهر عندي مؤكد، وما في داعي ترفع وصل جديد.
+
+رقم التتبع:
+${tracking}`;
+  }
+
+  if (app.payment_status === "customer_claimed_paid") {
+    return `هلا ${name} 🌿
+
+الوصل مسجل عندنا وبانتظار تأكيد الإدارة.
+إذا عندك صورة أوضح للوصل تقدر ترفعها من هون:
+${receipt}
+
+رقم التتبع:
+${tracking}`;
+  }
+
+  return `تمام ${name} 🌿
+
+ارفع صورة وصل الدفع من الرابط التالي حتى يظهر عند الإدارة وينربط على طلبك:
+${receipt}
+
+مهم يكون الوصل واضح فيه المبلغ ووقت التحويل.
+
+رقم التتبع:
+${tracking}`;
+}
+
+function supplierDelayReply(app: ApplicationRecord, baseUrl: string) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const url = trackUrl(baseUrl, app);
+
+  return `هلا ${name} 🌿
+
+أفهم سؤالك، وحقك يكون عندك توضيح واضح.
+
+لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا.
+
+ما بدي أعطيك موعد غير مؤكد. أول ما توصل الأجهزة ويتم اعتماد جدول التوزيع من الإدارة، رح يتم التواصل مع أصحاب الطلبات المؤكدة مباشرة.
+
+حالة طلبك الحالية:
+${statusHumanLabel(app.status || "")}
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}`;
+}
+
+function supplierDelayWithoutAppReply(from: string) {
+  return `${followupCaseOpening(`${from}:supplier_delay`)}
+
+للتوضيح، لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبر العملاء مقدّر جدًا.
+
+ما بنعطي موعد تسليم غير مؤكد. أول ما توصل الأجهزة ويتم اعتماد جدول التوزيع، بنتواصل مع أصحاب الطلبات المؤكدة.
+
+إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبفحصلك الحالة.
+
+${BUSINESS_NAME}`;
+}
+
 async function logMessage(input: {
   waId: string;
   direction: "incoming" | "outgoing";
@@ -2040,6 +2343,11 @@ async function findApplicationForAiMemory(from: string, text: string, intent: Cu
       "device_delay_rage",
       "continue_decision",
       "decline_decision",
+      "cancel_request",
+      "cancel_confirmed",
+      "alternative_payment_source",
+      "receipt_upload_needed",
+      "supplier_delay_question",
     ].includes(intent)) {
       return await findApplicationByPhone(from);
     }
@@ -2256,7 +2564,21 @@ function safeShortHumanFallback(input: AiReplyInput) {
 async function generateAiReply(input: AiReplyInput) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+  const escalationModel = process.env.DEEPSEEK_ESCALATION_MODEL || "deepseek-v4-pro";
+  const defaultModel = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+  const escalationIntents: CustomerIntent[] = [
+    "abuse",
+    "legal_threat",
+    "social_media_threat",
+    "scam_accusation",
+    "payment_dispute",
+    "device_delay_rage",
+    "complaint",
+    "refund",
+    "cancel_request",
+    "cancel_confirmed",
+  ];
+  const model = input.isSensitive || escalationIntents.includes(input.intent) ? escalationModel : defaultModel;
 
   if (!apiKey) {
     console.error("Missing DEEPSEEK_API_KEY");
@@ -2268,12 +2590,12 @@ async function generateAiReply(input: AiReplyInput) {
     "location",
     "website",
     "payment",
-    "payment_dispute",
+    "alternative_payment_source",
+    "receipt_upload_needed",
+    "supplier_delay_question",
+    "cancel_request",
+    "cancel_confirmed",
     "delivery",
-    "device_delay_rage",
-    "refund",
-    "continue_decision",
-    "decline_decision",
     "loan",
   ];
 
@@ -2327,6 +2649,22 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا العميل هدد بشكوى أو نشر أو محامي: قل إن حقه محفوظ، وإنك ستوضح الحالة حسب البيانات المتوفرة، واطلب البيانات لربطها بالطلب إن لم تكن موجودة.
 - إذا العميل سأل سؤالًا عامًا مثل: موقعكم، عنوانكم، كيف الأقساط، الشروط، الدفع، الأجهزة: أجب مباشرة ولا تحوّل الرد لمتابعة طلب.
 
+شخصيات مدير الملف:
+- المتابعة اليومية تكون بأسماء محترمة مثل: تالا، فدوة، لينا.
+- الدراسة والمتطلبات تكون بأسماء: عبدالله، خالد، عبدالرحمن.
+- الحالات الحساسة مثل الإلغاء، الغضب، الاسترداد، والاتهام تكون باسم عمران من متابعة الحالات.
+- لا تذكر اسم الشخصية بكل رسالة إذا السياق مستمر، لكن حافظ على نبرة موظف يعرف ملف العميل.
+
+قاعدة الإلغاء الصارمة:
+- إذا قال العميل "بدي ألغي" أو "بطلت" أو "ما بدي أكمل" فهذا طلب إلغاء مبدئي فقط، وليس تأكيدًا نهائيًا.
+- ممنوع اعتبار الإلغاء نهائيًا إلا إذا قال العميل بوضوح: "أكد إلغاء الطلب" أو ما يعادلها.
+- في طلب الإلغاء المبدئي: افهم السبب أولًا، خصوصًا إذا كان الدفع، عدم وجود محفظة، أو تأخير المورد، ثم وضّح الحل.
+
+قاعدة الدفع من مصدر ثاني:
+- إذا قال العميل إنه لا يملك محفظة أو يريد التحويل من رقم/حساب/شخص آخر، فهذا ليس سببًا للإلغاء.
+- وضّح له أن التحويل من مصدر آخر ممكن طالما يتم على معلومات الدفع الرسمية، ثم يجب رفع صورة الوصل من رابط رفع الوصل حتى يربط الطلب.
+- إذا كان رابط الوصل موجودًا في الرد الآمن الأساسي، حافظ عليه كما هو.
+
 شخصيتك وأسلوبك:
 - رد كإنسان طبيعي على واتساب، مش كنص رسمي جامد.
 - استخدم لهجة أردنية مهذبة وواضحة.
@@ -2357,10 +2695,10 @@ async function generateAiReply(input: AiReplyInput) {
 
 قواعد المواعيد والتسليم والتهدئة:
 - لا تخترع موعد تسليم، ولا تعطي وعدًا نهائيًا خارج الرد الآمن الأساسي.
-- إذا كانت حالة الطلب approved وسأل العميل عن التسليم أو التأخير: اذكر أن الطلب عليه موافقة نهائية، وأننا ما زلنا بانتظار تزويدنا بالأجهزة من الوكلاء والموردين المعتمدين، وأنه لا يوجد موعد تسليم نهائي محدد حاليًا، وسيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.
-- في حالة approved ممنوع ذكر أي يوم أو تاريخ أو ساعة أو عبارة "خلال هذا الأسبوع" أو "الموعد الجديد" أو "موعد الاستلام". استخدم فقط: بانتظار تزويدنا بالأجهزة من الوكلاء والموردين المعتمدين، قيد الترتيب، تنسيق التسليم، اعتماد جدول التوزيع.
+- إذا كانت حالة الطلب approved وسأل العميل عن التسليم أو التأخير: اذكر أن الطلب عليه موافقة نهائية، وأننا ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين، وأنه لا يوجد موعد تسليم نهائي محدد حاليًا، وسيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.
+- في حالة approved ممنوع ذكر أي يوم أو تاريخ أو ساعة أو عبارة "خلال هذا الأسبوع" أو "الموعد الجديد" أو "موعد الاستلام". استخدم فقط: بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين، قيد الترتيب، تنسيق التسليم، اعتماد جدول التوزيع.
 - إذا كانت الحالة customer_accepts_delivery_delay: لا تستخدم delivery_delay_until ولا تذكر أي تاريخ محفوظ. قل إن اختيار الانتظار مسجل، ولا يوجد موعد تسليم نهائي محدد حاليًا، وسيتم التواصل فور وصول الأجهزة واعتماد جدول التوزيع.
-- إذا كانت الحالة under_review: اذكر أن الطلب ما زال قيد الدراسة والمتابعة من الإدارة، وأن التأخير مرتبط بالعطلة الطويلة وضغط المراجعات، ولا تعطِ أي وعد بالموافقة أو التسليم.
+- إذا كانت الحالة under_review: اذكر أن الطلب ما زال قيد الدراسة والمتابعة من الإدارة، وأن التأخير مرتبط بضغط المراجعات وكثرة الملفات، ولا تعطِ أي وعد بالموافقة أو التسليم.
 - إذا كانت الحالة needs_guarantor: اذكر أن الطلب بانتظار استكمال متطلبات الكفيل وأن الدراسة لم تكتمل بعد، ولا تعطِ أي موعد تسليم.
 - استخدم عبارات تهدئة بشرية عند القلق أو التأخير مثل: حقك علينا، بنقدّر صبرك وثقتك، فاهمين قلقك، نتفهم أهمية الجهاز بالنسبة إلك، ما بدنا تضل منتظر بدون وضوح، حقك يكون عندك تحديث واضح، نشكرك على تفهمك، وكل عام وأنتم بخير.
 - تجنّب كلمات تقلق العميل مثل: أزمة، مشكلة، نقص، نفاد، غير متوفر، لا نعلم، غير قادرين. استبدلها بصيغ مهنية مطمئنة مثل: بانتظار التوريد، قيد الترتيب، قيد الجدولة، قيد المتابعة، تحديث لوجستي، تنسيق التسليم.
@@ -2523,6 +2861,11 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "device_delay_rage" ||
     intent === "continue_decision" ||
     intent === "decline_decision" ||
+    intent === "cancel_request" ||
+    intent === "cancel_confirmed" ||
+    intent === "alternative_payment_source" ||
+    intent === "receipt_upload_needed" ||
+    intent === "supplier_delay_question" ||
     intent === "review_time" ||
     intent === "thanks" ||
     intent === "human_agent"
@@ -2601,13 +2944,30 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (app && intent === "decline_decision") {
+  if (app && intent === "cancel_request") {
+    deterministicReply = cancelRequestReply(app, baseUrl, text);
+
+    await sendDiscordNotification({
+      title: "🟠 العميل يفكر بإلغاء الطلب",
+      description: "لم يتم إلغاء الطلب. تم إرسال رد تهدئة وطلب تأكيد صريح قبل أي إلغاء.",
+      color: 0xfee75c,
+      app,
+      customerPhone: from,
+      customerMessage: text,
+      systemReply: deterministicReply,
+      baseUrl,
+    });
+
+    return deterministicReply;
+  }
+
+  if (app && intent === "cancel_confirmed") {
     const updatedApp = await updateCustomerDecision({ app, decision: "decline" });
     deterministicReply = declineConfirmationMessage(updatedApp);
 
     await sendDiscordNotification({
-      title: "❌ العميل رفض الاستمرار",
-      description: "تم إلغاء الطلب تلقائيًا بناءً على رد العميل.",
+      title: "❌ تم إلغاء الطلب بعد تأكيد صريح",
+      description: "العميل أكد الإلغاء بعبارة واضحة، وتم إلغاء الطلب.",
       color: 0xed4245,
       app: updatedApp,
       customerPhone: from,
@@ -2616,22 +2976,14 @@ ${BUSINESS_NAME}`;
       baseUrl,
     });
 
-    return humanizeReply({
-      customerText: text,
-      deterministicReply,
-      customerName: firstTwoNames(updatedApp.full_name),
-      trackingId: updatedApp.tracking_id || updatedApp.id,
-      status: updatedApp.status || null,
-      paymentStatus: updatedApp.payment_status || null,
-      deviceName: updatedApp.device_name || null,
-      isSensitive: sensitive,
-      hasApplication: true,
-      intent,
-    });
+    return deterministicReply;
   }
 
-  if (!app && (intent === "continue_decision" || intent === "decline_decision")) {
-    deterministicReply = `${humanOpening(`${from}:decision`)}
+  if (!app && (intent === "continue_decision" || intent === "decline_decision" || intent === "cancel_request" || intent === "cancel_confirmed")) {
+    if (intent === "cancel_request" || intent === "cancel_confirmed") {
+      deterministicReply = cancelRequestWithoutAppReply(from);
+    } else {
+      deterministicReply = `${humanOpening(`${from}:decision`)}
 
 وصلني قرارك بخصوص الاستمرار، لكن حتى أربطه بالطلب الصحيح ابعث رقم الطلب الذي يبدأ بـ AM-.
 
@@ -2639,6 +2991,7 @@ ${BUSINESS_NAME}`;
 AM-177...
 
 ${BUSINESS_NAME}`;
+    }
 
     await sendDiscordNotification({
       title: "⚠️ رد استمرار/إلغاء بدون طلب مرتبط",
@@ -2650,13 +3003,7 @@ ${BUSINESS_NAME}`;
       baseUrl,
     });
 
-    return humanizeReply({
-      customerText: text,
-      deterministicReply,
-      isSensitive: sensitive,
-      hasApplication: false,
-      intent,
-    });
+    return deterministicReply;
   }
 
   if (app) {
@@ -2692,6 +3039,12 @@ ${BUSINESS_NAME}`;
     deterministicReply = complaintReply(baseUrl, from, null, text);
   } else if (intent === "refund") {
     deterministicReply = refundReply(baseUrl, from, null);
+  } else if (intent === "cancel_request" || intent === "cancel_confirmed") {
+    deterministicReply = cancelRequestWithoutAppReply(from);
+  } else if (intent === "alternative_payment_source" || intent === "receipt_upload_needed") {
+    deterministicReply = alternativePaymentSourceWithoutAppReply(from);
+  } else if (intent === "supplier_delay_question") {
+    deterministicReply = supplierDelayWithoutAppReply(from);
   } else if (intent === "human_agent") {
     deterministicReply = `أنا معك 🌿
 
@@ -2757,6 +3110,11 @@ ${BUSINESS_NAME}`;
     "apply",
     "products",
     "payment",
+    "alternative_payment_source",
+    "receipt_upload_needed",
+    "supplier_delay_question",
+    "cancel_request",
+    "cancel_confirmed",
     "delivery",
     "greeting",
   ].includes(intent);

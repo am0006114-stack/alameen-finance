@@ -92,8 +92,12 @@ export function extractJordanPhoneFromText(text: string) {
 }
 
 const agentNames = [
-  "علي", "لؤي", "خالد", "عمر", "سامر", "أحمد", "رامي", "محمد", "أنس", "يزن",
-  "سلمى", "ديما", "لين", "رنا", "نور", "تالا", "مي", "لانا", "جود", "هبة", "سمر",
+  "تالا",
+  "فدوة",
+  "لينا",
+  "عبدالله",
+  "خالد",
+  "عبدالرحمن",
 ];
 
 export function pickAgentName(seed: string) {
@@ -105,12 +109,18 @@ export function pickAgentName(seed: string) {
 export function humanOpening(seed: string) {
   const agent = pickAgentName(seed);
   const variants = [
-    `أهلًا وسهلًا 🌿\nمعك ${agent} من ${BUSINESS_NAME}.`,
-    `هلا فيك 🌿\nمعك ${agent} من فريق ${BUSINESS_NAME}.`,
-    `أهلًا فيك، معك ${agent} 🌿\nخليني أساعدك.`,
-    `يا هلا 🌿\nمعك ${agent} من ${BUSINESS_NAME}، أبشر.`,
-    `مرحبًا 🌿\nمعك ${agent}، كيف بقدر أساعدك؟`,
-    `حيّاك الله 🌿\nمعك ${agent} من ${BUSINESS_NAME}.`,
+    `أهلًا وسهلًا 🌿
+معك ${agent} من ${BUSINESS_NAME}.`,
+    `هلا فيك 🌿
+معك ${agent} من متابعة ملفات ${BUSINESS_NAME}.`,
+    `أهلًا فيك، معك ${agent} 🌿
+خليني أراجع معك الموضوع.`,
+    `يا هلا 🌿
+معك ${agent} من ${BUSINESS_NAME}.`,
+    `مرحبًا 🌿
+معك ${agent} من فريق المتابعة.`,
+    `حيّاك الله 🌿
+معك ${agent} من ${BUSINESS_NAME}.`,
   ];
 
   const digits = digitsOnly(seed);

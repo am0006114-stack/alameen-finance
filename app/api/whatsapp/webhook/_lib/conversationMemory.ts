@@ -25,7 +25,7 @@ function directionLabel(value: string | null | undefined) {
   return "رسالة";
 }
 
-export async function getConversationMemory(waId: string, limit = 8): Promise<ConversationMemory> {
+export async function getConversationMemory(waId: string, limit = 12): Promise<ConversationMemory> {
   const empty: ConversationMemory = {
     conversationContext: "",
     lastAssistantReplies: [],
@@ -55,7 +55,7 @@ export async function getConversationMemory(waId: string, limit = 8): Promise<Co
 
     const conversationContext = chronological
       .map((message) => {
-        const body = trimLine(message.body, 320);
+        const body = trimLine(message.body, 420);
         if (!body) return "";
 
         const intent = message.intent ? ` / intent: ${message.intent}` : "";
@@ -67,13 +67,13 @@ export async function getConversationMemory(waId: string, limit = 8): Promise<Co
 
     const lastAssistantReplies = data
       .filter((message) => message.direction === "outgoing")
-      .map((message) => trimLine(message.body, 220))
+      .map((message) => trimLine(message.body, 280))
       .filter(Boolean)
       .slice(0, 3);
 
     const lastCustomerMessages = data
       .filter((message) => message.direction === "incoming")
-      .map((message) => trimLine(message.body, 180))
+      .map((message) => trimLine(message.body, 220))
       .filter(Boolean)
       .slice(0, 3);
 
