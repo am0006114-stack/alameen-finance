@@ -80,6 +80,57 @@ function isCasualWellbeingText(text: string) {
   ]);
 }
 
+function isBotIdentityChallengeText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "ذكاء اصطناعي",
+    "ذكاء صناعي",
+    "ai",
+    "روبوت",
+    "بوت",
+    "الي",
+    "آلي",
+    "مو بشر",
+    "مش بشر",
+    "انت بشر",
+    "انتي بشر",
+    "مو انسان",
+    "مش انسان",
+    "اعطيني المدير",
+    "بدي المدير",
+    "احكي مع انسان",
+    "احكي مع بني ادم",
+    "بني ادم",
+    "مو حقيقي",
+    "مش حقيقي",
+  ]);
+}
+
+function isTinyContextFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return [
+    "طيب",
+    "طب",
+    "يعني",
+    "تمام",
+    "اوكي",
+    "ok",
+    "شو يعني",
+    "كيف يعني",
+    "وضح",
+    "وضحي",
+    "مش فاهم",
+    "ما فهمت",
+    "ليش",
+    "اه",
+    "اها",
+  ].includes(t) || t.length <= 7;
+}
+
 function isReviewTimeText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -585,7 +636,11 @@ function classifyIntent(text: string): CustomerIntent {
     return "refund";
   }
 
-  if (hasAny(t, ["موظف", "حد يحكي معي", "اتصال", "رن علي", "رنه", "كلموني", "اداره", "إدارة", "مسؤول", "مندوب", "انسان", "بني ادم"])) {
+  if (isBotIdentityChallengeText(t)) {
+    return "human_agent";
+  }
+
+  if (hasAny(t, ["موظف", "حد يحكي معي", "اتصال", "رن علي", "رنه", "كلموني", "اداره", "إدارة", "مسؤول", "مندوب", "انسان", "بني ادم", "بشر", "مدير"])) {
     return "human_agent";
   }
 
@@ -1342,12 +1397,93 @@ ${url}
 ${BUSINESS_NAME}`;
 }
 
+function paymentStatusHumanLabel(paymentStatus: string | null | undefined) {
+  switch (paymentStatus) {
+    case "confirmed": return "الدفع مؤكد";
+    case "customer_claimed_paid": return "الوصل واصل وبانتظار تأكيد الإدارة";
+    case "pending":
+    case "pending_payment":
+    case "payment_info_sent": return "بانتظار رفع/تأكيد الوصل";
+    default: return "غير مطلوب دفع حاليًا";
+  }
+}
+
+function compactFileSnapshot(app: ApplicationRecord) {
+  const device = app.device_name ? `ملف ${app.device_name}` : "ملفك";
+  const status = statusHumanLabel(app.status || "");
+  const payment = paymentStatusHumanLabel(app.payment_status || "");
+
+  return `${device} ظاهر عندي، حالته ${status}، و${payment}.`;
+}
+
+function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, customerText = "", intent: CustomerIntent = "unknown") {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  const text = normalizeArabicText(customerText);
+
+  if (isBotIdentityChallengeText(customerText)) {
+    return `محمود، فاهم عليك.
+
+خلينا بالمفيد بدون لف ودوران: ${compactFileSnapshot(app)}
+
+احكيلي شو بدك أراجع لك الآن: الدفع، التسليم، ولا المتطلبات؟`;
+  }
+
+  if (intent === "greeting") {
+    return `هلا ${name} 🌿
+أنا معك، شو بدك أشيك لك بالملف؟`;
+  }
+
+  if (intent === "thanks") {
+    return `العفو ${name} 🌿`;
+  }
+
+  if (intent === "human_agent") {
+    return `أنا معك ${name}.
+
+${compactFileSnapshot(app)}
+
+اكتبلي النقطة اللي بدك إياها بالضبط وبجاوبك عليها مباشرة.`;
+  }
+
+  if (isTinyContextFollowupText(customerText)) {
+    if (paymentStatus === "confirmed" && status === "under_review") {
+      return `المختصر ${name}: الدفع مؤكد، والملف قيد الدراسة النهائية.
+
+ما عليك إجراء جديد الآن، وإذا احتجنا مستند إضافي بنحكيلك بوضوح.`;
+    }
+
+    if (status === "approved" || status === "customer_accepts_delivery_delay") {
+      return `المختصر ${name}: الملف محفوظ، ولسه بانتظار وصول الأجهزة من المورد واعتماد جدول التوزيع.
+
+ما بدي أعطيك موعد غير مؤكد.`;
+    }
+
+    return `${compactFileSnapshot(app)}
+
+احكيلي أي جزء بدك أوضحه لك؟`;
+  }
+
+  if (intent === "unknown" && text && !hasAny(text, ["طلب", "طلبي", "حاله", "حالة", "وين", "دفع", "وصل", "جهاز", "تسليم", "استلام", "كفيل", "راتب"])) {
+    return `وصلتني يا ${name}.
+
+بس حتى ما أعطيك جواب عام، قصدك تتابع الملف ولا عندك سؤال معين؟`;
+  }
+
+  return null;
+}
+
 function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", intent: CustomerIntent = "order_status") {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
   const status = app.status || "";
   const paymentStatus = app.payment_status || "";
   const url = trackUrl(baseUrl, app);
+
+  const conversational = conversationalDirectReply(app, baseUrl, customerText, intent);
+  if (conversational) return conversational;
 
   if (intent === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
   if (intent === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
@@ -2520,8 +2656,8 @@ function sanitizeAiReply(reply: string, fallback: string) {
     return fallback;
   }
 
-  if (clean.length > 2400) {
-    clean = clean.slice(0, 2300).trim();
+  if (clean.length > 1200) {
+    clean = clean.slice(0, 1100).trim();
   }
 
   return clean || fallback;
@@ -2589,33 +2725,9 @@ async function generateAiReply(input: AiReplyInput) {
     "contact_info",
     "location",
     "website",
-    "payment",
-    "alternative_payment_source",
-    "receipt_upload_needed",
-    "supplier_delay_question",
-    "cancel_request",
-    "cancel_confirmed",
-    "delivery",
-    "loan",
   ];
 
   if (strictDeterministicIntents.includes(input.intent)) {
-    return input.deterministicReply;
-  }
-
-  const lockedApplicationStatuses = [
-    "approved",
-    "under_review",
-    "needs_guarantor",
-    "customer_accepts_delivery_delay",
-    "delivery_delay_notice_sent",
-  ];
-
-  if (
-    input.hasApplication &&
-    lockedApplicationStatuses.includes(String(input.status || "")) &&
-    !canUseSafeHumanConversation(input)
-  ) {
     return input.deterministicReply;
   }
 
@@ -2666,6 +2778,11 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا كان رابط الوصل موجودًا في الرد الآمن الأساسي، حافظ عليه كما هو.
 
 شخصيتك وأسلوبك:
+- الرد النهائي يجب أن يكون قصيرًا مثل واتساب: 2 إلى 5 أسطر غالبًا.
+- ممنوع عرض الملف ككشف طويل أو قائمة إلا إذا العميل طلب تفاصيل.
+- لا تكرر: رقم التتبع، رابط المتابعة، حالة الدفع، وحالة الملف في كل رد. اذكرها فقط عند الحاجة.
+- إذا العميل يعلّق على أسلوبك أو يقول إنك روبوت، لا تشرح كثيرًا؛ رد بثقة وارجع لنقطة الملف.
+- إذا العميل سأل سؤالًا واحدًا، جاوب السؤال الواحد فقط ولا تضف محاضرة.
 - رد كإنسان طبيعي على واتساب، مش كنص رسمي جامد.
 - استخدم لهجة أردنية مهذبة وواضحة.
 - لا تكرر نفس الافتتاحية.
@@ -2770,7 +2887,7 @@ ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية 
 تعليمات استخدام السياق:
 - لا تبدأ كأنها أول رسالة إذا السياق يوضح أن العميل يتابع نفس الحديث.
 - لا تكرر نفس الجملة أو نفس الافتتاحية الموجودة في آخر ردود النظام.
-- إذا كانت رسالة العميل قصيرة جدًا مثل "طيب؟" أو "يعني؟" أو "تمام؟"، افهمها بناءً على آخر سياق.
+- إذا كانت رسالة العميل قصيرة جدًا مثل "طيب؟" أو "يعني؟" أو "تمام؟"، افهمها بناءً على آخر سياق ولا تعيد شرح الملف كاملًا.
 - إذا كان آخر رد طلب رقم التتبع، لا تطلبه مرة ثانية بنفس الصيغة؛ قلها بشكل أقصر أو اسأل سؤالًا أوضح.
 - إذا آخر الحديث كان تحية، لا ترد بتحية طويلة ثانية. رد طبيعي وقصير.
 
@@ -2778,6 +2895,7 @@ ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية 
 - استفد من الأسلوب والنبرة فقط إذا كانت مناسبة.
 - لا تنسخ أي معلومة تخالف الرد الآمن الأساسي.
 - الرد الآمن الأساسي وبيانات الطلب الحالية أقوى من أي مثال سابق.
+- اختصر الرد الآمن الأساسي ولا تنقله حرفيًا إذا كان طويلًا. خذ منه الحقائق فقط.
 
 الرد الآمن الأساسي الذي يجب الالتزام به وعدم مخالفته:
 ${input.deterministicReply}
@@ -2802,8 +2920,8 @@ ${input.deterministicReply}
             content: userInput,
           },
         ],
-        temperature: 0.55,
-        max_tokens: 900,
+        temperature: Number(process.env.AI_TEMPERATURE || "0.25"),
+        max_tokens: 420,
         thinking: { type: "disabled" },
       }),
     });
@@ -2868,7 +2986,9 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "supplier_delay_question" ||
     intent === "review_time" ||
     intent === "thanks" ||
-    intent === "human_agent"
+    intent === "human_agent" ||
+    intent === "unknown" ||
+    intent === "greeting"
   ) {
     app = await findApplicationByPhone(from);
   }
@@ -2958,7 +3078,18 @@ ${BUSINESS_NAME}`;
       baseUrl,
     });
 
-    return deterministicReply;
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: firstTwoNames(app.full_name),
+      trackingId: app.tracking_id || app.id,
+      status: app.status || null,
+      paymentStatus: app.payment_status || null,
+      deviceName: app.device_name || null,
+      isSensitive: true,
+      hasApplication: true,
+      intent,
+    });
   }
 
   if (app && intent === "cancel_confirmed") {
@@ -3110,12 +3241,6 @@ ${BUSINESS_NAME}`;
     "apply",
     "products",
     "payment",
-    "alternative_payment_source",
-    "receipt_upload_needed",
-    "supplier_delay_question",
-    "cancel_request",
-    "cancel_confirmed",
-    "delivery",
     "greeting",
   ].includes(intent);
 
