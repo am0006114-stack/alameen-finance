@@ -109,18 +109,12 @@ export function pickAgentName(seed: string) {
 export function humanOpening(seed: string) {
   const agent = pickAgentName(seed);
   const variants = [
-    `أهلًا وسهلًا 🌿
-معك ${agent} من ${BUSINESS_NAME}.`,
-    `هلا فيك 🌿
-معك ${agent} من متابعة ملفات ${BUSINESS_NAME}.`,
-    `أهلًا فيك، معك ${agent} 🌿
-خليني أراجع معك الموضوع.`,
-    `يا هلا 🌿
-معك ${agent} من ${BUSINESS_NAME}.`,
-    `مرحبًا 🌿
-معك ${agent} من فريق المتابعة.`,
-    `حيّاك الله 🌿
-معك ${agent} من ${BUSINESS_NAME}.`,
+    `معك ${agent} من المتابعة 🌿`,
+    `تمام، معك ${agent} 🌿`,
+    `وصلتني، معك ${agent} 🌿`,
+    `خلينا نراجعها، معك ${agent} 🌿`,
+    `أنا معك، ${agent} من المتابعة 🌿`,
+    `براجع معك الموضوع، معك ${agent} 🌿`,
   ];
 
   const digits = digitsOnly(seed);
