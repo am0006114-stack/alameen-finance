@@ -188,7 +188,7 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
 حالة طلبك الحالية:
 ${statusHumanLabel(status)}
 
-${app.payment_status === "confirmed" && status === "under_review" ? "بما أن رسوم فتح الملف مؤكدة والطلب قيد الدراسة النهائية، سيتم التواصل معك عند وجود أي تحديث أو إذا احتاج قسم الدراسة مستندات إضافية." : "إذا احتاجت الإدارة أي مستند إضافي أو خطوة جديدة، رح يوصلك التحديث بشكل واضح."}
+${isConfirmedPaidActiveApplication(app) ? paidDevicesReassuranceParagraph(app) : "إذا احتاجت الإدارة أي مستند إضافي أو خطوة جديدة، رح يوصلك التحديث بشكل واضح."}
 
 رقم التتبع:
 ${tracking}
@@ -758,11 +758,11 @@ function paymentRequirementsPendingReply(app: ApplicationRecord, baseUrl: string
 
   return `أهلًا ${name} 🌿
 
-رسوم فتح الملف مؤكدة، وطلبكم الآن قيد الدراسة النهائية.
+رسوم فتح الملف مؤكدة عندنا ✅
 
-حاليًا لا يوجد أي إجراء مطلوب منكم، وسيتم التواصل معكم إذا احتاج قسم الدراسة أي مستندات إضافية أو بيانات داعمة.
+${paidDevicesReassuranceParagraph(app)}
 
-نقدّر صبركم وثقتكم، وحقكم يكون عندكم تحديث واضح بدون استعجال أو إرباك.
+إذا احتاج قسم الدراسة أي مستند إضافي أو بيانات داعمة، بنطلبها منك برسالة واضحة بدون لخبطة.
 
 رقم التتبع:
 ${tracking}
@@ -782,6 +782,48 @@ function canShowPostPaymentRequirements(app: ApplicationRecord) {
   );
 }
 
+function isConfirmedPaidActiveApplication(app: ApplicationRecord | null | undefined) {
+  if (!app) return false;
+
+  const inactiveStatuses = [
+    "rejected",
+    "cancelled",
+    "customer_declined_continue",
+    "refund_requested",
+    "refund_completed",
+  ];
+
+  return app.payment_status === "confirmed" && !inactiveStatuses.includes(app.status || "");
+}
+
+function paidDevicesReassuranceParagraph(app: ApplicationRecord, mode: "general" | "delivery" | "requirements" = "general") {
+  const status = app.status || "";
+  const deviceName = app.device_name ? `جهاز ${app.device_name}` : "الجهاز المطلوب";
+  const needsGuarantor = status === "needs_guarantor";
+  const needsSalarySlip = status === "needs_salary_slip";
+  const needsDocsLine = needsGuarantor
+    ? "المطلوب حاليًا استكمال بيانات الكفيل حتى يظل الملف ماشي بدون تعطيل."
+    : needsSalarySlip
+      ? "المطلوب حاليًا استكمال كشف الراتب/شهادة الراتب حتى يظل الملف ماشي بدون تعطيل."
+      : "حاليًا ما في إجراء جديد مطلوب منك من طرفنا بنفس اللحظة.";
+
+  if (mode === "requirements" && (needsGuarantor || needsSalarySlip)) {
+    return `بما إن رسوم فتح الملف مؤكدة، ملفك قطع مرحلة مهمة والأمور عندك متقدمة ومطمئنة مبدئيًا.
+
+${needsDocsLine}
+
+بنفس الوقت خليني أكون واضح معك: التسليم النهائي مرتبط بتوفر الأجهزة من الوكلاء/الموردين، ولغاية الآن ${deviceName} مش متوفر بشكل يسمح باعتماد جدول توزيع نهائي.
+
+ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع، رح يتم التواصل معك مباشرة.`;
+  }
+
+  return `بما إن رسوم فتح الملف مؤكدة، ملفك قطع مرحلة مهمة والأمور عندك متقدمة ومطمئنة مبدئيًا.
+
+خليني أكون واضح معك: الموافقات على الطلبات المدفوعة شبه جاهزة من ناحية المتابعة الداخلية، لكن التسليم النهائي مرتبط بتوفر الأجهزة من الوكلاء/الموردين، ولغاية الآن ${deviceName} مش متوفر بشكل يسمح باعتماد جدول توزيع نهائي.
+
+ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع، رح يتم التواصل معك مباشرة.`;
+}
+
 
 function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
@@ -794,6 +836,8 @@ function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
     return `أهلًا ${name} 🌿
 
 تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+
+${paidDevicesReassuranceParagraph(app, "requirements")}
 
 لاستكمال إجراءات الملف حسب متطلبات الموافقة، نحتاج تزويدنا بالتالي:
 
@@ -814,6 +858,8 @@ ${BUSINESS_NAME}`;
   return `أهلًا ${name} 🌿
 
 تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+
+${paidDevicesReassuranceParagraph(app, "requirements")}
 
 لاستكمال إجراءات الملف حسب سياسة الموافقة، نحتاج تعبئة بيانات الكفيل من الرابط التالي:
 ${guarantorLink}
@@ -1028,7 +1074,7 @@ ${reason}
 طلبك ظاهر عندي الآن وحالته:
 ${statusHumanLabel(status)}
 
-${status === "approved" ? `طلبك عليه موافقة نهائية، لكن لا يوجد موعد تسليم نهائي محدد حاليًا لأننا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين. سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.` : `المتابعة المعتمدة حاليًا تكون حسب حالة الطلب فقط، ولا يوجد موعد تسليم نهائي محدد لأي طلب غير مؤكد أو غير جاهز للتوزيع.`}
+${isConfirmedPaidActiveApplication(app) ? paidDevicesReassuranceParagraph(app, "delivery") : `المتابعة المعتمدة حاليًا تكون حسب حالة الطلب فقط، ولا يوجد موعد تسليم نهائي محدد لأي طلب غير مؤكد أو غير جاهز للتوزيع.`}
 
 رقم التتبع:
 ${tracking}
@@ -1331,11 +1377,7 @@ function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
 
 طلبكم عليه موافقة نهائية ✅
 
-حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين.
-
-لذلك لا يوجد حاليًا موعد تسليم محدد أو نهائي للطلب.
-
-سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.
+${paidDevicesReassuranceParagraph(app, "delivery")}
 
 لا يوجد أي إجراء مطلوب منكم حاليًا، ولا يوجد أي دفعات مطلوبة.
 
@@ -1355,13 +1397,26 @@ ${BUSINESS_NAME}`;
 
 اختياركم بالانتظار مسجل لدينا.
 
-حتى هذه اللحظة ما زلنا بانتظار وصول الأجهزة من المورد/الوكلاء المعتمدين.
-
-لا يوجد موعد تسليم نهائي محدد حاليًا.
-
-سيتم التواصل معكم فور وصول الأجهزة واعتماد جدول التوزيع من الإدارة.
+${paidDevicesReassuranceParagraph(app, "delivery")}
 
 لا يوجد أي إجراء أو دفع مطلوب منكم حاليًا.
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
+  if (isConfirmedPaidActiveApplication(app) && ["under_review", "needs_salary_slip", "salary_slip_uploaded", "guarantor_submitted", "needs_guarantor"].includes(status)) {
+    return `أهلًا ${name} 🌿
+
+${paidDevicesReassuranceParagraph(app, "requirements")}
+
+حالة طلبكم الحالية:
+${statusHumanLabel(status)}
 
 رقم التتبع:
 ${tracking}
@@ -1489,9 +1544,9 @@ ${compactFileSnapshot(app)}
 
   if (isTinyContextFollowupText(customerText)) {
     if (paymentStatus === "confirmed" && status === "under_review") {
-      return `المختصر ${name}: الدفع مؤكد، والملف قيد الدراسة النهائية.
+      return `المختصر ${name}: الدفع مؤكد، والملف قيد الدراسة النهائية، والأمور مبدئيًا مطمئنة.
 
-ما عليك إجراء جديد الآن، وإذا احتجنا مستند إضافي بنحكيلك بوضوح.`;
+التأخير الحالي مرتبط بتوفر الأجهزة من الوكلاء واعتماد جدول التوزيع، مش بإجراء مطلوب منك الآن.`;
     }
 
     if (status === "approved" || status === "customer_accepts_delivery_delay") {
@@ -1555,6 +1610,8 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
       return `أهلًا ${name} 🌿
 
 رسوم فتح الملف مؤكدة لدينا ✅
+
+${paidDevicesReassuranceParagraph(app)}
 
 لا يوجد أي دفع مطلوب حاليًا، والقسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
 
@@ -2677,6 +2734,25 @@ function supplierDelayReply(app: ApplicationRecord, baseUrl: string) {
   const tracking = app.tracking_id || app.id;
   const url = trackUrl(baseUrl, app);
 
+  if (isConfirmedPaidActiveApplication(app)) {
+    return `هلا ${name} 🌿
+
+أفهم سؤالك، وحقك يكون عندك توضيح واضح.
+
+${paidDevicesReassuranceParagraph(app, "delivery")}
+
+حالة طلبك الحالية:
+${statusHumanLabel(app.status || "")}
+
+رقم التتبع:
+${tracking}
+
+رابط المتابعة:
+${url}
+
+${BUSINESS_NAME}`;
+  }
+
   return `هلا ${name} 🌿
 
 أفهم سؤالك، وحقك يكون عندك توضيح واضح.
@@ -2692,7 +2768,9 @@ ${statusHumanLabel(app.status || "")}
 ${tracking}
 
 رابط المتابعة:
-${url}`;
+${url}
+
+${BUSINESS_NAME}`;
 }
 
 function supplierDelayWithoutAppReply(from: string) {
@@ -3168,6 +3246,15 @@ async function generateAiReply(input: AiReplyInput) {
 - الدراسة والمتطلبات تكون بأسماء: عبدالله، خالد، عبدالرحمن.
 - الحالات الحساسة مثل الإلغاء، الغضب، الاسترداد، والاتهام تكون باسم عمران من متابعة الحالات.
 - لا تذكر اسم الشخصية بكل رسالة إذا السياق مستمر، لكن حافظ على نبرة موظف يعرف ملف العميل.
+
+قاعدة الطلبات المدفوعة وتأخير الأجهزة:
+- إذا كانت رسوم فتح الملف مؤكدة والطلب غير مرفوض وغير ملغى: اعتبر الملف قطع مرحلة مهمة.
+- الصياغة المطلوبة: "ملفك متقدم"، "الأمور مطمئنة مبدئيًا"، "الطلبات المدفوعة شبه جاهزة من ناحية المتابعة الداخلية".
+- ممنوع القول إن الموافقة نهائية إلا إذا كانت حالة الطلب approved.
+- ممنوع إعطاء تاريخ تسليم أو وعد قطعي.
+- وضّح أن التأخير الحالي للطلبات المدفوعة مرتبط بتوفر الأجهزة من الوكلاء/الموردين واعتماد جدول التوزيع، وليس بسبب تقصير من العميل.
+- أعطِ طمأنة معنوية صادقة: "ما بدنا نوعدك بتاريخ ونطلع مش دقيقين"، "أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع بنوصلك مباشرة".
+- إذا كان هناك مستند ناقص مثل كفيل أو كشف راتب: اطلبه بوضوح، لكن حافظ على نبرة مطمئنة ولا توحي بالرفض.
 
 قاعدة الإلغاء الصارمة:
 - إذا قال العميل "بدي ألغي" أو "بطلت" أو "ما بدي أكمل" فهذا طلب إلغاء مبدئي فقط، وليس تأكيدًا نهائيًا.
