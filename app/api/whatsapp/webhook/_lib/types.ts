@@ -137,6 +137,7 @@ export type CustomerIntent =
   | "alternative_payment_source"
   | "receipt_upload_needed"
   | "supplier_delay_question"
+  | "office_pickup_policy"
   | "human_agent"
   | "loan"
   | "contact_info"
