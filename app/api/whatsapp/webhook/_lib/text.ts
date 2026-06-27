@@ -73,8 +73,8 @@ export function formatJordanDateTime(value: string | null | undefined) {
 }
 
 export function extractTracking(text: string) {
-  const match = text.match(/AM-\d{8,}/i);
-  return match ? match[0].toUpperCase() : "";
+  const matches = String(text || "").match(/AM-\d{8,}/gi) || [];
+  return matches.length ? matches[matches.length - 1].toUpperCase() : "";
 }
 
 export function extractJordanPhoneFromText(text: string) {
@@ -107,14 +107,29 @@ export function pickAgentName(seed: string) {
 }
 
 export function humanOpening(seed: string) {
-  const agent = pickAgentName(seed);
   const variants = [
-    `معك ${agent} من المتابعة 🌿`,
-    `تمام، معك ${agent} 🌿`,
-    `وصلتني، معك ${agent} 🌿`,
-    `خلينا نراجعها، معك ${agent} 🌿`,
-    `أنا معك، ${agent} من المتابعة 🌿`,
-    `براجع معك الموضوع، معك ${agent} 🌿`,
+    "تمام، وصلتني 🌿",
+    "وصلتني، خلينا نراجعها بهدوء 🌿",
+    "فاهم عليك، خليني أوضحلك 🌿",
+    "حاضر، براجع معك نفس النقطة 🌿",
+    "تمام، خلينا نربطها بالطلب الصحيح 🌿",
+    "وصلت، خلينا نحكي بالمؤكد 🌿",
+    "معك، وبعطيك الواضح بدون لف ودوران 🌿",
+    "تمام، خطوة خطوة وبنوضحها 🌿",
+  ];
+
+  const digits = digitsOnly(seed);
+  const last = Number(digits.slice(-2) || "0");
+
+  return variants[last % variants.length];
+}
+
+export function softFaithPhrase(seed: string) {
+  const variants = [
+    "بإذن الله",
+    "إن شاء الله",
+    "الله ييسر الأمور",
+    "الله يعطيك العافية",
   ];
 
   const digits = digitsOnly(seed);

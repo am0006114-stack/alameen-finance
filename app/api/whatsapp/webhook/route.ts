@@ -27,6 +27,7 @@ import {
   getBaseUrl,
   hasAny,
   humanOpening,
+  softFaithPhrase,
   normalizeArabicText,
   normalizeJordanPhone,
   normalizeWhatsAppToSend,
@@ -587,6 +588,29 @@ function isSupplierDelayQuestionText(text: string) {
   return deviceContext && delayContext;
 }
 
+function isExplicitNewApplicationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "طلب جديد",
+    "اقدم طلب جديد",
+    "أقدم طلب جديد",
+    "بدي اقدم طلب جديد",
+    "بدي أقدم طلب جديد",
+    "اعمل طلب جديد",
+    "أعمل طلب جديد",
+    "افتح طلب جديد",
+    "فتح طلب جديد",
+    "جهاز ثاني",
+    "تلفون ثاني",
+    "موبايل ثاني",
+    "طلب ثاني",
+    "ابدا طلب",
+    "ابدأ طلب",
+  ]);
+}
+
 function classifyIntent(text: string): CustomerIntent {
   const t = normalizeArabicText(text);
 
@@ -814,14 +838,14 @@ ${needsDocsLine}
 
 بنفس الوقت خليني أكون واضح معك: التسليم النهائي مرتبط بتوفر الأجهزة من الوكلاء/الموردين، ولغاية الآن ${deviceName} مش متوفر بشكل يسمح باعتماد جدول توزيع نهائي.
 
-ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع، رح يتم التواصل معك مباشرة.`;
+ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع، رح يتم التواصل معك مباشرة ${softFaithPhrase(app.tracking_id || app.id)}.`;
   }
 
   return `بما إن رسوم فتح الملف مؤكدة، ملفك قطع مرحلة مهمة والأمور عندك متقدمة ومطمئنة مبدئيًا.
 
 خليني أكون واضح معك: الموافقات على الطلبات المدفوعة شبه جاهزة من ناحية المتابعة الداخلية، لكن التسليم النهائي مرتبط بتوفر الأجهزة من الوكلاء/الموردين، ولغاية الآن ${deviceName} مش متوفر بشكل يسمح باعتماد جدول توزيع نهائي.
 
-ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع، رح يتم التواصل معك مباشرة.`;
+ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول التوزيع، رح يتم التواصل معك مباشرة ${softFaithPhrase(app.tracking_id || app.id)}.`;
 }
 
 
@@ -2964,6 +2988,10 @@ async function findApplicationForAiMemory(from: string, text: string, intent: Cu
       "alternative_payment_source",
       "receipt_upload_needed",
       "supplier_delay_question",
+      "apply",
+      "products",
+      "human_agent",
+      "unknown",
     ].includes(intent)) {
       return await findApplicationByPhone(from);
     }
@@ -3180,9 +3208,13 @@ function safeShortHumanFallback(input: AiReplyInput) {
 async function generateAiReply(input: AiReplyInput) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
-  const escalationModel = process.env.DEEPSEEK_ESCALATION_MODEL || "deepseek-v4-pro";
   const defaultModel = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
-  const escalationIntents: CustomerIntent[] = [
+  const reasoningModel =
+    process.env.DEEPSEEK_REASONING_MODEL ||
+    process.env.DEEPSEEK_ESCALATION_MODEL ||
+    "deepseek-reasoner";
+
+  const reasoningIntents: CustomerIntent[] = [
     "abuse",
     "legal_threat",
     "social_media_threat",
@@ -3193,8 +3225,19 @@ async function generateAiReply(input: AiReplyInput) {
     "refund",
     "cancel_request",
     "cancel_confirmed",
+    "human_agent",
   ];
-  const model = input.isSensitive || escalationIntents.includes(input.intent) ? escalationModel : defaultModel;
+
+  const contextNeedsReasoning =
+    Boolean(input.conversationContext) &&
+    (isTinyContextFollowupText(input.customerText) || input.intent === "unknown" || input.intent === "human_agent");
+
+  const useDeepThinking =
+    input.isSensitive ||
+    reasoningIntents.includes(input.intent) ||
+    contextNeedsReasoning;
+
+  const model = useDeepThinking ? reasoningModel : defaultModel;
 
   if (!apiKey) {
     console.error("Missing DEEPSEEK_API_KEY");
@@ -3213,6 +3256,16 @@ async function generateAiReply(input: AiReplyInput) {
 
   const systemInstructions = `
 أنت تمثل خدمة عملاء واتساب حقيقية لدى "الأمين للأقساط" في الأردن.
+
+تعليمات التفكير العميق:
+- في الرسائل الحساسة أو الغاضبة أو المختصرة المرتبطة بسياق سابق، فكّر داخليًا قبل الرد: ما هو الطلب المرتبط؟ ما آخر حالة؟ ما الذي يريده العميل فعلًا؟ ثم أرسل للعميل الجواب النهائي فقط.
+- ممنوع إظهار خطوات التفكير أو أي شرح داخلي للعميل.
+- التفكير العميق بديل عن عبارات التحويل لموظف؛ لا تقل "سيتم تحويلك" ولا "متابعة بشرية"، بل أعطِ ردًا منطقيًا مباشرًا حسب البيانات.
+
+احترام ديني واجتماعي خفيف:
+- يجوز استخدام عبارة واحدة فقط في الرد مثل: "إن شاء الله"، "بإذن الله"، "الله ييسر الأمور"، "الله يعطيك العافية".
+- لا تستخدم العبارات الدينية في كل رد، ولا تجعلها بديلًا عن معلومة واضحة.
+- لا تستخدم "إن شاء الله" مع وعد زمني أو موعد غير مؤكد؛ استخدمها فقط كطمأنة خفيفة.
 
 حقائق رسمية ثابتة ممنوع تغييرها أو اختراع بدائل عنها:
 - رقم واتساب الشركة الرسمي: ${BUSINESS_PHONE_E164}
@@ -3372,6 +3425,15 @@ ${input.conversationContext || "لا يوجد سياق سابق كافٍ."}
 آخر ردود أرسلها النظام لهذا العميل:
 ${input.lastAssistantReplies?.length ? input.lastAssistantReplies.map((reply, index) => `${index + 1}. ${reply}`).join("\n") : "لا توجد ردود سابقة قريبة."}
 
+آخر رسائل العميل القريبة:
+${input.lastCustomerMessages?.length ? input.lastCustomerMessages.map((reply, index) => `${index + 1}. ${reply}`).join("\n") : "لا توجد رسائل عميل قريبة."}
+
+رقم تتبع مستخرج من الذاكرة إن وجد:
+${input.memoryTrackingId || "غير متوفر"}
+
+نوع رسالة واتساب:
+${input.messageType || "text"}
+
 أمثلة سابقة ناجحة من ذاكرة ${BUSINESS_NAME}:
 ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية حاليًا."}
 
@@ -3393,29 +3455,52 @@ ${input.deterministicReply}
 `;
 
   try {
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const requestBody: Record<string, unknown> = {
+      model,
+      messages: [
+        {
+          role: "system",
+          content: systemInstructions,
+        },
+        {
+          role: "user",
+          content: userInput,
+        },
+      ],
+      temperature: Number(process.env.AI_TEMPERATURE || "0.25"),
+      max_tokens: useDeepThinking
+        ? Number(process.env.AI_REASONING_MAX_TOKENS || "650")
+        : Number(process.env.AI_MAX_TOKENS || "420"),
+    };
+
+    if (process.env.DEEPSEEK_THINKING_MODE !== "off") {
+      requestBody.thinking = { type: useDeepThinking ? "enabled" : "disabled" };
+    }
+
+    let response = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model,
-        messages: [
-          {
-            role: "system",
-            content: systemInstructions,
-          },
-          {
-            role: "user",
-            content: userInput,
-          },
-        ],
-        temperature: Number(process.env.AI_TEMPERATURE || "0.25"),
-        max_tokens: 420,
-        thinking: { type: "disabled" },
-      }),
+      body: JSON.stringify(requestBody),
     });
+
+    if (!response.ok && useDeepThinking && "thinking" in requestBody) {
+      const thinkingErrorText = await response.text();
+      console.error("DeepSeek thinking reply failed, retrying without thinking:", thinkingErrorText);
+
+      delete requestBody.thinking;
+
+      response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(requestBody),
+      });
+    }
 
     if (!response.ok) {
       console.error("DeepSeek reply failed:", await response.text());
@@ -3432,19 +3517,27 @@ ${input.deterministicReply}
   }
 }
 
-async function buildReply(request: Request, from: string, text: string) {
+async function buildReply(request: Request, from: string, text: string, messageType = "text") {
   const baseUrl = getBaseUrl(request);
-  const tracking = extractTracking(text);
+  const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
   const intent = classifyIntent(text);
-  const sensitive = looksSensitive(text);
   const conversationMemory = await getConversationMemory(from);
+  const explicitlyNewApplication = isExplicitNewApplicationText(text);
+  const memoryTracking = !explicitlyNewApplication
+    ? conversationMemory.lastTrackingId || extractTracking(conversationMemory.conversationContext)
+    : "";
+  const tracking = directTracking || memoryTracking;
+  const sensitive = looksSensitive(text) || (Boolean(conversationMemory.conversationContext) && isTinyContextFollowupText(text));
 
   const humanizeReply = (input: AiReplyInput) =>
     generateAiReply({
       ...input,
       conversationContext: conversationMemory.conversationContext,
       lastAssistantReplies: conversationMemory.lastAssistantReplies,
+      lastCustomerMessages: conversationMemory.lastCustomerMessages,
+      memoryTrackingId: memoryTracking || null,
+      messageType,
     });
 
   let app: ApplicationRecord | null = null;
@@ -3455,7 +3548,7 @@ async function buildReply(request: Request, from: string, text: string) {
   } else if (tracking) {
     app = await findApplicationByTracking(tracking);
     if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
-  } else if (
+  } else if (!explicitlyNewApplication && (
     intent === "order_status" ||
     intent === "delivery" ||
     intent === "payment" ||
@@ -3479,8 +3572,10 @@ async function buildReply(request: Request, from: string, text: string) {
     intent === "thanks" ||
     intent === "human_agent" ||
     intent === "unknown" ||
-    intent === "greeting"
-  ) {
+    intent === "greeting" ||
+    intent === "apply" ||
+    intent === "products"
+  )) {
     app = await findApplicationByPhone(from);
   }
 
@@ -3789,6 +3884,194 @@ ${BUSINESS_NAME}`;
   });
 }
 
+type IncomingMessageExtraction = {
+  body: string;
+  logBody: string;
+  isOtpLike: boolean;
+  rawPayload: unknown;
+};
+
+function maskOtpLikeText(value: string) {
+  return String(value || "").replace(/\b(\d{2})(\d{2,6})(\d{0,2})\b/g, (_match, start, middle, end) => {
+    const maskedMiddle = "*".repeat(Math.max(String(middle || "").length, 2));
+    return `${start}${maskedMiddle}${end || ""}`;
+  });
+}
+
+function isLikelyOtpMessage(text: string) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+
+  const normalized = normalizeArabicText(raw);
+  const digits = digitsOnly(raw);
+  const hasOtpContext = hasAny(normalized, [
+    "otp",
+    "رمز",
+    "رمز تحقق",
+    "كود",
+    "كود تحقق",
+    "verification",
+    "code",
+    "تحقق",
+    "التحقق",
+    "دخول",
+    "login",
+  ]);
+
+  const looksLikeStandaloneCode = /^\d{4,8}$/.test(digits) && raw.replace(/\D/g, "") === digits;
+  const hasCodeWithContext = hasOtpContext && /\d{4,8}/.test(digits);
+
+  if (digits.startsWith("07") && digits.length === 10) return false;
+  if (digits.startsWith("9627") && digits.length === 12) return false;
+
+  return looksLikeStandaloneCode || hasCodeWithContext;
+}
+
+function sanitizeIncomingRawPayloadForStorage(payload: unknown) {
+  try {
+    const copy = JSON.parse(JSON.stringify(payload || {}));
+
+    const maskKnownTextFields = (value: any): any => {
+      if (!value || typeof value !== "object") return value;
+
+      for (const key of Object.keys(value)) {
+        const current = value[key];
+
+        if (typeof current === "string" && ["body", "caption", "text", "title", "description", "payload"].includes(key)) {
+          value[key] = isLikelyOtpMessage(current) ? maskOtpLikeText(current) : current;
+        } else if (current && typeof current === "object") {
+          value[key] = maskKnownTextFields(current);
+        }
+      }
+
+      return value;
+    };
+
+    return maskKnownTextFields(copy);
+  } catch {
+    return payload;
+  }
+}
+
+function contactSummary(contacts: WhatsAppMessage["contacts"]) {
+  const rows = (contacts || []).map((contact, index) => {
+    const name =
+      contact?.name?.formatted_name ||
+      [contact?.name?.first_name, contact?.name?.last_name].filter(Boolean).join(" ") ||
+      `جهة اتصال ${index + 1}`;
+
+    const phones = (contact?.phones || [])
+      .map((phone) => phone.phone || phone.wa_id || "")
+      .filter(Boolean)
+      .join(", ");
+
+    return phones ? `${name}: ${phones}` : name;
+  });
+
+  return rows.length ? rows.join("\n") : "تم استلام جهة اتصال.";
+}
+
+function extractIncomingMessageForProcessing(message: WhatsAppMessage): IncomingMessageExtraction {
+  const type = message.type || "unknown";
+  let body = "";
+
+  switch (type) {
+    case "text":
+      body = message.text?.body || "";
+      break;
+
+    case "image":
+      body = message.image?.caption
+        ? `صورة مرفقة مع تعليق: ${message.image.caption}`
+        : "تم استلام صورة من العميل بدون تعليق.";
+      break;
+
+    case "document":
+      body = [
+        "تم استلام ملف من العميل.",
+        message.document?.filename ? `اسم الملف: ${message.document.filename}` : "",
+        message.document?.caption ? `تعليق الملف: ${message.document.caption}` : "",
+        message.document?.mime_type ? `نوع الملف: ${message.document.mime_type}` : "",
+      ].filter(Boolean).join("\n");
+      break;
+
+    case "audio":
+    case "voice":
+      body = "تم استلام رسالة صوتية من العميل. لا يوجد تفريغ نصي تلقائي للصوت حاليًا، لذلك يُفضّل طلب توضيح نصي إذا لم يكن السياق كافيًا.";
+      break;
+
+    case "video":
+      body = message.video?.caption
+        ? `تم استلام فيديو من العميل مع تعليق: ${message.video.caption}`
+        : "تم استلام فيديو من العميل بدون تعليق.";
+      break;
+
+    case "sticker":
+      body = message.sticker?.emoji
+        ? `تم استلام ملصق من العميل: ${message.sticker.emoji}`
+        : "تم استلام ملصق من العميل.";
+      break;
+
+    case "location":
+      body = [
+        "تم استلام موقع من العميل.",
+        message.location?.name ? `اسم الموقع: ${message.location.name}` : "",
+        message.location?.address ? `العنوان: ${message.location.address}` : "",
+        typeof message.location?.latitude === "number" && typeof message.location?.longitude === "number"
+          ? `إحداثيات الموقع محفوظة في الرسالة.`
+          : "",
+      ].filter(Boolean).join("\n");
+      break;
+
+    case "contacts":
+      body = `تم استلام جهة/جهات اتصال من العميل:\n${contactSummary(message.contacts)}`;
+      break;
+
+    case "interactive":
+      body =
+        message.interactive?.button_reply?.title ||
+        message.interactive?.list_reply?.title ||
+        message.interactive?.list_reply?.description ||
+        message.interactive?.button_reply?.id ||
+        message.interactive?.list_reply?.id ||
+        "تم استلام اختيار تفاعلي من العميل.";
+      break;
+
+    case "button":
+      body = message.button?.text || message.button?.payload || "تم استلام ضغط زر من العميل.";
+      break;
+
+    case "reaction":
+      body = message.reaction?.emoji
+        ? `العميل تفاعل مع رسالة سابقة: ${message.reaction.emoji}`
+        : "تم استلام تفاعل من العميل على رسالة سابقة.";
+      break;
+
+    default:
+      body = `تم استلام رسالة واتساب من نوع ${type}.`;
+      break;
+  }
+
+  const isOtpLike = isLikelyOtpMessage(body);
+  const logBody = isOtpLike ? maskOtpLikeText(body) : body;
+
+  return {
+    body: logBody,
+    logBody,
+    isOtpLike,
+    rawPayload: sanitizeIncomingRawPayloadForStorage(message),
+  };
+}
+
+function otpSafetyReply() {
+  return `وصلتني رسالتك 🌿
+
+بس لأمانك، لا تبعث أي رمز تحقق أو OTP خاص بحساباتك أو تطبيقاتك على واتساب.
+
+إذا الموضوع متعلق بطلبك عند الأمين، ابعث رقم التتبع بدل الرمز، وبراجع لك الحالة مباشرة.`;
+}
+
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const mode = url.searchParams.get("hub.mode");
@@ -3871,21 +4154,17 @@ export async function POST(request: Request) {
       for (const message of value?.messages || []) {
         const from = message.from || "";
         const type = message.type || "unknown";
-        const text =
-          type === "text"
-            ? message.text?.body || ""
-            : type === "image"
-              ? message.image?.caption || "تم استلام صورة."
-              : "";
+        const extractedMessage = extractIncomingMessageForProcessing(message);
+        const text = extractedMessage.body;
 
         if (!from) continue;
 
         const incomingClaim = await claimIncomingWhatsAppMessage({
           messageId: message.id,
           waId: from,
-          body: text,
+          body: extractedMessage.logBody,
           messageType: type,
-          rawPayload: message,
+          rawPayload: extractedMessage.rawPayload,
         });
 
         if (!incomingClaim.shouldProcess) {
@@ -3906,7 +4185,7 @@ export async function POST(request: Request) {
         await logMessage({
           waId: from,
           direction: "incoming",
-          body: text,
+          body: extractedMessage.logBody,
           customerName: contactName,
           messageId: message.id,
           messageType: type,
@@ -3914,17 +4193,11 @@ export async function POST(request: Request) {
           trackingId: incomingTracking || null,
           needsHumanReview,
           handledByAi: false,
-          rawPayload: message,
+          rawPayload: extractedMessage.rawPayload,
         });
 
-        if (type !== "text" && type !== "image") {
-          const reply = `أهلًا وسهلًا 🌿
-
-وصلتنا رسالتكم، لكن حاليًا بقدر أتعامل مع الرسائل النصية والصور فقط.
-
-اكتبلي طلبك نصيًا: تقسيط، متابعة طلب، دفع، عنوان، موقع، أو شكوى، وبساعدك مباشرة.
-
-${BUSINESS_NAME}`;
+        if (extractedMessage.isOtpLike) {
+          const reply = otpSafetyReply();
 
           const outgoingMessageId = await sendWhatsAppText(from, reply);
           await logMessage({
@@ -3934,14 +4207,14 @@ ${BUSINESS_NAME}`;
             messageId: outgoingMessageId || undefined,
             intent: incomingIntent,
             trackingId: incomingTracking || null,
-            needsHumanReview,
+            needsHumanReview: true,
             handledByAi: true,
           });
           await markIncomingWhatsAppMessageProcessed(message.id);
           continue;
         }
 
-        const reply = await buildReply(request, from, text);
+        const reply = await buildReply(request, from, text, type);
         const outgoingMessageId = await sendWhatsAppText(from, reply);
         await logMessage({
           waId: from,
@@ -3957,7 +4230,7 @@ ${BUSINESS_NAME}`;
         const aiMemoryApp = await findApplicationForAiMemory(from, text, incomingIntent);
         await logAiConversation({
           phone: from,
-          customerMessage: text,
+          customerMessage: extractedMessage.logBody,
           aiReply: reply,
           intent: incomingIntent,
           applicationStatus: aiMemoryApp?.status || null,

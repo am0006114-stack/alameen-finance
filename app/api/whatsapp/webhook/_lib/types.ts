@@ -15,9 +15,98 @@ export type ApplicationRecord = {
 export type WhatsAppMessage = {
   from?: string;
   id?: string;
+  timestamp?: string;
   type?: string;
+
   text?: { body?: string };
-  image?: { caption?: string };
+
+  image?: {
+    id?: string;
+    caption?: string;
+    mime_type?: string;
+    sha256?: string;
+  };
+
+  document?: {
+    id?: string;
+    caption?: string;
+    filename?: string;
+    mime_type?: string;
+    sha256?: string;
+  };
+
+  audio?: {
+    id?: string;
+    mime_type?: string;
+    sha256?: string;
+    voice?: boolean;
+  };
+
+  voice?: {
+    id?: string;
+    mime_type?: string;
+    sha256?: string;
+  };
+
+  video?: {
+    id?: string;
+    caption?: string;
+    mime_type?: string;
+    sha256?: string;
+  };
+
+  sticker?: {
+    id?: string;
+    mime_type?: string;
+    sha256?: string;
+    animated?: boolean;
+    emoji?: string;
+  };
+
+  location?: {
+    latitude?: number;
+    longitude?: number;
+    name?: string;
+    address?: string;
+  };
+
+  contacts?: Array<{
+    name?: {
+      formatted_name?: string;
+      first_name?: string;
+      last_name?: string;
+    };
+    phones?: Array<{
+      phone?: string;
+      type?: string;
+      wa_id?: string;
+    }>;
+  }>;
+
+  interactive?: {
+    type?: string;
+    button_reply?: {
+      id?: string;
+      title?: string;
+    };
+    list_reply?: {
+      id?: string;
+      title?: string;
+      description?: string;
+    };
+  };
+
+  button?: {
+    text?: string;
+    payload?: string;
+  };
+
+  reaction?: {
+    message_id?: string;
+    emoji?: string;
+  };
+
+  [key: string]: unknown;
 };
 
 export type WhatsAppWebhookBody = {
@@ -79,4 +168,7 @@ export type AiReplyInput = {
   intent: CustomerIntent;
   conversationContext?: string;
   lastAssistantReplies?: string[];
+  lastCustomerMessages?: string[];
+  memoryTrackingId?: string | null;
+  messageType?: string | null;
 };

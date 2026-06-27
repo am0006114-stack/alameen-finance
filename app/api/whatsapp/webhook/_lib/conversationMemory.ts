@@ -6,6 +6,8 @@ export type ConversationMemory = {
   lastCustomerMessages: string[];
   lastIntent?: string | null;
   lastDirection?: string | null;
+  lastTrackingId?: string | null;
+  hasRecentConversation?: boolean;
 };
 
 function trimLine(value: string | null | undefined, max = 260) {
@@ -25,13 +27,20 @@ function directionLabel(value: string | null | undefined) {
   return "رسالة";
 }
 
-export async function getConversationMemory(waId: string, limit = 12): Promise<ConversationMemory> {
+function extractTrackingFromMemory(value: string | null | undefined) {
+  const matches = String(value || "").match(/AM-\d{8,}/gi) || [];
+  return matches.length ? matches[matches.length - 1].toUpperCase() : "";
+}
+
+export async function getConversationMemory(waId: string, limit = 18): Promise<ConversationMemory> {
   const empty: ConversationMemory = {
     conversationContext: "",
     lastAssistantReplies: [],
     lastCustomerMessages: [],
     lastIntent: null,
     lastDirection: null,
+    lastTrackingId: null,
+    hasRecentConversation: false,
   };
 
   const cleanWaId = String(waId || "").trim();
@@ -41,7 +50,7 @@ export async function getConversationMemory(waId: string, limit = 12): Promise<C
   try {
     const { data, error } = await supabaseAdmin
       .from("whatsapp_messages")
-      .select("direction, body, intent, created_at")
+      .select("direction, body, intent, created_at, message_type")
       .eq("wa_id", cleanWaId)
       .order("created_at", { ascending: false })
       .limit(limit);
@@ -59,8 +68,9 @@ export async function getConversationMemory(waId: string, limit = 12): Promise<C
         if (!body) return "";
 
         const intent = message.intent ? ` / intent: ${message.intent}` : "";
+        const messageType = message.message_type && message.message_type !== "text" ? ` / type: ${message.message_type}` : "";
 
-        return `${directionLabel(message.direction)}${intent}: ${body}`;
+        return `${directionLabel(message.direction)}${intent}${messageType}: ${body}`;
       })
       .filter(Boolean)
       .join("\n");
@@ -75,7 +85,11 @@ export async function getConversationMemory(waId: string, limit = 12): Promise<C
       .filter((message) => message.direction === "incoming")
       .map((message) => trimLine(message.body, 220))
       .filter(Boolean)
-      .slice(0, 3);
+      .slice(0, 4);
+
+    const newestMessageTime = data[0]?.created_at ? new Date(data[0].created_at).getTime() : NaN;
+    const hasRecentConversation =
+      Number.isFinite(newestMessageTime) && Date.now() - newestMessageTime <= 30 * 60 * 1000;
 
     return {
       conversationContext,
@@ -83,6 +97,8 @@ export async function getConversationMemory(waId: string, limit = 12): Promise<C
       lastCustomerMessages,
       lastIntent: data[0]?.intent || null,
       lastDirection: data[0]?.direction || null,
+      lastTrackingId: extractTrackingFromMemory(conversationContext) || null,
+      hasRecentConversation,
     };
   } catch (error) {
     console.error("getConversationMemory failed:", error);
