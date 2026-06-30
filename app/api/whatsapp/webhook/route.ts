@@ -3648,7 +3648,14 @@ function temporaryOrderLookupIssueReply(from: string, tracking?: string) {
 تأكد من رقم التتبع أو ابعث رقم الهاتف المستخدم بالتقديم، وبنراجع الحالة المتوفرة من طرفنا أول ما ترجع القراءة لطبيعتها.`;
 }
 
-async function hasRecentlySentSameReply(waId: string, reply: string, seconds = 10) {
+function normalizeReplyForLock(reply: string) {
+  return String(reply || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 700);
+}
+
+async function hasRecentlySentSameReply(waId: string, reply: string, seconds = 30) {
   const cleanWaId = String(waId || "").trim();
   const cleanReply = String(reply || "").trim();
   if (!cleanWaId || !cleanReply) return false;
@@ -3674,6 +3681,78 @@ async function hasRecentlySentSameReply(waId: string, reply: string, seconds = 1
     console.error("recent outgoing dedupe exception:", error);
     return false;
   }
+}
+
+async function claimOutgoingReplyLock(input: {
+  waId: string;
+  incomingMessageId?: string | null;
+  reply: string;
+  windowSeconds?: number;
+}) {
+  const cleanWaId = String(input.waId || "").trim();
+  const incomingMessageId = String(input.incomingMessageId || "").trim();
+  const cleanReply = normalizeReplyForLock(input.reply);
+  const windowSeconds = input.windowSeconds || 20;
+
+  if (!cleanWaId || !cleanReply) {
+    return { shouldSend: true, reason: "missing_lock_input" };
+  }
+
+  const nowIso = new Date().toISOString();
+  const replyBucket = Math.floor(Date.now() / (windowSeconds * 1000));
+  const locks = incomingMessageId
+    ? [
+        {
+          lock_key: `incoming:${cleanWaId}:${incomingMessageId}`,
+          wa_id: cleanWaId,
+          incoming_message_id: incomingMessageId,
+          reply_body: cleanReply,
+          created_at: nowIso,
+        },
+        {
+          lock_key: `reply:${cleanWaId}:${replyBucket}:${cleanReply}`,
+          wa_id: cleanWaId,
+          incoming_message_id: incomingMessageId,
+          reply_body: cleanReply,
+          created_at: nowIso,
+        },
+      ]
+    : [
+        {
+          lock_key: `reply:${cleanWaId}:${replyBucket}:${cleanReply}`,
+          wa_id: cleanWaId,
+          incoming_message_id: null,
+          reply_body: cleanReply,
+          created_at: nowIso,
+        },
+      ];
+
+  for (const lock of locks) {
+    try {
+      const { error } = await supabaseAdmin
+        .from("whatsapp_outgoing_reply_locks")
+        .insert(lock);
+
+      if (!error) continue;
+
+      if ((error as any).code === "23505") {
+        return { shouldSend: false, reason: "duplicate_outgoing_lock" };
+      }
+
+      if ((error as any).code === "42P01") {
+        console.error("whatsapp_outgoing_reply_locks table is missing; run the SQL migration before testing duplicate replies.");
+        return { shouldSend: !(await hasRecentlySentSameReply(cleanWaId, cleanReply, windowSeconds)), reason: "missing_outgoing_lock_table" };
+      }
+
+      console.error("outgoing reply lock insert failed:", error);
+      return { shouldSend: !(await hasRecentlySentSameReply(cleanWaId, cleanReply, windowSeconds)), reason: "outgoing_lock_error" };
+    } catch (error) {
+      console.error("outgoing reply lock exception:", error);
+      return { shouldSend: !(await hasRecentlySentSameReply(cleanWaId, cleanReply, windowSeconds)), reason: "outgoing_lock_exception" };
+    }
+  }
+
+  return { shouldSend: true, reason: "outgoing_lock_claimed" };
 }
 
 async function buildReply(request: Request, from: string, text: string, messageType = "text") {
@@ -4380,7 +4459,14 @@ export async function POST(request: Request) {
         if (extractedMessage.isOtpLike) {
           const reply = otpSafetyReply();
 
-          if (!(await hasRecentlySentSameReply(from, reply))) {
+          const outgoingClaim = await claimOutgoingReplyLock({
+            waId: from,
+            incomingMessageId: message.id,
+            reply,
+            windowSeconds: 20,
+          });
+
+          if (outgoingClaim.shouldSend && !(await hasRecentlySentSameReply(from, reply, 30))) {
             const outgoingMessageId = await sendWhatsAppText(from, reply);
             await logMessage({
               waId: from,
@@ -4393,14 +4479,20 @@ export async function POST(request: Request) {
               handledByAi: true,
             });
           } else {
-            console.log("Skipped duplicate OTP safety reply", { waId: from, messageId: message.id });
+            console.log("Skipped duplicate OTP safety reply", { waId: from, messageId: message.id, reason: outgoingClaim.reason });
           }
           await markIncomingWhatsAppMessageProcessed(message.id);
           continue;
         }
 
         const reply = await buildReply(request, from, text, type);
-        const alreadySentSameReply = await hasRecentlySentSameReply(from, reply);
+        const outgoingClaim = await claimOutgoingReplyLock({
+          waId: from,
+          incomingMessageId: message.id,
+          reply,
+          windowSeconds: 20,
+        });
+        const alreadySentSameReply = !outgoingClaim.shouldSend || await hasRecentlySentSameReply(from, reply, 30);
 
         if (!alreadySentSameReply) {
           const outgoingMessageId = await sendWhatsAppText(from, reply);
@@ -4424,7 +4516,12 @@ export async function POST(request: Request) {
             applicationStatus: aiMemoryApp?.status || null,
           });
         } else {
-          console.log("Skipped duplicate outgoing reply", { waId: from, messageId: message.id, intent: incomingIntent });
+          console.log("Skipped duplicate outgoing reply", {
+            waId: from,
+            messageId: message.id,
+            intent: incomingIntent,
+            reason: outgoingClaim.reason,
+          });
         }
 
         await markIncomingWhatsAppMessageProcessed(message.id);
