@@ -138,6 +138,7 @@ export type CustomerIntent =
   | "receipt_upload_needed"
   | "supplier_delay_question"
   | "office_pickup_policy"
+  | "site_issue"
   | "human_agent"
   | "loan"
   | "contact_info"

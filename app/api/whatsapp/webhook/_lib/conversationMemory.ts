@@ -7,6 +7,8 @@ export type ConversationMemory = {
   lastIntent?: string | null;
   lastDirection?: string | null;
   lastTrackingId?: string | null;
+  lastPhoneNumber?: string | null;
+  lastCustomerConcern?: string | null;
   hasRecentConversation?: boolean;
 };
 
@@ -32,7 +34,21 @@ function extractTrackingFromMemory(value: string | null | undefined) {
   return matches.length ? matches[matches.length - 1].toUpperCase() : "";
 }
 
-export async function getConversationMemory(waId: string, limit = 18): Promise<ConversationMemory> {
+function extractJordanPhoneFromMemory(value: string | null | undefined) {
+  const matches = String(value || "").match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
+  return matches.length ? matches[matches.length - 1] : "";
+}
+
+function inferLastConcernFromMemory(value: string | null | undefined) {
+  const text = String(value || "");
+  if (/الموقع|السايت|التتبع|الرابط|جلب الطلبات|خطأ|خطا|404|not found|error/i.test(text)) return "site_or_tracking_issue";
+  if (/ارامكس|أرامكس|توصيل|شحن|مندوب|استلام|المكتب/i.test(text)) return "pickup_or_delivery";
+  if (/نصب|احتيال|فلوسي|استرداد|شكوى|محامي|فضح/i.test(text)) return "complaint_or_dispute";
+  if (/وين الجهاز|وين طلبي|تأخير|تاخير|متى بستلم/i.test(text)) return "device_or_delay";
+  return null;
+}
+
+export async function getConversationMemory(waId: string, limit = 60): Promise<ConversationMemory> {
   const empty: ConversationMemory = {
     conversationContext: "",
     lastAssistantReplies: [],
@@ -40,6 +56,8 @@ export async function getConversationMemory(waId: string, limit = 18): Promise<C
     lastIntent: null,
     lastDirection: null,
     lastTrackingId: null,
+    lastPhoneNumber: null,
+    lastCustomerConcern: null,
     hasRecentConversation: false,
   };
 
@@ -98,6 +116,8 @@ export async function getConversationMemory(waId: string, limit = 18): Promise<C
       lastIntent: data[0]?.intent || null,
       lastDirection: data[0]?.direction || null,
       lastTrackingId: extractTrackingFromMemory(conversationContext) || null,
+      lastPhoneNumber: extractJordanPhoneFromMemory(conversationContext) || null,
+      lastCustomerConcern: inferLastConcernFromMemory(conversationContext),
       hasRecentConversation,
     };
   } catch (error) {

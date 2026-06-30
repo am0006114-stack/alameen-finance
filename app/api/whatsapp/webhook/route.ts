@@ -417,7 +417,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -588,6 +588,27 @@ function isSupplierDelayQuestionText(text: string) {
   return deviceContext && delayContext;
 }
 
+
+function isSiteOrTrackingSystemIssueText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const siteContext = hasAny(t, [
+    "الموقع", "السايت", "الرابط", "لينك", "تتبع", "التتبع", "صفحه التتبع", "صفحة التتبع",
+    "حاله الطلب", "حالة الطلب", "طلبي", "الطلب", "جلب الطلبات", "البحث عن الطلب", "عرض الطلب",
+    "track", "tracking", "website", "site", "link",
+  ]);
+
+  const problemContext = hasAny(t, [
+    "مش شغال", "ما بشتغل", "ما بفتح", "ما فتح", "ما بطلع", "مش ظاهر", "ما ظهر", "ما بيظهر",
+    "خطا", "خطأ", "ايرور", "error", "404", "not found", "تعطل", "واقع", "خربان", "معلق",
+    "حاول مره اخرى", "حاول مرة أخرى", "حدث خطا", "حدث خطأ", "ما بجيب", "ما جاب", "مش لاقي",
+    "لم يتم العثور", "could not be found", "page could not be found",
+  ]);
+
+  return siteContext && problemContext;
+}
+
 function isOfficePickupPolicyText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -658,6 +679,10 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isReceiptUploadNeededText(t)) {
     return "receipt_upload_needed";
+  }
+
+  if (isSiteOrTrackingSystemIssueText(t)) {
+    return "site_issue";
   }
 
   if (isOfficePickupPolicyText(t)) {
@@ -762,7 +787,7 @@ function classifyIntent(text: string): CustomerIntent {
 
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "cancel_request", "cancel_confirmed"].includes(intent) || shouldFlagHumanReview(text, intent);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "cancel_request", "cancel_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
 }
 
 function getSalaryNumber(value: number | string | null | undefined) {
@@ -1573,16 +1598,16 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
 احكيلي شو بدك أراجع لك الآن: الدفع، التسليم، ولا المتطلبات؟`;
   }
 
-  if (intent === "greeting") {
+  if (String(intent) === "greeting") {
     return `هلا ${name} 🌿
 أنا معك، شو بدك أشيك لك بالملف؟`;
   }
 
-  if (intent === "thanks") {
+  if (String(intent) === "thanks") {
     return `العفو ${name} 🌿`;
   }
 
-  if (intent === "human_agent") {
+  if (String(intent) === "human_agent") {
     return `أنا معك ${name}.
 
 ${compactFileSnapshot(app)}
@@ -1608,7 +1633,7 @@ ${compactFileSnapshot(app)}
 احكيلي أي جزء بدك أوضحه لك؟`;
   }
 
-  if (intent === "unknown" && text && !hasAny(text, ["طلب", "طلبي", "حاله", "حالة", "وين", "دفع", "وصل", "جهاز", "تسليم", "استلام", "كفيل", "راتب"])) {
+  if (String(intent) === "unknown" && text && !hasAny(text, ["طلب", "طلبي", "حاله", "حالة", "وين", "دفع", "وصل", "جهاز", "تسليم", "استلام", "كفيل", "راتب"])) {
     return `وصلتني يا ${name}.
 
 بس حتى ما أعطيك جواب عام، قصدك تتابع الملف ولا عندك سؤال معين؟`;
@@ -1627,25 +1652,25 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   const conversational = conversationalDirectReply(app, baseUrl, customerText, intent);
   if (conversational) return conversational;
 
-  if (intent === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "social_media_threat") return socialMediaThreatReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
-  if (intent === "refund") return refundReply(baseUrl, app.phone || tracking, app);
-  if (intent === "cancel_request") return cancelRequestReply(app, baseUrl, customerText);
-  if (intent === "cancel_confirmed") return declineConfirmationMessage(app);
-  if (intent === "alternative_payment_source") return alternativePaymentSourceReply(app, baseUrl);
-  if (intent === "receipt_upload_needed") return receiptUploadReply(app, baseUrl);
-  if (intent === "office_pickup_policy") return officePickupPolicyReply(app.phone || tracking, app, baseUrl);
-  if (intent === "supplier_delay_question") return supplierDelayReply(app, baseUrl);
-  if (intent === "delivery") return deliveryDateReply(app, baseUrl);
-  if (intent === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl);
-  if (intent === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl);
+  if (String(intent) === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "social_media_threat") return socialMediaThreatReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "refund") return refundReply(baseUrl, app.phone || tracking, app);
+  if (String(intent) === "cancel_request") return cancelRequestReply(app, baseUrl, customerText);
+  if (String(intent) === "cancel_confirmed") return declineConfirmationMessage(app);
+  if (String(intent) === "alternative_payment_source") return alternativePaymentSourceReply(app, baseUrl);
+  if (String(intent) === "receipt_upload_needed") return receiptUploadReply(app, baseUrl);
+  if (String(intent) === "office_pickup_policy") return officePickupPolicyReply(app.phone || tracking, app, baseUrl);
+  if (String(intent) === "supplier_delay_question") return supplierDelayReply(app, baseUrl);
+  if (String(intent) === "delivery") return deliveryDateReply(app, baseUrl);
+  if (String(intent) === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl);
+  if (String(intent) === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl);
 
-  if (intent === "payment") {
+  if (String(intent) === "payment") {
     if (
       status === "preliminary_qualified" ||
       paymentStatus === "pending" ||
@@ -2510,20 +2535,20 @@ async function handleDocumentAutomation(input: {
     return reply;
   }
 
-  if (status === "guarantor_submitted" && (hasGuarantorContext || intent === "requirements" || intent === "order_status")) {
+  if (status === "guarantor_submitted" && (hasGuarantorContext || String(intent) === "requirements" || String(intent) === "order_status")) {
     return guarantorSubmittedAutoReply(app);
   }
 
-  if (status === "salary_slip_uploaded" && (hasSalaryContext || intent === "requirements" || intent === "order_status")) {
+  if (status === "salary_slip_uploaded" && (hasSalaryContext || String(intent) === "requirements" || String(intent) === "order_status")) {
     return salarySlipUploadedAutoReply(app);
   }
 
-  if (status === "needs_guarantor" && (hasGuarantorContext || linkRequest || intent === "requirements" || intent === "order_status")) {
+  if (status === "needs_guarantor" && (hasGuarantorContext || linkRequest || String(intent) === "requirements" || String(intent) === "order_status")) {
     const alreadySent = await wasGuarantorLinkAlreadySent(from);
     return alreadySent ? guarantorLinkAlreadySentReply(app) : guarantorLinkFirstReply(app, baseUrl);
   }
 
-  if (status === "needs_salary_slip" && (hasSalaryContext || linkRequest || intent === "requirements" || intent === "order_status")) {
+  if (status === "needs_salary_slip" && (hasSalaryContext || linkRequest || String(intent) === "requirements" || String(intent) === "order_status")) {
     const alreadySent = await wasSalarySlipLinkAlreadySent(from);
     return alreadySent ? salarySlipLinkAlreadySentReply(app) : salarySlipLinkFirstReply(app, baseUrl);
   }
@@ -3037,6 +3062,7 @@ async function findApplicationForAiMemory(from: string, text: string, intent: Cu
       "alternative_payment_source",
       "receipt_upload_needed",
       "office_pickup_policy",
+      "site_issue",
       "supplier_delay_question",
       "apply",
       "products",
@@ -3217,6 +3243,14 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "الموعد الجديد",
     "موعد الاستلام",
     "تم تحديد موعد",
+    "Supabase",
+    "supabase",
+    "quota",
+    "storage quota",
+    "cached egress",
+    "restricted",
+    "exceed_storage_size_quota",
+    "exceed_cached_egress_quota",
   ];
 
   if (forbidden.some((word) => clean.includes(word))) {
@@ -3253,11 +3287,11 @@ function hasRepeatedAssistantPhrase(input: AiReplyInput, phrase: string) {
 }
 
 function safeShortHumanFallback(input: AiReplyInput) {
-  if (input.intent === "greeting") {
+  if (String(input.intent) === "greeting") {
     return input.deterministicReply;
   }
 
-  if (input.intent === "thanks") {
+  if (String(input.intent) === "thanks") {
     return "العفو 🌿";
   }
 
@@ -3284,12 +3318,13 @@ async function generateAiReply(input: AiReplyInput) {
     "refund",
     "cancel_request",
     "cancel_confirmed",
+    "site_issue",
     "human_agent",
   ];
 
   const contextNeedsReasoning =
     Boolean(input.conversationContext) &&
-    (isTinyContextFollowupText(input.customerText) || input.intent === "unknown" || input.intent === "human_agent");
+    (isTinyContextFollowupText(input.customerText) || String(input.intent) === "unknown" || String(input.intent) === "human_agent");
 
   const useDeepThinking =
     input.isSensitive ||
@@ -3585,6 +3620,62 @@ ${input.deterministicReply}
   }
 }
 
+
+function siteIssueReply(from: string, app?: ApplicationRecord | null, tracking?: string) {
+  const requestRef = tracking || app?.tracking_id || app?.id || "";
+  const appLine = app
+    ? `\n\nالطلب مربوط عندنا على رقم التتبع:\n${app.tracking_id || app.id}\n\nالحالة الظاهرة حاليًا:\n${statusHumanLabel(app.status || "")}`
+    : requestRef
+      ? `\n\nرقم التتبع اللي وصلني:\n${requestRef}`
+      : "";
+
+  return `وصلتني ملاحظتك بخصوص التتبع 🌿
+
+في خلل تقني مؤقت في نظام عرض الطلبات/التتبع، والفريق التقني شغال على معالجته حاليًا.
+
+للتوضيح، هذا الخلل لا يعني إلغاء الطلب ولا ضياع البيانات. ملفات العملاء محفوظة، وأي تحديث رسمي على الطلب بيتم من خلال رقم التتبع أو رقم الهاتف المستخدم بالتقديم.${appLine}
+
+إذا احتجت نراجع الحالة من طرفنا، ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم، وبنحكي لك بالموجود بدون تخمين.`;
+}
+
+function temporaryOrderLookupIssueReply(from: string, tracking?: string) {
+  const trackingLine = tracking ? `\n\nرقم التتبع اللي وصلني:\n${tracking}` : "";
+
+  return `وصلتني، بس حاليًا ما قدرت أقرأ حالة الطلب من النظام بشكل مؤكد 🌿${trackingLine}
+
+هذا لا يعني إن الطلب ملغي أو ضايع؛ أحيانًا يصير خلل مؤقت في عرض/قراءة حالة الطلب.
+
+تأكد من رقم التتبع أو ابعث رقم الهاتف المستخدم بالتقديم، وبنراجع الحالة المتوفرة من طرفنا أول ما ترجع القراءة لطبيعتها.`;
+}
+
+async function hasRecentlySentSameReply(waId: string, reply: string, seconds = 10) {
+  const cleanWaId = String(waId || "").trim();
+  const cleanReply = String(reply || "").trim();
+  if (!cleanWaId || !cleanReply) return false;
+
+  try {
+    const since = new Date(Date.now() - seconds * 1000).toISOString();
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("wa_id", cleanWaId)
+      .eq("direction", "outgoing")
+      .eq("body", cleanReply)
+      .gte("created_at", since)
+      .limit(1);
+
+    if (error) {
+      if ((error as any).code !== "42703") console.error("recent outgoing dedupe failed:", error);
+      return false;
+    }
+
+    return Array.isArray(data) && data.length > 0;
+  } catch (error) {
+    console.error("recent outgoing dedupe exception:", error);
+    return false;
+  }
+}
+
 async function buildReply(request: Request, from: string, text: string, messageType = "text") {
   const baseUrl = getBaseUrl(request);
   const directTracking = extractTracking(text);
@@ -3608,6 +3699,15 @@ async function buildReply(request: Request, from: string, text: string, messageT
       messageType,
     });
 
+  if (String(intent) === "greeting") {
+    return generalGreetingReply(from);
+  }
+
+  if (String(intent) === "thanks" && !conversationMemory.hasRecentConversation) {
+    return `العفو 🌿
+بخدمتك بأي وقت.`;
+  }
+
   let app: ApplicationRecord | null = null;
 
   if (tracking && typedPhone) {
@@ -3617,39 +3717,37 @@ async function buildReply(request: Request, from: string, text: string, messageT
     app = await findApplicationByTracking(tracking);
     if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
   } else if (!explicitlyNewApplication && (
-    intent === "order_status" ||
-    intent === "delivery" ||
-    intent === "payment" ||
-    intent === "requirements" ||
-    intent === "refund" ||
-    intent === "complaint" ||
-    intent === "abuse" ||
-    intent === "legal_threat" ||
-    intent === "social_media_threat" ||
-    intent === "scam_accusation" ||
-    intent === "payment_dispute" ||
-    intent === "device_delay_rage" ||
-    intent === "continue_decision" ||
-    intent === "decline_decision" ||
-    intent === "cancel_request" ||
-    intent === "cancel_confirmed" ||
-    intent === "alternative_payment_source" ||
-    intent === "receipt_upload_needed" ||
-    intent === "supplier_delay_question" ||
-    intent === "review_time" ||
-    intent === "thanks" ||
-    intent === "human_agent" ||
-    intent === "unknown" ||
-    intent === "greeting" ||
-    intent === "apply" ||
-    intent === "products"
+    String(intent) === "order_status" ||
+    String(intent) === "delivery" ||
+    String(intent) === "payment" ||
+    String(intent) === "requirements" ||
+    String(intent) === "refund" ||
+    String(intent) === "complaint" ||
+    String(intent) === "abuse" ||
+    String(intent) === "legal_threat" ||
+    String(intent) === "social_media_threat" ||
+    String(intent) === "scam_accusation" ||
+    String(intent) === "payment_dispute" ||
+    String(intent) === "device_delay_rage" ||
+    String(intent) === "continue_decision" ||
+    String(intent) === "decline_decision" ||
+    String(intent) === "cancel_request" ||
+    String(intent) === "cancel_confirmed" ||
+    String(intent) === "alternative_payment_source" ||
+    String(intent) === "receipt_upload_needed" ||
+    String(intent) === "supplier_delay_question" ||
+    String(intent) === "site_issue" ||
+    String(intent) === "review_time" ||
+    String(intent) === "human_agent" ||
+    String(intent) === "apply" ||
+    String(intent) === "products"
   )) {
     app = await findApplicationByPhone(from);
   }
 
   let deterministicReply: string;
 
-  if (app && intent === "continue_decision") {
+  if (app && String(intent) === "continue_decision") {
     if (app.status !== "preliminary_qualified") {
       deterministicReply = `${humanOpening(`${from}:continue_guard`)}
 
@@ -3718,7 +3816,7 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (app && intent === "cancel_request") {
+  if (app && String(intent) === "cancel_request") {
     deterministicReply = cancelRequestReply(app, baseUrl, text);
 
     await sendDiscordNotification({
@@ -3746,7 +3844,7 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (app && intent === "cancel_confirmed") {
+  if (app && String(intent) === "cancel_confirmed") {
     const updatedApp = await updateCustomerDecision({ app, decision: "decline" });
     deterministicReply = declineConfirmationMessage(updatedApp);
 
@@ -3764,7 +3862,7 @@ ${BUSINESS_NAME}`;
     return deterministicReply;
   }
 
-  if (app && intent === "refund") {
+  if (app && String(intent) === "refund") {
     const alreadyRequested = app.status === "refund_requested" || app.payment_status === "refund_requested";
     const alreadyCompleted = app.status === "refund_completed";
 
@@ -3805,8 +3903,25 @@ ${BUSINESS_NAME}`;
     }
   }
 
-  if (!app && (intent === "continue_decision" || intent === "decline_decision" || intent === "cancel_request" || intent === "cancel_confirmed")) {
-    if (intent === "cancel_request" || intent === "cancel_confirmed") {
+  if (String(intent) === "site_issue") {
+    deterministicReply = siteIssueReply(from, app, tracking);
+
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: true,
+      hasApplication: Boolean(app),
+      intent,
+    });
+  }
+
+  if (!app && (String(intent) === "continue_decision" || String(intent) === "decline_decision" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed")) {
+    if (String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
       deterministicReply = cancelRequestWithoutAppReply(from);
     } else {
       deterministicReply = `${humanOpening(`${from}:decision`)}
@@ -3849,55 +3964,59 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (intent === "abuse") {
+  if (String(intent) === "abuse") {
     deterministicReply = abuseReply(baseUrl, from, null, text);
-  } else if (intent === "legal_threat") {
+  } else if (String(intent) === "legal_threat") {
     deterministicReply = legalThreatReply(baseUrl, from, null, text);
-  } else if (intent === "social_media_threat") {
+  } else if (String(intent) === "social_media_threat") {
     deterministicReply = socialMediaThreatReply(baseUrl, from, null, text);
-  } else if (intent === "scam_accusation") {
+  } else if (String(intent) === "scam_accusation") {
     deterministicReply = scamAccusationReply(baseUrl, from, null, text);
-  } else if (intent === "payment_dispute") {
+  } else if (String(intent) === "payment_dispute") {
     deterministicReply = paymentDisputeReply(baseUrl, from, null, text);
-  } else if (intent === "device_delay_rage") {
+  } else if (String(intent) === "device_delay_rage") {
     deterministicReply = deviceDelayRageReply(baseUrl, from, null, text);
-  } else if (intent === "complaint") {
+  } else if (String(intent) === "complaint") {
     deterministicReply = complaintReply(baseUrl, from, null, text);
-  } else if (intent === "refund") {
+  } else if (String(intent) === "refund") {
     deterministicReply = refundReply(baseUrl, from, null);
-  } else if (intent === "cancel_request" || intent === "cancel_confirmed") {
+  } else if (String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
     deterministicReply = cancelRequestWithoutAppReply(from);
-  } else if (intent === "alternative_payment_source" || intent === "receipt_upload_needed") {
+  } else if (String(intent) === "alternative_payment_source" || String(intent) === "receipt_upload_needed") {
     deterministicReply = alternativePaymentSourceWithoutAppReply(from);
-  } else if (intent === "office_pickup_policy") {
+  } else if (["order_status", "review_time"].includes(intent)) {
+    deterministicReply = temporaryOrderLookupIssueReply(from, tracking || undefined);
+  } else if (String(intent) === "site_issue") {
+    deterministicReply = siteIssueReply(from, null, tracking);
+  } else if (String(intent) === "office_pickup_policy") {
     deterministicReply = officePickupPolicyReply(from, null, baseUrl);
-  } else if (intent === "supplier_delay_question") {
+  } else if (String(intent) === "supplier_delay_question") {
     deterministicReply = supplierDelayWithoutAppReply(from);
-  } else if (intent === "human_agent") {
+  } else if (String(intent) === "human_agent") {
     deterministicReply = `أنا معك 🌿
 
 احكيلي شو المشكلة باختصار، وإذا الموضوع متعلق بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
 
 براجع لك الموجود وبعطيك الخطوة المناسبة بدون لف ودوران.`;
-  } else if (intent === "loan") {
+  } else if (String(intent) === "loan") {
     deterministicReply = loanReply(from);
-  } else if (intent === "contact_info") {
+  } else if (String(intent) === "contact_info") {
     deterministicReply = contactInfoReply(baseUrl, from);
-  } else if (intent === "website") {
+  } else if (String(intent) === "website") {
     deterministicReply = websiteReply(baseUrl, from);
-  } else if (intent === "location") {
+  } else if (String(intent) === "location") {
     deterministicReply = locationReply(from);
-  } else if (intent === "installment_info") {
+  } else if (String(intent) === "installment_info") {
     deterministicReply = installmentInfoReply(baseUrl, from);
-  } else if (intent === "requirements") {
+  } else if (String(intent) === "requirements") {
     deterministicReply = requirementsReply(baseUrl, from);
-  } else if (intent === "apply") {
+  } else if (String(intent) === "apply") {
     deterministicReply = applyReply(baseUrl, from);
-  } else if (intent === "products") {
+  } else if (String(intent) === "products") {
     deterministicReply = productsReply(baseUrl, from);
-  } else if (intent === "payment") {
+  } else if (String(intent) === "payment") {
     deterministicReply = paymentGeneralReply(from);
-  } else if (intent === "delivery") {
+  } else if (String(intent) === "delivery") {
     deterministicReply = `${humanOpening(`${from}:delivery`)}
 
 نعتذر منك بصدق عن أي تأخير أو عدم وضوح بخصوص المواعيد.
@@ -3906,22 +4025,13 @@ ${BUSINESS_NAME}`;
 ${POST_EID_DELIVERY_STRICT_TEXT}.
 
 لا يوجد موعد استلام نهائي محدد حاليًا. إذا بدك أفحص حالة طلبك تحديدًا، ابعث رقم التتبع، وبعطيك الحالة الموجودة عندي بدون تخمين.`;
-  } else if (intent === "review_time") {
+  } else if (String(intent) === "review_time") {
     deterministicReply = generalReviewTimeReply(from);
   } else if (tracking) {
-    deterministicReply = `${humanOpening(`${from}:tracking`)}
-
-فحصت رقم التتبع اللي وصلني:
-${tracking}
-
-بس ما ظهر عندي طلب مطابق لهذا الرقم.
-
-ممكن يكون في رقم ناقص أو خطأ بسيط بالتتبع. ابعثلي صورة الطلب أو رقم الهاتف المستخدم بالطلب، وبراجعه لك فورًا.
-
-${BUSINESS_NAME}`;
-  } else if (intent === "greeting") {
+    deterministicReply = temporaryOrderLookupIssueReply(from, tracking);
+  } else if (String(intent) === "greeting") {
     deterministicReply = generalGreetingReply(from);
-  } else if (intent === "thanks") {
+  } else if (String(intent) === "thanks") {
     deterministicReply = `العفو 🌿
 بخدمتك بأي وقت.`;
   } else {
@@ -4270,6 +4380,29 @@ export async function POST(request: Request) {
         if (extractedMessage.isOtpLike) {
           const reply = otpSafetyReply();
 
+          if (!(await hasRecentlySentSameReply(from, reply))) {
+            const outgoingMessageId = await sendWhatsAppText(from, reply);
+            await logMessage({
+              waId: from,
+              direction: "outgoing",
+              body: reply,
+              messageId: outgoingMessageId || undefined,
+              intent: incomingIntent,
+              trackingId: incomingTracking || null,
+              needsHumanReview: true,
+              handledByAi: true,
+            });
+          } else {
+            console.log("Skipped duplicate OTP safety reply", { waId: from, messageId: message.id });
+          }
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          continue;
+        }
+
+        const reply = await buildReply(request, from, text, type);
+        const alreadySentSameReply = await hasRecentlySentSameReply(from, reply);
+
+        if (!alreadySentSameReply) {
           const outgoingMessageId = await sendWhatsAppText(from, reply);
           await logMessage({
             waId: from,
@@ -4278,34 +4411,21 @@ export async function POST(request: Request) {
             messageId: outgoingMessageId || undefined,
             intent: incomingIntent,
             trackingId: incomingTracking || null,
-            needsHumanReview: true,
+            needsHumanReview,
             handledByAi: true,
           });
-          await markIncomingWhatsAppMessageProcessed(message.id);
-          continue;
+
+          const aiMemoryApp = await findApplicationForAiMemory(from, text, incomingIntent);
+          await logAiConversation({
+            phone: from,
+            customerMessage: extractedMessage.logBody,
+            aiReply: reply,
+            intent: incomingIntent,
+            applicationStatus: aiMemoryApp?.status || null,
+          });
+        } else {
+          console.log("Skipped duplicate outgoing reply", { waId: from, messageId: message.id, intent: incomingIntent });
         }
-
-        const reply = await buildReply(request, from, text, type);
-        const outgoingMessageId = await sendWhatsAppText(from, reply);
-        await logMessage({
-          waId: from,
-          direction: "outgoing",
-          body: reply,
-          messageId: outgoingMessageId || undefined,
-          intent: incomingIntent,
-          trackingId: incomingTracking || null,
-          needsHumanReview,
-          handledByAi: true,
-        });
-
-        const aiMemoryApp = await findApplicationForAiMemory(from, text, incomingIntent);
-        await logAiConversation({
-          phone: from,
-          customerMessage: extractedMessage.logBody,
-          aiReply: reply,
-          intent: incomingIntent,
-          applicationStatus: aiMemoryApp?.status || null,
-        });
 
         await markIncomingWhatsAppMessageProcessed(message.id);
       }
