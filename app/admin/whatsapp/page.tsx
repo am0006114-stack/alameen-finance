@@ -1,4 +1,5 @@
 import Link from "next/link";
+import CopyConversationButtons from "./CopyConversationButtons";
 import { redirect } from "next/navigation";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -120,6 +121,86 @@ function getCustomerDisplay(message: WhatsAppMessageRecord) {
 
   return { title: "—", subtitle: "غير مربوط برقم" };
 }
+function getMessageCopyBody(message: WhatsAppMessageRecord) {
+  const body = String(message.body || "").trim();
+  if (body) return body;
+
+  switch (message.message_type) {
+    case "image":
+      return "[صورة مرفقة]";
+    case "document":
+      return "[ملف مرفق]";
+    case "audio":
+    case "voice":
+      return "[رسالة صوتية]";
+    case "video":
+      return "[فيديو مرفق]";
+    case "sticker":
+      return "[ملصق]";
+    case "location":
+      return "[موقع مرسل]";
+    case "contacts":
+      return "[جهة اتصال مرسلة]";
+    default:
+      return "[رسالة بدون نص محفوظ]";
+  }
+}
+
+function getMessageCopySpeaker(message: WhatsAppMessageRecord) {
+  switch (message.direction) {
+    case "incoming":
+      return "العميل";
+    case "outgoing":
+      return message.handled_by_ai ? "الأمين - AI" : "الأمين";
+    default:
+      return directionLabel(message.direction);
+  }
+}
+
+function buildConversationCopyText({
+  customerTitle,
+  customerPhone,
+  messages,
+  scopeLabel,
+}: {
+  customerTitle: string;
+  customerPhone: string;
+  messages: WhatsAppMessageRecord[];
+  scopeLabel: string;
+}) {
+  const copiedAt = formatDateTime(new Date().toISOString());
+  const header = [
+    "محادثة واتساب - الأمين للأقساط",
+    `النطاق: ${scopeLabel}`,
+    `العميل: ${customerTitle || "—"}`,
+    `رقم واتساب: ${customerPhone || "—"}`,
+    `عدد الرسائل: ${messages.length}`,
+    `تاريخ النسخ: ${copiedAt}`,
+    "",
+    "------------------------------",
+  ];
+
+  const lines = messages.flatMap((message, index) => {
+    const meta = [
+      `#${index + 1}`,
+      getMessageCopySpeaker(message),
+      formatDateTime(message.created_at),
+    ];
+
+    if (message.intent) meta.push(`intent: ${message.intent}`);
+    if (message.needs_human_review) meta.push("تحتاج متابعة بشرية");
+    if (message.tracking_id || extractTracking(message.body)) meta.push(`tracking: ${message.tracking_id || extractTracking(message.body)}`);
+
+    return [
+      `[${meta.join(" | ")}]`,
+      getMessageCopyBody(message),
+      "",
+    ];
+  });
+
+  return [...header, ...lines].join("\n").trim();
+}
+
 
 type PageProps = {
   searchParams?: Promise<{
@@ -218,6 +299,23 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
     conversationMessages.map((item) => cleanPhoneForWaLink(item.wa_id)).filter(Boolean)
   ).size;
   const hiddenStatusCount = rawMessages.filter((item) => item.direction === "status").length;
+  const selectedConversationCopyText = phoneFilter
+    ? buildConversationCopyText({
+        customerTitle: selectedCustomer?.title || normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter,
+        customerPhone: normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter,
+        messages: selectedConversationMessages,
+        scopeLabel: "المحادثة كاملة",
+      })
+    : "";
+
+  const selectedRecentConversationCopyText = phoneFilter
+    ? buildConversationCopyText({
+        customerTitle: selectedCustomer?.title || normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter,
+        customerPhone: normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter,
+        messages: selectedConversationMessages.slice(-20),
+        scopeLabel: "آخر 20 رسالة",
+      })
+    : "";
 
   return (
     <main dir="rtl" className="min-h-screen bg-[#03120e] px-4 py-8 text-[#f7f3e8]">
@@ -373,6 +471,12 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
+                    <CopyConversationButtons
+                      fullText={selectedConversationCopyText}
+                      recentText={selectedRecentConversationCopyText}
+                      disabled={selectedConversationMessages.length === 0}
+                    />
+
                     <a
                       href={`https://wa.me/${phoneFilter}`}
                       target="_blank"
