@@ -418,7 +418,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -578,6 +578,223 @@ function isReceiptUploadNeededText(text: string) {
 
   return paidContext && needsUploadContext;
 }
+
+
+function isDocumentFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const documentContext = hasAny(t, [
+    "هاي الهوية", "هاي هويه", "هذه الهوية", "هذه هويه", "صورة الهوية", "صوره الهويه",
+    "الوجه الامامي", "الوجه الخلفي", "وجه الهوية", "ظهر الهوية",
+    "هي كشف", "هاي كشف", "هذا كشف", "كشف جديد", "كشف الراتب", "شهادة راتب", "شهاده راتب",
+    "هاي الوصل", "هذا الوصل", "وصل الدفع", "ايصال الدفع", "إيصال الدفع", "حوالة", "حواله",
+    "هاي صورة", "هاي الصوره", "هذه الصورة", "الصورة الثانية", "الصوره الثانيه",
+    "بعتلك الكشف", "بعثتلك الكشف", "ارسلت الكشف", "أرسلت الكشف",
+    "بعتلك الهوية", "بعثتلك الهوية", "ارسلت الهوية", "أرسلت الهوية",
+    "بعتلك الوصل", "بعثتلك الوصل", "ارسلت الوصل", "أرسلت الوصل",
+  ]);
+
+  return documentContext;
+}
+
+function isOfficialUploadConfirmationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const uploadAction = hasAny(t, [
+    "رفعت", "رفعتلكم", "رفعته", "رفعتهم", "حملت", "حملته", "حملتهم",
+    "رفقته", "رفقت", "رفقتهم", "ارفقته", "أرفقته",
+    "تم الرفع", "تم رفع", "تم التحميل", "تم ارفاق", "تم إرفاق",
+    "من الرابط", "على الرابط", "بالرابط", "عن طريق الرابط", "بالنموذج", "من النموذج",
+    "uploaded", "submitted", "upload", "submit",
+  ]);
+
+  const documentContext = hasAny(t, [
+    "كفيل", "الكفيل", "كشف", "راتب", "شهادة راتب", "هويه", "هوية", "وصل", "ايصال", "إيصال", "receipt",
+  ]);
+
+  return uploadAction && documentContext;
+}
+
+function isMediaUploadMessageType(messageType: string | null | undefined) {
+  return ["image", "document", "video"].includes(String(messageType || "").toLowerCase());
+}
+
+function classifyIncomingIntent(text: string, messageType = "text"): CustomerIntent {
+  const type = String(messageType || "text").toLowerCase();
+
+  if (type === "reaction") return "reaction";
+  if (type === "image" || type === "video") return "media_upload";
+  if (type === "document") return "document_upload";
+
+  if (isDocumentFollowupText(text)) return "document_followup";
+
+  return classifyIntent(text);
+}
+
+type OfficialDocumentKind = "identity" | "salary_slip" | "guarantor" | "receipt" | "delay_decision" | "unknown";
+
+function documentKindFromTextOrStatus(text: string, app?: ApplicationRecord | null, intent?: CustomerIntent): OfficialDocumentKind {
+  const t = normalizeArabicText(text);
+  const status = app?.status || "";
+  const paymentStatus = app?.payment_status || "";
+
+  if (String(intent || "") === "receipt_upload_needed" || hasAny(t, [
+    "وصل", "ايصال", "إيصال", "حواله", "حوالة", "دفعت", "دفع", "رسوم", "كليك", "اورنج", "orange", "receipt",
+  ])) {
+    return "receipt";
+  }
+
+  if (hasAny(t, ["كفيل", "الكفيل", "ضامن", "الضامن", "guarantor"]) || status === "needs_guarantor") {
+    return "guarantor";
+  }
+
+  if (hasAny(t, ["كشف", "راتب", "شهادة راتب", "شهاده راتب", "salary", "salary slip"]) || status === "needs_salary_slip") {
+    return "salary_slip";
+  }
+
+  if (hasAny(t, ["هوية", "هويه", "الهوية", "الهويه", "بطاقة", "بطاقه", "الوجه الامامي", "الوجه الخلفي", "identity", "id"]) ||
+    status === "needs_identity" ||
+    status === "identity_requested") {
+    return "identity";
+  }
+
+  if (status === "delivery_delay_notice_sent" || hasAny(t, ["استرداد", "تمديد", "انتظار", "delay", "refund"])) {
+    return "delay_decision";
+  }
+
+  if (
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    paymentStatus === "pending" ||
+    paymentStatus === "pending_payment" ||
+    paymentStatus === "payment_info_sent"
+  ) {
+    return "receipt";
+  }
+
+  return "unknown";
+}
+
+function officialDocumentLabel(kind: OfficialDocumentKind) {
+  switch (kind) {
+    case "identity": return "الهوية";
+    case "salary_slip": return "كشف الراتب / شهادة الراتب";
+    case "guarantor": return "بيانات الكفيل";
+    case "receipt": return "وصل الدفع";
+    case "delay_decision": return "خيار التمديد أو الاسترداد";
+    default: return "المستند";
+  }
+}
+
+function officialUploadUrlForKind(baseUrl: string, app: ApplicationRecord, kind: OfficialDocumentKind) {
+  switch (kind) {
+    case "identity": return identityUrl(baseUrl, app);
+    case "salary_slip": return salarySlipUrl(baseUrl, app);
+    case "guarantor": return guarantorUrl(baseUrl, app);
+    case "receipt": return receiptUrl(baseUrl, app);
+    case "delay_decision": return delayUrl(baseUrl, app);
+    default: return "";
+  }
+}
+
+function officialUploadInstructionReply(input: {
+  app?: ApplicationRecord | null;
+  baseUrl: string;
+  from: string;
+  text: string;
+  intent: CustomerIntent;
+  messageType?: string | null;
+  memory?: Awaited<ReturnType<typeof getConversationMemory>>;
+}) {
+  const { app, baseUrl, text, intent, memory } = input;
+
+  if (!app) {
+    return `وصلت الرسالة على واتساب 🌿
+
+بس للتوضيح المهم: صور أو ملفات واتساب ما بتنحسب كرفع رسمي داخل الملف.
+
+حتى نربط المستند بالطلب، ابعث رقم التتبع AM- أو رقم الهاتف المستخدم بالطلب، وبعدها بنعطيك رابط الرفع الصحيح حسب حالة الملف.`;
+  }
+
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const kind = documentKindFromTextOrStatus(text, app, intent);
+  const label = officialDocumentLabel(kind);
+  const url = officialUploadUrlForKind(baseUrl, app, kind);
+  const sentUrls = memory?.sentUrls || [];
+  const alreadySent = Boolean(url && sentUrls.includes(url));
+
+  if (!url || kind === "unknown") {
+    return `وصلت الرسالة يا ${name} 🌿
+
+بس للتوضيح المهم: الصور أو الملفات المرسلة على واتساب لا تُعتمد رسميًا داخل الملف.
+
+حتى أعطيك رابط الرفع الصحيح، اكتبلي نوع المستند: هوية / كشف راتب / وصل دفع / كفيل.
+
+رقم الطلب:
+${tracking}`;
+  }
+
+  const linkLine = alreadySent
+    ? `رابط ${label} أرسلناه لك سابقًا بنفس المحادثة. ارفع المستند من نفس الرابط حتى ينربط رسميًا بالطلب.`
+    : `حتى ينربط ${label} رسميًا بالطلب، ارفعه من الرابط التالي:
+${url}`;
+
+  return `وصلت الرسالة يا ${name} 🌿
+
+توضيح مهم: صور أو ملفات واتساب بنعتبرها توضيح فقط، وما بتنحسب كرفع رسمي داخل الملف.
+
+${linkLine}
+
+رقم الطلب:
+${tracking}`;
+}
+
+async function claimMediaBurstReplyLock(input: {
+  waId: string;
+  incomingMessageId?: string | null;
+  windowSeconds?: number;
+}) {
+  const cleanWaId = String(input.waId || "").trim();
+  const windowSeconds = input.windowSeconds || 90;
+
+  if (!cleanWaId) return { shouldReply: true, reason: "missing_wa_id" };
+
+  const bucket = Math.floor(Date.now() / (windowSeconds * 1000));
+  const lock = {
+    lock_key: `media-burst:${cleanWaId}:${bucket}`,
+    wa_id: cleanWaId,
+    incoming_message_id: input.incomingMessageId || null,
+    reply_body: "media_upload_burst_notice",
+    created_at: new Date().toISOString(),
+  };
+
+  try {
+    const { error } = await supabaseAdmin
+      .from("whatsapp_outgoing_reply_locks")
+      .insert(lock);
+
+    if (!error) return { shouldReply: true, reason: "media_burst_first" };
+
+    if ((error as any).code === "23505") {
+      return { shouldReply: false, reason: "media_burst_duplicate" };
+    }
+
+    if ((error as any).code === "42P01") {
+      console.error("whatsapp_outgoing_reply_locks table is missing; media burst protection degraded.");
+      return { shouldReply: true, reason: "missing_outgoing_lock_table" };
+    }
+
+    console.error("media burst lock insert failed:", error);
+    return { shouldReply: true, reason: "media_burst_lock_error" };
+  } catch (error) {
+    console.error("media burst lock exception:", error);
+    return { shouldReply: true, reason: "media_burst_lock_exception" };
+  }
+}
+
 
 function isSupplierDelayQuestionText(text: string) {
   const t = normalizeArabicText(text);
@@ -1579,19 +1796,15 @@ ${BUSINESS_NAME}`;
   if (status === "needs_guarantor") {
     return `أهلًا ${name} 🌿
 
-الحالة الحالية للطلب تشير إلى أن الملف بحاجة استكمال متطلبات الكفيل.
+الحالة الحالية للطلب تشير إلى أن الملف بحاجة استكمال بيانات الكفيل.
 
-نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع ضغط المراجعات وكثرة الملفات.
-
-فور استكمال المتطلبات ومراجعتها من الإدارة سيتم تحديث الحالة وإبلاغكم بالمستجدات.
+مهم: إرسال معلومات أو صور على واتساب لا يُعتمد كاستكمال رسمي داخل الملف. حتى تنربط بيانات الكفيل رسميًا بالطلب، عبّيها من الرابط التالي:
+${guarantorUrl(baseUrl, app)}
 
 لا يوجد موعد استلام محدد حاليًا قبل اكتمال الدراسة والموافقة النهائية.
 
 رقم التتبع:
 ${tracking}
-
-رابط المتابعة:
-${url}
 
 ${BUSINESS_NAME}`;
   }
@@ -1993,13 +2206,13 @@ ${BUSINESS_NAME}`;
 
 طلبكم بحاجة كشف راتب أو شهادة راتب حديثة لاستكمال الدراسة.
 
+مهم: صور واتساب لا تُعتمد كرفع رسمي داخل الملف. حتى ينربط الكشف رسميًا بالطلب، ارفعه من الرابط التالي:
+${salarySlipUrl(baseUrl, app)}
+
 إرسال المستند لا يعني الموافقة النهائية، لكنه مطلوب حتى تقدر الإدارة تكمل مراجعة الملف.
 
 رقم التتبع:
 ${tracking}
-
-رابط المتابعة:
-${url}
 
 ${BUSINESS_NAME}`;
   }
@@ -2686,9 +2899,20 @@ async function handleDocumentAutomation(input: {
   const hasGuarantorContext = isGuarantorContextText(text);
   const hasSalaryContext = isSalarySlipContextText(text);
   const submitted = isDocumentSubmittedText(text);
+  const officialUploadConfirmed = isOfficialUploadConfirmationText(text);
   const linkRequest = isDocumentLinkRequestText(text);
 
-  if (submitted && hasGuarantorContext) {
+  if (submitted && !officialUploadConfirmed && (hasGuarantorContext || hasSalaryContext)) {
+    return officialUploadInstructionReply({
+      app,
+      baseUrl,
+      from,
+      text,
+      intent: "document_followup",
+    });
+  }
+
+  if (submitted && officialUploadConfirmed && hasGuarantorContext) {
     const updatedApp = await markGuarantorSubmitted(app);
     const reply = guarantorSubmittedAutoReply(updatedApp);
 
@@ -2706,7 +2930,7 @@ async function handleDocumentAutomation(input: {
     return reply;
   }
 
-  if (submitted && hasSalaryContext) {
+  if (submitted && officialUploadConfirmed && hasSalaryContext) {
     const updatedApp = await markSalarySlipUploaded(app);
     const reply = salarySlipUploadedAutoReply(updatedApp);
 
@@ -3643,6 +3867,13 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "الموعد الجديد",
     "موعد الاستلام",
     "تم تحديد موعد",
+    "تم تثبيتهم بملفك",
+    "تم تثبيتها بملفك",
+    "تم اعتماد الهوية",
+    "تم اعتماد الكشف",
+    "خلصنا كل المتطلبات",
+    "وصلتنا صور الهوية وكشف الراتب",
+    "وصلتنا الهوية والكشف",
     "Supabase",
     "supabase",
     "quota",
@@ -3715,6 +3946,9 @@ async function generateAiReply(input: AiReplyInput) {
     "payment_dispute",
     "device_delay_rage",
     "emotional_pressure",
+    "media_upload",
+    "document_upload",
+    "document_followup",
     "complaint",
     "refund",
     "cancel_request",
@@ -3811,6 +4045,13 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا تم إرسال نفس الرابط في نفس محادثة واتساب سابقًا، لا تكرره؛ قل: الرابط أرسلناه لك سابقًا بنفس المحادثة.
 - روابط التتبع تكون قصيرة قدر الإمكان: ${BUSINESS_WEBSITE}/track، واكتب رقم الطلب ورقم الهاتف كنص عادي بدل رابط طويل.
 - رابط المنتجات يرسل مرة واحدة فقط في المحادثة، وبعدها قل للعميل إن الرابط موجود فوق.
+
+قاعدة رفع المستندات الرسمية:
+- صور واتساب أو ملفات واتساب لا تُعتمد كاستكمال رسمي داخل الملف، حتى لو وصلت في المحادثة.
+- الاعتماد الرسمي للهوية أو كشف الراتب أو وصل الدفع أو بيانات الكفيل يكون فقط من الرابط المخصص حسب حالة الطلب.
+- ممنوع قول: تم اعتماد الهوية، تم تثبيت الكشف، خلصنا كل المتطلبات، أو تم ربط المستند، إلا إذا كانت حالة الطلب في قاعدة البيانات تدل على ذلك صراحة.
+- عند استلام صورة/ملف على واتساب، قل إنها وصلت كمحادثة فقط، ثم أعطِ رابط الرفع الصحيح إن كان واضحًا من حالة الطلب.
+- إذا العميل أرسل عدة صور دفعة واحدة، لا ترد على كل صورة؛ رد مرة واحدة فقط بتعليمات الرفع الرسمية.
 
 شخصيات مدير الملف:
 - المتابعة اليومية تكون بأسماء محترمة مثل: تالا، فدوة، لينا.
@@ -4191,7 +4432,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const baseUrl = getBaseUrl(request);
   const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
-  const intent = classifyIntent(text);
+  const intent = classifyIncomingIntent(text, messageType);
   const conversationMemory = await getConversationMemory(from);
   const explicitlyNewApplication = isExplicitNewApplicationText(text);
   const memoryTracking = !explicitlyNewApplication
@@ -4245,6 +4486,9 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "payment_dispute" ||
     String(intent) === "device_delay_rage" ||
     String(intent) === "emotional_pressure" ||
+    String(intent) === "media_upload" ||
+    String(intent) === "document_upload" ||
+    String(intent) === "document_followup" ||
     String(intent) === "continue_decision" ||
     String(intent) === "decline_decision" ||
     String(intent) === "cancel_request" ||
@@ -4262,6 +4506,22 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   let deterministicReply: string;
+
+  if (String(intent) === "reaction") {
+    return "";
+  }
+
+  if (String(intent) === "media_upload" || String(intent) === "document_upload" || String(intent) === "document_followup") {
+    return officialUploadInstructionReply({
+      app,
+      baseUrl,
+      from,
+      text,
+      intent,
+      messageType,
+      memory: conversationMemory,
+    });
+  }
 
   if (app && String(intent) === "continue_decision") {
     if (app.status !== "preliminary_qualified") {
@@ -4585,6 +4845,10 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     "products",
     "payment",
     "greeting",
+    "media_upload",
+    "document_upload",
+    "document_followup",
+    "reaction",
   ].includes(intent);
 
   if (factualIntentNeedsExactReply) {
@@ -4892,7 +5156,7 @@ export async function POST(request: Request) {
           continue;
         }
 
-        const incomingIntent = classifyIntent(text);
+        const incomingIntent = classifyIncomingIntent(text, type);
         const incomingTracking = extractTracking(text);
         const needsHumanReview = shouldFlagHumanReview(text, incomingIntent);
         const replyStartedAt = Date.now();
@@ -4915,6 +5179,29 @@ export async function POST(request: Request) {
           handledByAi: false,
           rawPayload: extractedMessage.rawPayload,
         });
+
+        if (type === "reaction") {
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          continue;
+        }
+
+        if (isMediaUploadMessageType(type)) {
+          const mediaBurstClaim = await claimMediaBurstReplyLock({
+            waId: from,
+            incomingMessageId: message.id,
+            windowSeconds: 90,
+          });
+
+          if (!mediaBurstClaim.shouldReply) {
+            console.log("Skipped duplicate media burst reply", {
+              waId: from,
+              messageId: message.id,
+              reason: mediaBurstClaim.reason,
+            });
+            await markIncomingWhatsAppMessageProcessed(message.id);
+            continue;
+          }
+        }
 
         if (extractedMessage.isOtpLike) {
           const reply = otpSafetyReply();
