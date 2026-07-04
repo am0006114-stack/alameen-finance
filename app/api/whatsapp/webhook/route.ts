@@ -418,7 +418,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -590,6 +590,31 @@ function isSupplierDelayQuestionText(text: string) {
 }
 
 
+function isEmotionalPressureText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const personalContext = hasAny(t, [
+    "خطيبتي", "خطيبي", "زوجتي", "زوجي", "مرتي", "خطيب", "خطيبه", "خطيبة",
+    "ابني", "بنتي", "اولادي", "أولادي", "امي", "أمي", "ابوي", "أبوي",
+    "هدية", "هديه", "عيد ميلاد", "مناسبة", "خطبة", "خطبه", "عرس", "زواج",
+    "وعدتها", "وعدته", "وعدتهم", "وعدت", "بضحك عليها", "بضحك عليه", "حاس حالي بكذب", "مبين اني بكذب",
+  ]);
+
+  const embarrassmentContext = hasAny(t, [
+    "احراج", "إحراج", "محرج", "انحرجت", "احرجتني", "فضحتني", "بهدلة", "بهدله",
+    "باجلها", "بأجلها", "باجله", "بأجله", "بأجلهم", "باجلهم", "كل يوم باجل", "كل يوم بحكي",
+    "شهرين", "شهر", "اسبوعين", "أسبوعين", "صارلي", "صار لي", "الي شهر", "إلي شهر", "الي شهرين", "إلي شهرين",
+  ]);
+
+  const deviceContext = hasAny(t, [
+    "تلفون", "موبايل", "جهاز", "ايفون", "سامسونج", "الجهاز", "جهازي", "الطلب", "طلبي",
+  ]);
+
+  return (personalContext && (embarrassmentContext || deviceContext)) || (embarrassmentContext && deviceContext);
+}
+
+
 function isSiteOrTrackingSystemIssueText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -664,6 +689,7 @@ function classifyIntent(text: string): CustomerIntent {
   if (isLegalThreatText(t)) return "legal_threat";
   if (isSocialMediaThreatText(t)) return "social_media_threat";
   if (isPaymentDisputeText(t)) return "payment_dispute";
+  if (isEmotionalPressureText(t)) return "emotional_pressure";
   if (isDeviceDelayRageText(t)) return "device_delay_rage";
 
   if (isCancelConfirmedText(t)) {
@@ -788,7 +814,7 @@ function classifyIntent(text: string): CustomerIntent {
 
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "complaint", "refund", "cancel_request", "cancel_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "complaint", "refund", "cancel_request", "cancel_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
 }
 
 function getSalaryNumber(value: number | string | null | undefined) {
@@ -1129,6 +1155,55 @@ function deviceDelayRageReply(baseUrl: string, from: string, app?: ApplicationRe
 
 ${BUSINESS_NAME}`;
 }
+function emotionalPressureReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  const seed = `${from}:emotional:${customerText}`;
+  const faith = softFaithPhrase(seed);
+
+  if (app) {
+    const name = firstTwoNames(app.full_name);
+    const tracking = app.tracking_id || app.id;
+    const device = app.device_name ? `الجهاز المطلوب (${app.device_name})` : "الجهاز المطلوب";
+    const status = app.status || "";
+
+    const statusLine = `حالة الطلب حاليًا: ${statusHumanLabel(status)}`;
+    const confirmedLine = isConfirmedPaidActiveApplication(app)
+      ? `ملفك قطع مرحلة مهمة، والتأخير الحالي مرتبط بتثبيت توفر ${device} واعتماد جدول الاستلام من المكتب، مش لأن طلبك متروك أو منسي.`
+      : `الطلب ظاهر عندنا، وبنحتاج نلتزم بالحالة الظاهرة عليه بدون ما نعطيك وعد غير مؤكد.`;
+
+    return `${name}، معك حق تزعل. الموضوع هون مش مجرد طلب، صار إحراج شخصي قدام شخص عزيز عليك، وكلمة "فاهم شعورك" لحالها ما بتكفي.
+
+${statusLine}
+
+${confirmedLine}
+
+ما رح أعطيك موعد وهمي وأزيد الإحراج عليك. أول ما يصير تحديث فعلي على توفر الجهاز أو جدول الاستلام من المكتب بنوصلك مباشرة ${faith}.
+
+رقم الطلب:
+${tracking}`;
+  }
+
+  return `معك حق تزعل، خصوصًا إذا الجهاز كان هدية وصار عليك إحراج وتأجيل أكثر من مرة.
+
+حتى ما أعطيك كلام عام أو أزيد الموضوع لخبطة، ابعث رقم الطلب اللي ببدأ بـ AM- أو رقم الهاتف المستخدم بالتقديم، وبراجع لك الحالة الحالية مباشرة وبوضح لك الخطوة الواقعية بدون وعود وهمية.`;
+}
+
+function emotionalFollowupReply(from: string, app?: ApplicationRecord | null, customerText = "") {
+  if (app) {
+    const tracking = app.tracking_id || app.id;
+    return `معك حق، وعبارة "فاهم شعورك" لحالها ما بتحل الإحراج اللي صار عليك.
+
+خلينا نحكي بالمفيد: طلبك ظاهر عندنا وحالته ${statusHumanLabel(app.status || "")}. إذا كان التأخير على الجهاز، فالملف يظل تحت المتابعة لحد ما يتم تثبيت توفر الجهاز واعتماد الاستلام من المكتب.
+
+رقم الطلب:
+${tracking}`;
+  }
+
+  return `معك حق، وعبارة "فاهم شعورك" لحالها ما بتكفي.
+
+واضح إنك بتحكي عن إحراج حقيقي بسبب تأخير الجهاز، مش سؤال عام. ابعث رقم الطلب AM- أو رقم الهاتف المستخدم بالتقديم، وبعطيك الحالة الحالية مباشرة بدون لف ودوران.`;
+}
+
+
 
 function complaintReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
   const opening = humanOpening(`${from}:complaint`);
@@ -1659,6 +1734,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "emotional_pressure") return emotionalPressureReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "refund") return refundReply(baseUrl, app.phone || tracking, app);
   if (String(intent) === "cancel_request") return cancelRequestReply(app, baseUrl, customerText);
@@ -2103,6 +2179,10 @@ function replyDelayRangeForIntent(intent: CustomerIntent, text: string, messageT
 
   if (String(intent) === "greeting" || String(intent) === "thanks") {
     return { min: 800, max: 1400 };
+  }
+
+  if (String(intent) === "emotional_pressure") {
+    return { min: 2600, max: 5500 };
   }
 
   if (String(intent) === "order_status" || String(intent) === "review_time" || String(intent) === "delivery") {
@@ -3420,6 +3500,40 @@ function oneFaithPhraseOnly(reply: string) {
   return clean.replace(/\s+([،,.؟])/g, "$1").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+
+function replaceColdClarificationForEmotionalPressure(reply: string, input: AiReplyInput) {
+  const clean = String(reply || "").trim();
+  if (!clean) return clean;
+
+  const isEmotional = String(input.intent) === "emotional_pressure" || isEmotionalPressureText(input.customerText || "");
+  if (!isEmotional) return clean;
+
+  const coldClarification = /قصدك\s+تتابع\s+الملف|عندك\s+سؤال\s+معين|وضحلي\s+شو\s+المطلوب|بدك\s+تتابع\s+طلب/i.test(clean);
+  const shallowEmpathyOnly =
+    clean.length < 140 &&
+    /(فاهم|متفهم|مقدر|مقدّر).{0,40}(شعورك|وضعك|انزعاجك)/i.test(clean);
+
+  if (coldClarification || shallowEmpathyOnly) {
+    return input.deterministicReply;
+  }
+
+  return clean;
+}
+
+function trimOverFormalEmotionalReply(reply: string, input: AiReplyInput) {
+  let clean = String(reply || "").trim();
+  if (String(input.intent) !== "emotional_pressure") return clean;
+
+  // Emotional replies should feel like WhatsApp, not a formal report.
+  clean = clean
+    .replace(/حسب البيانات الظاهرة لدينا/g, "حسب الظاهر عندي")
+    .replace(/يرجى تزويدنا/g, "ابعثلي")
+    .replace(/نرجو منك/g, "خلينا");
+
+  return clean.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
@@ -3427,6 +3541,8 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
   clean = stripRepeatedStaffIntro(clean, input);
   clean = limitAndSuppressLinks(clean, input);
   clean = oneFaithPhraseOnly(clean);
+  clean = replaceColdClarificationForEmotionalPressure(clean, input);
+  clean = trimOverFormalEmotionalReply(clean, input);
 
   if (!clean) return input.deterministicReply;
   return clean;
@@ -3598,6 +3714,7 @@ async function generateAiReply(input: AiReplyInput) {
     "scam_accusation",
     "payment_dispute",
     "device_delay_rage",
+    "emotional_pressure",
     "complaint",
     "refund",
     "cancel_request",
@@ -3700,6 +3817,15 @@ async function generateAiReply(input: AiReplyInput) {
 - الدراسة والمتطلبات تكون بأسماء: عبدالله، خالد، عبدالرحمن.
 - الحالات الحساسة مثل الإلغاء، الغضب، الاسترداد، والاتهام تكون باسم عمران من متابعة الحالات.
 - لا تذكر اسم الشخصية بكل رسالة إذا السياق مستمر، لكن حافظ على نبرة موظف يعرف ملف العميل.
+
+
+قاعدة الضغط العاطفي والإحراج الشخصي:
+- إذا ذكر العميل أن الجهاز هدية أو لخطيبته/زوجته/أهله/ابنه/بنته أو أنه محرج أو يؤجل منذ مدة، تعامل مع الرسالة كضغط عاطفي حقيقي وليس مجرد سؤال متابعة.
+- ممنوع الرد بعبارات سطحية مثل "فاهم شعورك" فقط.
+- ممنوع أن تسأل "قصدك تتابع الملف ولا عندك سؤال معين؟" إذا كان واضحًا أن العميل يتكلم عن إحراج أو تأخير جهاز.
+- الرد الصحيح يجب أن يحتوي: اعتراف بالإحراج الشخصي + ربط بالطلب/الجهاز + سبب واقعي بدون كذب + خطوة واضحة.
+- استخدم صيغ مثل: "الموضوع صار إحراج شخصي"، "كلمة فاهم شعورك لحالها ما بتكفي"، "ما بدي أعطيك موعد وهمي وأزيد الإحراج عليك".
+- لا تعد بتاريخ استلام، ولا تجعل التعاطف بديلًا عن توضيح الحالة.
 
 قاعدة الطلبات المدفوعة وتأخير الأجهزة:
 - إذا كانت رسوم فتح الملف مؤكدة والطلب غير مرفوض وغير ملغى: اعتبر الملف قطع مرحلة مهمة.
@@ -4118,6 +4244,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "scam_accusation" ||
     String(intent) === "payment_dispute" ||
     String(intent) === "device_delay_rage" ||
+    String(intent) === "emotional_pressure" ||
     String(intent) === "continue_decision" ||
     String(intent) === "decline_decision" ||
     String(intent) === "cancel_request" ||
@@ -4292,6 +4419,23 @@ ${BUSINESS_NAME}`;
     }
   }
 
+  if (String(intent) === "emotional_pressure") {
+    deterministicReply = emotionalPressureReply(baseUrl, from, app, text);
+
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: true,
+      hasApplication: Boolean(app),
+      intent,
+    });
+  }
+
   if (String(intent) === "site_issue") {
     deterministicReply = siteIssueReply(from, app, tracking);
 
@@ -4365,6 +4509,8 @@ ${BUSINESS_NAME}`;
     deterministicReply = paymentDisputeReply(baseUrl, from, null, text);
   } else if (String(intent) === "device_delay_rage") {
     deterministicReply = deviceDelayRageReply(baseUrl, from, null, text);
+  } else if (String(intent) === "emotional_pressure") {
+    deterministicReply = emotionalPressureReply(baseUrl, from, null, text);
   } else if (String(intent) === "complaint") {
     deterministicReply = complaintReply(baseUrl, from, null, text);
   } else if (String(intent) === "refund") {

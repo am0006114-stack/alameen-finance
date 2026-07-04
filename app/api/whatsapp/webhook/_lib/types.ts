@@ -128,6 +128,7 @@ export type CustomerIntent =
   | "scam_accusation"
   | "payment_dispute"
   | "device_delay_rage"
+  | "emotional_pressure"
   | "complaint"
   | "refund"
   | "continue_decision"

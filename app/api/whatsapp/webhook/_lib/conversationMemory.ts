@@ -59,6 +59,7 @@ function inferLastConcernFromMemory(value: string | null | undefined) {
   if (/الموقع|السايت|التتبع|الرابط|جلب الطلبات|خطأ|خطا|404|not found|error/i.test(text)) return "site_or_tracking_issue";
   if (/ارامكس|أرامكس|توصيل|شحن|مندوب|استلام|المكتب/i.test(text)) return "pickup_or_delivery";
   if (/نصب|احتيال|فلوسي|استرداد|شكوى|محامي|فضح/i.test(text)) return "complaint_or_dispute";
+  if (/خطيبتي|خطيبي|زوجتي|زوجي|ابني|بنتي|امي|أمي|ابوي|أبوي|هدية|هديه|احراج|إحراج|محرج|بضحك عليها|بضحك عليه|باجلها|بأجلها|باجله|بأجله|وعدتها|وعدته|عيد ميلاد|عرس|خطبة/i.test(text)) return "emotional_or_gift_pressure";
   if (/وين الجهاز|وين طلبي|تأخير|تاخير|متى بستلم/i.test(text)) return "device_or_delay";
   return null;
 }
