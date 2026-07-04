@@ -1,9 +1,8 @@
 import type { ApplicationRecord } from "./types";
 
 export function trackUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/track?phone=${encodeURIComponent(phone)}&tracking=${encodeURIComponent(tracking)}`;
+  // Keep the public tracking link short in WhatsApp. The bot sends the tracking ID and phone as plain text.
+  return `${baseUrl}/track`;
 }
 
 export function receiptUrl(baseUrl: string, app: ApplicationRecord) {

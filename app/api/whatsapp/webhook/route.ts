@@ -27,6 +27,7 @@ import {
   getBaseUrl,
   hasAny,
   humanOpening,
+  assignedStaffName,
   softFaithPhrase,
   normalizeArabicText,
   normalizeJordanPhone,
@@ -1354,7 +1355,7 @@ function applyReply(baseUrl: string, from: string) {
   return `${opening}
 
 للتقديم على طلب جديد، ادخل من الرابط:
-${baseUrl}
+${baseUrl}/products
 
 اختار الجهاز، عبّي البيانات بدقة، وبعدها الإدارة بتراجع الطلب.
 
@@ -1369,8 +1370,8 @@ function productsReply(baseUrl: string, from: string) {
 
 الأجهزة والأسعار بتتحدث من خلال الموقع حسب المتوفر.
 
-رابط الموقع:
-${baseUrl}
+رابط الأجهزة:
+${baseUrl}/products
 
 ادخل على قسم الأجهزة، اختار الجهاز المناسب، وشوف تفاصيله، وبعدها بتقدر تقدم طلب التقسيط مباشرة.
 
@@ -3183,6 +3184,181 @@ function extractDeepSeekText(data: any) {
   return "";
 }
 
+
+function extractUrlsFromReply(value: string) {
+  const matches = String(value || "").match(/https?:\/\/[^\s)]+/gi) || [];
+  return Array.from(new Set(matches.map((url) => url.replace(/[،,.]+$/g, ""))));
+}
+
+function normalizeUrlForMemory(url: string) {
+  const clean = String(url || "").replace(/[،,.]+$/g, "").trim();
+  if (/\/track\?/i.test(clean)) return clean.replace(/\/track\?.*$/i, "/track");
+  return clean;
+}
+
+function shortenTrackingLinks(reply: string) {
+  return String(reply || "").replace(/https?:\/\/[^\s]+\/track\?[^\s]+/gi, (url) => {
+    return normalizeUrlForMemory(url);
+  });
+}
+
+function stripRepeatedStaffIntro(reply: string, input: AiReplyInput) {
+  let clean = String(reply || "").trim();
+  const hasRecentConversation = Boolean(input.hasRecentConversation || input.conversationContext || input.lastAssistantReplies?.length);
+  if (!hasRecentConversation) return clean;
+
+  const staffNames = "عمران|خالد|عبدالله|عبدالرحمن|تالا|فدوة|لينا|علي|سمر";
+  const lines = clean.split(/\n+/);
+  const filtered: string[] = [];
+  let removedIntro = false;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index].trim();
+    const isEarlyLine = index <= 1;
+    const hasStaffIntro = new RegExp(`^(?:يا\\s+[^،,.]{2,24}[،,.]?\\s*)?(?:انا\\s+معك|أنا\\s+معك|معك|معكِ)\\s+(?:${staffNames})(?:[،,.]|\\s|$)`, "i").test(line);
+    const genericIntro = /^(?:يا\s+[^،,.]{2,24}[،,.]?\s*)?(?:أهلًا|اهلا|مرحبا|هلا)\s*(?:فيك|عليك)?\s*(?:،|,)?\s*(?:كيف\s+بقدر\s+أساعدك\??)?$/i.test(line);
+
+    if (isEarlyLine && (hasStaffIntro || genericIntro)) {
+      removedIntro = true;
+      continue;
+    }
+
+    filtered.push(line);
+  }
+
+  clean = filtered.join("\n").trim();
+
+  if (!clean && removedIntro) return input.deterministicReply;
+  return clean || reply;
+}
+
+function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
+  let clean = shortenTrackingLinks(String(reply || "").trim());
+  if (!clean) return clean;
+
+  const previousUrls = new Set((input.sentUrls || []).map(normalizeUrlForMemory));
+  for (const reply of input.lastAssistantReplies || []) {
+    for (const url of extractUrlsFromReply(reply)) previousUrls.add(normalizeUrlForMemory(url));
+  }
+
+  const lines = clean.split("\n");
+  const output: string[] = [];
+  let keptFirstUrl = false;
+  let suppressedAny = false;
+
+  for (const line of lines) {
+    const urls = extractUrlsFromReply(line).map(normalizeUrlForMemory);
+    if (!urls.length) {
+      output.push(line);
+      continue;
+    }
+
+    const isRepeated = urls.some((url) => previousUrls.has(url));
+    if (isRepeated || keptFirstUrl) {
+      suppressedAny = true;
+      continue;
+    }
+
+    let updatedLine = line;
+    for (const url of urls) {
+      const normalized = normalizeUrlForMemory(url);
+      if (normalized !== url) updatedLine = updatedLine.replace(url, normalized);
+    }
+    output.push(updatedLine);
+    keptFirstUrl = true;
+  }
+
+  clean = output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+
+  if (suppressedAny) {
+    const hasLinkNote = /الرابط.*(فوق|سابق|مرسل)/i.test(clean);
+    if (!hasLinkNote) {
+      clean = `${clean}\n\nالرابط أرسلناه لك سابقًا بنفس المحادثة، تابع من هناك إذا احتجته.`.trim();
+    }
+  }
+
+  return clean;
+}
+
+function removeOverusedManagerName(reply: string, input: AiReplyInput) {
+  let clean = String(reply || "");
+  const escalationIntents: CustomerIntent[] = ["legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "refund", "complaint", "abuse"];
+  const explicitManagerRequest = /مدير|عمران|مسؤول|اداره|إدارة/i.test(input.customerText || "");
+  const allowManager = escalationIntents.includes(input.intent) && explicitManagerRequest;
+
+  if (!allowManager) {
+    clean = clean
+      .replace(/(?:انا\s+معك|أنا\s+معك|معك|معكِ)\s+عمران[،,.]?\s*/gi, "")
+      .replace(/\bعمران\b/g, "فريق المتابعة");
+  }
+
+  return clean.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function oneFaithPhraseOnly(reply: string) {
+  let clean = String(reply || "");
+  const phrases = ["إن شاء الله", "بإذن الله", "الله ييسر الأمور", "الله يعطيك العافية"];
+  let seen = false;
+
+  for (const phrase of phrases) {
+    const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    clean = clean.replace(new RegExp(escaped, "g"), (match) => {
+      if (seen) return "";
+      seen = true;
+      return match;
+    });
+  }
+
+  return clean.replace(/\s+([،,.؟])/g, "$1").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function finalizeHumanReply(reply: string, input: AiReplyInput) {
+  let clean = String(reply || "").trim();
+  clean = shortenTrackingLinks(clean);
+  clean = removeOverusedManagerName(clean, input);
+  clean = stripRepeatedStaffIntro(clean, input);
+  clean = limitAndSuppressLinks(clean, input);
+  clean = oneFaithPhraseOnly(clean);
+
+  if (!clean) return input.deterministicReply;
+  return clean;
+}
+
+function aiTemperatureForInput(input: AiReplyInput, useDeepThinking: boolean) {
+  if (input.isSensitive || useDeepThinking) {
+    return Number(process.env.AI_SENSITIVE_TEMPERATURE || "0.30");
+  }
+
+  if (input.hasRecentConversation || isTinyContextFollowupText(input.customerText)) {
+    return Number(process.env.AI_HUMAN_TEMPERATURE || "0.55");
+  }
+
+  return Number(process.env.AI_TEMPERATURE || "0.45");
+}
+
+function finalizeReplyBeforeSend(reply: string, options: {
+  from: string;
+  text: string;
+  intent: CustomerIntent;
+  memory: Awaited<ReturnType<typeof getConversationMemory>>;
+}) {
+  return finalizeHumanReply(reply, {
+    customerText: options.text,
+    deterministicReply: reply,
+    isSensitive: looksSensitive(options.text),
+    hasApplication: false,
+    intent: options.intent,
+    conversationContext: options.memory.conversationContext,
+    lastAssistantReplies: options.memory.lastAssistantReplies,
+    lastCustomerMessages: options.memory.lastCustomerMessages,
+    memoryTrackingId: options.memory.lastTrackingId || null,
+    sentUrls: options.memory.sentUrls || [],
+    hasRecentConversation: options.memory.hasRecentConversation,
+    hasRecentStaffIntro: options.memory.hasRecentStaffIntro,
+    assignedAgentName: assignedStaffName(options.from),
+  });
+}
+
 function sanitizeAiReply(reply: string, fallback: string) {
   let clean = String(reply || "").trim();
 
@@ -3305,7 +3481,7 @@ async function generateAiReply(input: AiReplyInput) {
   const reasoningModel =
     process.env.DEEPSEEK_REASONING_MODEL ||
     process.env.DEEPSEEK_ESCALATION_MODEL ||
-    "deepseek-reasoner";
+    "deepseek-v4-pro";
 
   const reasoningIntents: CustomerIntent[] = [
     "abuse",
@@ -3396,6 +3572,20 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تعترف قانونيًا بأن الشركة نصبت أو سرقت. استخدم اعتذارًا عن التجربة/التأخير/عدم الوضوح، وليس اعترافًا باتهام.
 - إذا العميل هدد بشكوى أو نشر أو محامي: قل إن حقه محفوظ، وإنك ستوضح الحالة حسب البيانات المتوفرة، واطلب البيانات لربطها بالطلب إن لم تكن موجودة.
 - إذا العميل سأل سؤالًا عامًا مثل: موقعكم، عنوانكم، كيف الأقساط، الشروط، الدفع، الأجهزة: أجب مباشرة ولا تحوّل الرد لمتابعة طلب.
+
+قواعد الشخصية وعدم التكرار:
+- اختر موظفًا ثابتًا للعميل حسب رقم واتساب العميل، ولا تغيّر الشخصية داخل نفس المحادثة.
+- لا تبدأ كل رد باسم العميل أو اسم الموظف. ذكر اسم الموظف مسموح فقط في بداية محادثة جديدة أو إذا سأل العميل مع مين يحكي.
+- إذا المحادثة مستمرة، ادخل مباشرة في جواب السؤال الأخير.
+- عمران لا يظهر للعميل إلا إذا طلب مديرًا صراحة أو كانت الرسالة تصعيدًا حساسًا واضحًا. غير ذلك استخدم نبرة فريق المتابعة بدون اسم.
+- إذا قال العميل: ليه؟ طيب؟ كيف يعني؟ شو الحل؟ اربط السؤال بآخر رد في السياق وأجب مباشرة، ولا تعرّف نفسك من جديد.
+- ممنوع تكرار عبارات مثل: متفهم وضعك، معك عمران، معك خالد، أو أهلًا فيك في كل رد.
+
+قواعد الروابط:
+- لا ترسل أكثر من رابط واحد في الرد الواحد.
+- إذا تم إرسال نفس الرابط في نفس محادثة واتساب سابقًا، لا تكرره؛ قل: الرابط أرسلناه لك سابقًا بنفس المحادثة.
+- روابط التتبع تكون قصيرة قدر الإمكان: ${BUSINESS_WEBSITE}/track، واكتب رقم الطلب ورقم الهاتف كنص عادي بدل رابط طويل.
+- رابط المنتجات يرسل مرة واحدة فقط في المحادثة، وبعدها قل للعميل إن الرابط موجود فوق.
 
 شخصيات مدير الملف:
 - المتابعة اليومية تكون بأسماء محترمة مثل: تالا، فدوة، لينا.
@@ -3537,6 +3727,12 @@ ${input.memoryTrackingId || "غير متوفر"}
 نوع رسالة واتساب:
 ${input.messageType || "text"}
 
+الموظف الثابت المقترح لهذه المحادثة:
+${input.assignedAgentName || "غير محدد"}
+
+الروابط التي سبق إرسالها في نفس المحادثة:
+${input.sentUrls?.length ? input.sentUrls.join("\n") : "لا توجد روابط سابقة."}
+
 أمثلة سابقة ناجحة من ذاكرة ${BUSINESS_NAME}:
 ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية حاليًا."}
 
@@ -3570,14 +3766,16 @@ ${input.deterministicReply}
           content: userInput,
         },
       ],
-      temperature: Number(process.env.AI_TEMPERATURE || "0.25"),
+      temperature: aiTemperatureForInput(input, useDeepThinking),
       max_tokens: useDeepThinking
         ? Number(process.env.AI_REASONING_MAX_TOKENS || "650")
         : Number(process.env.AI_MAX_TOKENS || "420"),
     };
 
     if (process.env.DEEPSEEK_THINKING_MODE !== "off") {
-      requestBody.thinking = { type: useDeepThinking ? "enabled" : "disabled" };
+      requestBody.thinking = useDeepThinking
+        ? { type: "enabled", reasoning_effort: process.env.DEEPSEEK_REASONING_EFFORT || "high" }
+        : { type: "disabled" };
     }
 
     let response = await fetch(`${baseUrl}/chat/completions`, {
@@ -3613,7 +3811,7 @@ ${input.deterministicReply}
     const data = await response.json();
     const aiText = extractDeepSeekText(data);
 
-    return sanitizeAiReply(aiText, input.deterministicReply);
+    return finalizeHumanReply(sanitizeAiReply(aiText, input.deterministicReply), input);
   } catch (error) {
     console.error("DeepSeek reply error:", error);
     return safeShortHumanFallback(input);
@@ -3776,6 +3974,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
       lastCustomerMessages: conversationMemory.lastCustomerMessages,
       memoryTrackingId: memoryTracking || null,
       messageType,
+      sentUrls: conversationMemory.sentUrls || [],
+      hasRecentConversation: conversationMemory.hasRecentConversation,
+      hasRecentStaffIntro: conversationMemory.hasRecentStaffIntro,
+      assignedAgentName: assignedStaffName(from),
     });
 
   if (String(intent) === "greeting") {
@@ -4485,7 +4687,14 @@ export async function POST(request: Request) {
           continue;
         }
 
-        const reply = await buildReply(request, from, text, type);
+        const rawReply = await buildReply(request, from, text, type);
+        const outgoingMemory = await getConversationMemory(from);
+        const reply = finalizeReplyBeforeSend(rawReply, {
+          from,
+          text,
+          intent: incomingIntent,
+          memory: outgoingMemory,
+        });
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
           incomingMessageId: message.id,

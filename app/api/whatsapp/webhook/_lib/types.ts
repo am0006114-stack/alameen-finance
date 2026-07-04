@@ -173,4 +173,8 @@ export type AiReplyInput = {
   lastCustomerMessages?: string[];
   memoryTrackingId?: string | null;
   messageType?: string | null;
+  sentUrls?: string[];
+  hasRecentConversation?: boolean;
+  hasRecentStaffIntro?: boolean;
+  assignedAgentName?: string | null;
 };

@@ -91,19 +91,27 @@ export function extractJordanPhoneFromText(text: string) {
   return "";
 }
 
-const agentNames = [
-  "تالا",
-  "فدوة",
-  "لينا",
-  "عبدالله",
-  "خالد",
-  "عبدالرحمن",
-];
+export const FOLLOWUP_STAFF_NAMES = ["تالا", "فدوة", "لينا", "خالد", "عبدالله", "عبدالرحمن"] as const;
+export const ESCALATION_STAFF_NAME = "عمران";
+
+const agentNames = [...FOLLOWUP_STAFF_NAMES];
 
 export function pickAgentName(seed: string) {
   const digits = digitsOnly(seed);
   const last = Number(digits.slice(-2) || "0");
   return agentNames[last % agentNames.length];
+}
+
+export function assignedStaffName(seed: string, role: "followup" | "study" | "escalation" = "followup") {
+  if (role === "escalation") return ESCALATION_STAFF_NAME;
+
+  const followupNames = ["تالا", "فدوة", "لينا", "خالد"];
+  const studyNames = ["عبدالله", "خالد", "عبدالرحمن"];
+  const names = role === "study" ? studyNames : followupNames;
+  const digits = digitsOnly(seed);
+  const last = Number(digits.slice(-2) || "0");
+
+  return names[last % names.length];
 }
 
 export function humanOpening(seed: string) {
@@ -114,8 +122,8 @@ export function humanOpening(seed: string) {
     "حاضر، براجع معك نفس النقطة 🌿",
     "تمام، خلينا نربطها بالطلب الصحيح 🌿",
     "وصلت، خلينا نحكي بالمؤكد 🌿",
-    "معك، وبعطيك الواضح بدون لف ودوران 🌿",
-    "تمام، خطوة خطوة وبنوضحها 🌿",
+    "بوضحلك إياها بدون لف ودوران 🌿",
+    "خلينا نمشيها خطوة خطوة 🌿",
   ];
 
   const digits = digitsOnly(seed);

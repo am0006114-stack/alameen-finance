@@ -10,6 +10,11 @@ export type ConversationMemory = {
   lastPhoneNumber?: string | null;
   lastCustomerConcern?: string | null;
   hasRecentConversation?: boolean;
+  sentUrls?: string[];
+  hasRecentStaffIntro?: boolean;
+  hasSentProductsLink?: boolean;
+  hasSentTrackLink?: boolean;
+  hasSentReceiptLink?: boolean;
 };
 
 function trimLine(value: string | null | undefined, max = 260) {
@@ -39,6 +44,16 @@ function extractJordanPhoneFromMemory(value: string | null | undefined) {
   return matches.length ? matches[matches.length - 1] : "";
 }
 
+function extractUrlsFromMemory(value: string | null | undefined) {
+  const matches = String(value || "").match(/https?:\/\/[^\s)]+/gi) || [];
+  return Array.from(new Set(matches.map((url) => url.replace(/[،,.]+$/g, ""))));
+}
+
+function hasStaffIntro(value: string | null | undefined) {
+  const text = String(value || "");
+  return /(معك|معكِ|انا معك|أنا معك)\s+(عمران|خالد|عبدالله|عبدالرحمن|تالا|فدوة|لينا|علي|سمر)/i.test(text);
+}
+
 function inferLastConcernFromMemory(value: string | null | undefined) {
   const text = String(value || "");
   if (/الموقع|السايت|التتبع|الرابط|جلب الطلبات|خطأ|خطا|404|not found|error/i.test(text)) return "site_or_tracking_issue";
@@ -59,6 +74,11 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     lastPhoneNumber: null,
     lastCustomerConcern: null,
     hasRecentConversation: false,
+    sentUrls: [],
+    hasRecentStaffIntro: false,
+    hasSentProductsLink: false,
+    hasSentTrackLink: false,
+    hasSentReceiptLink: false,
   };
 
   const cleanWaId = String(waId || "").trim();
@@ -105,6 +125,13 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .filter(Boolean)
       .slice(0, 4);
 
+    const outgoingText = data
+      .filter((message) => message.direction === "outgoing")
+      .map((message) => String(message.body || ""))
+      .join("\n");
+
+    const sentUrls = extractUrlsFromMemory(outgoingText);
+
     const newestMessageTime = data[0]?.created_at ? new Date(data[0].created_at).getTime() : NaN;
     const hasRecentConversation =
       Number.isFinite(newestMessageTime) && Date.now() - newestMessageTime <= 30 * 60 * 1000;
@@ -119,6 +146,11 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       lastPhoneNumber: extractJordanPhoneFromMemory(conversationContext) || null,
       lastCustomerConcern: inferLastConcernFromMemory(conversationContext),
       hasRecentConversation,
+      sentUrls,
+      hasRecentStaffIntro: lastAssistantReplies.some(hasStaffIntro),
+      hasSentProductsLink: sentUrls.some((url) => /\/products(?:$|[?#])/i.test(url)),
+      hasSentTrackLink: sentUrls.some((url) => /\/track(?:$|[?#])/i.test(url)),
+      hasSentReceiptLink: sentUrls.some((url) => /\/receipt(?:$|[?#])/i.test(url)),
     };
   } catch (error) {
     console.error("getConversationMemory failed:", error);
