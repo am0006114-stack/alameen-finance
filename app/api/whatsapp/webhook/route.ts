@@ -2074,6 +2074,114 @@ function unknownReply(from: string) {
   return variants[Number(digits.slice(-2) || "0") % variants.length];
 }
 
+function envFlag(name: string, defaultValue = true) {
+  const value = process.env[name];
+
+  if (value === undefined || value === null || value === "") return defaultValue;
+
+  return !["0", "false", "off", "no", "disabled"].includes(String(value).trim().toLowerCase());
+}
+
+function envNumber(name: string, fallback: number) {
+  const value = Number(process.env[name]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function sleepMs(ms: number) {
+  if (!Number.isFinite(ms) || ms <= 0) return Promise.resolve();
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function replyDelayRangeForIntent(intent: CustomerIntent, text: string, messageType = "text") {
+  const t = normalizeArabicText(text);
+
+  if (messageType !== "text") return { min: 1500, max: 3200 };
+
+  if (String(intent) === "greeting" || String(intent) === "thanks") {
+    return { min: 800, max: 1400 };
+  }
+
+  if (String(intent) === "order_status" || String(intent) === "review_time" || String(intent) === "delivery") {
+    return { min: 1800, max: 3600 };
+  }
+
+  if (looksSensitive(text) || isTinyContextFollowupText(t)) {
+    return { min: 2500, max: 5500 };
+  }
+
+  if (["products", "apply", "website", "contact_info", "location", "requirements", "installment_info"].includes(String(intent))) {
+    return { min: 1200, max: 2500 };
+  }
+
+  return { min: 1300, max: 3000 };
+}
+
+function humanReplyDelayMs(intent: CustomerIntent, text: string, messageType = "text") {
+  if (!envFlag("WHATSAPP_REPLY_DELAY_ENABLED", true)) return 0;
+
+  const globalMin = envNumber("WHATSAPP_MIN_REPLY_DELAY_MS", 900);
+  const globalMax = envNumber("WHATSAPP_MAX_REPLY_DELAY_MS", 5500);
+  const range = replyDelayRangeForIntent(intent, text, messageType);
+  const min = clampNumber(range.min, 0, globalMax);
+  const max = Math.max(min, clampNumber(range.max, Math.max(globalMin, min), globalMax));
+
+  return Math.round(min + Math.random() * (max - min));
+}
+
+async function waitUntilReplyLooksHuman(startedAt: number, targetDelayMs: number) {
+  if (!targetDelayMs) return;
+
+  const elapsed = Date.now() - startedAt;
+  const remaining = targetDelayMs - elapsed;
+
+  if (remaining > 0) {
+    await sleepMs(remaining);
+  }
+}
+
+async function sendWhatsAppTypingIndicator(incomingMessageId?: string | null) {
+  if (!envFlag("WHATSAPP_TYPING_INDICATOR_ENABLED", true)) return false;
+
+  const token = process.env.WHATSAPP_TOKEN;
+  const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
+  const graphVersion = process.env.GRAPH_API_VERSION || "v20.0";
+  const cleanMessageId = String(incomingMessageId || "").trim();
+
+  if (!token || !phoneNumberId || !cleanMessageId) return false;
+
+  try {
+    const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        status: "read",
+        message_id: cleanMessageId,
+        typing_indicator: {
+          type: "text",
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("WhatsApp typing indicator failed:", await response.text());
+      return false;
+    }
+
+    return true;
+  } catch (error) {
+    console.error("WhatsApp typing indicator error:", error);
+    return false;
+  }
+}
+
 async function sendWhatsAppText(to: string, body: string) {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -4641,6 +4749,10 @@ export async function POST(request: Request) {
         const incomingIntent = classifyIntent(text);
         const incomingTracking = extractTracking(text);
         const needsHumanReview = shouldFlagHumanReview(text, incomingIntent);
+        const replyStartedAt = Date.now();
+        const targetReplyDelayMs = humanReplyDelayMs(incomingIntent, text, type);
+
+        await sendWhatsAppTypingIndicator(message.id);
 
         await markPreviousAiConversationCustomerReplied(from);
 
@@ -4669,6 +4781,7 @@ export async function POST(request: Request) {
           });
 
           if (outgoingClaim.shouldSend && !(await hasRecentlySentSameReply(from, reply, 30))) {
+            await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
             const outgoingMessageId = await sendWhatsAppText(from, reply);
             await logMessage({
               waId: from,
@@ -4704,6 +4817,7 @@ export async function POST(request: Request) {
         const alreadySentSameReply = !outgoingClaim.shouldSend || await hasRecentlySentSameReply(from, reply, 30);
 
         if (!alreadySentSameReply) {
+          await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
           const outgoingMessageId = await sendWhatsAppText(from, reply);
           await logMessage({
             waId: from,
