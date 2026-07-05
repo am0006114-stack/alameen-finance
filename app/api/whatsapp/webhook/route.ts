@@ -38,6 +38,7 @@ import {
   guarantorUrl,
   identityUrl,
   receiptUrl,
+  refundUrl,
   salarySlipUrl,
   trackUrl,
 } from "./_lib/links";
@@ -327,6 +328,14 @@ function isPaymentDisputeText(text: string) {
   return hasAny(t, PAYMENT_DISPUTE_KEYWORDS);
 }
 
+function isCancelRefundRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  const hasCancel = hasAny(t, ["الغاء", "إلغاء", "الغي", "ألغي", "لغي", "لغوا", "كنسل", "cancel", "بدي الغي", "بدي ألغي", "ممكن الغاء", "ممكن إلغاء", "الغاء الطلب", "إلغاء الطلب"]);
+  const hasRefund = hasAny(t, ["استرداد", "استرجاع", "رجع المصاري", "رجعوا المصاري", "رجعولي المصاري", "رجع فلوسي", "رجعوا فلوسي", "رجعولي فلوسي", "بدي فلوسي", "مصاري", "الرسوم", "refund"]);
+  return hasCancel && hasRefund;
+}
+
 function isDeviceDelayRageText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -418,7 +427,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "complaint", "refund", "human_agent", "cancel_refund_request", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -510,7 +519,7 @@ function isCancelConfirmedText(text: string) {
   if (!t) return false;
 
   const confirmationPhrases = [
-    "اكد الغاء الطلب", "اكد الغاء", "اكد الالغاء", "اكد الإلغاء", "أكد إلغاء الطلب", "أكد الإلغاء",
+    "اكد الغاء الطلب", "اكد الغاء", "اكد الالغاء", "تاكيد الغاء الطلب", "تأكيد إلغاء الطلب", "تاكيد الالغاء", "تأكيد الإلغاء", "اكد الإلغاء", "أكد إلغاء الطلب", "أكد الإلغاء",
     "نعم اكد الغاء", "نعم الغي نهائيا", "نعم ألغي نهائيًا", "الغيه نهائيا", "الغيه نهائيًا",
     "الغوا نهائيا", "الغوا نهائيًا", "الغاء نهائي", "إلغاء نهائي", "متاكد بدي الغي", "متأكد بدي ألغي",
     "متاكد الغي", "متأكد ألغي", "خلص الغي نهائي", "خلص ألغي نهائي", "cancel confirmed",
@@ -519,7 +528,7 @@ function isCancelConfirmedText(text: string) {
 
   const hasConfirmation = hasAny(t, confirmationPhrases);
   const hasCancelContext = hasAny(t, ["الغاء", "الغي", "الغيه", "الغوا", "cancel", "كنسل"]);
-  const hasFinalContext = hasAny(t, ["اكد", "أكد", "نعم", "نهائي", "نهائيا", "متاكد", "متأكد", "confirm", "yes"]);
+  const hasFinalContext = hasAny(t, ["اكد", "أكد", "تاكيد", "تأكيد", "نعم", "نهائي", "نهائيا", "متاكد", "متأكد", "confirm", "yes"]);
 
   return hasConfirmation || (hasCancelContext && hasFinalContext);
 }
@@ -905,17 +914,23 @@ function classifyIntent(text: string): CustomerIntent {
   if (isScamAccusationText(t)) return "scam_accusation";
   if (isLegalThreatText(t)) return "legal_threat";
   if (isSocialMediaThreatText(t)) return "social_media_threat";
-  if (isPaymentDisputeText(t)) return "payment_dispute";
-  if (isEmotionalPressureText(t)) return "emotional_pressure";
-  if (isDeviceDelayRageText(t)) return "device_delay_rage";
 
+  // الإلغاء والتأكيد لازم ينمسك قبل أي تصنيف مالي.
   if (isCancelConfirmedText(t)) {
     return "cancel_confirmed";
+  }
+
+  if (isCancelRefundRequestText(t)) {
+    return "cancel_refund_request";
   }
 
   if (isCancelRequestText(t)) {
     return "cancel_request";
   }
+
+  if (isPaymentDisputeText(t)) return "payment_dispute";
+  if (isEmotionalPressureText(t)) return "emotional_pressure";
+  if (isDeviceDelayRageText(t)) return "device_delay_rage";
 
   if (isAlternativePaymentSourceText(t)) {
     return "alternative_payment_source";
@@ -1031,7 +1046,7 @@ function classifyIntent(text: string): CustomerIntent {
 
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "complaint", "refund", "cancel_request", "cancel_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "complaint", "refund", "cancel_refund_request", "cancel_request", "cancel_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
 }
 
 function getSalaryNumber(value: number | string | null | undefined) {
@@ -1472,16 +1487,14 @@ ${BUSINESS_NAME}`;
 function refundFirstRequestReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
-  const url = delayUrl(baseUrl, app);
-
+  const url = refundUrl(baseUrl, app);
   return `تمام ${name}، وصلتني رغبتك بالاسترداد.
-
-سجلت حالة الملف الآن: قيد الاسترداد.
 
 رابط تثبيت بيانات الاسترداد:
 ${url}
 
-استخدم الرابط مرة واحدة وعبّي بيانات التحويل بشكل صحيح، وبعدها بتدخل المراجعة حسب ترتيب الطلبات.
+عبّي بيانات التحويل من الرابط مرة واحدة وبشكل صحيح.
+مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
 
 رقم التتبع: ${tracking}`;
 }
@@ -1494,7 +1507,7 @@ function refundAlreadyRequestedReply(app: ApplicationRecord) {
 
 ما رح أكرر رابط الاسترداد حتى ما يصير أكثر من طلب على نفس الملف.
 
-إذا عبّيت البيانات، فهي تحت المراجعة حسب ترتيب الطلبات.
+إذا عبّيت البيانات، فهي تحت المراجعة. مدة المراجعة والمعالجة تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
 
 رقم التتبع: ${tracking}`;
 }
@@ -2973,42 +2986,40 @@ async function handleDocumentAutomation(input: {
   return null;
 }
 
-async function updateCustomerDecision(input: {
-  app: ApplicationRecord;
-  decision: "continue" | "decline";
-}) {
-  const now = new Date().toISOString();
+function isPaidApplication(app: ApplicationRecord | null | undefined) {
+  if (!app) return false;
+  return app.payment_status === "confirmed" || Boolean(app.payment_confirmed_at);
+}
 
+async function updateCustomerDecision(input: { app: ApplicationRecord; decision: "continue" | "decline"; }) {
   if (input.decision === "continue") {
-    await supabaseAdmin
-      .from("applications")
-      .update({
-        status: "customer_confirmed_continue",
-        payment_status: "payment_info_sent",
-      })
-      .eq("id", input.app.id);
+    await supabaseAdmin.from("applications").update({ status: "customer_confirmed_continue", payment_status: "payment_info_sent" }).eq("id", input.app.id);
+    return { ...input.app, status: "customer_confirmed_continue", payment_status: "payment_info_sent" } as ApplicationRecord;
+  }
+  const result = await cancelApplicationAfterConfirmation(input.app);
+  return result.app;
+}
 
-    return {
-      ...input.app,
-      status: "customer_confirmed_continue",
-      payment_status: "payment_info_sent",
-    } as ApplicationRecord;
+async function cancelApplicationAfterConfirmation(app: ApplicationRecord) {
+  const paid = isPaidApplication(app);
+  const updatePayload: Record<string, string> = {
+    status: "cancelled",
+    payment_reference: paid ? "customer_cancelled_paid_refund_pending" : "customer_cancelled",
+  };
+  if (paid) updatePayload.payment_status = "refund_requested";
+
+  const { error } = await supabaseAdmin.from("applications").update(updatePayload).eq("id", app.id);
+  if (error) {
+    console.error("cancelApplicationAfterConfirmation error:", error.message);
+    return { app, paid, succeeded: false, error: error.message };
   }
 
-  await supabaseAdmin
-    .from("applications")
-    .update({
-      status: "cancelled",
-      payment_status: "not_requested_yet",
-      payment_reference: "customer_declined_continue",
-    })
-    .eq("id", input.app.id);
-
   return {
-    ...input.app,
-    status: "cancelled",
-    payment_status: "not_requested_yet",
-  } as ApplicationRecord;
+    app: { ...app, status: "cancelled", payment_status: paid ? "refund_requested" : app.payment_status, payment_reference: updatePayload.payment_reference } as ApplicationRecord,
+    paid,
+    succeeded: true,
+    error: null as string | null,
+  };
 }
 
 function continueConfirmationMessage(app: ApplicationRecord) {
@@ -3031,7 +3042,6 @@ ${BUSINESS_NAME}`;
 function declineConfirmationMessage(app: ApplicationRecord) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
-
   return `أهلًا ${name} 🌿
 
 تم تسجيل عدم رغبتكم بالاستمرار حاليًا، وتم إلغاء الطلب.
@@ -3042,6 +3052,53 @@ function declineConfirmationMessage(app: ApplicationRecord) {
 ${tracking}
 
 ${BUSINESS_NAME}`;
+}
+
+function cancelConfirmedReply(input: { app: ApplicationRecord; baseUrl: string; paid: boolean; succeeded: boolean; }) {
+  const { app, baseUrl, paid, succeeded } = input;
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  if (!succeeded) {
+    return `وصل تأكيد الإلغاء يا ${name}.
+
+تعذر تحديث حالة الطلب تلقائيًا، وتم تحويله للإدارة للمتابعة اليدوية.
+
+رقم التتبع:
+${tracking}`;
+  }
+  if (paid) {
+    const url = refundUrl(baseUrl, app);
+    return `تم إلغاء الطلب بنجاح يا ${name}.
+
+بما أن الدفع مؤكد على الملف، يرجى تثبيت بيانات الاسترداد من الرابط التالي:
+${url}
+
+مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
+
+رقم التتبع:
+${tracking}`;
+  }
+  return `تم إلغاء الطلب بنجاح يا ${name}.
+
+لا يوجد أي دفع أو إجراء مطلوب عليكم حاليًا.
+
+رقم التتبع:
+${tracking}`;
+}
+
+function cancelRefundRequestReply(app: ApplicationRecord) {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  return `وصلتني رغبتك بإلغاء الطلب وطلب الاسترداد يا ${name}.
+
+حتى ما يصير إلغاء بالغلط، اكتب بالضبط:
+أكد إلغاء الطلب
+
+بعد التأكيد، إذا كان الدفع مؤكدًا على الملف، بنلغي الطلب ونرسل لك رابط تثبيت بيانات الاسترداد.
+مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة.
+
+رقم التتبع:
+${tracking}`;
 }
 
 function criticalCaseOpening() {
@@ -3065,51 +3122,34 @@ function followupCaseOpening(seed: string) {
 function cancelRequestReply(app: ApplicationRecord, baseUrl: string, customerText = "") {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
-  const status = statusHumanLabel(app.status || "");
-  const url = trackUrl(baseUrl, app);
   const t = normalizeArabicText(customerText);
+  const alreadyGaveReason = hasAny(t, ["تاخير", "تأخير", "تغير بالقرار", "تغيير بالقرار", "غيرت رايي", "غيرت رأيي", "مش محتاج", "بدي اشوف شركه ثانيه", "شركة ثانية", "سبب اخر", "سبب آخر"]);
+  if (alreadyGaveReason) {
+    return `تمام ${name}، وصلت.
 
-  const likelyPaymentIssue = isAlternativePaymentSourceText(customerText) || hasAny(t, ["محفظه", "محفظة", "اورنج", "orange", "كليك", "دفع", "رسوم", "حواله", "حوالة"]);
-  const likelyDelayIssue = isSupplierDelayQuestionText(customerText) || hasAny(t, ["تاخير", "تأخير", "طولت", "وين الجهاز", "وين جهازي", "تسليم", "استلام", "المورد"]);
-
-  const reasonLine = likelyPaymentIssue
-    ? `إذا سبب الإلغاء موضوع الدفع أو عدم وجود محفظة، هذا بنقدر نحلّه: ممكن يكون التحويل من رقم/حساب/شخص ثاني على معلومات الدفع الرسمية، وبعدها ترفع صورة الوصل من الرابط المخصص.`
-    : likelyDelayIssue
-      ? `إذا السبب التأخير، أوضحلك بصراحة: لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا. أول ما توصل الأجهزة ويتم اعتماد جدول الاستلام من المكتب، بنتواصل مع أصحاب الطلبات المؤكدة مباشرة.`
-      : `قبل ما نغلق الملف، احكيلي السبب: التأخير، الدفع، أو صار عندك تغيير بالقرار؟ أحيانًا المشكلة بتكون بخطوة بسيطة وبنحلها بدون ما نخسر الطلب.`;
-
-  return `${criticalCaseOpening()}
-
-هلا ${name}، فهمت إنك بتفكر بإلغاء الطلب.
-
-${reasonLine}
-
-طلبك لسه محفوظ، وما رح يتم إلغاؤه من أول رسالة حتى ما يصير قرار بالغلط.
-
-حالة الملف الحالية:
-${status}
-
-إذا بعد التوضيح لسه بدك تلغي نهائيًا، اكتبلي بالضبط:
+إذا قرارك نهائي، اكتب بالضبط:
 أكد إلغاء الطلب
 
+وبس توصلنا الجملة بنلغي الطلب من النظام.
 رقم التتبع:
-${tracking}
+${tracking}`;
+  }
+  return `أكيد يا ${name}.
 
-رابط المتابعة:
-${url}`;
+قبل الإلغاء النهائي، احكيلي سبب الإلغاء باختصار:
+تغيير بالقرار، تأخير، أو سبب آخر؟
+
+رقم التتبع:
+${tracking}`;
 }
 
 function cancelRequestWithoutAppReply(from: string) {
-  return `${criticalCaseOpening()}
+  return `فهمت إنك بدك تلغي الطلب.
 
-فهمت إنك بتفكر بالإلغاء، بس ما بقدر ألغي أي ملف بدون ما أربطه بالطلب الصحيح.
+حتى أربطه بالملف الصحيح، ابعث رقم التتبع AM- أو رقم الهاتف المستخدم بالطلب.
 
-ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبراجع الحالة أولًا.
-
-مهم: الإلغاء النهائي ما بصير إلا بعد تأكيد صريح منك بعبارة:
-أكد إلغاء الطلب
-
-${BUSINESS_NAME}`;
+الإلغاء النهائي لا يتم إلا بعد تأكيد صريح بعبارة:
+أكد إلغاء الطلب`;
 }
 
 function alternativePaymentSourceReply(app: ApplicationRecord, baseUrl: string) {
@@ -3951,6 +3991,7 @@ async function generateAiReply(input: AiReplyInput) {
     "document_followup",
     "complaint",
     "refund",
+    "cancel_refund_request",
     "cancel_request",
     "cancel_confirmed",
     "site_issue",
@@ -4136,7 +4177,7 @@ async function generateAiReply(input: AiReplyInput) {
 - needs_guarantor يعني بحاجة كفيل لاستكمال الدراسة وليس رفضًا.
 - needs_identity أو identity_requested يعني بحاجة صورة الهوية الأمامية والخلفية لاستكمال الدراسة.
 - needs_salary_slip يعني بحاجة كشف راتب أو شهادة راتب.
-- refund_requested يعني طلب استرداد مسجل دون وعد بوقت تنفيذ.
+- refund_requested يعني طلب استرداد مسجل. مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
 - إذا كانت الحالة refund_requested أو payment_status يساوي refund_requested: ممنوع إرسال رابط الاسترداد مرة ثانية. قل فقط إن الطلب قيد الاسترداد وتحت المراجعة.
 - رابط الاسترداد يرسل مرة واحدة فقط عند أول طلب استرداد، وبعدها يتم تسجيل الحالة قيد الاسترداد.
 - refund_completed فقط تعني أن الاسترداد تم.
@@ -4478,6 +4519,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "payment" ||
     String(intent) === "requirements" ||
     String(intent) === "refund" ||
+    String(intent) === "cancel_refund_request" ||
     String(intent) === "complaint" ||
     String(intent) === "abuse" ||
     String(intent) === "legal_threat" ||
@@ -4592,49 +4634,31 @@ ${BUSINESS_NAME}`;
     });
   }
 
+  if (app && String(intent) === "cancel_refund_request") {
+    deterministicReply = cancelRefundRequestReply(app);
+    await sendDiscordNotification({ title: "🟠 العميل طلب إلغاء مع استرداد", description: "لم يتم إلغاء الطلب بعد. تم طلب تأكيد صريح قبل الإلغاء وإرسال رابط الاسترداد.", color: 0xfee75c, app, customerPhone: from, customerMessage: text, systemReply: deterministicReply, baseUrl });
+    return deterministicReply;
+  }
+
   if (app && String(intent) === "cancel_request") {
     deterministicReply = cancelRequestReply(app, baseUrl, text);
-
-    await sendDiscordNotification({
-      title: "🟠 العميل يفكر بإلغاء الطلب",
-      description: "لم يتم إلغاء الطلب. تم إرسال رد تهدئة وطلب تأكيد صريح قبل أي إلغاء.",
-      color: 0xfee75c,
-      app,
-      customerPhone: from,
-      customerMessage: text,
-      systemReply: deterministicReply,
-      baseUrl,
-    });
-
-    return humanizeReply({
-      customerText: text,
-      deterministicReply,
-      customerName: firstTwoNames(app.full_name),
-      trackingId: app.tracking_id || app.id,
-      status: app.status || null,
-      paymentStatus: app.payment_status || null,
-      deviceName: app.device_name || null,
-      isSensitive: true,
-      hasApplication: true,
-      intent,
-    });
+    await sendDiscordNotification({ title: "🟠 العميل يفكر بإلغاء الطلب", description: "لم يتم إلغاء الطلب. تم إرسال رد قصير وطلب تأكيد صريح قبل أي إلغاء.", color: 0xfee75c, app, customerPhone: from, customerMessage: text, systemReply: deterministicReply, baseUrl });
+    return deterministicReply;
   }
 
   if (app && String(intent) === "cancel_confirmed") {
-    const updatedApp = await updateCustomerDecision({ app, decision: "decline" });
-    deterministicReply = declineConfirmationMessage(updatedApp);
-
+    const cancellation = await cancelApplicationAfterConfirmation(app);
+    deterministicReply = cancelConfirmedReply({ app: cancellation.app, baseUrl, paid: cancellation.paid, succeeded: cancellation.succeeded });
     await sendDiscordNotification({
-      title: "❌ تم إلغاء الطلب بعد تأكيد صريح",
-      description: "العميل أكد الإلغاء بعبارة واضحة، وتم إلغاء الطلب.",
-      color: 0xed4245,
-      app: updatedApp,
+      title: cancellation.succeeded ? "❌ تم إلغاء الطلب بعد تأكيد صريح" : "⚠️ فشل الإلغاء التلقائي",
+      description: cancellation.succeeded ? (cancellation.paid ? "تم إلغاء الطلب، والدفع مؤكد؛ تم إرسال رابط تثبيت بيانات الاسترداد وذكر مدة 3 أيام عمل." : "تم إلغاء الطلب من النظام بعد تأكيد صريح.") : "العميل أكد الإلغاء لكن تحديث قاعدة البيانات فشل، ويحتاج متابعة يدوية.",
+      color: cancellation.succeeded ? 0xed4245 : 0xfee75c,
+      app: cancellation.app,
       customerPhone: from,
       customerMessage: text,
       systemReply: deterministicReply,
       baseUrl,
     });
-
     return deterministicReply;
   }
 
@@ -4713,8 +4737,8 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (!app && (String(intent) === "continue_decision" || String(intent) === "decline_decision" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed")) {
-    if (String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
+  if (!app && (String(intent) === "continue_decision" || String(intent) === "decline_decision" || String(intent) === "cancel_refund_request" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed")) {
+    if (String(intent) === "cancel_refund_request" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
       deterministicReply = cancelRequestWithoutAppReply(from);
     } else {
       deterministicReply = `${humanOpening(`${from}:decision`)}
@@ -4775,7 +4799,7 @@ ${BUSINESS_NAME}`;
     deterministicReply = complaintReply(baseUrl, from, null, text);
   } else if (String(intent) === "refund") {
     deterministicReply = refundReply(baseUrl, from, null);
-  } else if (String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
+  } else if (String(intent) === "cancel_refund_request" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
     deterministicReply = cancelRequestWithoutAppReply(from);
   } else if (String(intent) === "alternative_payment_source" || String(intent) === "receipt_upload_needed") {
     deterministicReply = alternativePaymentSourceWithoutAppReply(from);

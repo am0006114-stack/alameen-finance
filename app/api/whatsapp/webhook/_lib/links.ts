@@ -34,3 +34,10 @@ export function identityUrl(baseUrl: string, app: ApplicationRecord) {
   const phone = app.phone || "";
   return `${baseUrl}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
+
+
+export function refundUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}&mode=refund`;
+}

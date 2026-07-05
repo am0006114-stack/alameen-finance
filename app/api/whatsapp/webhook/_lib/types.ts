@@ -7,6 +7,7 @@ export type ApplicationRecord = {
   status?: string | null;
   payment_status?: string | null;
   payment_confirmed_at?: string | null;
+  payment_reference?: string | null;
   device_name?: string | null;
   salary?: number | string | null;
   delivery_delay_until?: string | null;
@@ -139,6 +140,7 @@ export type CustomerIntent =
   | "decline_decision"
   | "cancel_request"
   | "cancel_confirmed"
+  | "cancel_refund_request"
   | "alternative_payment_source"
   | "receipt_upload_needed"
   | "supplier_delay_question"
