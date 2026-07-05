@@ -8,7 +8,6 @@ type PageProps = {
     phone?: string;
     result?: string;
     mode?: string;
-    source?: string;
   }>;
 };
 
@@ -81,7 +80,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
   const phone = String(params?.phone || "").trim();
   const result = String(params?.result || "").trim();
   const mode = String(params?.mode || "").trim();
-  const source = String(params?.source || "").trim();
+  const directRefundMode = mode === "refund";
 
   if (!tracking || !phone) {
     redirect("/");
@@ -115,12 +114,8 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
   const customerName = firstTwoNames(app.full_name);
   const acceptedDelay =
     result === "wait" || app.status === "customer_accepts_delivery_delay";
-  const directRefundMode =
-    mode === "refund" ||
-    source === "cancelled" ||
-    (app.status === "cancelled" && ["confirmed", "refund_requested"].includes(app.payment_status || ""));
   const refundRequested =
-    result === "refund" || (!directRefundMode && (app.status === "refund_requested" || app.payment_status === "refund_requested"));
+    result === "refund" || app.status === "refund_requested";
 
   const fallbackDeadline = addHours(new Date(), 72).toISOString();
   const countdownDeadline = app.delivery_delay_until || fallbackDeadline;
@@ -146,7 +141,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
 
             <p className="mx-auto mt-3 max-w-2xl text-base font-bold leading-8 text-[#5e6b62]">
               {directRefundMode
-                ? `أهلًا ${customerName}، بعد إلغاء الطلب أو طلب الاسترداد، يرجى إدخال بيانات التحويل بدقة حتى يتم ربط الطلب بقسم المراجعة المالية.`
+                ? `أهلًا ${customerName}، تم إلغاء الطلب أو تسجيل طلب الاسترداد. يرجى تعبئة بيانات التحويل بدقة حتى تتم مراجعة ومعالجة الاسترداد.`
                 : `أهلًا ${customerName}، نعتذر منكم على التأخير، تم تحديث موعد استكمال بعض الطلبات بسبب مراجعة داخلية طارئة على الإجراءات وتنسيق التزويد مع المورد، وذلك لضمان دقة الطلبات وعدالة الموافقات لجميع العملاء.`}
             </p>
           </div>
@@ -168,38 +163,14 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
           </div>
 
           <div className="rounded-[28px] border border-[#e2c984] bg-[#fff8e8] p-5 shadow-[0_18px_45px_rgba(67,48,20,0.10)]">
-            <p className="text-xs font-black text-[#7c5b13]">
-              {directRefundMode ? "مدة المعالجة" : "الموعد الجديد"}
-            </p>
+            <p className="text-xs font-black text-[#7c5b13]">الموعد الجديد</p>
             <p className="mt-2 text-lg font-black leading-7 text-[#7c5b13]">
-              {directRefundMode ? "حتى 3 أيام عمل" : deadlineLabel}
+              {deadlineLabel}
             </p>
           </div>
         </div>
 
-        {directRefundMode ? (
-          <section className="mt-5 rounded-[34px] border border-[#e2c984] bg-white/94 p-6 shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
-            <div className="mb-5 rounded-[28px] border border-[#e2c984] bg-[#fff8e8] p-5 text-center">
-              <h2 className="text-2xl font-black text-[#7c5b13]">بيانات الاسترداد</h2>
-              <p className="mx-auto mt-2 max-w-2xl text-sm font-bold leading-7 text-[#594c2c]">
-                يرجى تعبئة بيانات التحويل مرة واحدة وبشكل صحيح. مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
-              </p>
-            </div>
-            <form action="/api/delay-decision" method="POST" className="mx-auto max-w-2xl rounded-[30px] border border-[#e2c984] bg-[#fff8e8] p-5">
-              <input type="hidden" name="applicationId" value={app.id} />
-              <input type="hidden" name="tracking" value={app.tracking_id || app.id} />
-              <input type="hidden" name="phone" value={app.phone || ""} />
-              <input type="hidden" name="decision" value="refund" />
-              <input type="hidden" name="source" value="cancelled" />
-              <div className="grid gap-3">
-                <label className="block"><span className="mb-2 block text-xs font-black text-[#7c5b13]">رقم المحفظة / اسم كليك المراد التحويل له</span><input required name="refundAccount" className="w-full rounded-2xl border border-[#e2c984] bg-white px-4 py-3 text-right text-sm font-bold text-[#123725] outline-none focus:border-[#7c5b13]" placeholder="مثال: 079xxxxxxx أو Alias Click" /></label>
-                <label className="block"><span className="mb-2 block text-xs font-black text-[#7c5b13]">نوع المحفظة / البنك</span><input required name="refundBank" className="w-full rounded-2xl border border-[#e2c984] bg-white px-4 py-3 text-right text-sm font-bold text-[#123725] outline-none focus:border-[#7c5b13]" placeholder="مثال: Orange Money / Click / بنك..." /></label>
-                <label className="block"><span className="mb-2 block text-xs font-black text-[#7c5b13]">اسم صاحب الحساب</span><input required name="refundOwner" className="w-full rounded-2xl border border-[#e2c984] bg-white px-4 py-3 text-right text-sm font-bold text-[#123725] outline-none focus:border-[#7c5b13]" placeholder="الاسم كما يظهر على المحفظة أو الحساب" /></label>
-              </div>
-              <button type="submit" className="mt-5 w-full rounded-2xl bg-[#123725] px-5 py-4 text-sm font-black text-white shadow-lg transition hover:opacity-90">إرسال بيانات الاسترداد</button>
-            </form>
-          </section>
-        ) : acceptedDelay ? (
+        {acceptedDelay ? (
           <section className="mt-5 rounded-[34px] border border-[#b8ddc4] bg-white/94 p-6 text-center shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
             <h2 className="text-2xl font-black text-[#14723a]">
               تم تسجيل اختياركم بالانتظار ✅
@@ -229,7 +200,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
               تم استلام طلب الاسترداد ✅
             </h2>
             <p className="mx-auto mt-3 max-w-2xl text-sm font-bold leading-8 text-[#594c2c]">
-              سيتم مراجعة بيانات التحويل المدخلة وتنفيذ استرداد رسوم فتح الملف حسب ترتيب الطلبات. مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
+              سيتم مراجعة بيانات التحويل المدخلة وتنفيذ استرداد رسوم فتح الملف حسب ترتيب الطلبات.
             </p>
           </section>
         ) : (
@@ -244,7 +215,8 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                 </p>
               </div>
 
-              <div className="grid gap-5 lg:grid-cols-2">
+              <div className={`grid gap-5 ${directRefundMode ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
+                {!directRefundMode ? (
                 <form action="/api/delay-decision" method="POST" className="rounded-[30px] border border-[#b8ddc4] bg-[#edf9f0] p-5">
                   <input type="hidden" name="applicationId" value={app.id} />
                   <input type="hidden" name="tracking" value={app.tracking_id || app.id} />
@@ -274,6 +246,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                     أوافق على الانتظار حتى الموعد الجديد
                   </button>
                 </form>
+                ) : null}
 
                 <form action="/api/delay-decision" method="POST" className="rounded-[30px] border border-[#e2c984] bg-[#fff8e8] p-5">
                   <input type="hidden" name="applicationId" value={app.id} />
@@ -282,10 +255,12 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                   <input type="hidden" name="decision" value="refund" />
 
                   <h3 className="text-xl font-black text-[#7c5b13]">
-                    استرداد رسوم فتح الملف
+                    {directRefundMode ? "تثبيت بيانات الاسترداد" : "استرداد رسوم فتح الملف"}
                   </h3>
                   <p className="mt-3 text-sm font-bold leading-7 text-[#594c2c]">
-                    في حال عدم الرغبة بالانتظار، يمكنكم تعبئة بيانات التحويل لاسترداد رسوم فتح الملف. مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة.
+                    {directRefundMode
+                      ? "يرجى تعبئة بيانات التحويل بدقة. مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل."
+                      : "في حال عدم الرغبة بالانتظار، يمكنكم تعبئة بيانات التحويل لاسترداد رسوم فتح الملف."}
                   </p>
 
                   <div className="mt-4 grid gap-3">
@@ -332,6 +307,10 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                   >
                     إرسال طلب الاسترداد
                   </button>
+
+                  <p className="mt-3 text-xs font-black leading-6 text-[#7c5b13]">
+                    مدة المعالجة: حتى 3 أيام عمل بعد إدخال البيانات الصحيحة.
+                  </p>
                 </form>
               </div>
             </section>
@@ -341,7 +320,9 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                 ملاحظة توضيحية
               </h2>
               <p className="mt-2 text-xs font-bold leading-7 text-[#7a837c]">
-                تحديث الموعد مرتبط بمراجعة داخلية طارئة وتنسيق التزويد مع المورد لضمان دقة الإجراءات وعدالة الموافقات، ولا يعني رفض الطلب.
+                {directRefundMode
+                  ? "الاسترداد يحتاج مراجعة بيانات التحويل أولًا، لذلك يرجى التأكد من صحة الرقم/الاسم قبل الإرسال."
+                  : "تحديث الموعد مرتبط بمراجعة داخلية طارئة وتنسيق التزويد مع المورد لضمان دقة الإجراءات وعدالة الموافقات، ولا يعني رفض الطلب."}
               </p>
             </div>
           </>

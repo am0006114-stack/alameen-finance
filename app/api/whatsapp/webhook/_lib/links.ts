@@ -17,6 +17,12 @@ export function delayUrl(baseUrl: string, app: ApplicationRecord) {
   return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
 
+export function refundUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}&mode=refund`;
+}
+
 export function guarantorUrl(baseUrl: string, app: ApplicationRecord) {
   const tracking = app.tracking_id || app.id;
   const phone = app.phone || "";
@@ -33,11 +39,4 @@ export function identityUrl(baseUrl: string, app: ApplicationRecord) {
   const tracking = app.tracking_id || app.id;
   const phone = app.phone || "";
   return `${baseUrl}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
-}
-
-
-export function refundUrl(baseUrl: string, app: ApplicationRecord) {
-  const tracking = app.tracking_id || app.id;
-  const phone = app.phone || "";
-  return `${baseUrl}/delay-decision?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}&mode=refund`;
 }
