@@ -498,19 +498,17 @@ function isContinueDecisionText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  const positivePhrases = [
+  // لا تعتبر "تمام" أو "أوك" أو "نعم" قرار استمرار بمفردها.
+  // القرار التشغيلي يجب أن يكون صريحًا حتى لا تتغير حالة الطلب بسبب رد مجاملة.
+  return hasAny(t, [
     "اود الاستمرار", "أود الاستمرار", "ارغب بالاستمرار", "أرغب بالاستمرار",
-    "بدي استمر", "بدي اكمل", "بدي أكمل", "اكمل", "أكمل", "كمل", "كملي", "كملوا",
-    "موافق", "موافقين", "موافقة", "تمام كمل", "تمام اكمل", "تمام", "اوكي", "ok", "okay",
-    "افتح الملف", "افتحو الملف", "افتحولي الملف", "فتح الملف", "بدي افتح الملف",
-    "بدي ادفع", "وين ادفع", "ابعث الدفع", "ابعت الدفع", "ارسل تعليمات الدفع",
-    "جاهز ادفع", "خلينا نكمل", "نكمل", "استمر", "استمرار", "مستمر", "yes", "نعم",
-  ];
-
-  const hasPositive = hasAny(t, positivePhrases);
-  const hasContext = hasAny(t, ["استمرار", "اكمل", "كمل", "ملف", "دفع", "موافق", "نعم", "تمام", "اوكي", "ok"]);
-
-  return hasPositive && hasContext;
+    "بدي استمر", "بدي اكمل", "بدي أكمل", "تمام كمل", "تمام اكمل",
+    "خلينا نكمل", "نكمل بالطلب", "كمل بالطلب", "اكمل بالطلب", "استمر بالطلب",
+    "افتح الملف", "افتحو الملف", "افتحولي الملف", "بدي افتح الملف",
+    "بدي ادفع رسوم فتح الملف", "ابعث تعليمات الدفع", "ابعت تعليمات الدفع",
+    "ارسل تعليمات الدفع", "جاهز ادفع رسوم فتح الملف",
+    "confirm continue", "continue application", "yes continue",
+  ]);
 }
 
 function isDeclineDecisionText(text: string) {
@@ -618,6 +616,7 @@ function isOfficialUploadConfirmationText(text: string) {
     "رفعت", "رفعتلكم", "رفعته", "رفعتهم", "حملت", "حملته", "حملتهم",
     "رفقته", "رفقت", "رفقتهم", "ارفقته", "أرفقته",
     "تم الرفع", "تم رفع", "تم التحميل", "تم ارفاق", "تم إرفاق",
+    "تم تعبئه", "تم تعبئة", "عبيت", "عبّيت", "عبأت", "عبّأت", "خلصت التعبئه", "خلصت التعبئة",
     "من الرابط", "على الرابط", "بالرابط", "عن طريق الرابط", "بالنموذج", "من النموذج",
     "uploaded", "submitted", "upload", "submit",
   ]);
@@ -640,8 +639,12 @@ function classifyIncomingIntent(text: string, messageType = "text"): CustomerInt
   if (type === "image" || type === "video") return "media_upload";
   if (type === "document") return "document_upload";
 
-  if (isDocumentFollowupText(text)) return "document_followup";
+  // رسائل صفحة التتبع قد تحتوي وصفًا مثل "تم استلام كشف الراتب".
+  // هذه متابعة طلب وليست رسالة رفع مستند جديدة.
+  if (isStandardApplicationFollowupText(text)) return "order_status";
 
+  // النصوص العادية تمر على المصنف العام ثم على DeepSeek مع سياق المحادثة.
+  // لا نحول أي نص فيه كلمات مستندات تلقائيًا إلى قالب رفع ثابت.
   return classifyIntent(text);
 }
 
@@ -1049,7 +1052,12 @@ function classifyIntent(text: string): CustomerIntent {
     return "human_agent";
   }
 
-  if (hasAny(t, ["موظف", "حد يحكي معي", "اتصال", "رن علي", "رنه", "كلموني", "اداره", "إدارة", "مسؤول", "مندوب", "انسان", "بني ادم", "بشر", "مدير"])) {
+  if (hasAny(t, [
+    "بدي موظف", "احكي مع موظف", "موظف طبيعي", "موظف حقيقي", "حد يحكي معي",
+    "بدي احكي مع حدا", "بدي حدا يحكي معي", "اتصلوا في", "رنوا علي", "رن علي",
+    "كلموني", "بدي مدير", "احكي مع المدير", "بدي مسؤول", "احكي مع مسؤول",
+    "احكي مع انسان", "احكي مع بني ادم", "بدي انسان", "بدي بني ادم", "بدي بشر",
+  ])) {
     return "human_agent";
   }
 
@@ -1112,7 +1120,12 @@ function classifyIntent(text: string): CustomerIntent {
     return "delivery";
   }
 
-  if (hasAny(t, ["طلبي", "طلب", "حاله", "حالة", "شو صار", "وين الطلب", "رقم تتبع", "تتبع", "راجع الطلب", "افحص الطلب", "شيك", "check"])) {
+  if (hasAny(t, [
+    "طلبي", "طلب", "حاله", "حالة", "شو صار", "وين الطلب", "رقم تتبع", "تتبع",
+    "راجع الطلب", "افحص الطلب", "شيك", "check", "اتابع الملف", "أتابع الملف",
+    "متابعه الملف", "متابعة الملف", "تابع الملف", "اكمل متابعه", "أكمل متابعة",
+    "شو اسوي هسا", "شو اعمل هسا", "الخطوه الجايه", "الخطوة الجاية",
+  ])) {
     return "order_status";
   }
 
@@ -1997,32 +2010,16 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
 
 ${compactFileSnapshot(app)}
 
-اكتبلي النقطة اللي بدك إياها بالضبط وبجاوبك عليها مباشرة.`;
+شفت المحادثة، احكيلي النقطة اللي بدك جوابها وبجاوبك عليها مباشرة.`;
   }
 
-  if (isTinyContextFollowupText(customerText)) {
-    if (paymentStatus === "confirmed" && status === "under_review") {
-      return `المختصر ${name}: الدفع مؤكد، والملف قيد الدراسة النهائية، والأمور مبدئيًا مطمئنة.
-
-التأخير الحالي مرتبط بتوفر الأجهزة من الوكلاء واعتماد جدول الاستلام من المكتب، مش بإجراء مطلوب منك الآن.`;
-    }
-
-    if (status === "approved" || status === "customer_accepts_delivery_delay") {
-      return `المختصر ${name}: الملف محفوظ، ولسه بانتظار وصول الأجهزة من المورد واعتماد جدول الاستلام من المكتب.
-
-ما بدي أعطيك موعد غير مؤكد.`;
-    }
-
-    return `${compactFileSnapshot(app)}
-
-احكيلي أي جزء بدك أوضحه لك؟`;
+  // ردود الإقرار القصيرة فقط لا تحتاج إعادة شرح الملف كاملًا.
+  if (["تمام", "اوكي", "ok", "okay", "اوك", "اه", "اها"].includes(text)) {
+    return `تمام ${name} 🌿`;
   }
 
-  if (String(intent) === "unknown" && text && !hasAny(text, ["طلب", "طلبي", "حاله", "حالة", "وين", "دفع", "وصل", "جهاز", "تسليم", "استلام", "كفيل", "راتب"])) {
-    return `وصلتني يا ${name}.
-
-بس حتى ما أعطيك جواب عام، قصدك تتابع الملف ولا عندك سؤال معين؟`;
-  }
+  // الرسائل المختصرة والأسئلة غير المصنفة تترك لـ DeepSeek ليفهمها من سياق المحادثة.
+  // لا نعيد سؤالًا باردًا من نوع "قصدك تتابع الملف؟" إذا السياق واضح أصلًا.
 
   return null;
 }
@@ -2079,20 +2076,19 @@ function directRequirementQuestionReply(app: ApplicationRecord, customerText: st
 
 function humanHandoffReply(app: ApplicationRecord | null, customerText: string) {
   const name = app ? firstTwoNames(app.full_name) : "";
-  const noAnswerContext = hasAny(normalizeArabicText(customerText), [
-    "ما حدا برد", "ما حد برد", "مش رادين", "برن", "اتصلت", "ما بتردوا", "ما بتردو",
-  ]);
   const tracking = app ? app.tracking_id || app.id : "";
 
-  return `تمام${name ? ` ${name}` : ""}، سجلت طلبك للمتابعة من موظف${noAnswerContext ? "، خصوصًا إنك حاولت تتصل وما حدا رد" : ""}.
+  return `أنا معك${name ? ` ${name}` : ""}.
 
-أوقفت الرد الآلي على محادثتك حتى ما تتكرر عليك نفس الإجابات.${tracking ? `\n\nرقم الطلب: ${tracking}` : ""}`;
+شفت المحادثة وحالة الطلب، احكيلي النقطة اللي بدك جوابها وبجاوبك عليها مباشرة.${tracking ? `
+
+رقم الطلب: ${tracking}` : ""}`;
 }
 
 function repeatedReplyRecoveryReply() {
-  return `واضح إن الرد السابق ما جاوب سؤالك، وما رح أكرر نفس الكلام.
+  return `معك حق، الرد السابق تكرر وما جاوب سؤالك.
 
-أوقفت الرد الآلي على المحادثة وسجلت متابعة من موظف.`;
+اكتب سؤالك مرة ثانية بجملة قصيرة، ورح أجاوب على نفس النقطة بدون إعادة القالب السابق.`;
 }
 
 function isNearDuplicateAssistantReply(
@@ -3033,7 +3029,9 @@ async function postPaymentRequirementsReplyOnce(app: ApplicationRecord, baseUrl:
   const salarySent = needsSalarySlip ? await wasSalarySlipLinkAlreadySent(waId) : false;
 
   if (guarantorSent && (!needsSalarySlip || salarySent)) {
-    return postPaymentRequirementsAlreadySentReply(app);
+    // المتطلبات أُرسلت سابقًا: لا نرجع قالب "الروابط انرسلت" لكل سؤال متابعة.
+    // نكمل للمسار الطبيعي حتى يجيب DeepSeek على سؤال العميل الحالي.
+    return "";
   }
 
   const name = firstTwoNames(app.full_name);
@@ -3086,6 +3084,15 @@ async function handleDocumentAutomation(input: {
   const officialUploadConfirmed = isOfficialUploadConfirmationText(text);
   const linkRequest = isDocumentLinkRequestText(text);
 
+  // إذا قاعدة البيانات تؤكد أن المستند وصل، لا نطلب من العميل رفعه مرة ثانية.
+  if (status === "guarantor_submitted" && (hasGuarantorContext || String(intent) === "requirements" || String(intent) === "order_status")) {
+    return guarantorSubmittedAutoReply(app);
+  }
+
+  if (status === "salary_slip_uploaded" && (hasSalaryContext || String(intent) === "requirements" || String(intent) === "order_status")) {
+    return salarySlipUploadedAutoReply(app);
+  }
+
   if (submitted && !officialUploadConfirmed && (hasGuarantorContext || hasSalaryContext)) {
     return officialUploadInstructionReply({
       app,
@@ -3130,14 +3137,6 @@ async function handleDocumentAutomation(input: {
     });
 
     return reply;
-  }
-
-  if (status === "guarantor_submitted" && (hasGuarantorContext || String(intent) === "requirements" || String(intent) === "order_status")) {
-    return guarantorSubmittedAutoReply(app);
-  }
-
-  if (status === "salary_slip_uploaded" && (hasSalaryContext || String(intent) === "requirements" || String(intent) === "order_status")) {
-    return salarySlipUploadedAutoReply(app);
   }
 
   const directRequirementQuestion = isGuarantorQuestionText(text) || isSalaryRequirementQuestionText(text);
@@ -4081,14 +4080,12 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "قروض نقدية",
     "قروضنا",
     "قرضك",
-    "كاش",
     "تمويل شخصي",
     "الأمين للتمويل الأصغر",
     "موافقة نهائية مؤكدة بدون مراجعة",
     "استلام اليوم",
     "استلام بكرا",
     "توصيل اليوم",
-    "توصيل",
     "أرامكس",
     "ارامكس",
     "Aramex",
@@ -4098,8 +4095,6 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "دفع توصيل",
     "رابط شحن",
     "التسليم مؤكد اليوم",
-    "متابعة دقيقة",
-    "مراجعة دقيقة",
     "تحويلك لموظف",
     "تحويل لموظف",
     "الموظف المختص",
@@ -4109,11 +4104,9 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "تم تصعيد",
     "0795733001",
     "خلال هذا الأسبوع",
-    "اليوم",
     "بكرا",
     "غدًا",
     "غدا",
-    "الساعة",
     "6:00",
     "31/05/2026",
     "31-05",
@@ -4424,7 +4417,8 @@ async function generateAiReply(input: AiReplyInput) {
 استخدم "الرد الآمن الأساسي" كمصدر حقيقة، وصغه إنسانيًا دون مخالفة أو إضافة وعود.
 `;
 
-  const similarSuccessfulReplies = await findSimilarSuccessfulReplies(input.intent, input.customerText);
+  // تعطيل أمثلة الردود القديمة مؤقتًا؛ قد تحتوي قوالب سيئة وتعيد نفس السلوك الروبوتي.
+  const similarSuccessfulReplies = "";
 
   const userInput = `
 نية العميل المصنفة:
@@ -4472,6 +4466,9 @@ ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية 
 
 تعليمات استخدام السياق:
 - لا تبدأ كأنها أول رسالة إذا السياق يوضح أن العميل يتابع نفس الحديث.
+- ردود النظام السابقة ليست مصدر حقيقة؛ استخدمها فقط لفهم تسلسل الحديث ومنع التكرار.
+- إذا تعارض رد سابق مع حالة الطلب الحالية، تجاهل الرد السابق واعتمد حالة الطلب الحالية.
+- إذا كانت حالة الطلب تؤكد استلام مستند، ممنوع طلب رفع المستند نفسه مرة ثانية.
 - لا تكرر نفس الجملة أو نفس الافتتاحية الموجودة في آخر ردود النظام.
 - إذا كانت رسالة العميل قصيرة جدًا مثل "طيب؟" أو "يعني؟" أو "تمام؟"، افهمها بناءً على آخر سياق ولا تعيد شرح الملف كاملًا.
 - إذا كان آخر رد طلب رقم التتبع، لا تطلبه مرة ثانية بنفس الصيغة؛ قلها بشكل أقصر أو اسأل سؤالًا أوضح.
@@ -4692,7 +4689,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
   const intent = classifyIncomingIntent(text, messageType);
-  const conversationMemory = await getConversationMemory(from);
+  // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
+  const conversationMemory = await getConversationMemory(from, 18);
   const explicitlyNewApplication = isExplicitNewApplicationText(text);
   const memoryTracking = !explicitlyNewApplication
     ? conversationMemory.lastTrackingId || extractTracking(conversationMemory.conversationContext)
@@ -4758,6 +4756,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "site_issue" ||
     String(intent) === "review_time" ||
     String(intent) === "human_agent" ||
+    String(intent) === "unknown" ||
+    String(intent) === "thanks" ||
     String(intent) === "apply" ||
     String(intent) === "products"
   )) {
@@ -4770,30 +4770,26 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return "";
   }
 
-  if (String(intent) === "human_agent") {
-    const deterministicReply = humanHandoffReply(app, text);
-
-    return humanizeReply({
-      customerText: text,
-      deterministicReply,
-      customerName: app ? firstTwoNames(app.full_name) : undefined,
-      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
-      status: app?.status || null,
-      paymentStatus: app?.payment_status || null,
-      deviceName: app?.device_name || null,
-      isSensitive: true,
-      hasApplication: Boolean(app),
-      intent,
-    });
-  }
-
   if (app && String(intent) === "requirements") {
     const directReply = directRequirementQuestionReply(app, text);
-    if (directReply) return directReply;
+    if (directReply) {
+      return humanizeReply({
+        customerText: text,
+        deterministicReply: directReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: app.status || null,
+        paymentStatus: app.payment_status || null,
+        deviceName: app.device_name || null,
+        isSensitive: false,
+        hasApplication: true,
+        intent,
+      });
+    }
   }
 
-  if (String(intent) === "media_upload" || String(intent) === "document_upload" || String(intent) === "document_followup") {
-    return officialUploadInstructionReply({
+  if (String(intent) === "media_upload" || String(intent) === "document_upload") {
+    const uploadReply = officialUploadInstructionReply({
       app,
       baseUrl,
       from,
@@ -4801,6 +4797,19 @@ async function buildReply(request: Request, from: string, text: string, messageT
       intent,
       messageType,
       memory: conversationMemory,
+    });
+
+    return humanizeReply({
+      customerText: text,
+      deterministicReply: uploadReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: false,
+      hasApplication: Boolean(app),
+      intent,
     });
   }
 
@@ -4986,7 +4995,18 @@ ${BUSINESS_NAME}`;
     });
 
     if (documentAutomationReply) {
-      return documentAutomationReply;
+      return humanizeReply({
+        customerText: text,
+        deterministicReply: documentAutomationReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: app.status || null,
+        paymentStatus: app.payment_status || null,
+        deviceName: app.device_name || null,
+        isSensitive: false,
+        hasApplication: true,
+        intent,
+      });
     }
   }
 
