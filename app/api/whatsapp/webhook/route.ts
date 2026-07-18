@@ -52,6 +52,8 @@ import {
 
 export const dynamic = "force-dynamic";
 
+
+
 function isGreeting(text: string) {
   const t = normalizeArabicText(text);
   return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t);
@@ -301,7 +303,16 @@ const DEVICE_DELAY_RAGE_KEYWORDS = [
 function isAbuseText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
-  return hasAny(t, ABUSE_KEYWORDS);
+
+  // Do not use raw substring matching for profanity. It caused innocent words
+  // such as "المتاحة" to match the short keyword "احه".
+  const phraseKeywords = ABUSE_KEYWORDS.filter((keyword) => normalizeArabicText(keyword).includes(" "));
+  const singleWordKeywords = ABUSE_KEYWORDS.filter((keyword) => !normalizeArabicText(keyword).includes(" "));
+
+  const hasPhrase = phraseKeywords.some((keyword) => t.includes(normalizeArabicText(keyword)));
+  const hasWholeWord = hasNormalizedWord(t, singleWordKeywords);
+
+  return hasPhrase || hasWholeWord;
 }
 
 function isLegalThreatText(text: string) {
@@ -801,8 +812,15 @@ function isSupplierDelayQuestionText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  const deviceContext = hasAny(t, ["اجهزه", "أجهزة", "الجهاز", "جهازي", "تلفون", "موبايل", "ايفون", "سامسونج", "المورد", "الوكلاء", "توريد"]);
-  const delayContext = hasAny(t, ["وصلت", "ما وصلت", "لسه", "لسا", "وين", "متى", "تاخير", "تأخير", "تسليم", "استلام", "صبر", "المورد"]);
+  const deviceContext = hasAny(t, [
+    "اجهزه", "أجهزة", "الجهاز", "جهازي", "تلفون", "تلفوني", "موبايل", "موبايلي",
+    "ايفون", "سامسونج", "المورد", "الوكلاء", "توريد", "شغلي عليه", "كل شغلي عليه",
+  ]);
+  const delayContext = hasAny(t, [
+    "وصلت", "ما وصلت", "لسه", "لسا", "وين", "متى", "تاخير", "تأخير", "تسليم", "استلام",
+    "صبر", "المورد", "مطول", "يطول", "طولت", "اذا مطول", "إذا مطول", "خربان", "اشوف شو اعمل",
+    "أشوف شو أعمل", "مضطر", "مستعجل", "شغلي عليه", "كل شغلي عليه",
+  ]);
 
   return deviceContext && delayContext;
 }
@@ -1422,7 +1440,7 @@ ${app.payment_status || "قيد المتابعة"}
 رقم التتبع:
 ${app.tracking_id || app.id}
 
-مهم: رسوم فتح الملف 5 دنانير فقط، وتكون مستردة في حال عدم الموافقة النهائية. وإذا كان عندك وصل أو إثبات دفع، ابعثه هون حتى نربطه بالحالة الصحيحة.
+مهم: رسوم فتح الملف 3 دنانير فقط، وتكون مستردة في حال عدم الموافقة النهائية. وإذا كان عندك وصل أو إثبات دفع، ابعثه هون حتى نربطه بالحالة الصحيحة.
 
 رابط المتابعة:
 ${trackUrl(baseUrl, app)}
@@ -1692,7 +1710,7 @@ function installmentInfoReply(baseUrl: string, from: string) {
 3. الإدارة بتراجع البيانات.
 4. إذا ظهر من صفحة الإدارة أن الطلب مؤهل مبدئيًا / عليه موافقة مبدئية فقط، بنرسل لك تعليمات فتح الملف.
 5. إذا تأهل الطلب مبدئيًا وقرر العميل الاستمرار، يتم توضيح رسوم فتح الملف رسميًا.
-6. رسوم فتح الملف 5 دنانير فقط ومستردة بالكامل في حال عدم الموافقة النهائية.
+6. رسوم فتح الملف 3 دنانير فقط ومستردة بالكامل في حال عدم الموافقة النهائية.
 7. القسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
 
 مهم: التقديم أو دفع رسوم فتح الملف لا يعني موافقة نهائية، الموافقة بتطلع بعد الدراسة.
@@ -1714,7 +1732,7 @@ function requirementsReply(baseUrl: string, from: string) {
 - كفيل فقط إذا طلبته الإدارة من صفحة الطلب.
 - كشف راتب أو شهادة راتب إذا تم طلبها لاحقًا.
 
-وإذا تأهل الطلب مبدئيًا وقررتم الاستمرار، يتم توضيح رسوم فتح الملف رسميًا، وهي 5 دنانير فقط ومستردة إذا لم تتم الموافقة النهائية.
+وإذا تأهل الطلب مبدئيًا وقررتم الاستمرار، يتم توضيح رسوم فتح الملف رسميًا، وهي 3 دنانير فقط ومستردة إذا لم تتم الموافقة النهائية.
 
 للتقديم:
 ${baseUrl}`;
@@ -1729,7 +1747,7 @@ ${baseUrl}/products
 
 اختار الجهاز، عبّي البيانات بدقة، وبعدها الإدارة بتراجع الطلب.
 
-إذا صار الطلب مؤهلًا مبدئيًا وقررت تكمل، بنرسل لك تعليمات فتح الملف رسميًا. رسوم فتح الملف 5 دنانير فقط ومستردة بالكامل إذا لم تتم الموافقة النهائية.
+إذا صار الطلب مؤهلًا مبدئيًا وقررت تكمل، بنرسل لك تعليمات فتح الملف رسميًا. رسوم فتح الملف 3 دنانير فقط ومستردة بالكامل إذا لم تتم الموافقة النهائية.
 
 والقسط الأول لا يُدفع الآن، يكون بعد الاستلام حسب الاتفاق.`;
 }
@@ -1782,7 +1800,7 @@ ${device}
 ${tracking}
 
 إذا حابّين نكمل دراسة الملف، يتم دفع رسوم فتح الملف:
-5 دنانير فقط
+3 دنانير فقط
 
 ${fileOpeningFeeExplanation()}
 
@@ -2007,6 +2025,92 @@ ${compactFileSnapshot(app)}
   }
 
   return null;
+}
+
+
+function isGuarantorQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t || !hasAny(t, ["كفيل", "ضامن"])) return false;
+  return hasAny(t, ["لازم", "هل", "بحتاج", "بحتاج", "مطلوب", "ضروري", "ليش", "ليه", "؟"]);
+}
+
+function isSalaryRequirementQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t || !hasAny(t, ["كشف راتب", "شهاده راتب", "شهادة راتب", "راتب"])) return false;
+  return hasAny(t, ["لازم", "هل", "بحتاج", "بحتاج", "مطلوب", "ضروري", "ليش", "ليه", "؟"]);
+}
+
+function directRequirementQuestionReply(app: ApplicationRecord, customerText: string) {
+  const name = firstTwoNames(app.full_name);
+  const status = app.status || "";
+  const salary = getSalaryNumber(app.salary);
+  const postPaymentRequirementsApply = canShowPostPaymentRequirements(app);
+
+  if (isGuarantorQuestionText(customerText)) {
+    const guarantorRequired = status === "needs_guarantor" || postPaymentRequirementsApply;
+
+    if (guarantorRequired) {
+      return `نعم ${name}، حسب متطلبات دراسة طلبك مطلوب كفيل.
+
+هذه خطوة لاستكمال الدراسة فقط، وما بتعني رفض الطلب. رابط الكفيل المرسل سابقًا ما زال صالح، وما رح أكرر الرابط إلا إذا طلبته.`;
+    }
+
+    return `${name}، حسب حالة طلبك الظاهرة حاليًا ما في طلب كفيل مسجل كخطوة مطلوبة.
+
+إذا تغيّرت متطلبات الدراسة، بتوصلك رسالة واضحة بالمطلوب.`;
+  }
+
+  if (isSalaryRequirementQuestionText(customerText)) {
+    const salarySlipRequired = status === "needs_salary_slip" || (postPaymentRequirementsApply && salary !== null && salary < 350);
+
+    if (salarySlipRequired) {
+      return `نعم ${name}، حسب بيانات طلبك مطلوب كشف راتب رسمي حديث أو شهادة راتب لاستكمال الدراسة.
+
+هذا إجراء لاستكمال الملف، وما بعني رفض الطلب.`;
+    }
+
+    return `${name}، حسب حالة طلبك الظاهرة حاليًا ما في كشف راتب مسجل كخطوة مطلوبة.
+
+إذا احتاجته الإدارة لاحقًا، رح يوصلك الطلب بشكل واضح.`;
+  }
+
+  return null;
+}
+
+function humanHandoffReply(app: ApplicationRecord | null, customerText: string) {
+  const name = app ? firstTwoNames(app.full_name) : "";
+  const noAnswerContext = hasAny(normalizeArabicText(customerText), [
+    "ما حدا برد", "ما حد برد", "مش رادين", "برن", "اتصلت", "ما بتردوا", "ما بتردو",
+  ]);
+  const tracking = app ? app.tracking_id || app.id : "";
+
+  return `تمام${name ? ` ${name}` : ""}، سجلت طلبك للمتابعة من موظف${noAnswerContext ? "، خصوصًا إنك حاولت تتصل وما حدا رد" : ""}.
+
+أوقفت الرد الآلي على محادثتك حتى ما تتكرر عليك نفس الإجابات.${tracking ? `\n\nرقم الطلب: ${tracking}` : ""}`;
+}
+
+function repeatedReplyRecoveryReply() {
+  return `واضح إن الرد السابق ما جاوب سؤالك، وما رح أكرر نفس الكلام.
+
+أوقفت الرد الآلي على المحادثة وسجلت متابعة من موظف.`;
+}
+
+function isNearDuplicateAssistantReply(
+  reply: string,
+  memory: Awaited<ReturnType<typeof getConversationMemory>>,
+  intent: CustomerIntent,
+) {
+  if (["greeting", "thanks", "reaction"].includes(String(intent))) return false;
+
+  const clean = normalizeArabicText(reply);
+  if (clean.length < 80) return false;
+
+  return (memory.lastAssistantReplies || []).some((previous) => {
+    const previousClean = normalizeArabicText(previous);
+    if (!previousClean) return false;
+    if (previousClean === clean) return true;
+    return textSimilarityScore(previousClean, clean) >= 0.82;
+  });
 }
 
 function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", intent: CustomerIntent = "order_status") {
@@ -3036,17 +3140,29 @@ async function handleDocumentAutomation(input: {
     return salarySlipUploadedAutoReply(app);
   }
 
-  if (status === "needs_guarantor" && (hasGuarantorContext || linkRequest || String(intent) === "requirements" || String(intent) === "order_status")) {
+  const directRequirementQuestion = isGuarantorQuestionText(text) || isSalaryRequirementQuestionText(text);
+  const explicitRequirementsOverview =
+    isStandardApplicationFollowupText(text) ||
+    linkRequest ||
+    hasAny(normalizeArabicText(text), ["شو المطلوب", "المتطلبات المطلوبه", "المتطلبات المطلوبة", "الخطوه التاليه", "الخطوة التالية", "استكمال الخطوات"]);
+
+  if (status === "needs_guarantor" && !directRequirementQuestion && (hasGuarantorContext || linkRequest || String(intent) === "order_status")) {
     const alreadySent = await wasGuarantorLinkAlreadySent(from);
     return alreadySent ? guarantorLinkAlreadySentReply(app) : guarantorLinkFirstReply(app, baseUrl);
   }
 
-  if (status === "needs_salary_slip" && (hasSalaryContext || linkRequest || String(intent) === "requirements" || String(intent) === "order_status")) {
+  if (status === "needs_salary_slip" && !directRequirementQuestion && (hasSalaryContext || linkRequest || String(intent) === "order_status")) {
     const alreadySent = await wasSalarySlipLinkAlreadySent(from);
     return alreadySent ? salarySlipLinkAlreadySentReply(app) : salarySlipLinkFirstReply(app, baseUrl);
   }
 
-  if (paymentStatus === "confirmed" && status === "under_review" && canShowPostPaymentRequirements(app)) {
+  if (
+    paymentStatus === "confirmed" &&
+    status === "under_review" &&
+    canShowPostPaymentRequirements(app) &&
+    explicitRequirementsOverview &&
+    !directRequirementQuestion
+  ) {
     return postPaymentRequirementsReplyOnce(app, baseUrl, from);
   }
 
@@ -4145,7 +4261,7 @@ async function generateAiReply(input: AiReplyInput) {
 - الرقم المحلي الرسمي: ${BUSINESS_PHONE_DISPLAY}
 - الموقع الرسمي: ${BUSINESS_WEBSITE}
 - العنوان الرسمي: ${BUSINESS_ADDRESS}
-- رسوم فتح الملف الرسمية: 5 دنانير فقط.
+- رسوم فتح الملف الرسمية: 3 دنانير فقط.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
 - إذا سأل العميل عن العنوان أو الموقع الجغرافي، أعطِ العنوان الرسمي فقط مع ملاحظة أن زيارة المكتب لا تتم إلا إذا وصلت للعميل رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
@@ -4253,7 +4369,7 @@ async function generateAiReply(input: AiReplyInput) {
 قواعد الدفع:
 - إذا كتب العميل: موافق، أود الاستمرار، بدي أكمل، أو أي صيغة استمرار، وكان الطلب حالته مؤهل مبدئيًا: سجّل رغبته بالاستمرار ثم أرسل تعليمات الدفع ورابط رفع الوصل تلقائيًا.
 - لا ترسل تعليمات الدفع عند كلمة موافق إلا إذا كان الطلب مرتبطًا وواضحًا وحالته مؤهل مبدئيًا.
-- رسوم فتح الملف 5 دنانير فقط.
+- رسوم فتح الملف 3 دنانير فقط.
 - لا تُذكر رسوم فتح الملف كطلب دفع إلا إذا كان الطلب مؤهلًا مبدئيًا / عليه موافقة مبدئية من صفحة الإدارة، أو إذا الرد الآمن الأساسي يذكر صراحة أن تعليمات الدفع مطلوبة.
 - لا تطلب رسوم فتح الملف في الأسئلة العامة أو قبل مراجعة الطلب.
 - إذا سألك العميل عن الدفع بشكل عام، وضح أن الرسوم لا تُطلب من البداية، فقط بعد التأهيل المبدئي من صفحة الإدارة.
@@ -4654,6 +4770,28 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return "";
   }
 
+  if (String(intent) === "human_agent") {
+    const deterministicReply = humanHandoffReply(app, text);
+
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: true,
+      hasApplication: Boolean(app),
+      intent,
+    });
+  }
+
+  if (app && String(intent) === "requirements") {
+    const directReply = directRequirementQuestionReply(app, text);
+    if (directReply) return directReply;
+  }
+
   if (String(intent) === "media_upload" || String(intent) === "document_upload" || String(intent) === "document_followup") {
     return officialUploadInstructionReply({
       app,
@@ -5012,11 +5150,6 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     "location",
     "office_pickup_policy",
     "loan",
-    "installment_info",
-    "requirements",
-    "apply",
-    "products",
-    "payment",
     "greeting",
     "media_upload",
     "document_upload",
@@ -5331,11 +5464,7 @@ export async function POST(request: Request) {
 
         const incomingIntent = classifyIncomingIntent(text, type);
         const incomingTracking = extractTracking(text);
-        const needsHumanReview = shouldFlagHumanReview(text, incomingIntent);
-        const replyStartedAt = Date.now();
-        const targetReplyDelayMs = humanReplyDelayMs(incomingIntent, text, type);
-
-        await sendWhatsAppTypingIndicator(message.id);
+        let needsHumanReview = shouldFlagHumanReview(text, incomingIntent);
 
         await markPreviousAiConversationCustomerReplied(from);
 
@@ -5357,6 +5486,10 @@ export async function POST(request: Request) {
           await markIncomingWhatsAppMessageProcessed(message.id);
           continue;
         }
+
+        const replyStartedAt = Date.now();
+        const targetReplyDelayMs = humanReplyDelayMs(incomingIntent, text, type);
+        await sendWhatsAppTypingIndicator(message.id);
 
         if (isMediaUploadMessageType(type)) {
           const mediaBurstClaim = await claimMediaBurstReplyLock({
@@ -5408,12 +5541,28 @@ export async function POST(request: Request) {
 
         const rawReply = await buildReply(request, from, text, type);
         const outgoingMemory = await getConversationMemory(from);
-        const reply = finalizeReplyBeforeSend(rawReply, {
+        let reply = finalizeReplyBeforeSend(rawReply, {
           from,
           text,
           intent: incomingIntent,
           memory: outgoingMemory,
         });
+
+        if (isNearDuplicateAssistantReply(reply, outgoingMemory, incomingIntent)) {
+          needsHumanReview = true;
+          reply = repeatedReplyRecoveryReply();
+
+          await sendDiscordNotification({
+            title: "🔁 تم اكتشاف حلقة ردود — تم منع الرد المكرر",
+            description: "الرد الجديد مطابق أو قريب جدًا من رد سابق رغم وجود رسالة عميل جديدة. تم استبداله برد آمن ومنع التكرار بدون إيقاف المحادثة.",
+            color: 0xed4245,
+            customerPhone: from,
+            customerMessage: text,
+            systemReply: reply,
+            baseUrl: getBaseUrl(request),
+          });
+        }
+
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
           incomingMessageId: message.id,
