@@ -7,8 +7,8 @@ export const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب �
 export const POST_EID_DELIVERY_STRICT_TEXT =
   "لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا. سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول الاستلام من المكتب من الإدارة. لا يوجد أي توصيل نهائيًا، والاستلام يكون من المكتب فقط وبموعد مسبق";
 
-export const FOLLOWUP_AGENT_NAMES = ["تالا", "فدوة", "لينا"] as const;
-export const STUDY_AGENT_NAMES = ["عبدالله", "خالد", "عبدالرحمن"] as const;
+export const FOLLOWUP_AGENT_NAMES = ["فدوة", "تالا"] as const;
+export const STUDY_AGENT_NAMES = ["عبدالله", "عبدالرحمن"] as const;
 export const ESCALATION_MANAGER_NAME = "عمران";
 
 export function fileOpeningFeeExplanation() {

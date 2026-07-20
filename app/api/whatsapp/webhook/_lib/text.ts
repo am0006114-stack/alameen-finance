@@ -91,7 +91,7 @@ export function extractJordanPhoneFromText(text: string) {
   return "";
 }
 
-export const FOLLOWUP_STAFF_NAMES = ["تالا", "فدوة", "لينا", "خالد", "عبدالله", "عبدالرحمن"] as const;
+export const FOLLOWUP_STAFF_NAMES = ["فدوة", "تالا", "عبدالله", "عبدالرحمن"] as const;
 export const ESCALATION_STAFF_NAME = "عمران";
 
 const agentNames = [...FOLLOWUP_STAFF_NAMES];
@@ -105,9 +105,8 @@ export function pickAgentName(seed: string) {
 export function assignedStaffName(seed: string, role: "followup" | "study" | "escalation" = "followup") {
   if (role === "escalation") return ESCALATION_STAFF_NAME;
 
-  const followupNames = ["تالا", "فدوة", "لينا", "خالد"];
-  const studyNames = ["عبدالله", "خالد", "عبدالرحمن"];
-  const names = role === "study" ? studyNames : followupNames;
+  // الاسم ثابت حسب رقم واتساب العميل، ولا يتغير بتغيّر موضوع الرسالة.
+  const names = [...FOLLOWUP_STAFF_NAMES];
   const digits = digitsOnly(seed);
   const last = Number(digits.slice(-2) || "0");
 

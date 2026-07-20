@@ -51,7 +51,7 @@ function extractUrlsFromMemory(value: string | null | undefined) {
 
 function hasStaffIntro(value: string | null | undefined) {
   const text = String(value || "");
-  return /(معك|معكِ|انا معك|أنا معك)\s+(عمران|خالد|عبدالله|عبدالرحمن|تالا|فدوة|لينا|علي|سمر)/i.test(text);
+  return /(معك|معكِ|انا معك|أنا معك)\s+(عمران|عبدالله|عبدالرحمن|تالا|فدوة)/i.test(text);
 }
 
 function inferLastConcernFromMemory(value: string | null | undefined) {
@@ -106,10 +106,11 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
         const body = trimLine(message.body, 420);
         if (!body) return "";
 
-        const intent = message.intent ? ` / intent: ${message.intent}` : "";
+        // لا نمرر تصنيف intent القديم إلى DeepSeek لأنه قد يكون خاطئًا.
+        // نمرر النص وتسلسل الحوار فقط حتى يفهم الرسالة الحالية من سياقها.
         const messageType = message.message_type && message.message_type !== "text" ? ` / type: ${message.message_type}` : "";
 
-        return `${directionLabel(message.direction)}${intent}${messageType}: ${body}`;
+        return `${directionLabel(message.direction)}${messageType}: ${body}`;
       })
       .filter(Boolean)
       .join("\n");
@@ -118,13 +119,13 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .filter((message) => message.direction === "outgoing")
       .map((message) => trimLine(message.body, 280))
       .filter(Boolean)
-      .slice(0, 3);
+      .slice(0, 4);
 
     const lastCustomerMessages = data
       .filter((message) => message.direction === "incoming")
       .map((message) => trimLine(message.body, 220))
       .filter(Boolean)
-      .slice(0, 4);
+      .slice(0, 6);
 
     const outgoingText = data
       .filter((message) => message.direction === "outgoing")

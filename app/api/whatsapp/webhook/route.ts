@@ -92,24 +92,185 @@ function isBotIdentityChallengeText(text: string) {
   return hasAny(t, [
     "ذكاء اصطناعي",
     "ذكاء صناعي",
-    "ai",
+    "ذكاء اسطناعي",
+    "ذكاء اصطناعى",
+    "هل انت ai",
+    "هل انتي ai",
+    "انت ai",
+    "انتي ai",
     "روبوت",
     "بوت",
-    "الي",
-    "آلي",
     "مو بشر",
     "مش بشر",
     "انت بشر",
     "انتي بشر",
     "مو انسان",
     "مش انسان",
-    "اعطيني المدير",
-    "بدي المدير",
-    "احكي مع انسان",
-    "احكي مع بني ادم",
-    "بني ادم",
     "مو حقيقي",
     "مش حقيقي",
+    "اثبتلي انك مش",
+  ]);
+}
+
+function isStaffIdentityText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return isBotIdentityChallengeText(t) || hasAny(t, [
+    "شو اسمك",
+    "ما اسمك",
+    "مين انت",
+    "مين انتي",
+    "مين بيحكي معي",
+    "مع مين بحكي",
+    "مين معي",
+    "اسم الموظف",
+  ]);
+}
+
+function isCallRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "ممكن مكالمه",
+    "ممكن مكالمة",
+    "اجراء مكالمه",
+    "إجراء مكالمة",
+    "بدي احكي تلفون",
+    "بدي مكالمه",
+    "بدي مكالمة",
+    "اتصلوا في",
+    "اتصل في",
+    "رنوا علي",
+    "رن علي",
+    "كلموني",
+    "بقدر ارن",
+    "بقدر أتصل",
+    "احكي معكم مكالمه",
+    "احكي معكم مكالمة",
+    "برن عالرقم",
+    "برن على الرقم",
+    "برن عليكم",
+    "ما حدا برد عالرقم",
+    "ما حدا برد على الرقم",
+  ]);
+}
+
+function isDeviceChangeText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const changeContext = hasAny(t, [
+    "بدي اغير",
+    "بدي أغير",
+    "غيرولي",
+    "غيرلي",
+    "تغيير الجهاز",
+    "تغير الجهاز",
+    "استبدال الجهاز",
+    "بدل الجهاز",
+    "جهاز ثاني بدل",
+    "موديل ثاني",
+    "لون ثاني",
+    "غير اللون",
+    "غير السعه",
+    "غير السعة",
+    "ما بدي هذا الجهاز بدي",
+    "ما بدي هالجهاز بدي",
+  ]);
+
+  const deviceContext = hasAny(t, [
+    "جهاز", "تلفون", "موبايل", "ايفون", "سامسونج", "هونر", "تكنو", "شاومي",
+    "لون", "سعه", "سعة", "جيجا", "موديل",
+  ]);
+
+  return changeContext && deviceContext;
+}
+
+function isDeviceChangeConfirmationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return [
+    "نعم",
+    "اه",
+    "اها",
+    "ايوه",
+    "ايوا",
+    "صح",
+    "موافق",
+    "اكد",
+    "أكد",
+    "تمام غيره",
+    "تمام غيرو",
+    "غيره",
+    "غيّره",
+  ].includes(t) || hasAny(t, ["اكد تغيير الجهاز", "أكد تغيير الجهاز", "موافق على التغيير"]);
+}
+
+function isOfficeLocationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "وين المكتب",
+    "اين المكتب",
+    "أين المكتب",
+    "موقع المكتب",
+    "موقع مكتبكم",
+    "عنوان المكتب",
+    "عنوانكم",
+    "وين مكانكم",
+    "مكانكم وين",
+    "اي منطقه",
+    "أي منطقة",
+    "وين موقعكم",
+    "موقعكم وين",
+    "لوكيشن",
+    "location",
+    "وين الفرع",
+    "عنوان الفرع",
+  ]);
+}
+
+function isWebsiteText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t || isOfficeLocationText(t)) return false;
+
+  return hasAny(t, [
+    "رابط الموقع",
+    "الموقع الالكتروني",
+    "الموقع الإلكتروني",
+    "ويب سايت",
+    "website",
+    "رابطكم",
+    "لينككم",
+    "رابط الشركه",
+    "رابط الشركة",
+    "السايت",
+    "في الكم موقع",
+    "عندكم موقع",
+  ]);
+}
+
+function isPaymentAmountText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "كم دفعتي",
+    "كم دفعتي الاولى",
+    "كم الدفعة",
+    "كم الدفعه",
+    "قديش الدفعة",
+    "قديش الدفعه",
+    "كم بدفع",
+    "كم القسط",
+    "قيمة الدفعة",
+    "قيمه الدفعه",
+    "كم رسوم فتح الملف",
+    "قديش رسوم فتح الملف",
   ]);
 }
 
@@ -156,6 +317,10 @@ function isReviewTimeText(text: string) {
     "بتاخذ",
     "بياخذ",
     "بستغرق",
+    "كم بياخذ وقت",
+    "كم باخذ وقت",
+    "قديش بياخذ وقت",
+    "قديش باخذ وقت",
   ]);
 
   const hasReviewContext = hasAny(t, [
@@ -174,7 +339,11 @@ function isReviewTimeText(text: string) {
     "كم ساعه",
   ]);
 
-  return hasQuestionContext && hasReviewContext;
+  const standaloneReviewQuestion = hasAny(t, [
+    "كم بياخذ وقت", "كم باخذ وقت", "قديش بياخذ وقت", "قديش باخذ وقت",
+  ]);
+
+  return hasQuestionContext && (hasReviewContext || standaloneReviewQuestion);
 }
 
 function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
@@ -336,7 +505,25 @@ function isScamAccusationText(text: string) {
 function isPaymentDisputeText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
-  return hasAny(t, PAYMENT_DISPUTE_KEYWORDS);
+
+  const explicitDispute = hasAny(t, [
+    "بدي فلوسي", "رجعوا فلوسي", "رجعولي فلوسي", "فلوسي راحت", "وين مصاري",
+    "وين المصاري", "رجعولي الرسوم", "استرجع الرسوم", "استرداد", "استرجاع", "refund",
+    "دفعت وما", "حولت وما", "انخصم وما", "دفعت مرتين", "خصمتوا", "اخذتوا مصاري",
+    "اكلتوا مصاري", "وين رسوم فتح الملف",
+  ]);
+
+  if (explicitDispute) return true;
+
+  const paymentContext = hasAny(t, [
+    "دفعت", "حولت", "حواله", "حوالة", "وصل", "ايصال", "إيصال", "رسوم", "خصم", "انخصم",
+  ]);
+  const problemContext = hasAny(t, [
+    "ما وصل", "مش ظاهر", "ما تأكد", "ما تاكد", "رفض", "مشكله", "مشكلة",
+    "غلط", "مرتين", "وين", "رجع", "استرد", "اعتراض",
+  ]);
+
+  return paymentContext && problemContext;
 }
 
 function isDeviceDelayRageText(text: string) {
@@ -823,6 +1010,7 @@ function isSupplierDelayQuestionText(text: string) {
     "وصلت", "ما وصلت", "لسه", "لسا", "وين", "متى", "تاخير", "تأخير", "تسليم", "استلام",
     "صبر", "المورد", "مطول", "يطول", "طولت", "اذا مطول", "إذا مطول", "خربان", "اشوف شو اعمل",
     "أشوف شو أعمل", "مضطر", "مستعجل", "شغلي عليه", "كل شغلي عليه",
+    "كم بده وقت", "كم بدها وقت", "قديش بده وقت", "ليوصل", "لحتى يوصل", "حتى يوصل",
   ]);
 
   return deviceContext && delayContext;
@@ -943,7 +1131,7 @@ function isSiteOrTrackingSystemIssueText(text: string) {
 
 function isOfficePickupPolicyText(text: string) {
   const t = normalizeArabicText(text);
-  if (!t) return false;
+  if (!t || isOfficeLocationText(t)) return false;
 
   const aramexContext = hasAny(t, [
     "ارامكس", "أرامكس", "aramex", "ارامكسو", "ارمكس",
@@ -992,6 +1180,19 @@ function classifyIntent(text: string): CustomerIntent {
   // رسائل المتابعة الرسمية من صفحة التتبع ليست ضغطًا عاطفيًا حتى لو احتوت كلمة "الأمين".
   if (isStandardApplicationFollowupText(t)) return "order_status";
 
+  // تغيير الجهاز ليس إلغاءً. يجب حسمه قبل أي منطق إلغاء.
+  if (isDeviceChangeText(t)) return "device_change";
+
+  if (isStaffIdentityText(t)) return "staff_identity";
+
+  if (isCallRequestText(t)) return "call_request";
+
+  if (isPaymentAmountText(t)) return "payment_amount";
+
+  if (isOfficeLocationText(t)) return "location";
+
+  if (isWebsiteText(t)) return "website";
+
   // قرارات الإلغاء والاسترداد تشغيلية ويجب أن تُحسم قبل أي تصنيف حساس آخر.
   if (isCancelRefundRequestText(t)) return "cancel_refund_request";
 
@@ -1024,12 +1225,12 @@ function classifyIntent(text: string): CustomerIntent {
     return "site_issue";
   }
 
-  if (isOfficePickupPolicyText(t)) {
-    return "office_pickup_policy";
-  }
-
   if (isSupplierDelayQuestionText(t)) {
     return "supplier_delay_question";
+  }
+
+  if (isOfficePickupPolicyText(t)) {
+    return "office_pickup_policy";
   }
 
   if (isContinueDecisionText(t)) {
@@ -1048,14 +1249,10 @@ function classifyIntent(text: string): CustomerIntent {
     return "refund";
   }
 
-  if (isBotIdentityChallengeText(t)) {
-    return "human_agent";
-  }
-
   if (hasAny(t, [
     "بدي موظف", "احكي مع موظف", "موظف طبيعي", "موظف حقيقي", "حد يحكي معي",
-    "بدي احكي مع حدا", "بدي حدا يحكي معي", "اتصلوا في", "رنوا علي", "رن علي",
-    "كلموني", "بدي مدير", "احكي مع المدير", "بدي مسؤول", "احكي مع مسؤول",
+    "بدي احكي مع حدا", "بدي حدا يحكي معي",
+    "بدي مدير", "احكي مع المدير", "بدي مسؤول", "احكي مع مسؤول",
     "احكي مع انسان", "احكي مع بني ادم", "بدي انسان", "بدي بني ادم", "بدي بشر",
   ])) {
     return "human_agent";
@@ -1073,12 +1270,12 @@ function classifyIntent(text: string): CustomerIntent {
     return "tracking_link_request";
   }
 
-  if (hasAny(t, ["موقعكم", "موقع", "الرابط", "لينك", "ويب سايت", "website", "رابطكم", "لينككم", "ابلكيشن", "تطبيق", "السايت"])) {
-    return "website";
+  if (hasAny(t, ["عنوان", "المحل", "فرع", "وينكم", "وين انتو"])) {
+    return "location";
   }
 
-  if (hasAny(t, ["عنوان", "عنوانكم", "وين مكانكم", "مكانكم", "موقعكم وين", "لوكيشن", "location", "المحل", "فرع", "وينكم", "وين انتو"])) {
-    return "location";
+  if (hasAny(t, ["الرابط", "لينك", "ابلكيشن", "تطبيق"])) {
+    return "website";
   }
 
   if (
@@ -1983,22 +2180,19 @@ function compactFileSnapshot(app: ApplicationRecord) {
 
 function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, customerText = "", intent: CustomerIntent = "unknown") {
   const name = firstTwoNames(app.full_name);
-  const tracking = app.tracking_id || app.id;
-  const status = app.status || "";
-  const paymentStatus = app.payment_status || "";
   const text = normalizeArabicText(customerText);
 
-  if (isBotIdentityChallengeText(customerText)) {
-    return `محمود، فاهم عليك.
+  if (String(intent) === "staff_identity" || isStaffIdentityText(customerText)) {
+    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app);
+  }
 
-خلينا بالمفيد بدون لف ودوران: ${compactFileSnapshot(app)}
-
-احكيلي شو بدك أراجع لك الآن: الدفع، التسليم، ولا المتطلبات؟`;
+  if (String(intent) === "call_request") {
+    return callRequestReply(app.phone || app.tracking_id || app.id, app);
   }
 
   if (String(intent) === "greeting") {
-    return `هلا ${name} 🌿
-أنا معك، شو بدك أشيك لك بالملف؟`;
+    const staffName = assignedStaffName(app.phone || app.tracking_id || app.id);
+    return `أهلًا ${name}، معك ${staffName} من فريق الأمين 🌿`;
   }
 
   if (String(intent) === "thanks") {
@@ -2006,24 +2200,23 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   }
 
   if (String(intent) === "human_agent") {
-    return `أنا معك ${name}.
-
-${compactFileSnapshot(app)}
-
-شفت المحادثة، احكيلي النقطة اللي بدك جوابها وبجاوبك عليها مباشرة.`;
+    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app);
   }
 
-  // ردود الإقرار القصيرة فقط لا تحتاج إعادة شرح الملف كاملًا.
+  if (String(intent) === "payment_amount") {
+    return paymentAmountReply(app, customerText);
+  }
+
+  if (String(intent) === "order_status") {
+    return conciseOrderStatusReply(app);
+  }
+
   if (["تمام", "اوكي", "ok", "okay", "اوك", "اه", "اها"].includes(text)) {
-    return `تمام ${name} 🌿`;
+    return `تمام 🌿`;
   }
-
-  // الرسائل المختصرة والأسئلة غير المصنفة تترك لـ DeepSeek ليفهمها من سياق المحادثة.
-  // لا نعيد سؤالًا باردًا من نوع "قصدك تتابع الملف؟" إذا السياق واضح أصلًا.
 
   return null;
 }
-
 
 function isGuarantorQuestionText(text: string) {
   const t = normalizeArabicText(text);
@@ -2085,10 +2278,321 @@ function humanHandoffReply(app: ApplicationRecord | null, customerText: string) 
 رقم الطلب: ${tracking}` : ""}`;
 }
 
-function repeatedReplyRecoveryReply() {
-  return `معك حق، الرد السابق تكرر وما جاوب سؤالك.
 
-اكتب سؤالك مرة ثانية بجملة قصيرة، ورح أجاوب على نفس النقطة بدون إعادة القالب السابق.`;
+function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
+  const staffName = assignedStaffName(from);
+  const statusLine = app ? `\nطلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.` : "";
+
+  return `معك ${staffName} من فريق الأمين.${statusLine}
+
+تفضل، شو النقطة اللي بدك أراجعها؟`;
+}
+
+function callRequestReply(from: string, app?: ApplicationRecord | null) {
+  const staffName = assignedStaffName(from);
+  const requestLine = app
+    ? `طلبك رقم ${app.tracking_id || app.id} ظاهر عندي، وبقدر أتابعه معك هون مباشرة.`
+    : "ابعث رقم الطلب أو سؤالك هون وبراجعه معك مباشرة.";
+
+  return `معك ${staffName} من فريق الأمين.
+
+حاليًا بسبب ضغط الاتصالات، متابعة الملفات عبر واتساب هي الأسرع والأدق حتى يظل كل تحديث موثق.
+
+${requestLine}`;
+}
+
+function paymentAmountReply(app: ApplicationRecord | null, customerText: string) {
+  const t = normalizeArabicText(customerText);
+
+  if (hasAny(t, ["رسوم فتح الملف", "رسوم الملف"])) {
+    return `رسوم فتح الملف 3 دنانير فقط، وتُطلب بعد التأهيل المبدئي للطلب، وليست دفعة على الجهاز ولا القسط الأول.`;
+  }
+
+  if (hasAny(t, ["دفعه اولى", "دفعة اولى", "القسط الاول", "القسط الأول"])) {
+    return `قيمة القسط الأول تعتمد على الجهاز وخطة التقسيط المعتمدة على طلبك، وما عندي رقم مؤكد ظاهر بالملف حاليًا. القسط الأول يكون بعد الاستلام حسب الاتفاق.`;
+  }
+
+  if (app?.payment_status === "confirmed") {
+    return `المبلغ المؤكد على الملف حاليًا هو رسوم فتح الملف بقيمة 3 دنانير. أما قيمة القسط فتتحدد حسب الجهاز والاتفاق عند اعتماد الطلب.`;
+  }
+
+  return `رسوم فتح الملف 3 دنانير فقط بعد التأهيل المبدئي. أما قيمة القسط أو الدفعة المرتبطة بالجهاز فتتحدد حسب الجهاز وخطة التقسيط المعتمدة.`;
+}
+
+function conciseOrderStatusReply(app: ApplicationRecord) {
+  const status = app.status || "";
+  const tracking = app.tracking_id || app.id;
+
+  if (status === "needs_guarantor") {
+    return `طلبك حاليًا بحاجة استكمال بيانات الكفيل حتى تكمل الدراسة.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "needs_salary_slip") {
+    return `طلبك حاليًا بحاجة كشف راتب أو شهادة راتب لاستكمال الدراسة.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "salary_slip_uploaded") {
+    return `تم استلام كشف الراتب، والملف الآن بانتظار الخطوة التالية من الدراسة.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "guarantor_submitted") {
+    return `تم استلام بيانات الكفيل، والملف الآن قيد المتابعة والدراسة.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "approved") {
+    return `طلبك عليه موافقة نهائية، وحاليًا بانتظار توفر الجهاز واعتماد جدول الاستلام من المكتب.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "under_review") {
+    return `طلبك ما زال قيد الدراسة والمتابعة، وما في تحديث جديد ظاهر على الملف حاليًا.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "refund_requested" || app.payment_status === "refund_requested") {
+    return `طلب الاسترداد مسجل وقيد المراجعة.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "cancelled") {
+    return `الطلب ظاهر لدينا كطلب ملغي.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  return `طلبك ظاهر عندي، وحالته الحالية: ${statusHumanLabel(status)}.
+
+رقم الطلب: ${tracking}`;
+}
+
+function contextualApplicationFallback(app: ApplicationRecord) {
+  return `طلبك ظاهر عندي وحالته الحالية: ${statusHumanLabel(app.status || "")}.
+
+احكيلي النقطة اللي بدك جوابها، وبجاوبك حسب الملف بدون إعادة تفاصيل ما سألت عنها.`;
+}
+
+type DeviceChangeAnalysis = {
+  requestedDevice: string | null;
+  confirmed: boolean;
+  needsDetails: boolean;
+};
+
+function extractPendingDeviceChangeFromMemory(memory: Awaited<ReturnType<typeof getConversationMemory>>) {
+  const replies = memory.lastAssistantReplies || [];
+
+  for (const reply of replies) {
+    const match = String(reply || "").match(/(?:من\s+[\s\S]+?\s+)?(?:إلى|الى)\s+([\s\S]+?)(?:\s+بدون\s+إلغاء|\s*[،,]?\s*صح[؟?]?|$)/i);
+    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim();
+  }
+
+  return "";
+}
+
+function fallbackDeviceChangeTarget(text: string, currentDevice: string | null | undefined) {
+  let clean = String(text || "")
+    .replace(/بدي\s+[أا]?غير/gi, "")
+    .replace(/غيرولي|غيرلي|تغيير|تغير|استبدال|بدل/gi, "")
+    .replace(/الجهاز|التلفون|الموبايل|الطلب/gi, "")
+    .replace(/^(?:إلى|الى|لـ)\s*/i, "")
+    .replace(/^ل(?=[A-Za-z\u0600-\u06FF])/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!clean || clean.length < 3) return "";
+
+  if (/^(اللون|لون)\s+/i.test(clean) && currentDevice) {
+    return `${currentDevice} - ${clean}`;
+  }
+
+  if (/^(السعه|السعة|سعه|سعة|الذاكره|الذاكرة)\s+/i.test(clean) && currentDevice) {
+    return `${currentDevice} - ${clean}`;
+  }
+
+  return clean;
+}
+
+async function analyzeDeviceChange(input: {
+  text: string;
+  currentDevice?: string | null;
+  memory: Awaited<ReturnType<typeof getConversationMemory>>;
+  confirmationFromContext: boolean;
+}): Promise<DeviceChangeAnalysis> {
+  const pendingFromMemory = extractPendingDeviceChangeFromMemory(input.memory);
+
+  if (input.confirmationFromContext && pendingFromMemory) {
+    return {
+      requestedDevice: pendingFromMemory,
+      confirmed: true,
+      needsDetails: false,
+    };
+  }
+
+  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
+  const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
+
+  if (apiKey) {
+    try {
+      const response = await fetch(`${baseUrl}/chat/completions`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0.1,
+          max_tokens: 220,
+          messages: [
+            {
+              role: "system",
+              content: `استخرج طلب تغيير الجهاز من محادثة واتساب. أرجع JSON فقط بهذه المفاتيح:
+requested_device: وصف الجهاز الجديد كاملًا أو null
+confirmed: true فقط إذا العميل أكد التغيير صراحة أو كان يجيب بالموافقة على سؤال تأكيد سابق
+needs_details: true إذا طلب التغيير بدون تحديد الجهاز/اللون/السعة
+
+إذا طلب العميل تغيير اللون أو السعة فقط، حافظ على موديل الجهاز الحالي وادمج التغيير في requested_device.
+لا تخترع موديلًا أو لونًا أو سعة غير مذكورة.`,
+            },
+            {
+              role: "user",
+              content: `الجهاز الحالي: ${input.currentDevice || "غير متوفر"}
+
+رسالة العميل الحالية:
+${input.text}
+
+السياق القريب:
+${input.memory.conversationContext || "لا يوجد"}`,
+            },
+          ],
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const raw = extractDeepSeekText(data)
+          .replace(/```json/gi, "")
+          .replace(/```/g, "")
+          .trim();
+        const parsed = JSON.parse(raw);
+
+        return {
+          requestedDevice: typeof parsed?.requested_device === "string" && parsed.requested_device.trim()
+            ? parsed.requested_device.trim()
+            : null,
+          confirmed: Boolean(parsed?.confirmed),
+          needsDetails: Boolean(parsed?.needs_details),
+        };
+      }
+    } catch (error) {
+      console.error("Device change analysis failed:", error);
+    }
+  }
+
+  const fallbackTarget = fallbackDeviceChangeTarget(input.text, input.currentDevice);
+  return {
+    requestedDevice: fallbackTarget || pendingFromMemory || null,
+    confirmed: input.confirmationFromContext,
+    needsDetails: !fallbackTarget && !pendingFromMemory,
+  };
+}
+
+async function updateApplicationDevice(app: ApplicationRecord, requestedDevice: string) {
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .update({ device_name: requestedDevice })
+    .eq("id", app.id);
+
+  if (error) {
+    console.error("updateApplicationDevice error:", error.message);
+    return null;
+  }
+
+  return {
+    ...app,
+    device_name: requestedDevice,
+  } as ApplicationRecord;
+}
+
+async function handleDeviceChange(input: {
+  app: ApplicationRecord | null;
+  from: string;
+  text: string;
+  memory: Awaited<ReturnType<typeof getConversationMemory>>;
+  baseUrl: string;
+  confirmedFromContext: boolean;
+}) {
+  const staffName = assignedStaffName(input.from);
+
+  if (!input.app) {
+    return `أكيد، تغيير الجهاز ما يعني إلغاء الطلب.
+
+ابعث رقم الطلب الذي يبدأ بـ AM- حتى أربط التغيير بالملف الصحيح.`;
+  }
+
+  const currentDevice = input.app.device_name || "الجهاز المسجل حاليًا";
+  const analysis = await analyzeDeviceChange({
+    text: input.text,
+    currentDevice: input.app.device_name,
+    memory: input.memory,
+    confirmationFromContext: input.confirmedFromContext,
+  });
+
+  if (analysis.needsDetails || !analysis.requestedDevice) {
+    return `أكيد، تغيير الجهاز ما يعني إلغاء الطلب.
+
+طلبك الحالي على: ${currentDevice}
+
+اكتب الجهاز الجديد مع السعة واللون المطلوبين، وبأكدهم معك قبل تسجيل التغيير.`;
+  }
+
+  if (!analysis.confirmed) {
+    return `للتأكيد فقط: بدك تغيّر الجهاز من ${currentDevice} إلى ${analysis.requestedDevice} بدون إلغاء الطلب، صح؟`;
+  }
+
+  const updatedApp = await updateApplicationDevice(input.app, analysis.requestedDevice);
+
+  if (!updatedApp) {
+    return `وصلني تأكيد تغيير الجهاز إلى ${analysis.requestedDevice}، لكن ما قدرت أحفظ التعديل على الملف الآن.
+
+ابعث رقم الطلب مرة ثانية حتى أراجع الربط مباشرة.`;
+  }
+
+  await sendDiscordNotification({
+    title: "📱 تم تغيير الجهاز من واتساب",
+    description: `تم تحديث الجهاز بعد تأكيد صريح من العميل. الموظف الثابت للمحادثة: ${staffName}.`,
+    color: 0x57f287,
+    app: updatedApp,
+    customerPhone: input.from,
+    customerMessage: input.text,
+    systemReply: `تم تغيير الجهاز من ${currentDevice} إلى ${analysis.requestedDevice}`,
+    baseUrl: input.baseUrl,
+  });
+
+  return `تم تسجيل تغيير الجهاز من ${currentDevice} إلى ${analysis.requestedDevice} بدون إلغاء الطلب ✅
+
+حالة الملف بقيت كما هي، وتفاصيل التوفر والقسط تتأكد حسب الجهاز الجديد عند استكمال المراجعة.`;
+}
+
+function repeatedReplyRecoveryReply(intent: CustomerIntent) {
+  if (["order_status", "delivery", "review_time"].includes(String(intent))) {
+    return `ما في تحديث جديد مختلف عن آخر متابعة حاليًا.
+
+أول ما تتغير حالة الطلب رح توصلك رسالة مباشرة، وما في حاجة تعيد إرسال نفس الطلب أو تتصل.`;
+  }
+
+  return "";
 }
 
 function isNearDuplicateAssistantReply(
@@ -2118,6 +2622,17 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 
   const conversational = conversationalDirectReply(app, baseUrl, customerText, intent);
   if (conversational) return conversational;
+
+  if (String(intent) === "contact_info") return contactInfoReply(baseUrl, app.phone || tracking);
+  if (String(intent) === "website") return websiteReply(baseUrl, app.phone || tracking);
+  if (String(intent) === "location") return locationReply(app.phone || tracking);
+  if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking);
+  if (String(intent) === "products") {
+    return `الجهاز المسجل على طلبك حاليًا: ${app.device_name || "غير محدد"}.
+
+أما الألوان أو الأجهزة المتوفرة فعليًا فتتأكد حسب توريد المورد وقت اعتماد الطلب، وما بدي أعطيك توفر غير مؤكد.`;
+  }
+  if (String(intent) === "unknown") return contextualApplicationFallback(app);
 
   if (String(intent) === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
@@ -3145,12 +3660,12 @@ async function handleDocumentAutomation(input: {
     linkRequest ||
     hasAny(normalizeArabicText(text), ["شو المطلوب", "المتطلبات المطلوبه", "المتطلبات المطلوبة", "الخطوه التاليه", "الخطوة التالية", "استكمال الخطوات"]);
 
-  if (status === "needs_guarantor" && !directRequirementQuestion && (hasGuarantorContext || linkRequest || String(intent) === "order_status")) {
+  if (status === "needs_guarantor" && !directRequirementQuestion && (hasGuarantorContext || linkRequest || explicitRequirementsOverview)) {
     const alreadySent = await wasGuarantorLinkAlreadySent(from);
     return alreadySent ? guarantorLinkAlreadySentReply(app) : guarantorLinkFirstReply(app, baseUrl);
   }
 
-  if (status === "needs_salary_slip" && !directRequirementQuestion && (hasSalaryContext || linkRequest || String(intent) === "order_status")) {
+  if (status === "needs_salary_slip" && !directRequirementQuestion && (hasSalaryContext || linkRequest || explicitRequirementsOverview)) {
     const alreadySent = await wasSalarySlipLinkAlreadySent(from);
     return alreadySent ? salarySlipLinkAlreadySentReply(app) : salarySlipLinkFirstReply(app, baseUrl);
   }
@@ -3297,14 +3812,14 @@ function criticalCaseOpening() {
 }
 
 function studyCaseOpening(seed: string) {
-  const agents = ["عبدالله", "خالد", "عبدالرحمن"];
+  const agents = ["عبدالله", "عبدالرحمن"];
   const digits = digitsOnly(seed);
   const agent = agents[Number(digits.slice(-2) || "0") % agents.length];
   return `معك ${agent} من قسم الدراسة في ${BUSINESS_NAME}.`;
 }
 
 function followupCaseOpening(seed: string) {
-  const agents = ["تالا", "فدوة", "لينا"];
+  const agents = ["فدوة", "تالا"];
   const digits = digitsOnly(seed);
   const agent = agents[Number(digits.slice(-2) || "0") % agents.length];
   return `معك ${agent} من متابعة ملفات ${BUSINESS_NAME}.`;
@@ -3855,10 +4370,10 @@ function shortenTrackingLinks(reply: string) {
 
 function stripRepeatedStaffIntro(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
-  const hasRecentConversation = Boolean(input.hasRecentConversation || input.conversationContext || input.lastAssistantReplies?.length);
-  if (!hasRecentConversation) return clean;
+  // لا نحذف تعريف الموظف في أول رد. نحذفه فقط إذا ظهر اسم موظف فعليًا في رد سابق.
+  if (!input.hasRecentStaffIntro) return clean;
 
-  const staffNames = "عمران|خالد|عبدالله|عبدالرحمن|تالا|فدوة|لينا|علي|سمر";
+  const staffNames = "عمران|عبدالله|عبدالرحمن|تالا|فدوة";
   const lines = clean.split(/\n+/);
   const filtered: string[] = [];
   let removedIntro = false;
@@ -4082,6 +4597,16 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "قرضك",
     "تمويل شخصي",
     "الأمين للتمويل الأصغر",
+    "مساعد الأمين",
+    "مساعد واتساب",
+    "مساعد آلي",
+    "ذكاء اصطناعي",
+    "روبوت",
+    "مش روبوت",
+    "مو روبوت",
+    "لست روبوت",
+    "أنا إنسان",
+    "انا انسان",
     "موافقة نهائية مؤكدة بدون مراجعة",
     "استلام اليوم",
     "استلام بكرا",
@@ -4230,6 +4755,9 @@ async function generateAiReply(input: AiReplyInput) {
     "location",
     "website",
     "office_pickup_policy",
+    "staff_identity",
+    "call_request",
+    "payment_amount",
   ];
 
   if (strictDeterministicIntents.includes(input.intent)) {
@@ -4237,7 +4765,8 @@ async function generateAiReply(input: AiReplyInput) {
   }
 
   const systemInstructions = `
-أنت تمثل خدمة عملاء واتساب حقيقية لدى "الأمين للأقساط" في الأردن.
+اكتب ردود واتساب باسم موظف رسمي من فريق "الأمين للأقساط" في الأردن.
+اسم الموظف الثابت لهذه المحادثة سيصل ضمن البيانات، ويجب استخدامه فقط عند بداية محادثة جديدة أو عندما يسأل العميل مع من يتحدث.
 
 تعليمات التفكير العميق:
 - في الرسائل الحساسة أو الغاضبة أو المختصرة المرتبطة بسياق سابق، فكّر داخليًا قبل الرد: ما هو الطلب المرتبط؟ ما آخر حالة؟ ما الذي يريده العميل فعلًا؟ ثم أرسل للعميل الجواب النهائي فقط.
@@ -4274,7 +4803,8 @@ async function generateAiReply(input: AiReplyInput) {
 - افهم نية العميل أولًا.
 - لا تطلب رقم التتبع إلا إذا كان السؤال عن طلب محدد أو المتابعة تحتاج ربط الطلب.
 - ممنوع تمامًا أن تقول للعميل: سيتم تحويلك، متابعة بشرية، مراجعة بشرية، موظف مختص، سيتم رفع المحادثة، تم تصعيد المحادثة، أو أي صياغة تكشف أن الرد انتقل لجهة أخرى.
-- إذا العميل طلب موظف أو اتصال أو قال "بدي أحكي مع حدا": رد كأنك قادر تساعده داخل نفس المحادثة، واطلب منه شرح المشكلة أو رقم التتبع فقط عند الحاجة.
+- إذا العميل طلب موظفًا: عرّف نفسك باسم الموظف الثابت من فريق الأمين، ثم أجب عن سؤاله داخل نفس المحادثة.
+- إذا طلب مكالمة: وضح باختصار أن متابعة الملفات عبر واتساب هي الأسرع حاليًا بسبب ضغط الاتصالات، واطلب منه إرسال النقطة هنا. لا تعده باتصال ولا تقل سيتم تحويله.
 - إذا العميل كتب شتيمة مباشرة أو بذاءة أو إهانة شخصية: لا ترد بتحية، لا تقل وعليكم السلام، لا تعتذر بشكل مبالغ، ولا تدخل في جدال. رد بهدوء وحدود احترام: "واضح إنك منزعج، بس خلينا نحافظ على الاحترام حتى أقدر أساعدك" ثم اطلب المشكلة نفسها أو رقم الطلب عند الحاجة.
 - لا تكافئ الشتائم برد طويل. اجعل الرد قصيرًا، ثابتًا، ومهنيًا.
 - إذا العميل غاضب أو كتب كلمات مثل: نصب، احتيال، حرامية، سرقة، كذب، مماطلة، تأخير، ما بتردو، بدي فلوسي، شكوى، محامي، شرطة، جرائم إلكترونية، حماية المستهلك، بفضحكم، بنشر عليكم: لا تجادله، لا تدافع، ولا تبدأ بطلب رقم التتبع إلا إذا لا توجد أي حالة طلب معروفة.
@@ -4290,7 +4820,7 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا المحادثة مستمرة، ادخل مباشرة في جواب السؤال الأخير.
 - عمران لا يظهر للعميل إلا إذا طلب مديرًا صراحة أو كانت الرسالة تصعيدًا حساسًا واضحًا. غير ذلك استخدم نبرة فريق المتابعة بدون اسم.
 - إذا قال العميل: ليه؟ طيب؟ كيف يعني؟ شو الحل؟ اربط السؤال بآخر رد في السياق وأجب مباشرة، ولا تعرّف نفسك من جديد.
-- ممنوع تكرار عبارات مثل: متفهم وضعك، معك عمران، معك خالد، أو أهلًا فيك في كل رد.
+- ممنوع تكرار عبارات مثل: متفهم وضعك، معك عمران، أو أهلًا فيك في كل رد.
 
 قواعد الروابط:
 - لا ترسل أكثر من رابط واحد في الرد الواحد.
@@ -4306,9 +4836,9 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا العميل أرسل عدة صور دفعة واحدة، لا ترد على كل صورة؛ رد مرة واحدة فقط بتعليمات الرفع الرسمية.
 
 شخصيات مدير الملف:
-- المتابعة اليومية تكون بأسماء محترمة مثل: تالا، فدوة، لينا.
-- الدراسة والمتطلبات تكون بأسماء: عبدالله، خالد، عبدالرحمن.
-- الحالات الحساسة مثل الإلغاء، الغضب، الاسترداد، والاتهام تكون باسم عمران من متابعة الحالات.
+- الاسم الثابت للمحادثة يكون واحدًا من: فدوة، تالا، عبدالله، عبدالرحمن.
+- عمران يظهر فقط عند طلب مدير صراحة أو في تصعيد حساس واضح.
+- ممنوع استخدام أسماء لينا أو خالد أو أي اسم غير الأسماء المعتمدة.
 - لا تذكر اسم الشخصية بكل رسالة إذا السياق مستمر، لكن حافظ على نبرة موظف يعرف ملف العميل.
 
 
@@ -4329,6 +4859,13 @@ async function generateAiReply(input: AiReplyInput) {
 - أعطِ طمأنة معنوية صادقة: "ما بدنا نوعدك بتاريخ ونطلع مش دقيقين"، "أول ما يتم تثبيت توفر الأجهزة واعتماد جدول الاستلام من المكتب بنوصلك مباشرة".
 - إذا كان هناك مستند ناقص مثل كفيل أو كشف راتب: اطلبه بوضوح، لكن حافظ على نبرة مطمئنة ولا توحي بالرفض.
 
+قاعدة تغيير الجهاز واللون والسعة:
+- طلب تغيير الجهاز أو اللون أو السعة ليس طلب إلغاء.
+- إذا قال العميل "بدي أغير الجهاز" أو "ما بدي هذا الجهاز بدي غيره": اسأله عن الجهاز الجديد مع السعة واللون.
+- بعد أن يحدد البديل، اطلب تأكيدًا واحدًا واضحًا: التغيير من الجهاز الحالي إلى الجهاز الجديد بدون إلغاء الطلب.
+- لا تستخدم عبارات "هل تفكر بالإلغاء" أو "بدك تلغي" عند طلب التغيير.
+- إذا تم تأكيد التغيير، اذكر أن التغيير سُجل وأن حالة الملف بقيت كما هي، وأن التوفر والقسط يتأكدان حسب الجهاز الجديد.
+
 قاعدة الإلغاء الصارمة:
 - إذا قال العميل "بدي ألغي" أو "بطلت" أو "ما بدي أكمل" فهذا طلب إلغاء مبدئي فقط، وليس تأكيدًا نهائيًا.
 - ممنوع اعتبار الإلغاء نهائيًا إلا إذا قال العميل بوضوح: "أكد إلغاء الطلب" أو ما يعادلها.
@@ -4343,14 +4880,15 @@ async function generateAiReply(input: AiReplyInput) {
 - الرد النهائي يجب أن يكون قصيرًا مثل واتساب: 2 إلى 5 أسطر غالبًا.
 - ممنوع عرض الملف ككشف طويل أو قائمة إلا إذا العميل طلب تفاصيل.
 - لا تكرر: رقم التتبع، رابط المتابعة، حالة الدفع، وحالة الملف في كل رد. اذكرها فقط عند الحاجة.
-- إذا العميل يعلّق على أسلوبك أو يقول إنك روبوت، لا تشرح كثيرًا؛ رد بثقة وارجع لنقطة الملف.
+- إذا سأل العميل: هل أنت AI أو روبوت؟ أو قال: شو اسمك؟ لا تناقش التقنية ولا تقل "مش روبوت" ولا تدّعي أنك إنسان. قل فقط: "معك [اسم الموظف الثابت] من فريق الأمين" ثم ارجع لسؤاله أو ملفه.
+- ممنوع استخدام عبارات: مساعد الأمين، مساعد واتساب، مساعد آلي، ذكاء اصطناعي، روبوت، بوت، أو AI في الرد النهائي.
 - إذا العميل سأل سؤالًا واحدًا، جاوب السؤال الواحد فقط ولا تضف محاضرة.
 - رد كإنسان طبيعي على واتساب، مش كنص رسمي جامد.
 - استخدم لهجة أردنية مهذبة وواضحة.
 - لا تكرر نفس الافتتاحية.
 - خليك راقٍ، مختصر، ومطمئن.
 - استخدم إيموجي خفيف جدًا مثل 🌿 أو ✅ فقط عند الحاجة.
-- لا تقول إنك ذكاء اصطناعي.
+- لا تذكر أي وصف تقني للنظام، ولا تنفِه بكذبة. استخدم اسم الموظف الثابت وصفة "من فريق الأمين" فقط.
 - لا تكتب JSON ولا شرح داخلي.
 
 قواعد النشاط:
@@ -4358,6 +4896,11 @@ async function generateAiReply(input: AiReplyInput) {
 - النشاط فقط تقسيط أجهزة إلكترونية وهواتف.
 - لا نقدم قروضًا نقدية، ولا تمويلًا شخصيًا، ولا كاش.
 - إذا سأل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
+
+قاعدة عدم فتح موضوع الدفع بلا سبب:
+- لا تذكر الدفع أو رسوم فتح الملف في رد متابعة الطلب إلا إذا العميل سأل عن الدفع، أو كانت حالة الطلب تتطلب دفعًا فعليًا الآن.
+- لا تضف جملة "لا يوجد دفع مطلوب" تلقائيًا لكل رد.
+- سؤال "كم دفعتي؟" أو "كم الدفعة؟" هو سؤال عن قيمة المبلغ، وليس اعتراض دفع، إلا إذا ذكر العميل خصمًا أو مشكلة أو استردادًا.
 
 قواعد الدفع:
 - إذا كتب العميل: موافق، أود الاستمرار، بدي أكمل، أو أي صيغة استمرار، وكان الطلب حالته مؤهل مبدئيًا: سجّل رغبته بالاستمرار ثم أرسل تعليمات الدفع ورابط رفع الوصل تلقائيًا.
@@ -4421,8 +4964,10 @@ async function generateAiReply(input: AiReplyInput) {
   const similarSuccessfulReplies = "";
 
   const userInput = `
-نية العميل المصنفة:
+نية أولية غير موثوقة وقد تكون خاطئة:
 ${input.intent}
+
+مهم: افهم نية العميل بنفسك من رسالته والسياق، ولا تتبع التصنيف الأولي إذا تعارض مع المعنى الواضح.
 
 رسالة العميل:
 ${input.customerText || "(لا يوجد نص واضح)"}
@@ -4455,8 +5000,14 @@ ${input.memoryTrackingId || "غير متوفر"}
 نوع رسالة واتساب:
 ${input.messageType || "text"}
 
-الموظف الثابت المقترح لهذه المحادثة:
+اسم الموظف الرسمي الثابت لهذه المحادثة:
 ${input.assignedAgentName || "غير محدد"}
+
+هل سبق تعريف العميل باسم الموظف في رد سابق؟
+${input.hasRecentStaffIntro ? "نعم" : "لا"}
+
+إذا كانت الإجابة "لا"، ابدأ الرد الأول فقط بعبارة قصيرة: "معك ${input.assignedAgentName || "موظف المتابعة"} من فريق الأمين."
+إذا كانت الإجابة "نعم"، لا تكرر اسم الموظف إلا إذا سأل العميل عنه.
 
 الروابط التي سبق إرسالها في نفس المحادثة:
 ${input.sentUrls?.length ? input.sentUrls.join("\n") : "لا توجد روابط سابقة."}
@@ -4688,9 +5239,17 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const baseUrl = getBaseUrl(request);
   const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
-  const intent = classifyIncomingIntent(text, messageType);
+  let intent = classifyIncomingIntent(text, messageType);
   // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
   const conversationMemory = await getConversationMemory(from, 18);
+
+  const pendingDeviceConfirmation = (conversationMemory.lastAssistantReplies || []).some((reply) =>
+    /للتأكيد فقط: بدك تغيّر الجهاز|لتأكيد تغيير الجهاز/i.test(String(reply || ""))
+  );
+
+  if (pendingDeviceConfirmation && isDeviceChangeConfirmationText(text)) {
+    intent = "device_change_confirmed";
+  }
   const explicitlyNewApplication = isExplicitNewApplicationText(text);
   const memoryTracking = !explicitlyNewApplication
     ? conversationMemory.lastTrackingId || extractTracking(conversationMemory.conversationContext)
@@ -4713,6 +5272,9 @@ async function buildReply(request: Request, from: string, text: string, messageT
     });
 
   if (String(intent) === "greeting") {
+    if (!conversationMemory.hasRecentStaffIntro) {
+      return `أهلًا وسهلًا، معك ${assignedStaffName(from)} من فريق الأمين 🌿`;
+    }
     return generalGreetingReply(from);
   }
 
@@ -4756,6 +5318,11 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "site_issue" ||
     String(intent) === "review_time" ||
     String(intent) === "human_agent" ||
+    String(intent) === "staff_identity" ||
+    String(intent) === "call_request" ||
+    String(intent) === "payment_amount" ||
+    String(intent) === "device_change" ||
+    String(intent) === "device_change_confirmed" ||
     String(intent) === "unknown" ||
     String(intent) === "thanks" ||
     String(intent) === "apply" ||
@@ -4768,6 +5335,29 @@ async function buildReply(request: Request, from: string, text: string, messageT
 
   if (String(intent) === "reaction") {
     return "";
+  }
+
+  if (String(intent) === "staff_identity") {
+    return employeeIdentityReply(from, app);
+  }
+
+  if (String(intent) === "call_request") {
+    return callRequestReply(from, app);
+  }
+
+  if (String(intent) === "payment_amount") {
+    return paymentAmountReply(app, text);
+  }
+
+  if (String(intent) === "device_change" || String(intent) === "device_change_confirmed") {
+    return handleDeviceChange({
+      app,
+      from,
+      text,
+      memory: conversationMemory,
+      baseUrl,
+      confirmedFromContext: String(intent) === "device_change_confirmed",
+    });
   }
 
   if (app && String(intent) === "requirements") {
@@ -5569,13 +6159,20 @@ export async function POST(request: Request) {
         });
 
         if (isNearDuplicateAssistantReply(reply, outgoingMemory, incomingIntent)) {
-          needsHumanReview = true;
-          reply = repeatedReplyRecoveryReply();
+          const recoveryReply = repeatedReplyRecoveryReply(incomingIntent);
+
+          // في متابعة الحالة فقط نختصر الرد إلى "لا يوجد تحديث جديد".
+          // أما الأسئلة الأخرى فلا نطلب من العميل إعادة سؤاله ولا نستبدل الجواب بقالب عام.
+          if (recoveryReply) {
+            reply = recoveryReply;
+          }
 
           await sendDiscordNotification({
-            title: "🔁 تم اكتشاف حلقة ردود — تم منع الرد المكرر",
-            description: "الرد الجديد مطابق أو قريب جدًا من رد سابق رغم وجود رسالة عميل جديدة. تم استبداله برد آمن ومنع التكرار بدون إيقاف المحادثة.",
-            color: 0xed4245,
+            title: "🔁 تم اكتشاف رد قريب من رد سابق",
+            description: recoveryReply
+              ? "تم اختصار رد متابعة الحالة لأن الحالة لم تتغير."
+              : "تم رصد التشابه دون استبدال جواب العميل بقالب عام.",
+            color: 0xfee75c,
             customerPhone: from,
             customerMessage: text,
             systemReply: reply,
