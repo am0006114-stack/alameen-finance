@@ -426,6 +426,56 @@ function isReviewTimeText(text: string) {
   return hasQuestionContext && (hasReviewContext || standaloneReviewQuestion);
 }
 
+
+function isLongDelayComplaintText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const installmentContext = hasAny(t, [
+    "مدة التقسيط", "مده التقسيط", "كم شهر تقسيط", "على كم شهر",
+    "عدد الاقساط", "عدد الأقساط", "فترة التقسيط", "فتره التقسيط",
+    "24 شهر", "36 شهر", "القسط الشهري",
+  ]);
+
+  if (installmentContext) return false;
+
+  const elapsedPhrase = hasAny(t, [
+    "صارلو", "صارله", "صارلها", "صارلي", "صار لي", "صار له", "صار لها",
+    "من زمان", "له فترة", "له فتره", "إله فترة", "اله فتره",
+    "طول كثير", "مطول كثير",
+  ]);
+
+  const durationPattern = /(?:صار(?:لو|له|لها|لي)?|صار\s+(?:لي|له|لها)|منذ|من)\s*(?:حوالي\s*)?[0-9٠-٩]+\s*(?:يوم|أيام|ايام|أسبوع|اسبوع|أسابيع|اسابيع|شهر|أشهر|اشهر)/i;
+  const hasDurationUnit = hasAny(t, [
+    "يوم", "ايام", "أيام", "اسبوع", "أسبوع", "اسابيع", "أسابيع",
+    "شهر", "اشهر", "أشهر",
+  ]);
+
+  return durationPattern.test(t) || (elapsedPhrase && hasDurationUnit);
+}
+
+function isPaymentGuaranteeText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const directGuaranteeQuestion = hasAny(t, [
+    "شو المضمون", "ما المضمون", "ايش المضمون", "إيش المضمون",
+    "شو بضمن حقي", "شو بضمنلي", "شو بضمن لي",
+    "شو ضماني", "ما ضماني", "شو الضمان بالدفع",
+    "كيف اضمن حقي", "كيف أضمن حقي",
+  ]);
+
+  const guaranteeContext = hasAny(t, [
+    "مضمون", "ضمان", "اضمن", "أضمن", "بضمن", "حقي", "موثوق",
+  ]);
+  const paymentContext = hasAny(t, [
+    "دفع", "ادفع", "أدفع", "رسوم", "تحويل", "احول", "أحول",
+    "محفظة", "محفظه", "اورنج", "orange", "وصل", "ايصال", "إيصال",
+  ]);
+
+  return directGuaranteeQuestion || (guaranteeContext && paymentContext);
+}
+
 function currentCustomerActionLine(app: ApplicationRecord) {
   const status = app.status || "";
   const paymentStatus = app.payment_status || "";
@@ -457,8 +507,14 @@ function currentCustomerActionLine(app: ApplicationRecord) {
   return "حاليًا ما عليك أي خطوة إضافية.";
 }
 
-function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
+function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string, customerText = "") {
   if (!app) {
+    if (isLongDelayComplaintText(customerText)) {
+      return `معك حق، الانتظار لهالمدة طويل.
+
+ما بدي أعطيك موعد غير مؤكد. ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى نراجع الحالة الحالية بدل ما نكرر عليك جواب عام.`;
+    }
+
     return `مراجعة الطلب عادةً بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
 
 ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أعطيك الحالة الحالية بدقة.`;
@@ -467,6 +523,16 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
   const status = app.status || "";
   const tracking = app.tracking_id || app.id;
   const currentAction = currentCustomerActionLine(app);
+
+  if (isLongDelayComplaintText(customerText)) {
+    return `معك حق، الانتظار لهالمدة طويل.
+
+الحالة الظاهرة حاليًا: ${statusHumanLabel(status)}.
+ما في قرار جديد مسجل على الملف حتى الآن، وما رح أعطيك مدة غير مؤكدة.
+
+تم تمييز المحادثة للمتابعة بسبب طول الانتظار، وأول ما يظهر تحديث فعلي رح يصلك مباشرة.
+رقم الطلب: ${tracking}`;
+  }
 
   if (status === "approved" || status === "customer_accepts_delivery_delay") {
     return `طلبك عليه موافقة نهائية. ما في موعد استلام مؤكد حاليًا، وأول ما يتم اعتماد الموعد رح يصلك تحديث.
@@ -721,7 +787,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isLongDelayComplaintText(text) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -1323,6 +1389,12 @@ function classifyIntent(text: string): CustomerIntent {
   // تغيير الجهاز ليس إلغاءً. يجب حسمه قبل أي منطق إلغاء.
   if (isDeviceChangeText(t)) return "device_change";
 
+  // عبارات مثل "صارلو 3 أشهر" تعني شكوى عن طول الانتظار، وليست مدة تقسيط.
+  if (isLongDelayComplaintText(t)) return "review_time";
+
+  // سؤال "شو المضمون؟" بعد تعليمات الدفع هو سؤال ضمان/موثوقية.
+  if (isPaymentGuaranteeText(t)) return "trust_verification";
+
   if (isStaffIdentityText(t)) return "staff_identity";
 
   if (isCallRequestText(t)) return "call_request";
@@ -1795,6 +1867,24 @@ ${statusHumanLabel(app.status || "")}`
 ${baseUrl}/track`;
 }
 
+
+function paymentGuaranteeReply(baseUrl: string, app?: ApplicationRecord | null) {
+  if (!app) {
+    return `ضمانك إن أي دفع يتم فقط بعد وصول تعليمات رسمية، ورفع الوصل يكون من موقع الأمين الرسمي.
+
+رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة النهائية. لا تحول لأي بيانات مختلفة عن AMENPAY أو PAYAMEEN واسم المستفيد الظاهر في الرسالة الرسمية.`;
+  }
+
+  const tracking = app.tracking_id || app.id;
+
+  return `ضمانك إن رسوم فتح الملف مرتبطة برقم طلبك، ورفع الوصل يتم من رابط الأمين الرسمي، والرسوم مستردة بالكامل في حال عدم الموافقة النهائية.
+
+لا تحول إلا إلى AMENPAY أو PAYAMEEN وباسم المستفيد الظاهر في تعليمات الدفع، ولا تستخدم أي رقم أو رابط مختلف.
+
+رقم الطلب: ${tracking}
+الموقع الرسمي: ${BUSINESS_WEBSITE}`;
+}
+
 function receiptUploadConfirmationReply(app?: ApplicationRecord | null) {
   if (!app) {
     return `وصل إشعارك برفع وصل الدفع. حتى أربطه بالطلب الصحيح، ابعث رقم التتبع AM- أو رقم الهاتف المستخدم بالتقديم. لا تعيد الدفع مرة ثانية.`;
@@ -1864,7 +1954,7 @@ function emotionalPressureReply(baseUrl: string, from: string, app?: Application
   if (app) {
     const name = firstTwoNames(app.full_name);
     const tracking = app.tracking_id || app.id;
-    const device = app.device_name ? `الجهاز المطلوب (${app.device_name})` : "الجهاز المطلوب";
+    const device = app.device_name ? `الجهاز المطلوب (${customerFacingDeviceName(app.device_name)})` : "الجهاز المطلوب";
     const status = app.status || "";
 
     const statusLine = `حالة الطلب حاليًا: ${statusHumanLabel(status)}`;
@@ -2141,10 +2231,28 @@ function paymentGeneralReply(from: string) {
 بتنطلب فقط إذا صار الطلب مؤهلًا مبدئيًا ووصلتك تعليمات الدفع الرسمية. الرسوم مستردة بالكامل في حال عدم الموافقة النهائية، والقسط الأول بعد الاستلام حسب الاتفاق.`;
 }
 
+
+function customerFacingDeviceName(value: string | null | undefined) {
+  let clean = String(value || "").replace(/\r/g, " ").replace(/\n+/g, " ").trim();
+  if (!clean) return "الجهاز المطلوب";
+
+  clean = clean
+    .split(/(?:\s*-\s*)?(?:ملاحظة اللون|ملاحظه اللون|ملاحظة|ملاحظه)\s*:/i)[0]
+    .split(/(?:أو|او)\s+الاتصال\s+على/i)[0]
+    .split(/(?:رقم\s+الاتصال|للتواصل)\s*:/i)[0]
+    .replace(/(?:\+?962|0)?7\d{8}/g, "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/[\s،,;:\-–]+$/g, "")
+    .trim();
+
+  if (!clean) return "الجهاز المطلوب";
+  return clean.length > 180 ? clean.slice(0, 180).trim() : clean;
+}
+
 function paymentMessage(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
-  const device = app.device_name || "الجهاز المطلوب";
+  const device = customerFacingDeviceName(app.device_name);
 
   return `أهلًا ${name}، طلبك مؤهل مبدئيًا للمتابعة.
 
@@ -2209,7 +2317,7 @@ function paymentStatusHumanLabel(paymentStatus: string | null | undefined) {
 }
 
 function compactFileSnapshot(app: ApplicationRecord) {
-  const device = app.device_name ? `ملف ${app.device_name}` : "ملفك";
+  const device = app.device_name ? `ملف ${customerFacingDeviceName(app.device_name)}` : "ملفك";
   const status = statusHumanLabel(app.status || "");
   const payment = paymentStatusHumanLabel(app.payment_status || "");
 
@@ -2765,7 +2873,7 @@ async function handleDeviceChange(input: {
 ابعث رقم الطلب الذي يبدأ بـ AM- حتى أربط التغيير بالملف الصحيح.`;
   }
 
-  const currentDevice = input.app.device_name || "الجهاز المسجل حاليًا";
+  const currentDevice = customerFacingDeviceName(input.app.device_name) || "الجهاز المسجل حاليًا";
   const analysis = await analyzeDeviceChange({
     text: input.text,
     currentDevice: input.app.device_name,
@@ -2909,7 +3017,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "location") return locationReply(app.phone || tracking);
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking);
   if (String(intent) === "products") {
-    return `الجهاز المسجل على طلبك حاليًا: ${app.device_name || "غير محدد"}.
+    return `الجهاز المسجل على طلبك حاليًا: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.
 
 أما الألوان أو الأجهزة المتوفرة فعليًا فتتأكد حسب توريد المورد وقت اعتماد الطلب، وما بدي أعطيك توفر غير مؤكد.`;
   }
@@ -2919,7 +3027,11 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "social_media_threat") return socialMediaThreatReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
-  if (String(intent) === "trust_verification") return trustVerificationReply(baseUrl, app);
+  if (String(intent) === "trust_verification") {
+    return isPaymentGuaranteeText(customerText)
+      ? paymentGuaranteeReply(baseUrl, app)
+      : trustVerificationReply(baseUrl, app);
+  }
   if (String(intent) === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "emotional_pressure") return emotionalPressureReply(baseUrl, app.phone || tracking, app, customerText);
@@ -2935,7 +3047,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "office_pickup_policy") return officePickupPolicyReply(app.phone || tracking, app, baseUrl);
   if (String(intent) === "supplier_delay_question") return supplierDelayReply(app, baseUrl);
   if (String(intent) === "delivery") return deliveryDateReply(app, baseUrl);
-  if (String(intent) === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl);
+  if (String(intent) === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl, customerText);
   if (String(intent) === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl);
 
   if (String(intent) === "payment") {
@@ -3325,8 +3437,8 @@ function generalGreetingReply(from: string) {
   return socialGreetingReply(from, null, undefined);
 }
 
-function generalReviewTimeReply(from: string) {
-  return reviewTimeReply(from, null, undefined);
+function generalReviewTimeReply(from: string, customerText = "") {
+  return reviewTimeReply(from, null, undefined, customerText);
 }
 
 function unknownReply(from: string) {
@@ -4820,6 +4932,45 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
   return clean;
 }
 
+function isLikelyIncompleteReply(reply: string) {
+  const clean = String(reply || "").trim();
+  if (!clean) return true;
+
+  const normalized = normalizeArabicText(clean)
+    .replace(/[،,.؟!;:]+$/g, "")
+    .trim();
+
+  const words = normalized.split(/\s+/).filter(Boolean);
+  const lastWord = words[words.length - 1] || "";
+  const lastTwo = words.slice(-2).join(" ");
+  const lastThree = words.slice(-3).join(" ");
+
+  const danglingWords = [
+    "من", "الى", "إلى", "على", "عن", "في", "اذا", "إذا", "لو",
+    "عشان", "حتى", "لكن", "بس", "و", "او", "أو",
+  ];
+
+  if (danglingWords.includes(lastWord)) return true;
+  if (["خلينا ن", "حتى ن", "بدي ا", "بدي أ", "بدنا ن"].includes(lastTwo)) return true;
+  if (/^معك\s+\S+\s+من$/i.test(lastThree)) return true;
+  if (/https?:\/\/\S*$/i.test(clean) && !/^https?:\/\/[^\s]+\.[^\s]+$/i.test(clean.split(/\s+/).pop() || "")) return true;
+  if (/[:،,\-–]$/.test(clean)) return true;
+
+  return false;
+}
+
+function incompleteReplyFallback(input: AiReplyInput) {
+  if (String(input.intent) === "staff_identity" || String(input.intent) === "human_agent") {
+    return `معك ${input.assignedAgentName || "موظف من فريق الأمين"} من فريق الأمين. احكيلي سؤالك وبجاوبك حسب حالة الطلب.`;
+  }
+
+  if (String(input.intent) === "requirements") {
+    return "حاليًا ما في مستند إضافي مطلوب منك إلا إذا ظهر على الطلب طلب محدد، وقتها رح توصلك رسالة واضحة باسم المستند وطريقة رفعه.";
+  }
+
+  return input.deterministicReply;
+}
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
@@ -4831,13 +4982,16 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
   clean = trimOverFormalEmotionalReply(clean, input);
   clean = replaceUnfoundedEmotionalPressure(clean, input);
 
-  if (/(?:ع|على|من|الى|إلى|خلينا ن|بدي ا|بدي أ|حتى ن)\s*$/i.test(clean)) {
-    clean = input.deterministicReply;
+  if (isLikelyIncompleteReply(clean)) {
+    clean = incompleteReplyFallback(input);
   }
 
   clean = enforceApplicationTruth(clean, input);
 
-  if (!clean) return input.deterministicReply;
+  if (!clean || isLikelyIncompleteReply(clean)) {
+    return incompleteReplyFallback(input);
+  }
+
   return clean;
 }
 
@@ -4859,7 +5013,7 @@ function finalizeReplyBeforeSend(reply: string, options: {
   intent: CustomerIntent;
   memory: Awaited<ReturnType<typeof getConversationMemory>>;
 }) {
-  return finalizeHumanReply(reply, {
+  const finalReply = finalizeHumanReply(reply, {
     customerText: options.text,
     deterministicReply: reply,
     isSensitive: looksSensitive(options.text),
@@ -4874,6 +5028,14 @@ function finalizeReplyBeforeSend(reply: string, options: {
     hasRecentStaffIntro: options.memory.hasRecentStaffIntro,
     assignedAgentName: assignedStaffName(options.from),
   });
+
+  if (isLikelyIncompleteReply(finalReply)) {
+    return `وصلت رسالتك، لكن ما بدي أرسل لك جواب ناقص أو غير مؤكد.
+
+ابعث رقم الطلب إذا الموضوع متعلق بملفك، أو اكتب النقطة بجملة واحدة وبجاوبك عليها مباشرة.`;
+  }
+
+  return finalReply;
 }
 
 function sanitizeAiReply(reply: string, fallback: string) {
@@ -4971,9 +5133,18 @@ function sanitizeAiReply(reply: string, fallback: string) {
   }
 
   if (clean.length > 1200) {
-    clean = clean.slice(0, 1100).trim();
+    const candidate = clean.slice(0, 1100).trim();
+    const lastBoundary = Math.max(
+      candidate.lastIndexOf("؟"),
+      candidate.lastIndexOf("."),
+      candidate.lastIndexOf("!"),
+      candidate.lastIndexOf("\n"),
+    );
+
+    clean = lastBoundary >= 180 ? candidate.slice(0, lastBoundary + 1).trim() : fallback;
   }
 
+  if (isLikelyIncompleteReply(clean)) return fallback;
   return clean || fallback;
 }
 
@@ -5726,6 +5897,9 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (String(intent) === "trust_verification") {
+    if (isPaymentGuaranteeText(text)) {
+      return paymentGuaranteeReply(baseUrl, app);
+    }
     return trustVerificationReply(baseUrl, app);
   }
 
@@ -6010,7 +6184,7 @@ ${BUSINESS_NAME}`;
       trackingId: app.tracking_id || app.id,
       status: app.status || null,
       paymentStatus: app.payment_status || null,
-      deviceName: app.device_name || null,
+      deviceName: customerFacingDeviceName(app.device_name) || null,
       isSensitive: sensitive,
       hasApplication: true,
       intent,
@@ -6083,7 +6257,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
 
 لا يوجد موعد استلام نهائي محدد حاليًا. إذا بدك أفحص حالة طلبك تحديدًا، ابعث رقم التتبع، وبعطيك الحالة الموجودة عندي بدون تخمين.`;
   } else if (String(intent) === "review_time") {
-    deterministicReply = generalReviewTimeReply(from);
+    deterministicReply = generalReviewTimeReply(from, text);
   } else if (tracking) {
     deterministicReply = temporaryOrderLookupIssueReply(from, tracking);
   } else if (String(intent) === "greeting") {
