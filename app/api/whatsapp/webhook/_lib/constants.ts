@@ -3,6 +3,7 @@ export const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني -
 export const BUSINESS_PHONE_DISPLAY = "0788500337";
 export const BUSINESS_PHONE_E164 = "+962788500337";
 export const BUSINESS_WEBSITE = "https://www.ameenfinance.co";
+export const FILE_OPENING_FEE_JOD = 5;
 export const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة من المورد/الوكلاء المعتمدين واعتماد جدول الاستلام من المكتب من الإدارة";
 export const POST_EID_DELIVERY_STRICT_TEXT =
   "لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا. سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة واعتماد جدول الاستلام من المكتب من الإدارة. لا يوجد أي توصيل نهائيًا، والاستلام يكون من المكتب فقط وبموعد مسبق";
@@ -13,7 +14,7 @@ export const ESCALATION_MANAGER_NAME = "عمران";
 
 export function fileOpeningFeeExplanation() {
   return `توضيح مهم بخصوص رسوم فتح الملف:
-رسوم فتح الملف هي 3 دنانير فقط، وليست دفعة على الجهاز وليست القسط الأول.
+رسوم فتح الملف هي ${FILE_OPENING_FEE_JOD} دنانير فقط، وليست دفعة على الجهاز وليست القسط الأول.
 
 سبب وجودها أن كل ملف يتم تدقيقه يدويًا قبل القرار النهائي، ومع كثرة الطلبات اليومية توجد طلبات غير مكتملة أو غير جادة تعطل مراجعة ملفات العملاء الجادين.
 

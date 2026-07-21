@@ -149,7 +149,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       lastCustomerConcern: inferLastConcernFromMemory(conversationContext),
       hasRecentConversation,
       sentUrls,
-      hasRecentStaffIntro: lastAssistantReplies.some(hasStaffIntro),
+      hasRecentStaffIntro: data
+        .filter((message) => message.direction === "outgoing")
+        .some((message) => hasStaffIntro(message.body)),
       hasSentProductsLink: sentUrls.some((url) => /\/products(?:$|[?#])/i.test(url)),
       hasSentTrackLink: sentUrls.some((url) => /\/track(?:$|[?#])/i.test(url)),
       hasSentReceiptLink: sentUrls.some((url) => /\/receipt(?:$|[?#])/i.test(url)),
