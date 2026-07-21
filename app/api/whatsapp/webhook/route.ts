@@ -113,6 +113,28 @@ function isBotIdentityChallengeText(text: string) {
   ]);
 }
 
+function isTrustVerificationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const verificationQuestion = hasAny(t, [
+    "كيف اتاكد", "كيف أتأكد", "كيف بدي اتاكد", "كيف بدي أتأكد",
+    "شو الضمان", "ما الضمان", "كيف اضمن", "كيف أضمن",
+    "كيف اثق", "كيف أوثق", "كيف اتطمن", "كيف أطمئن",
+    "كيف اعرف انكم", "كيف أعرف أنكم", "اثبات رسمي", "إثبات رسمي",
+    "كيف اتأكد انه مش نصب", "كيف اتأكد انو مش نصب", "الموضوع ما فيه نصب",
+  ]);
+
+  const asksInsteadOfAccuses = hasAny(t, [
+    "كيف", "هل", "شو", "ما هو", "مثلا", "مثلاً", "اتاكد", "أتأكد", "اضمن", "أضمن",
+  ]);
+  const trustContext = hasAny(t, [
+    "نصب", "احتيال", "ثقه", "ثقة", "ضمان", "رسمي", "موثوق", "اتطمن", "أطمئن",
+  ]);
+
+  return verificationQuestion || (asksInsteadOfAccuses && trustContext);
+}
+
 function isStaffIdentityText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -618,7 +640,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -792,6 +814,22 @@ function isReceiptUploadNeededText(text: string) {
 }
 
 
+function isReceiptUploadConfirmationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const uploadContext = hasAny(t, [
+    "رفعت", "تم رفع", "رفعتلكم", "رفعته", "رفعت الوصل", "رفعت وصل",
+    "ارسلت الوصل", "أرسلت الوصل", "بعثت الوصل", "بعت الوصل",
+    "uploaded", "submitted",
+  ]);
+  const receiptContext = hasAny(t, [
+    "وصل دفع", "وصل الدفع", "الوصل", "ايصال دفع", "إيصال دفع", "receipt", "رسوم فتح الملف",
+  ]);
+
+  return uploadContext && receiptContext;
+}
+
 function isDocumentFollowupText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -840,6 +878,9 @@ function classifyIncomingIntent(text: string, messageType = "text"): CustomerInt
   if (type === "reaction") return "reaction";
   if (type === "image" || type === "video") return "media_upload";
   if (type === "document") return "document_upload";
+
+  // رسالة تأكيد رفع وصل الدفع أهم من أي تصنيف عام يحتوي رقم تتبع أو معلومات تواصل.
+  if (isReceiptUploadConfirmationText(text)) return "receipt_upload_confirmation";
 
   // رسائل صفحة التتبع قد تحتوي وصفًا مثل "تم استلام كشف الراتب".
   // هذه متابعة طلب وليست رسالة رفع مستند جديدة.
@@ -1026,6 +1067,9 @@ function isSupplierDelayQuestionText(text: string) {
     "صبر", "المورد", "مطول", "يطول", "طولت", "اذا مطول", "إذا مطول", "خربان", "اشوف شو اعمل",
     "أشوف شو أعمل", "مضطر", "مستعجل", "شغلي عليه", "كل شغلي عليه",
     "كم بده وقت", "كم بدها وقت", "قديش بده وقت", "ليوصل", "لحتى يوصل", "حتى يوصل",
+    "يوصلكم", "يوصلوكم", "توصل عندكم", "يوصل عندكم", "بتوصل الاجهزه", "بتوصل الأجهزة",
+    "بالعاده كم", "بالعادة كم", "اسبوع", "أسبوع", "اكتر من اسبوع", "أكثر من أسبوع",
+    "بتستنو", "بتستنوا", "بانتظار", "تحت المعالجه", "تحت المعالجة", "مقبول ولا",
   ]);
 
   return deviceContext && delayContext;
@@ -1207,6 +1251,9 @@ function classifyIntent(text: string): CustomerIntent {
   if (isOfficeLocationText(t)) return "location";
 
   if (isWebsiteText(t)) return "website";
+
+  if (isReceiptUploadConfirmationText(t)) return "receipt_upload_confirmation";
+  if (isTrustVerificationText(t)) return "trust_verification";
 
   // قرارات الإلغاء والاسترداد تشغيلية ويجب أن تُحسم قبل أي تصنيف حساس آخر.
   if (isCancelRefundRequestText(t)) return "cancel_refund_request";
@@ -1437,31 +1484,32 @@ function isConfirmedPaidActiveApplication(app: ApplicationRecord | null | undefi
 function paidDevicesReassuranceParagraph(app: ApplicationRecord, mode: "general" | "delivery" | "requirements" = "general") {
   const status = app.status || "";
   const deviceName = app.device_name ? `جهاز ${app.device_name}` : "الجهاز المطلوب";
+  const statusLabel = statusHumanLabel(status);
+  const finalApproved = status === "approved" || status === "customer_accepts_delivery_delay";
   const needsGuarantor = status === "needs_guarantor";
   const needsSalarySlip = status === "needs_salary_slip";
-  const needsDocsLine = needsGuarantor
-    ? "المطلوب حاليًا استكمال بيانات الكفيل حتى يظل الملف ماشي بدون تعطيل."
+
+  const requirementLine = needsGuarantor
+    ? "المطلوب حاليًا استكمال بيانات الكفيل حسب الرابط الرسمي."
     : needsSalarySlip
-      ? "المطلوب حاليًا استكمال كشف الراتب/شهادة الراتب حتى يظل الملف ماشي بدون تعطيل."
-      : "حاليًا ما في إجراء جديد مطلوب منك من طرفنا بنفس اللحظة.";
+      ? "المطلوب حاليًا استكمال كشف الراتب أو شهادة الراتب حسب الرابط الرسمي."
+      : "لا يوجد إجراء جديد مطلوب منك الآن حسب الحالة الظاهرة.";
+  const approvalLine = finalApproved
+    ? "الطلب حاصل على الموافقة النهائية، والتأخير الحالي مرتبط بتوفر الجهاز واعتماد موعد الاستلام من المكتب."
+    : `رسوم فتح الملف مؤكدة، لكن لا توجد موافقة نهائية ظاهرة حتى الآن؛ حالة الملف الحالية: ${statusLabel}.`;
 
-  if (mode === "requirements" && (needsGuarantor || needsSalarySlip)) {
-    return `بما إن رسوم فتح الملف مؤكدة، ملفك قطع مرحلة مهمة والأمور عندك متقدمة ومطمئنة مبدئيًا.
+  if (mode === "requirements") {
+    return `${approvalLine}
 
-${needsDocsLine}
+${requirementLine}
 
-بنفس الوقت خليني أكون واضح معك: الاستلام النهائي من المكتب مرتبط بتوفر الأجهزة من الوكلاء/الموردين، ولغاية الآن ${deviceName} مش متوفر بشكل يسمح باعتماد جدول استلام من المكتب نهائي.
-
-ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول الاستلام من المكتب، رح يتم التواصل معك مباشرة ${softFaithPhrase(app.tracking_id || app.id)}.`;
+وبشكل منفصل، الاستلام لا يتم إلا بعد توفر ${deviceName} واعتماد جدول الاستلام من المكتب. ما بنعطي موعدًا غير مؤكد.`;
   }
 
-  return `بما إن رسوم فتح الملف مؤكدة، ملفك قطع مرحلة مهمة والأمور عندك متقدمة ومطمئنة مبدئيًا.
+  return `${approvalLine}
 
-خليني أكون واضح معك: الموافقات على الطلبات المدفوعة شبه جاهزة من ناحية المتابعة الداخلية، لكن الاستلام النهائي من المكتب مرتبط بتوفر الأجهزة من الوكلاء/الموردين، ولغاية الآن ${deviceName} مش متوفر بشكل يسمح باعتماد جدول استلام من المكتب نهائي.
-
-ما بدنا نوعدك بتاريخ ونطلع مش دقيقين. أول ما يتم تثبيت توفر الأجهزة واعتماد جدول الاستلام من المكتب، رح يتم التواصل معك مباشرة ${softFaithPhrase(app.tracking_id || app.id)}.`;
+بالنسبة للتوريد، لغاية الآن ${deviceName} غير متوفر بشكل يسمح بتحديد موعد استلام نهائي. أول ما يتوفر ويتم اعتماد الجدول، يصلك تحديث رسمي.`;
 }
-
 
 function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
@@ -1650,6 +1698,50 @@ ${BUSINESS_NAME}`;
 إذا في وصل دفع أو صورة من الطلب، ابعثها هون كمان.
 
 ${BUSINESS_NAME}`;
+}
+
+function trustVerificationReply(baseUrl: string, app?: ApplicationRecord | null) {
+  const requestLines = app
+    ? `
+طلبك ظاهر عندي برقم:
+${app.tracking_id || app.id}
+
+الحالة الحالية:
+${statusHumanLabel(app.status || "")}`
+    : "";
+
+  return `من حقك تتأكد قبل أي دفع، وما بنطلب منك تعتمد على الكلام وحده.
+
+بيانات الأمين الرسمية:
+- الموقع: ${BUSINESS_WEBSITE}
+- واتساب الشركة: ${BUSINESS_PHONE_E164}
+- العنوان: ${BUSINESS_ADDRESS}
+
+الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي، وعلى AMENPAY أو PAYAMEEN، ويظهر اسم المستفيد ABDUL RAHMAN ALHARAHSHEH. لا تدفع لأي اسم أو رابط مختلف.${requestLines}
+
+رابط المتابعة الرسمي:
+${baseUrl}/track`;
+}
+
+function receiptUploadConfirmationReply(app?: ApplicationRecord | null) {
+  if (!app) {
+    return `وصل إشعارك برفع وصل الدفع. حتى أربطه بالطلب الصحيح، ابعث رقم التتبع AM- أو رقم الهاتف المستخدم بالتقديم. لا تعيد الدفع مرة ثانية.`;
+  }
+
+  const tracking = app.tracking_id || app.id;
+  if (app.payment_status === "confirmed") {
+    return `تم تأكيد رسوم فتح الملف على طلبك ✅
+
+حالة الملف الحالية: ${statusHumanLabel(app.status || "")}.
+
+رقم التتبع:
+${tracking}`;
+  }
+
+  return `وصل إشعار رفع الوصل وتم ربط المتابعة بطلبك. الوصل الآن بانتظار التأكيد، فلا تعيد الدفع ولا ترفع وصلًا ثانيًا.
+
+رقم التتبع:
+${tracking}`;
 }
 
 function paymentDisputeReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
@@ -2737,6 +2829,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "social_media_threat") return socialMediaThreatReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "scam_accusation") return scamAccusationReply(baseUrl, app.phone || tracking, app, customerText);
+  if (String(intent) === "trust_verification") return trustVerificationReply(baseUrl, app);
   if (String(intent) === "payment_dispute") return paymentDisputeReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "emotional_pressure") return emotionalPressureReply(baseUrl, app.phone || tracking, app, customerText);
@@ -2748,6 +2841,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "cancel_confirmed") return declineConfirmationMessage(app, baseUrl);
   if (String(intent) === "alternative_payment_source") return alternativePaymentSourceReply(app, baseUrl);
   if (String(intent) === "receipt_upload_needed") return receiptUploadReply(app, baseUrl);
+  if (String(intent) === "receipt_upload_confirmation") return receiptUploadConfirmationReply(app);
   if (String(intent) === "office_pickup_policy") return officePickupPolicyReply(app.phone || tracking, app, baseUrl);
   if (String(intent) === "supplier_delay_question") return supplierDelayReply(app, baseUrl);
   if (String(intent) === "delivery") return deliveryDateReply(app, baseUrl);
@@ -3147,10 +3241,10 @@ function generalReviewTimeReply(from: string) {
 
 function unknownReply(from: string) {
   const variants = [
-    "وصلتني رسالتك 🌿\nبس وضّحلي أكثر شو المطلوب حتى أجاوبك صح.",
-    "تمام، بس محتاج أفهم قصدك أكثر شوي 🌿\nبدك تتابع طلب، تسأل عن التقسيط، أو عندك مشكلة معينة؟",
-    "أنا معك 🌿\nاكتبلي سؤالك بجملة أو ابعث رقم التتبع إذا الموضوع متعلق بطلب.",
-    "وصلت 🌿\nاحكيلي شو بدك بالضبط وبرد عليك مباشرة بدون لف ودوران.",
+    "وصلتني الرسالة، لكن معناها مش واضح عندي. اكتب النقطة بكلمتين مثل: حالة الطلب، الدفع، التوريد، أو الإلغاء.",
+    "حتى أعطيك جواب صحيح، اكتب السؤال كامل بجملة واحدة أو ابعث رقم التتبع إذا الموضوع متعلق بطلب.",
+    "الرسالة قصيرة وما قدرت أحدد المقصود منها. اكتب مثلًا: متى الرد؟ أو كم الرسوم؟ أو بدي ألغي.",
+    "ما بدي أخمّن وأعطيك معلومة غلط. اكتب السؤال بجملة قصيرة وواضحة.",
   ];
 
   const digits = digitsOnly(from);
@@ -4094,47 +4188,24 @@ ${BUSINESS_NAME}`;
 }
 
 function supplierDelayReply(app: ApplicationRecord, baseUrl: string) {
-  const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
-  const url = trackUrl(baseUrl, app);
+  const status = app.status || "";
+  const finalApproved = status === "approved" || status === "customer_accepts_delivery_delay";
+  const approvalLine = finalApproved
+    ? "طلبك حاصل على الموافقة النهائية، والمتبقي توفر الجهاز واعتماد موعد الاستلام من المكتب."
+    : `طلبك لم يصل للموافقة النهائية بعد. حالته الحالية: ${statusHumanLabel(status)}.`;
 
-  if (isConfirmedPaidActiveApplication(app)) {
-    return `هلا ${name} 🌿
+  return `${approvalLine}
 
-أفهم سؤالك، وحقك يكون عندك توضيح واضح.
+بالنسبة لوصول الأجهزة، ما في موعد توريد مؤكد حاليًا. ممكن يختلف الوقت حسب المورد، لذلك ما بنعطي أسبوع أو تاريخ على التخمين.
 
-${paidDevicesReassuranceParagraph(app, "delivery")}
-
-حالة طلبك الحالية:
-${statusHumanLabel(app.status || "")}
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
-  }
-
-  return `هلا ${name} 🌿
-
-أفهم سؤالك، وحقك يكون عندك توضيح واضح.
-
-لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبركم مقدّر جدًا.
-
-ما بدي أعطيك موعد غير مؤكد. أول ما توصل الأجهزة ويتم اعتماد جدول الاستلام من المكتب من الإدارة، رح يتم التواصل مع أصحاب الطلبات المؤكدة مباشرة.
-
-حالة طلبك الحالية:
-${statusHumanLabel(app.status || "")}
+أول ما يصل الجهاز ويتم اعتماد جدول الاستلام من المكتب، يصلك تحديث رسمي.
 
 رقم التتبع:
 ${tracking}
 
 رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
+${trackUrl(baseUrl, app)}`;
 }
 
 function supplierDelayWithoutAppReply(from: string) {
@@ -4819,6 +4890,7 @@ async function generateAiReply(input: AiReplyInput) {
     "legal_threat",
     "social_media_threat",
     "scam_accusation",
+    "trust_verification",
     "payment_dispute",
     "device_delay_rage",
     "emotional_pressure",
@@ -4857,6 +4929,9 @@ async function generateAiReply(input: AiReplyInput) {
     "staff_identity",
     "call_request",
     "payment_amount",
+    "trust_verification",
+    "receipt_upload_confirmation",
+    "supplier_delay_question",
   ];
 
   if (strictDeterministicIntents.includes(input.intent)) {
@@ -4896,6 +4971,8 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا وصل العميل رابط شحن أو طلب دفع توصيل باسم الأمين، اطلب منه عدم التعامل معه وإرساله للتأكد.
 
 - إذا لم تكن المعلومة موجودة في الرد الآمن الأساسي أو قاعدة بيانات الطلب، قل: "لا يوجد لدي معلومة مؤكدة حول ذلك حاليًا" ولا تخمّن.
+- عندما تكون خانة "هل توجد حالة طلب؟" = لا: ممنوع القول إن الطلب مقبول أو مدفوع أو بانتظار الأجهزة أو تحت الدراسة. اطلب رقم التتبع/الهاتف فقط أو أعطِ معلومة عامة غير مرتبطة بحالة العميل.
+- لا تستنتج حالة الطلب من ردود النظام القديمة أو من كلام العميل؛ حالة قاعدة البيانات الحالية وحدها هي المرجع.
 - أي رقم هاتف غير الرقم الرسمي أو أي موعد استلام/زيارة/اتصال غير موجود في قاعدة البيانات يعتبر خطأ ممنوع.
 
 القاعدة الذهبية:
@@ -4950,13 +5027,12 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تعد بتاريخ استلام، ولا تجعل التعاطف بديلًا عن توضيح الحالة.
 
 قاعدة الطلبات المدفوعة وتأخير الأجهزة:
-- إذا كانت رسوم فتح الملف مؤكدة والطلب غير مرفوض وغير ملغى: اعتبر الملف قطع مرحلة مهمة.
-- الصياغة المطلوبة: "ملفك متقدم"، "الأمور مطمئنة مبدئيًا"، "الطلبات المدفوعة شبه جاهزة من ناحية المتابعة الداخلية".
-- ممنوع القول إن الموافقة نهائية إلا إذا كانت حالة الطلب approved.
+- تأكيد رسوم فتح الملف يعني أن الدفع مسجل فقط، ولا يعني موافقة نهائية.
+- اذكر حالة الطلب الحالية حرفيًا حسب قاعدة البيانات، ولا تستخدم عبارات مثل "شبه جاهز" أو "مقبول وماشي" إلا إذا كانت الحالة approved فعلًا.
+- ممنوع القول إن التأخير سببه الأجهزة وحدها عندما يكون الملف ما زال قيد الدراسة أو يحتاج مستندات.
+- إذا كانت الحالة approved أو customer_accepts_delivery_delay فقط، يجوز توضيح أن المتبقي توفر الجهاز واعتماد جدول الاستلام من المكتب.
 - ممنوع إعطاء تاريخ استلام أو وعد قطعي.
-- وضّح أن التأخير الحالي للطلبات المدفوعة مرتبط بتوفر الأجهزة من الوكلاء/الموردين واعتماد جدول الاستلام من المكتب، وليس بسبب تقصير من العميل.
-- أعطِ طمأنة معنوية صادقة: "ما بدنا نوعدك بتاريخ ونطلع مش دقيقين"، "أول ما يتم تثبيت توفر الأجهزة واعتماد جدول الاستلام من المكتب بنوصلك مباشرة".
-- إذا كان هناك مستند ناقص مثل كفيل أو كشف راتب: اطلبه بوضوح، لكن حافظ على نبرة مطمئنة ولا توحي بالرفض.
+- إذا كان هناك مستند ناقص مثل كفيل أو كشف راتب: اطلبه بوضوح، ولا توحي بأن الموافقة تمت.
 
 قاعدة تغيير الجهاز واللون والسعة:
 - طلب تغيير الجهاز أو اللون أو السعة ليس طلب إلغاء.
@@ -5353,7 +5429,13 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const memoryTracking = !explicitlyNewApplication
     ? conversationMemory.lastTrackingId || extractTracking(conversationMemory.conversationContext)
     : "";
+  const memoryPhone = !explicitlyNewApplication
+    ? conversationMemory.lastPhoneNumber || extractJordanPhoneFromText(conversationMemory.lastCustomerMessages?.join("\n") || "")
+    : "";
   const tracking = directTracking || memoryTracking;
+  const pendingCancellationConfirmation = (conversationMemory.lastAssistantReplies || []).some((reply) =>
+    /اكد الغاء الطلب|أكد إلغاء الطلب|قبل الالغاء النهائي|قبل الإلغاء النهائي/i.test(String(reply || ""))
+  );
   const sensitive = looksSensitive(text) || (Boolean(conversationMemory.conversationContext) && isTinyContextFollowupText(text));
 
   const humanizeReply = (input: AiReplyInput) =>
@@ -5389,7 +5471,17 @@ async function buildReply(request: Request, from: string, text: string, messageT
     if (!app) app = await findApplicationByTracking(tracking);
   } else if (tracking) {
     app = await findApplicationByTracking(tracking);
-    if (!app) app = await findApplicationByTrackingAndPhone(tracking, from);
+    if (!app) app = await findApplicationByTrackingAndPhone(tracking, typedPhone || memoryPhone || from);
+  } else if (typedPhone) {
+    app = await findApplicationByPhone(typedPhone);
+    if (!app && normalizeJordanPhone(typedPhone) !== normalizeJordanPhone(from)) {
+      app = await findApplicationByPhone(from);
+    }
+  } else if (memoryPhone && !explicitlyNewApplication) {
+    app = await findApplicationByPhone(memoryPhone);
+    if (!app && normalizeJordanPhone(memoryPhone) !== normalizeJordanPhone(from)) {
+      app = await findApplicationByPhone(from);
+    }
   } else if (!explicitlyNewApplication && (
     String(intent) === "order_status" ||
     String(intent) === "delivery" ||
@@ -5413,6 +5505,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "cancel_confirmed" ||
     String(intent) === "alternative_payment_source" ||
     String(intent) === "receipt_upload_needed" ||
+    String(intent) === "receipt_upload_confirmation" ||
+    String(intent) === "trust_verification" ||
     String(intent) === "supplier_delay_question" ||
     String(intent) === "site_issue" ||
     String(intent) === "review_time" ||
@@ -5428,6 +5522,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "products"
   )) {
     app = await findApplicationByPhone(from);
+  }
+
+  if (pendingCancellationConfirmation && typedPhone && app && String(intent) === "unknown") {
+    intent = "cancel_request";
   }
 
   let deterministicReply: string;
@@ -5446,6 +5544,14 @@ async function buildReply(request: Request, from: string, text: string, messageT
 
   if (String(intent) === "payment_amount") {
     return paymentAmountReply(app, text);
+  }
+
+  if (String(intent) === "trust_verification") {
+    return trustVerificationReply(baseUrl, app);
+  }
+
+  if (String(intent) === "receipt_upload_confirmation") {
+    return receiptUploadConfirmationReply(app);
   }
 
   if (String(intent) === "device_change" || String(intent) === "device_change_confirmed") {

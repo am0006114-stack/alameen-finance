@@ -35,12 +35,22 @@ function directionLabel(value: string | null | undefined) {
 }
 
 function extractTrackingFromMemory(value: string | null | undefined) {
-  const matches = String(value || "").match(/AM-\d{8,}/gi) || [];
-  return matches.length ? matches[matches.length - 1].toUpperCase() : "";
+  const raw = String(value || "");
+  const explicitMatches = raw.match(/AM-\d{8,}/gi) || [];
+  if (explicitMatches.length) return explicitMatches[explicitMatches.length - 1].toUpperCase();
+
+  const numericMatches = raw.match(/(?:^|\D)(1\d{11,14})(?=\D|$)/g) || [];
+  if (!numericMatches.length) return "";
+
+  const digits = numericMatches[numericMatches.length - 1].replace(/\D/g, "");
+  return digits ? `AM-${digits}` : "";
 }
 
 function extractJordanPhoneFromMemory(value: string | null | undefined) {
-  const matches = String(value || "").match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
+  const raw = String(value || "")
+    .replace(/AM-\d{8,}/gi, " ")
+    .replace(/(?:^|\D)1\d{11,14}(?=\D|$)/g, " ");
+  const matches = raw.match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
   return matches.length ? matches[matches.length - 1] : "";
 }
 
@@ -132,6 +142,13 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .map((message) => String(message.body || ""))
       .join("\n");
 
+    // رقم الهاتف الذي يرسله العميل قد يخص طلبًا مسجلًا على رقم مختلف عن رقم واتساب الحالي.
+    // نأخذه من رسائل العميل فقط حتى لا نلتقط رقم الشركة من ردودنا الرسمية.
+    const incomingText = chronological
+      .filter((message) => message.direction === "incoming")
+      .map((message) => String(message.body || ""))
+      .join("\n");
+
     const sentUrls = extractUrlsFromMemory(outgoingText);
 
     const newestMessageTime = data[0]?.created_at ? new Date(data[0].created_at).getTime() : NaN;
@@ -144,8 +161,8 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       lastCustomerMessages,
       lastIntent: data[0]?.intent || null,
       lastDirection: data[0]?.direction || null,
-      lastTrackingId: extractTrackingFromMemory(conversationContext) || null,
-      lastPhoneNumber: extractJordanPhoneFromMemory(conversationContext) || null,
+      lastTrackingId: extractTrackingFromMemory(incomingText) || extractTrackingFromMemory(conversationContext) || null,
+      lastPhoneNumber: extractJordanPhoneFromMemory(incomingText) || null,
       lastCustomerConcern: inferLastConcernFromMemory(conversationContext),
       hasRecentConversation,
       sentUrls,

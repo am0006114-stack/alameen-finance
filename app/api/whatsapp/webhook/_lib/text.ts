@@ -73,12 +73,26 @@ export function formatJordanDateTime(value: string | null | undefined) {
 }
 
 export function extractTracking(text: string) {
-  const matches = String(text || "").match(/AM-\d{8,}/gi) || [];
-  return matches.length ? matches[matches.length - 1].toUpperCase() : "";
+  const raw = String(text || "");
+  const explicitMatches = raw.match(/AM-\d{8,}/gi) || [];
+
+  if (explicitMatches.length) {
+    return explicitMatches[explicitMatches.length - 1].toUpperCase();
+  }
+
+  // بعض العملاء ينسخون رقم التتبع بدون AM-. أرقام التتبع الحالية طويلة
+  // وتبدأ بالرقم 1، لذلك لا نخلطها مع أرقام الهواتف الأردنية.
+  const numericMatches = raw.match(/(?:^|\D)(1\d{11,14})(?=\D|$)/g) || [];
+  if (!numericMatches.length) return "";
+
+  const digits = numericMatches[numericMatches.length - 1].replace(/\D/g, "");
+  return digits ? `AM-${digits}` : "";
 }
 
 export function extractJordanPhoneFromText(text: string) {
-  const raw = String(text || "");
+  const raw = String(text || "")
+    .replace(/AM-\d{8,}/gi, " ")
+    .replace(/(?:^|\D)1\d{11,14}(?=\D|$)/g, " ");
   const candidates = raw.match(/(?:\+?962|00962|0)?7[789]\d{7}/g) || [];
 
   for (const candidate of candidates) {
