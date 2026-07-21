@@ -229,6 +229,12 @@ function isDeviceChangeConfirmationText(text: string) {
     "تمام غيرو",
     "غيره",
     "غيّره",
+    "بلش",
+    "ابدأ",
+    "ابدا",
+    "سجل",
+    "سجله",
+    "اعتمد",
   ].includes(t) || hasAny(t, ["اكد تغيير الجهاز", "أكد تغيير الجهاز", "موافق على التغيير"]);
 }
 
@@ -297,6 +303,49 @@ function isPaymentAmountText(text: string) {
   ]);
 }
 
+function isSelfEmployedText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const workContext = hasAny(t, [
+    "صاحب محل",
+    "صاحبه محل",
+    "صاحب مشروع",
+    "صاحبه مشروع",
+    "عندي محل",
+    "عندي مشروع",
+    "عندي سجل تجاري",
+    "سجل تجاري",
+    "رخصه مهن",
+    "رخصة مهن",
+    "عمل حر",
+    "اعمل لحسابي",
+    "بشتغل لحسابي",
+    "غير موظف",
+    "مش موظف",
+    "ما عندي راتب",
+    "ما عندي كشف راتب",
+    "ما بنزل راتبي بنك",
+    "دخل من المحل",
+    "دخل من المشروع",
+    "self employed",
+    "self-employed",
+    "business owner",
+  ]);
+
+  return workContext;
+}
+
+function isShortContinuationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return [
+    "ارسلها", "أرسلها", "ابعثها", "ابعتها", "ابعث", "ابعت", "ارسل", "أرسل",
+    "تابع", "كمل", "اكمل", "أكمل", "تمام تابع", "تمام كمل",
+  ].includes(t);
+}
+
 function isTinyContextFollowupText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -344,6 +393,13 @@ function isReviewTimeText(text: string) {
     "كم باخذ وقت",
     "قديش بياخذ وقت",
     "قديش باخذ وقت",
+    "كم بدكم وقت",
+    "كم ودكم وقت",
+    "قديش بدكم وقت",
+    "خلال كم",
+    "كم المده",
+    "كم المدة",
+    "بالعادة كم",
   ]);
 
   const hasReviewContext = hasAny(t, [
@@ -364,46 +420,66 @@ function isReviewTimeText(text: string) {
 
   const standaloneReviewQuestion = hasAny(t, [
     "كم بياخذ وقت", "كم باخذ وقت", "قديش بياخذ وقت", "قديش باخذ وقت",
+    "كم بدكم وقت", "كم ودكم وقت", "قديش بدكم وقت", "خلال كم", "بالعادة كم",
   ]);
 
   return hasQuestionContext && (hasReviewContext || standaloneReviewQuestion);
 }
 
-function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
-  const opening = humanOpening(`${from}:review_time`);
-  const tracking = app?.tracking_id || app?.id || "";
-  const status = app?.status || "";
-  const url = app && baseUrl ? trackUrl(baseUrl, app) : "";
+function currentCustomerActionLine(app: ApplicationRecord) {
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
 
-  if (app) {
-    return `${opening}
-
-بشكل عام، مراجعة الطلب بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات.
-
-الجمعة والسبت عطلة رسمية ولا تُحسب ضمن أيام العمل.
-
-حالة طلبك الحالية:
-${statusHumanLabel(status)}
-
-${isConfirmedPaidActiveApplication(app) ? paidDevicesReassuranceParagraph(app) : "إذا احتاجت الإدارة أي مستند إضافي أو خطوة جديدة، رح يوصلك التحديث بشكل واضح."}
-
-رقم التتبع:
-${tracking}
-
-${url ? `رابط المتابعة:\n${url}\n\n` : ""}${BUSINESS_NAME}`;
+  if (status === "needs_guarantor") {
+    return "المطلوب منك حاليًا استكمال بيانات الكفيل من الرابط الرسمي المرسل لك.";
   }
 
-  return `${opening}
+  if (status === "needs_salary_slip") {
+    return "المطلوب منك حاليًا رفع كشف راتب أو شهادة راتب من الرابط الرسمي المرسل لك.";
+  }
 
-عادةً مراجعة الطلب بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات.
+  if (status === "needs_identity" || status === "identity_requested") {
+    return "المطلوب منك حاليًا رفع صورة الهوية الأمامية والخلفية من الرابط الرسمي المرسل لك.";
+  }
 
-الجمعة والسبت عطلة رسمية ولا تُحسب ضمن أيام العمل.
+  if (
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus)
+  ) {
+    return `المطلوب منك حاليًا دفع رسوم فتح الملف بقيمة ${FILE_OPENING_FEE_JOD} دنانير ورفع الوصل من الرابط الرسمي.`;
+  }
 
-بعض الملفات ممكن تحتاج وقتًا إضافيًا إذا كان في تدقيق إضافي أو مستندات ناقصة.
+  if (paymentStatus === "customer_claimed_paid") {
+    return "الوصل واصل وبانتظار تأكيده، فلا تعيد الدفع.";
+  }
 
-إذا عندك رقم تتبع أو رقم الهاتف المستخدم بالطلب ابعته، وبفحصلك الحالة مباشرة 🌿
+  return "حاليًا ما عليك أي خطوة إضافية.";
+}
 
-${BUSINESS_NAME}`;
+function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
+  if (!app) {
+    return `مراجعة الطلب عادةً بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أعطيك الحالة الحالية بدقة.`;
+  }
+
+  const status = app.status || "";
+  const tracking = app.tracking_id || app.id;
+  const currentAction = currentCustomerActionLine(app);
+
+  if (status === "approved" || status === "customer_accepts_delivery_delay") {
+    return `طلبك عليه موافقة نهائية. ما في موعد استلام مؤكد حاليًا، وأول ما يتم اعتماد الموعد رح يصلك تحديث.
+
+${currentAction}
+رقم الطلب: ${tracking}`;
+  }
+
+  return `مراجعة الطلب عادةً بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+
+حالة طلبك الحالية: ${statusHumanLabel(status)}.
+${currentAction}
+رقم الطلب: ${tracking}`;
 }
 
 function socialGreetingReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
@@ -584,7 +660,7 @@ const ANGRY_CUSTOMER_KEYWORDS = [
   "محامي", "محاميه", "lawyer", "قضيه", "قضية", "محكمه", "محكمة", "شرطة", "شرطه", "police",
   "جرائم", "جرائم الكترونية", "جرائم إلكترونية", "الجرائم الالكترونيه", "الجرائم الإلكترونية",
   "حمايه المستهلك", "حماية المستهلك", "وزارة الصناعة", "وزارة الصناعة والتجارة", "البنك المركزي",
-  "المدعي العام", "النائب العام", "حق قانوني", "قانونيا", "قانونيًا", "رقم شكوى", "سجل تجاري",
+  "المدعي العام", "النائب العام", "حق قانوني", "قانونيا", "قانونيًا", "رقم شكوى",
   "ترخيص", "مرخصين", "مش مرخصين", "راح ارفع عليكم", "برفع عليكم", "بدي حقي قانونيا",
 
   // تصعيد علني / سوشال
@@ -628,6 +704,11 @@ const ANGRY_CUSTOMER_KEYWORDS = [
 function isAngryCustomerText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
+
+  // ذكر السجل التجاري أو العمل الحر ليس شكوى أو تهديدًا.
+  if (isSelfEmployedText(t) && !hasAny(t, ["شكوى", "محامي", "شرطة", "نصب", "احتيال", "فلوسي", "رجعوا"])) {
+    return false;
+  }
 
   if (hasAny(t, ANGRY_CUSTOMER_KEYWORDS)) return true;
 
@@ -1248,6 +1329,8 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isPaymentAmountText(t)) return "payment_amount";
 
+  if (isSelfEmployedText(t)) return "self_employed";
+
   if (isOfficeLocationText(t)) return "location";
 
   if (isWebsiteText(t)) return "website";
@@ -1293,6 +1376,10 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isOfficePickupPolicyText(t)) {
     return "office_pickup_policy";
+  }
+
+  if (isExplicitKeepRequestText(t)) {
+    return "keep_request";
   }
 
   if (isContinueDecisionText(t)) {
@@ -1447,7 +1534,7 @@ function paymentRequirementsPendingReply(app: ApplicationRecord, baseUrl: string
 
 ${paidDevicesReassuranceParagraph(app)}
 
-إذا احتاج قسم الدراسة أي مستند إضافي أو بيانات داعمة، بنطلبها منك برسالة واضحة بدون لخبطة.
+إذا احتاج طلبك أي مستند إضافي، بنطلبه منك برسالة واضحة.
 
 رقم التتبع:
 ${tracking}
@@ -1483,32 +1570,17 @@ function isConfirmedPaidActiveApplication(app: ApplicationRecord | null | undefi
 
 function paidDevicesReassuranceParagraph(app: ApplicationRecord, mode: "general" | "delivery" | "requirements" = "general") {
   const status = app.status || "";
-  const deviceName = app.device_name ? `جهاز ${app.device_name}` : "الجهاز المطلوب";
-  const statusLabel = statusHumanLabel(status);
   const finalApproved = status === "approved" || status === "customer_accepts_delivery_delay";
-  const needsGuarantor = status === "needs_guarantor";
-  const needsSalarySlip = status === "needs_salary_slip";
 
-  const requirementLine = needsGuarantor
-    ? "المطلوب حاليًا استكمال بيانات الكفيل حسب الرابط الرسمي."
-    : needsSalarySlip
-      ? "المطلوب حاليًا استكمال كشف الراتب أو شهادة الراتب حسب الرابط الرسمي."
-      : "لا يوجد إجراء جديد مطلوب منك الآن حسب الحالة الظاهرة.";
-  const approvalLine = finalApproved
-    ? "الطلب حاصل على الموافقة النهائية، والتأخير الحالي مرتبط بتوفر الجهاز واعتماد موعد الاستلام من المكتب."
-    : `رسوم فتح الملف مؤكدة، لكن لا توجد موافقة نهائية ظاهرة حتى الآن؛ حالة الملف الحالية: ${statusLabel}.`;
-
-  if (mode === "requirements") {
-    return `${approvalLine}
-
-${requirementLine}
-
-وبشكل منفصل، الاستلام لا يتم إلا بعد توفر ${deviceName} واعتماد جدول الاستلام من المكتب. ما بنعطي موعدًا غير مؤكد.`;
+  if (!finalApproved) {
+    return `رسوم فتح الملف مؤكدة، لكن لا توجد موافقة نهائية ظاهرة حتى الآن. حالة الملف الحالية: ${statusHumanLabel(status)}.`;
   }
 
-  return `${approvalLine}
+  if (mode === "requirements") {
+    return `الطلب عليه موافقة نهائية. لا ترفع أي مستند إضافي إلا إذا وصلك طلب محدد، وموعد الاستلام يُرسل بعد اعتماده.`;
+  }
 
-بالنسبة للتوريد، لغاية الآن ${deviceName} غير متوفر بشكل يسمح بتحديد موعد استلام نهائي. أول ما يتوفر ويتم اعتماد الجدول، يصلك تحديث رسمي.`;
+  return `الطلب عليه موافقة نهائية، وما في موعد استلام نهائي محدد حاليًا. أول ما يتم اعتماد الموعد يصلك تحديث رسمي.`;
 }
 
 function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
@@ -1533,7 +1605,7 @@ ${guarantorLink}
 2. رفع كشف راتب رسمي حديث أو شهادة راتب صادرة من جهة العمل من الرابط:
 ${salaryLink}
 
-هذه الخطوة إجراء تنظيمي لاستكمال الدراسة، ولا تعني رفض الطلب.
+هذه الخطوة لاستكمال الطلب، ولا تعني رفضه.
 
 رقم التتبع:
 ${tracking}
@@ -1547,10 +1619,10 @@ ${BUSINESS_NAME}`;
 
 ${paidDevicesReassuranceParagraph(app, "requirements")}
 
-لاستكمال إجراءات الملف حسب سياسة الموافقة، نحتاج تعبئة بيانات الكفيل من الرابط التالي:
+لاستكمال طلبك، عبّي بيانات الكفيل من الرابط التالي:
 ${guarantorLink}
 
-هذه الخطوة إجراء تنظيمي لاستكمال الدراسة، ولا تعني رفض الطلب.
+هذه الخطوة لاستكمال الطلب، ولا تعني رفضه.
 
 رقم التتبع:
 ${tracking}
@@ -2017,41 +2089,22 @@ function loanReply(from: string) {
 }
 
 function installmentInfoReply(baseUrl: string, from: string) {
-  const opening = humanOpening(`${from}:installment`);
-  return `${opening}
+  return `نظام التقسيط باختصار:
+1. تختار الجهاز وتقدم الطلب من الموقع.
+2. يصلك تحديث بالخطوة المطلوبة حسب حالة طلبك.
+3. بعد الموافقة النهائية يتم تحديد الاستلام من المكتب، والقسط الأول يكون بعد الاستلام حسب الاتفاق.
 
-أكيد، نظام التقسيط عندنا باختصار:
-
-1. بتختار الجهاز المناسب.
-2. بتقدم الطلب من الموقع.
-3. الإدارة بتراجع البيانات.
-4. إذا ظهر من صفحة الإدارة أن الطلب مؤهل مبدئيًا / عليه موافقة مبدئية فقط، بنرسل لك تعليمات فتح الملف.
-5. إذا تأهل الطلب مبدئيًا وقرر العميل الاستمرار، تصله تعليمات فتح الملف الرسمية.
-6. القسط الأول لا يُدفع الآن، ويكون بعد الاستلام حسب الاتفاق.
-
-مهم: التقديم أو دفع رسوم فتح الملف لا يعني موافقة نهائية، الموافقة بتطلع بعد الدراسة.
-
-رابط التقديم والمتابعة:
-${baseUrl}`;
+رابط التقديم:
+${baseUrl}/products`;
 }
 
 function requirementsReply(baseUrl: string, from: string) {
-  const opening = humanOpening(`${from}:requirements`);
-  return `${opening}
+  return `المستندات المطلوبة تختلف حسب حالة كل طلب، لذلك لا ترفع أي ورقة من نفسك.
 
-الشروط والمتطلبات بشكل عام بتعتمد على دراسة الطلب، لكن عادةً بنحتاج:
+قدّم الطلب أولًا، وإذا احتاج ملفك مستندًا محددًا رح توصلك رسالة باسمه ورابط رفعه.
 
-- بيانات شخصية صحيحة.
-- رقم هاتف شغال.
-- صور الهوية حسب نموذج الطلب.
-- معلومات العمل/الدخل.
-- كفيل فقط إذا طلبته الإدارة من صفحة الطلب.
-- كشف راتب أو شهادة راتب إذا تم طلبها لاحقًا.
-
-إذا تأهل الطلب مبدئيًا وقررتم الاستمرار، تصلكم تعليمات فتح الملف الرسمية.
-
-للتقديم:
-${baseUrl}`;
+رابط التقديم:
+${baseUrl}/products`;
 }
 
 function applyReply(baseUrl: string, from: string) {
@@ -2083,21 +2136,9 @@ ${baseUrl}/products
 }
 
 function paymentGeneralReply(from: string) {
-  const opening = humanOpening(`${from}:payment`);
-  return `${opening}
+  return `رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط، وما بتنطلب من بداية التقديم.
 
-أكيد، خليني أوضحها بهدوء حتى ما يصير أي ضغط أو لخبطة 🌿
-
-${fileOpeningFeeExplanation()}
-
-مهم جدًا:
-- لا يوجد أي دفع عند السؤال العام أو قبل مراجعة الطلب.
-- لا نطلب رسوم فتح الملف إلا إذا ظهر من صفحة الإدارة أن الطلب مؤهل مبدئيًا / عليه موافقة مبدئية.
-- دفع الرسوم لا يعني موافقة نهائية، لكنه فقط إجراء لاستكمال الدراسة.
-
-إذا عندك طلب موجود، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبفحصلك هل مطلوب منك أي إجراء فعلًا أو لا.
-
-${BUSINESS_NAME}`;
+بتنطلب فقط إذا صار الطلب مؤهلًا مبدئيًا ووصلتك تعليمات الدفع الرسمية. الرسوم مستردة بالكامل في حال عدم الموافقة النهائية، والقسط الأول بعد الاستلام حسب الاتفاق.`;
 }
 
 function paymentMessage(app: ApplicationRecord, baseUrl: string) {
@@ -2105,164 +2146,55 @@ function paymentMessage(app: ApplicationRecord, baseUrl: string) {
   const tracking = app.tracking_id || app.id;
   const device = app.device_name || "الجهاز المطلوب";
 
-  return `أهلًا ${name} 🌿
+  return `أهلًا ${name}، طلبك مؤهل مبدئيًا للمتابعة.
 
-طلبكم ظاهر لدينا كمؤهل مبدئيًا للانتقال لمرحلة الدراسة النهائية.
+الجهاز: ${device}
+رقم الطلب: ${tracking}
 
-الجهاز:
-${device}
+رسوم فتح الملف: ${FILE_OPENING_FEE_JOD} دنانير، ومستردة بالكامل في حال عدم الموافقة النهائية. القسط الأول بعد الاستلام حسب الاتفاق.
 
-رقم التتبع:
-${tracking}
+الدفع عبر Orange Money إلى AMENPAY أو PAYAMEEN، واسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH.
 
-إذا حابّين نكمل دراسة الملف، يتم دفع رسوم فتح الملف:
-${FILE_OPENING_FEE_JOD} دنانير فقط
-
-${fileOpeningFeeExplanation()}
-
-معلومات الدفع الرسمية عبر Orange Money:
-
-الخيار الأول:
-اسم المحفظة / الاسم التجاري: AMENPAY
-اسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH
-
-الخيار الثاني:
-اسم المحفظة / الاسم التجاري: PAYAMEEN
-اسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH
-
-ملاحظة مهمة: الاثنين أورنج موني، وإذا ظهر اسم المستفيد ABDUL RAHMAN ALHARAHSHEH فهذا صحيح.
-
-إذا ما عندكم محفظة أورنج أو التحويل رح يكون من رقم/حساب/شخص ثاني، عادي. المهم يكون التحويل على معلومات الدفع الرسمية أعلاه.
-
-بعد الدفع، ارفعوا وصل الدفع من هذا الرابط حتى نربطه بنفس الطلب:
-${receiptUrl(baseUrl, app)}
-
-إذا ما حبيتوا تكملوا حاليًا، لا يوجد أي التزام عليكم.
-
-${BUSINESS_NAME}`;
+بعد التحويل ارفع الوصل من هنا:
+${receiptUrl(baseUrl, app)}`;
 }
 
 function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
-  const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
   const status = app.status || "";
-  const url = trackUrl(baseUrl, app);
 
-  if (status === "approved") {
-    return `أهلًا ${name} 🌿
+  if (status === "approved" || status === "customer_accepts_delivery_delay") {
+    return `طلبك عليه موافقة نهائية، لكن ما في موعد استلام مؤكد حاليًا.
 
-نعتذر منكم بصدق عن التأخير ونقدّر صبركم وثقتكم بنا.
-
-طلبكم عليه موافقة نهائية ✅
-
-${paidDevicesReassuranceParagraph(app, "delivery")}
-
-لا يوجد أي إجراء مطلوب منكم حاليًا، ولا يوجد أي دفعات مطلوبة.
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-نشكر لكم تفهمكم وصبركم 🌿
-
-${BUSINESS_NAME}`;
-  }
-
-  if (status === "customer_accepts_delivery_delay") {
-    return `أهلًا ${name} 🌿
-
-اختياركم بالانتظار مسجل لدينا.
-
-${paidDevicesReassuranceParagraph(app, "delivery")}
-
-لا يوجد أي إجراء أو دفع مطلوب منكم حاليًا.
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
-  }
-
-  if (isConfirmedPaidActiveApplication(app) && ["under_review", "needs_salary_slip", "salary_slip_uploaded", "guarantor_submitted", "needs_guarantor"].includes(status)) {
-    return `أهلًا ${name} 🌿
-
-${paidDevicesReassuranceParagraph(app, "requirements")}
-
-حالة طلبكم الحالية:
-${statusHumanLabel(status)}
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
+أول ما يتم اعتماد موعد الاستلام من المكتب رح يصلك تحديث.
+رقم الطلب: ${tracking}`;
   }
 
   if (status === "needs_guarantor") {
-    return `أهلًا ${name} 🌿
+    return `طلبك لسا ما وصل للموافقة النهائية. المطلوب حاليًا استكمال بيانات الكفيل من الرابط الرسمي المرسل لك.
 
-الحالة الحالية للطلب تشير إلى أن الملف بحاجة استكمال بيانات الكفيل.
-
-مهم: إرسال معلومات أو صور على واتساب لا يُعتمد كاستكمال رسمي داخل الملف. حتى تنربط بيانات الكفيل رسميًا بالطلب، عبّيها من الرابط التالي:
-${guarantorUrl(baseUrl, app)}
-
-لا يوجد موعد استلام محدد حاليًا قبل اكتمال الدراسة والموافقة النهائية.
-
-رقم التتبع:
-${tracking}
-
-${BUSINESS_NAME}`;
+بعد استكمال المطلوب بتكمل متابعة الطلب، وما في موعد استلام محدد حاليًا.
+رقم الطلب: ${tracking}`;
   }
 
-  if (status === "under_review" || status === "needs_salary_slip" || status === "guarantor_submitted") {
-    return `أهلًا ${name} 🌿
+  if (status === "needs_salary_slip") {
+    return `طلبك لسا ما وصل للموافقة النهائية. المطلوب حاليًا رفع كشف راتب أو شهادة راتب من الرابط الرسمي المرسل لك.
 
-طلبكم ما زال قيد الدراسة والمتابعة من الإدارة.
-
-نعتذر منكم عن التأخير ونقدّر صبركم، خصوصًا مع ضغط المراجعات وكثرة الملفات.
-
-لا يوجد قرار نهائي ظاهر على الطلب حتى الآن، ولا يوجد موعد استلام محدد حاليًا.
-
-حالة الطلب الحالية:
-${statusHumanLabel(status)}
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
+ما في موعد استلام محدد حاليًا.
+رقم الطلب: ${tracking}`;
   }
 
-  return `أهلًا ${name} 🌿
+  if (status === "needs_identity" || status === "identity_requested") {
+    return `طلبك لسا ما وصل للموافقة النهائية. المطلوب حاليًا رفع صورة الهوية من الرابط الرسمي المرسل لك.
 
-${apologyLine()}
+ما في موعد استلام محدد حاليًا.
+رقم الطلب: ${tracking}`;
+  }
 
-بالنسبة للتسليم، لا يوجد موعد نهائي محدد حاليًا.
+  return `طلبك لسا ما وصل للموافقة النهائية. حالته الحالية: ${statusHumanLabel(status)}.
 
-التحديث المعتمد الآن:
-${POST_EID_DELIVERY_STRICT_TEXT}.
-
-تحديد التسليم يكون فقط بعد وصول الأجهزة واعتماد جدول الاستلام من المكتب من الإدارة.
-
-حالة طلبكم الحالية:
-${statusHumanLabel(status)}
-
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${url}
-
-${BUSINESS_NAME}`;
+ما في موعد استلام محدد حاليًا، وأول ما تتغير الحالة رح يصلك تحديث.
+رقم الطلب: ${tracking}`;
 }
 
 function paymentStatusHumanLabel(paymentStatus: string | null | undefined) {
@@ -2302,15 +2234,29 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   }
 
   if (String(intent) === "thanks") {
-    return `العفو ${name} 🌿`;
+    return `العفو 🌿`;
   }
 
   if (String(intent) === "human_agent") {
     return employeeIdentityReply(app.phone || app.tracking_id || app.id, app);
   }
 
+  if (String(intent) === "keep_request") {
+    return keepRequestReply(app);
+  }
+
   if (String(intent) === "payment_amount") {
     return paymentAmountReply(app, customerText);
+  }
+
+  if (String(intent) === "self_employed" || isSelfEmployedText(customerText)) {
+    return selfEmployedReply(app);
+  }
+
+  if (hasAny(text, ["اسلوبكم غريب", "أسلوبكم غريب", "ردودكم غريبه", "ردودكم غريبة", "في لف ودوران", "لف ودوران"])) {
+    return `معك حق، الرد السابق ما كان واضح بالشكل المطلوب.
+
+احكيلي النقطة نفسها وبجاوبك عليها مباشرة حسب الحالة الظاهرة على طلبك.`;
   }
 
   if (String(intent) === "order_status") {
@@ -2373,18 +2319,38 @@ function applicationDocumentsReply(app: ApplicationRecord) {
   const status = app.status || "";
 
   if (status === "needs_guarantor") {
-    return `المطلوب حاليًا تعبئة بيانات الكفيل من الرابط الرسمي المرسل لك. لا ترفع أوراق إضافية غير المطلوبة على حالة الملف.`;
+    return `المطلوب حاليًا تعبئة بيانات الكفيل من الرابط الرسمي المرسل لك. لا ترفع أي مستند إضافي غير المطلوب.`;
   }
 
   if (status === "needs_salary_slip") {
-    return `المطلوب حاليًا كشف راتب رسمي حديث أو شهادة راتب. لا ترفع أوراق إضافية غير المطلوبة على حالة الملف.`;
+    return `المطلوب حاليًا كشف راتب أو شهادة راتب من الرابط الرسمي. لا ترفع أي مستند إضافي غير المطلوب.`;
   }
 
   if (status === "needs_identity" || status === "identity_requested") {
-    return `المطلوب حاليًا صورة الهوية الأمامية والخلفية من رابط الهوية الرسمي. لا ترفع أوراق إضافية غير المطلوبة على حالة الملف.`;
+    return `المطلوب حاليًا صورة الهوية الأمامية والخلفية من رابط الهوية الرسمي. لا ترفع أي مستند إضافي غير المطلوب.`;
   }
 
-  return `الأوراق المحتملة أثناء الدراسة هي الهوية، بيانات الكفيل، وكشف راتب أو شهادة راتب إذا طلبتها حالة الملف. حاليًا لا تجهز أو ترفع أي ورقة إضافية إلا لما يظهر الطلب رسميًا على ملفك.`;
+  return `حاليًا ما في أوراق إضافية مطلوبة منك. إذا احتاج طلبك مستندًا محددًا، رح توصلك رسالة باسمه وطريقة رفعه.`;
+}
+
+function selfEmployedReply(app: ApplicationRecord | null) {
+  const status = app?.status || "";
+
+  if (!app) {
+    return `وصلتني إنك صاحب محل وعندك سجل تجاري.
+
+قدّم الطلب ببيانات عملك الفعلية، ولا ترفع كشف راتب غير متوفر. إذا احتاج الطلب إثبات عمل محدد، رح توصلك رسالة واضحة بالمستند المطلوب.`;
+  }
+
+  if (status === "needs_salary_slip") {
+    return `وصلتني إنك صاحب محل وعندك سجل تجاري.
+
+لا ترفع كشف راتب غير متوفر أو مستندًا غير صحيح. احتفظ بالسجل التجاري، وإذا احتاج طلبك إثبات عمل بديل رح توصلك تعليمات واضحة.`;
+  }
+
+  return `وصلتني إنك صاحب محل وعندك سجل تجاري.
+
+حاليًا لا ترفع أي مستند إضافي من نفسك. إذا احتاج طلبك إثبات عمل، رح توصلك رسالة واضحة بالمستند المطلوب.`;
 }
 
 function afterApprovalRequirementsReply(app: ApplicationRecord) {
@@ -2397,19 +2363,23 @@ function afterApprovalRequirementsReply(app: ApplicationRecord) {
 
 function reviewAndProcedureReply(app: ApplicationRecord) {
   const status = app.status || "";
+  const action = currentCustomerActionLine(app);
 
   if (status === "preliminary_qualified" || status === "customer_confirmed_continue") {
-    return `بعد فتح الملف ورفع الوصل، يدخل الطلب للدراسة النهائية. المراجعة عادةً من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت لا تُحسب. إذا احتاج الملف كفيلًا أو كشف راتب أو هوية، يظهر لك المطلوب برسالة واضحة.`;
+    return `بعد دفع رسوم فتح الملف ورفع الوصل، ما عليك أي خطوة ثانية إلا إذا وصلك طلب محدد.
+
+مدة المراجعة عادةً من يومين إلى ثلاث أيام عمل، والجمعة والسبت ما بتنحسب.
+${action}`;
   }
 
-  return `مراجعة الطلب عادةً من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت لا تُحسب. الخطوة التالية تتحدد من حالة الملف، ولا ترفع أي مستند إلا إذا ظهر لك طلب رسمي به.`;
+  return `مدة المراجعة عادةً من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+
+${action}`;
 }
 
 function directRequirementQuestionReply(app: ApplicationRecord, customerText: string) {
   const name = firstTwoNames(app.full_name);
   const status = app.status || "";
-  const salary = getSalaryNumber(app.salary);
-  const postPaymentRequirementsApply = canShowPostPaymentRequirements(app);
 
   if (isAfterApprovalRequirementQuestionText(customerText)) {
     return afterApprovalRequirementsReply(app);
@@ -2428,12 +2398,12 @@ function directRequirementQuestionReply(app: ApplicationRecord, customerText: st
   }
 
   if (isGuarantorQuestionText(customerText)) {
-    const guarantorRequired = status === "needs_guarantor" || postPaymentRequirementsApply;
+    const guarantorRequired = status === "needs_guarantor";
 
     if (guarantorRequired) {
-      return `نعم ${name}، حسب متطلبات دراسة طلبك مطلوب كفيل.
+      return `نعم ${name}، المطلوب حاليًا تعبئة بيانات الكفيل من الرابط الرسمي المرسل لك.
 
-هذه خطوة لاستكمال الدراسة فقط، وما بتعني رفض الطلب. رابط الكفيل المرسل سابقًا ما زال صالح، وما رح أكرر الرابط إلا إذا طلبته.`;
+هذه الخطوة لا تعني رفض الطلب.`;
     }
 
     return `${name}، حسب حالة طلبك الظاهرة حاليًا ما في طلب كفيل مسجل كخطوة مطلوبة.
@@ -2442,12 +2412,12 @@ function directRequirementQuestionReply(app: ApplicationRecord, customerText: st
   }
 
   if (isSalaryRequirementQuestionText(customerText)) {
-    const salarySlipRequired = status === "needs_salary_slip" || (postPaymentRequirementsApply && salary !== null && salary < 350);
+    const salarySlipRequired = status === "needs_salary_slip";
 
     if (salarySlipRequired) {
-      return `نعم ${name}، حسب بيانات طلبك مطلوب كشف راتب رسمي حديث أو شهادة راتب لاستكمال الدراسة.
+      return `نعم ${name}، المطلوب حاليًا رفع كشف راتب أو شهادة راتب من الرابط الرسمي المرسل لك.
 
-هذا إجراء لاستكمال الملف، وما بعني رفض الطلب.`;
+هذه الخطوة لا تعني رفض الطلب.`;
     }
 
     return `${name}، حسب حالة طلبك الظاهرة حاليًا ما في كشف راتب مسجل كخطوة مطلوبة.
@@ -2492,6 +2462,22 @@ function callRequestReply(from: string, app?: ApplicationRecord | null) {
 ${requestLine}`;
 }
 
+function keepRequestReply(app: ApplicationRecord | null) {
+  if (!app) {
+    return `تمام، ما رح يتم إلغاء أي طلب من خلال رسالتك.
+
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أتأكد لك من حالته.`;
+  }
+
+  if (app.status === "cancelled" || app.status === "customer_declined_continue") {
+    return `طلبك ظاهر حاليًا كطلب ملغي. إذا كان قصدك التراجع عن الإلغاء، ابعث رقم التتبع واكتب: أريد إعادة متابعة الطلب.`;
+  }
+
+  return `تمام، طلبك مستمر وما تم إلغاؤه.
+
+حالته الحالية: ${statusHumanLabel(app.status || "")}.`;
+}
+
 function paymentAmountReply(app: ApplicationRecord | null, customerText: string) {
   const t = normalizeArabicText(customerText);
 
@@ -2513,6 +2499,27 @@ function paymentAmountReply(app: ApplicationRecord | null, customerText: string)
 function conciseOrderStatusReply(app: ApplicationRecord) {
   const status = app.status || "";
   const tracking = app.tracking_id || app.id;
+
+  if (status === "preliminary_qualified") {
+    return `طلبك مؤهل مبدئيًا. إذا بدك تكمل، اكتب: أود الاستمرار.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (
+    status === "customer_confirmed_continue" ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(app.payment_status || "")
+  ) {
+    return `تم تأكيد رغبتك بالاستمرار. المطلوب حاليًا دفع رسوم فتح الملف بقيمة ${FILE_OPENING_FEE_JOD} دنانير ورفع الوصل من الرابط المرسل لك.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (app.payment_status === "customer_claimed_paid") {
+    return `وصل الدفع واصل وبانتظار التأكيد. لا تعيد الدفع مرة ثانية.
+
+رقم الطلب: ${tracking}`;
+  }
 
   if (status === "needs_guarantor") {
     return `طلبك حاليًا بحاجة استكمال بيانات الكفيل حتى تكمل الدراسة.
@@ -2568,9 +2575,9 @@ function conciseOrderStatusReply(app: ApplicationRecord) {
 }
 
 function contextualApplicationFallback(app: ApplicationRecord) {
-  return `طلبك ظاهر عندي وحالته الحالية: ${statusHumanLabel(app.status || "")}.
+  return `طلبك ظاهر وحالته الحالية: ${statusHumanLabel(app.status || "")}.
 
-رح أجاوب على آخر سؤال كتبته حسب سياق المحادثة وحالة الملف، بدون إعادة تفاصيل قديمة أو طلب إعادة السؤال.`;
+ما في تحديث إضافي ظاهر على الملف حاليًا.`;
 }
 
 type DeviceChangeAnalysis = {
@@ -2583,11 +2590,33 @@ function extractPendingDeviceChangeFromMemory(memory: Awaited<ReturnType<typeof 
   const replies = memory.lastAssistantReplies || [];
 
   for (const reply of replies) {
-    const match = String(reply || "").match(/(?:من\s+[\s\S]+?\s+)?(?:إلى|الى)\s+([\s\S]+?)(?:\s+بدون\s+إلغاء|\s*[،,]?\s*صح[؟?]?|$)/i);
-    if (match?.[1]) return match[1].replace(/\s+/g, " ").trim();
+    const text = String(reply || "");
+    const confirmationMatch = text.match(/(?:من\s+[\s\S]+?\s+)?(?:إلى|الى)\s+([\s\S]+?)(?:\s+بدون\s+إلغاء|\s*[،,]?\s*صح[؟?]?|$)/i);
+    if (confirmationMatch?.[1]) return confirmationMatch[1].replace(/\s+/g, " ").trim();
+
+    const detailsMatch = text.match(/الجهاز الجديد المطلوب:\s*([\s\S]+?)(?:\n|$)/i);
+    if (detailsMatch?.[1]) return detailsMatch[1].replace(/\s+/g, " ").trim();
   }
 
   return "";
+}
+
+function hasPendingDeviceChangeDetailsRequest(memory: Awaited<ReturnType<typeof getConversationMemory>>) {
+  return (memory.lastAssistantReplies || []).some((reply) =>
+    /اكتب السعة واللون|حدد السعة واللون|حدّد السعة واللون|الجهاز الجديد المطلوب/i.test(String(reply || ""))
+  );
+}
+
+function deviceChangeTargetMissingDetails(target: string) {
+  const t = normalizeArabicText(target);
+  const hasCapacity = /(?:64|128|256|512|1024)\s*(?:gb|جيجا|ج ب)?/i.test(t) || hasAny(t, ["1 تيرا", "تيرا"]);
+  const hasColor = hasAny(t, [
+    "اسود", "ابيض", "ازرق", "كحلي", "فضي", "ذهبي", "برتقالي", "اخضر", "وردي", "بنفسجي", "رمادي",
+    "black", "white", "blue", "silver", "gold", "orange", "green", "pink", "purple", "gray", "grey",
+    "deep blue", "cosmic orange",
+  ]);
+
+  return { hasCapacity, hasColor };
 }
 
 function fallbackDeviceChangeTarget(text: string, currentDevice: string | null | undefined) {
@@ -2692,10 +2721,14 @@ ${input.memory.conversationContext || "لا يوجد"}`,
   }
 
   const fallbackTarget = fallbackDeviceChangeTarget(input.text, input.currentDevice);
+  const combinedTarget = pendingFromMemory && fallbackTarget && fallbackTarget !== pendingFromMemory
+    ? `${pendingFromMemory} - ${fallbackTarget}`
+    : fallbackTarget || pendingFromMemory;
+
   return {
-    requestedDevice: fallbackTarget || pendingFromMemory || null,
+    requestedDevice: combinedTarget || null,
     confirmed: input.confirmationFromContext,
-    needsDetails: !fallbackTarget && !pendingFromMemory,
+    needsDetails: !combinedTarget,
   };
 }
 
@@ -2748,14 +2781,31 @@ async function handleDeviceChange(input: {
 اكتب الجهاز الجديد مع السعة واللون المطلوبين، وبأكدهم معك قبل تسجيل التغيير.`;
   }
 
-  if (!analysis.confirmed) {
-    return `للتأكيد فقط: بدك تغيّر الجهاز من ${currentDevice} إلى ${analysis.requestedDevice} بدون إلغاء الطلب، صح؟`;
+  const requestedDevice = analysis.requestedDevice
+    .replace(/^(?:إلى|الى|لـ)\s*/i, "")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const missingDetails = deviceChangeTargetMissingDetails(requestedDevice);
+  if (!missingDetails.hasCapacity || !missingDetails.hasColor) {
+    const missing = [
+      !missingDetails.hasCapacity ? "السعة" : "",
+      !missingDetails.hasColor ? "اللون" : "",
+    ].filter(Boolean).join(" و");
+
+    return `الجهاز الجديد المطلوب: ${requestedDevice}
+
+اكتب ${missing} المطلوبين حتى أثبت التفاصيل معك قبل تسجيل التغيير.`;
   }
 
-  const updatedApp = await updateApplicationDevice(input.app, analysis.requestedDevice);
+  if (!analysis.confirmed) {
+    return `للتأكيد فقط: تغيير الجهاز من ${currentDevice} إلى ${requestedDevice} بدون إلغاء الطلب، صح؟`;
+  }
+
+  const updatedApp = await updateApplicationDevice(input.app, requestedDevice);
 
   if (!updatedApp) {
-    return `وصلني تأكيد تغيير الجهاز إلى ${analysis.requestedDevice}، لكن ما قدرت أحفظ التعديل على الملف الآن.
+    return `وصلني تأكيد تغيير الجهاز إلى ${requestedDevice}، لكن ما قدرت أحفظ التعديل على الملف الآن.
 
 ابعث رقم الطلب مرة ثانية حتى أراجع الربط مباشرة.`;
   }
@@ -2767,13 +2817,13 @@ async function handleDeviceChange(input: {
     app: updatedApp,
     customerPhone: input.from,
     customerMessage: input.text,
-    systemReply: `تم تغيير الجهاز من ${currentDevice} إلى ${analysis.requestedDevice}`,
+    systemReply: `تم تغيير الجهاز من ${currentDevice} إلى ${requestedDevice}`,
     baseUrl: input.baseUrl,
   });
 
-  return `تم تسجيل تغيير الجهاز من ${currentDevice} إلى ${analysis.requestedDevice} بدون إلغاء الطلب ✅
+  return `تم تحديث الجهاز على طلبك من ${currentDevice} إلى ${requestedDevice} ✅
 
-حالة الملف بقيت كما هي، وتفاصيل التوفر والقسط تتأكد حسب الجهاز الجديد عند استكمال المراجعة.`;
+حالة الطلب بقيت كما هي، وأي تفاصيل لاحقة رح توصلك برسالة واضحة.`;
 }
 
 function repeatedReplyRecoveryReply(intent: CustomerIntent) {
@@ -2784,6 +2834,46 @@ function repeatedReplyRecoveryReply(intent: CustomerIntent) {
   }
 
   return "";
+}
+
+function shouldReturnExactCustomerReply(intent: CustomerIntent) {
+  return [
+    "order_status",
+    "review_time",
+    "requirements",
+    "self_employed",
+    "payment",
+    "payment_amount",
+    "alternative_payment_source",
+    "receipt_upload_needed",
+    "receipt_upload_confirmation",
+    "continue_decision",
+    "keep_request",
+    "decline_decision",
+    "cancel_request",
+    "cancel_confirmed",
+    "cancel_refund_request",
+    "refund",
+    "supplier_delay_question",
+    "office_pickup_policy",
+    "delivery",
+    "tracking_link_request",
+    "contact_info",
+    "website",
+    "location",
+    "installment_info",
+    "products",
+    "apply",
+    "loan",
+    "staff_identity",
+    "human_agent",
+    "call_request",
+    "trust_verification",
+    "site_issue",
+    "media_upload",
+    "document_upload",
+    "document_followup",
+  ].includes(String(intent));
 }
 
 function isNearDuplicateAssistantReply(
@@ -3645,7 +3735,7 @@ function guarantorSubmittedAutoReply(app: ApplicationRecord) {
 
 تم استلام معلومات الكفيل وربطها بطلبك.
 
-الملف الآن قيد المتابعة، وإذا احتاج قسم الدراسة أي خطوة إضافية بنحكيلك مباشرة.
+الملف الآن قيد المتابعة، وإذا احتاج طلبك أي خطوة إضافية بنحكيلك مباشرة.
 
 رقم التتبع:
 ${tracking}`;
@@ -3659,7 +3749,7 @@ function salarySlipUploadedAutoReply(app: ApplicationRecord) {
 
 تم استلام كشف الراتب / شهادة الراتب وربطه بطلبك.
 
-الملف الآن قيد المتابعة، وإذا احتاج قسم الدراسة أي خطوة إضافية بنحكيلك مباشرة.
+الملف الآن قيد المتابعة، وإذا احتاج طلبك أي خطوة إضافية بنحكيلك مباشرة.
 
 رقم التتبع:
 ${tracking}`;
@@ -3671,7 +3761,7 @@ function guarantorLinkFirstReply(app: ApplicationRecord, baseUrl: string) {
 
   return `أهلًا ${name} 🌿
 
-لاستكمال إجراءات الملف حسب متطلبات الدراسة، عبّي بيانات الكفيل من الرابط:
+لاستكمال طلبك، عبّي بيانات الكفيل من الرابط:
 ${guarantorUrl(baseUrl, app)}
 
 بعد ما تخلص، ابعثلي: تم تعبئة بيانات الكفيل
@@ -3697,7 +3787,7 @@ function salarySlipLinkFirstReply(app: ApplicationRecord, baseUrl: string) {
 
   return `أهلًا ${name} 🌿
 
-لاستكمال إجراءات الملف حسب متطلبات الدراسة، ارفع كشف راتب رسمي حديث أو شهادة راتب من الرابط:
+لاستكمال طلبك، ارفع كشف راتب أو شهادة راتب من الرابط:
 ${salarySlipUrl(baseUrl, app)}
 
 بعد ما تخلص، ابعثلي: تم رفع كشف الراتب
@@ -4008,7 +4098,7 @@ function studyCaseOpening(seed: string) {
   const agents = ["عبدالله", "عبدالرحمن"];
   const digits = digitsOnly(seed);
   const agent = agents[Number(digits.slice(-2) || "0") % agents.length];
-  return `معك ${agent} من قسم الدراسة في ${BUSINESS_NAME}.`;
+  return `معك ${agent} من فريق ${BUSINESS_NAME}.`;
 }
 
 function followupCaseOpening(seed: string) {
@@ -4020,6 +4110,13 @@ function followupCaseOpening(seed: string) {
 
 function cancelRequestReply(app: ApplicationRecord, baseUrl: string, customerText = "") {
   const t = normalizeArabicText(customerText);
+
+  if (extractJordanPhoneFromText(customerText)) {
+    return `تم ربط الرسالة بطلبك.
+
+إذا قرارك نهائي، اكتب:
+أكد إلغاء الطلب`;
+  }
 
   if (isCancelRefundRequestText(t)) {
     return cancelRefundRequestReply(app);
@@ -4164,60 +4261,34 @@ ${tracking}`;
 }
 
 function officePickupPolicyReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
-  const tracking = app?.tracking_id || app?.id || "";
-  const status = app?.status || "";
-  const url = app && baseUrl ? trackUrl(baseUrl, app) : "";
+  const statusLine = app ? `
+حالة طلبك: ${statusHumanLabel(app.status || "")}.` : "";
 
-  return `للتوضيح المهم: ما عندنا أي توصيل نهائيًا، لا عن طريق أرامكس ولا أي شركة شحن ولا مندوب.
-
-الاستلام يكون من المكتب فقط، وبموعد مسبق بعد ما يتم اعتماد الطلب وجدولة الاستلام من الإدارة.
-
-هذا الإجراء لحماية العملاء، لأنه صار في ناس تستغل اسم أرامكس أو التوصيل بطرق احتيالية. إذا وصلك أي رابط شحن أو طلب دفع توصيل باسمنا، لا تتعامل معه وابعثه لنا نتأكد منه.
-
-${app ? `حالة طلبك الحالية:
-${statusHumanLabel(status)}
-
-رقم التتبع:
-${tracking}
-
-${url ? `رابط المتابعة:
-${url}
-
-` : ""}` : `إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبفحصلك الحالة.`}
-${BUSINESS_NAME}`;
+  return `ما عندنا توصيل. الاستلام يكون من المكتب فقط وبموعد مسبق بعد الموافقة النهائية واعتماد الموعد.${statusLine}`;
 }
 
 function supplierDelayReply(app: ApplicationRecord, baseUrl: string) {
   const tracking = app.tracking_id || app.id;
   const status = app.status || "";
   const finalApproved = status === "approved" || status === "customer_accepts_delivery_delay";
-  const approvalLine = finalApproved
-    ? "طلبك حاصل على الموافقة النهائية، والمتبقي توفر الجهاز واعتماد موعد الاستلام من المكتب."
-    : `طلبك لم يصل للموافقة النهائية بعد. حالته الحالية: ${statusHumanLabel(status)}.`;
 
-  return `${approvalLine}
+  if (!finalApproved) {
+    return `طلبك لسا ما وصل للموافقة النهائية. حالته الحالية: ${statusHumanLabel(status)}.
 
-بالنسبة لوصول الأجهزة، ما في موعد توريد مؤكد حاليًا. ممكن يختلف الوقت حسب المورد، لذلك ما بنعطي أسبوع أو تاريخ على التخمين.
+ما بقدر أربط مدة التوريد بموعد الموافقة أو الاستلام قبل صدور القرار النهائي.
+رقم الطلب: ${tracking}`;
+  }
 
-أول ما يصل الجهاز ويتم اعتماد جدول الاستلام من المكتب، يصلك تحديث رسمي.
+  return `طلبك عليه موافقة نهائية، لكن ما في موعد توريد أو استلام مؤكد حاليًا.
 
-رقم التتبع:
-${tracking}
-
-رابط المتابعة:
-${trackUrl(baseUrl, app)}`;
+أول ما يتم اعتماد موعد الاستلام من المكتب رح يصلك تحديث.
+رقم الطلب: ${tracking}`;
 }
 
 function supplierDelayWithoutAppReply(from: string) {
-  return `${followupCaseOpening(`${from}:supplier_delay`)}
+  return `ما بقدر أحدد مدة التوريد أو الاستلام بدون ربط الرسالة بطلبك.
 
-للتوضيح، لغاية الآن الأجهزة ما وصلتنا من المورد/الوكلاء المعتمدين، وصبر العملاء مقدّر جدًا.
-
-ما بنعطي موعد استلام غير مؤكد. أول ما توصل الأجهزة ويتم اعتماد جدول الاستلام من المكتب، بنتواصل مع أصحاب الطلبات المؤكدة.
-
-إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبفحصلك الحالة.
-
-${BUSINESS_NAME}`;
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبعطيك الحالة المؤكدة بدون تخمين.`;
 }
 
 async function logMessage(input: {
@@ -4700,6 +4771,55 @@ function replaceUnfoundedEmotionalPressure(reply: string, input: AiReplyInput) {
   return clean;
 }
 
+function enforceApplicationTruth(reply: string, input: AiReplyInput) {
+  let clean = String(reply || "").trim();
+  if (!clean) return input.deterministicReply;
+
+  const status = String(input.status || "");
+  const paymentStatus = String(input.paymentStatus || "");
+  const isApproved = status === "approved" || status === "customer_accepts_delivery_delay";
+  const paymentIsActionable =
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus);
+
+  const internalNarration = [
+    "رح أجاوب على آخر سؤال",
+    "حسب سياق المحادثة",
+    "بدون إعادة تفاصيل قديمة",
+    "من ناحية المتابعة الداخلية",
+    "خلينا نأهل الطلب",
+    "ندخل الملف للدراسة",
+    "يتم تدقيقه يدويًا",
+    "الطلبات غير الجادة",
+    "صفحة الإدارة",
+  ];
+
+  if (internalNarration.some((phrase) => clean.includes(phrase))) {
+    return input.deterministicReply;
+  }
+
+  if (!isApproved && /(الموافقات شبه جاهزه|الموافقات شبه جاهزة|ملفك مكتمل|ما فيه اي اشكال|ما فيه أي إشكال|طلبك مقبول وماشي|طلبك مقبول)/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
+  if (!isApproved && /(بانتظار وصول الاجهزه|بانتظار وصول الأجهزة|الجهاز لسا ما توفر|الجهاز غير متوفر عند المورد)/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
+  if (!paymentIsActionable && /(المطلوب.*دفع رسوم فتح الملف|ارسل لك تعليمات الدفع|أرسل لك تعليمات الدفع|ادفع رسوم فتح الملف)/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
+  // الردود التي تنفذ تغييرًا أو إلغاءً ترجع مباشرة من الكود بعد نجاح قاعدة البيانات،
+  // لذلك لا نسمح للنموذج بادعاء تنفيذها.
+  if (/(تم تسجيل تغيير الجهاز|طلب التغيير مسجل|تم الغاء الطلب|تم إلغاء الطلب)/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
+  return clean;
+}
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
@@ -4710,6 +4830,12 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
   clean = replaceColdClarificationForEmotionalPressure(clean, input);
   clean = trimOverFormalEmotionalReply(clean, input);
   clean = replaceUnfoundedEmotionalPressure(clean, input);
+
+  if (/(?:ع|على|من|الى|إلى|خلينا ن|بدي ا|بدي أ|حتى ن)\s*$/i.test(clean)) {
+    clean = input.deterministicReply;
+  }
+
+  clean = enforceApplicationTruth(clean, input);
 
   if (!clean) return input.deterministicReply;
   return clean;
@@ -4829,6 +4955,15 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "restricted",
     "exceed_storage_size_quota",
     "exceed_cached_egress_quota",
+    "رح أجاوب على آخر سؤال",
+    "حسب سياق المحادثة",
+    "بدون إعادة تفاصيل قديمة",
+    "الموافقات شبه جاهزة",
+    "من ناحية المتابعة الداخلية",
+    "ملفك مكتمل وما فيه أي إشكال",
+    "طلبك مقبول وماشي",
+    "خلينا نأهل الطلب",
+    "صفحة الإدارة",
   ];
 
   if (forbidden.some((word) => clean.includes(word))) {
@@ -5034,12 +5169,20 @@ async function generateAiReply(input: AiReplyInput) {
 - ممنوع إعطاء تاريخ استلام أو وعد قطعي.
 - إذا كان هناك مستند ناقص مثل كفيل أو كشف راتب: اطلبه بوضوح، ولا توحي بأن الموافقة تمت.
 
+قاعدة عدم شرح الإجراء الداخلي للعميل:
+- العميل يسمع فقط حالته الحالية، وما المطلوب منه الآن، ومتى يصله تحديث.
+- ممنوع شرح طريقة التصنيف، ذاكرة المحادثة، منطق النظام، صفحة الإدارة، التدقيق الداخلي، أو كيف يتم اختيار المستندات.
+- ممنوع كتابة عبارات مثل: "رح أجاوب حسب سياق المحادثة"، "بدون إعادة تفاصيل قديمة"، "الموافقات شبه جاهزة"، "من ناحية المتابعة الداخلية"، أو "ملفك مكتمل وما فيه أي إشكال".
+- لا تسرد كل المستندات المحتملة. اذكر فقط المستند المطلوب فعليًا حسب حالة الطلب.
+- إذا قال العميل إنه صاحب محل أو عمل حر ومعه سجل تجاري، قل إن المعلومة وصلت، ولا تطلب كشف راتب غير متوفر، ولا تدّعي تسجيل ملاحظة في قاعدة البيانات.
+- لا تعرض الدفع أو تسأل إن كان يريد تعليمات الدفع في متابعة عادية. الدفع يُذكر فقط عندما تكون الحالة مؤهلة مبدئيًا أو العميل يسأل عنه.
+
 قاعدة تغيير الجهاز واللون والسعة:
 - طلب تغيير الجهاز أو اللون أو السعة ليس طلب إلغاء.
 - إذا قال العميل "بدي أغير الجهاز" أو "ما بدي هذا الجهاز بدي غيره": اسأله عن الجهاز الجديد مع السعة واللون.
 - بعد أن يحدد البديل، اطلب تأكيدًا واحدًا واضحًا: التغيير من الجهاز الحالي إلى الجهاز الجديد بدون إلغاء الطلب.
 - لا تستخدم عبارات "هل تفكر بالإلغاء" أو "بدك تلغي" عند طلب التغيير.
-- إذا تم تأكيد التغيير، اذكر أن التغيير سُجل وأن حالة الملف بقيت كما هي، وأن التوفر والقسط يتأكدان حسب الجهاز الجديد.
+- لا تدّعي أن تغيير الجهاز سُجل أو تم تحديثه؛ تنفيذ التغيير وتأكيد نجاحه مسؤولية الكود فقط.
 
 قاعدة الإلغاء الصارمة:
 - إذا قال العميل "بدي ألغي" أو "بطلت" أو "ما بدي أكمل" فهذا طلب إلغاء مبدئي فقط، وليس تأكيدًا نهائيًا.
@@ -5081,10 +5224,10 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا كتب العميل: موافق، أود الاستمرار، بدي أكمل، أو أي صيغة استمرار، وكان الطلب حالته مؤهل مبدئيًا: سجّل رغبته بالاستمرار ثم أرسل تعليمات الدفع ورابط رفع الوصل تلقائيًا.
 - لا ترسل تعليمات الدفع عند كلمة موافق إلا إذا كان الطلب مرتبطًا وواضحًا وحالته مؤهل مبدئيًا.
 - رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط.
-- لا تُذكر رسوم فتح الملف كطلب دفع إلا إذا كان الطلب مؤهلًا مبدئيًا / عليه موافقة مبدئية من صفحة الإدارة، أو إذا الرد الآمن الأساسي يذكر صراحة أن تعليمات الدفع مطلوبة.
-- لا تطلب رسوم فتح الملف في الأسئلة العامة أو قبل مراجعة الطلب.
-- إذا سألك العميل عن الدفع بشكل عام، وضح أن الرسوم لا تُطلب من البداية، فقط بعد التأهيل المبدئي من صفحة الإدارة.
-- إذا احتجت تشرح سبب رسوم فتح الملف، استخدم صياغة احتضانية: بسبب كثرة الطلبات اليومية يتم تدقيق كل ملف يدويًا، وتوجد طلبات غير مكتملة أو غير جادة تعطل مراجعة ملفات العملاء الجادين، لذلك تساعد الرسوم الرمزية على تخصيص وقت المراجعة للطلبات الجادة.
+- لا تُذكر رسوم فتح الملف كطلب دفع إلا إذا كانت الحالة المسجلة مؤهلة مبدئيًا، أو إذا الرد الآمن الأساسي يذكر صراحة أن تعليمات الدفع مطلوبة.
+- لا تطلب رسوم فتح الملف في الأسئلة العامة أو قبل التأهيل المبدئي.
+- إذا سأل العميل عن الدفع بشكل عام، وضح أن الرسوم لا تُطلب من البداية، بل فقط بعد التأهيل المبدئي.
+- لا تشرح أسبابًا أو إجراءات داخلية وراء الرسوم؛ اذكر قيمتها ووقت طلبها وسياسة الاسترداد فقط.
 - ممنوع قول: لا نملك الطاقة لدراسة كل شيء، أو الطلبات الوهمية كثيرة، أو أن العميل يدفع ثمن غيره. استخدم بدلًا منها: حجم الطلبات كبير، المراجعة يدوية، ونحرص على عدالة دراسة الملفات الجادة.
 - الرسوم مستردة بالكامل في حال عدم الموافقة النهائية.
 - القسط الأول لا يُدفع الآن، بل بعد الاستلام حسب الاتفاق.
@@ -5177,6 +5320,12 @@ ${input.messageType || "text"}
 
 اسم الموظف الرسمي الثابت لهذه المحادثة:
 ${input.assignedAgentName || "غير محدد"}
+
+قاعدة الأسماء:
+- لا تخاطب العميل بأي اسم غير الاسم الموجود في خانة "الاسم" أعلاه.
+- لا تغيّر اسم الموظف الثابت ولا تستخدم اسم موظف آخر.
+- إذا لم يكن الاسم متوفرًا، لا تخترع اسمًا.
+- إذا كان اسم الموظف فدوة أو تالا استخدم صياغة مؤنثة عند الحاجة، وإذا كان عبدالله أو عبدالرحمن استخدم صياغة مذكرة.
 
 هل سبق تعريف العميل باسم الموظف في رد سابق؟
 ${input.hasRecentStaffIntro ? "نعم" : "لا"}
@@ -5422,8 +5571,20 @@ async function buildReply(request: Request, from: string, text: string, messageT
     /للتأكيد فقط: بدك تغيّر الجهاز|لتأكيد تغيير الجهاز/i.test(String(reply || ""))
   );
 
+  const pendingContinueDecision = (conversationMemory.lastAssistantReplies || []).some((reply) =>
+    /أكديلي المتابعة|اكد المتابعة|أكد المتابعة|إذا حاب.*نكمل|اذا حاب.*نكمل|تعليمات فتح الملف|تعليمات الدفع/i.test(String(reply || ""))
+  );
+
+  if (pendingContinueDecision && isShortContinuationText(text)) {
+    intent = "continue_decision";
+  }
+
   if (pendingDeviceConfirmation && isDeviceChangeConfirmationText(text)) {
     intent = "device_change_confirmed";
+  }
+  const pendingDeviceDetails = hasPendingDeviceChangeDetailsRequest(conversationMemory);
+  if (pendingDeviceDetails && !["greeting", "thanks", "cancel_request", "cancel_confirmed"].includes(String(intent))) {
+    intent = "device_change";
   }
   const explicitlyNewApplication = isExplicitNewApplicationText(text);
   const memoryTracking = !explicitlyNewApplication
@@ -5487,6 +5648,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "delivery" ||
     String(intent) === "payment" ||
     String(intent) === "requirements" ||
+    String(intent) === "self_employed" ||
     String(intent) === "refund" ||
     String(intent) === "complaint" ||
     String(intent) === "abuse" ||
@@ -5500,6 +5662,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "document_upload" ||
     String(intent) === "document_followup" ||
     String(intent) === "continue_decision" ||
+    String(intent) === "keep_request" ||
     String(intent) === "decline_decision" ||
     String(intent) === "cancel_request" ||
     String(intent) === "cancel_confirmed" ||
@@ -5534,7 +5697,15 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return "";
   }
 
-  if (String(intent) === "staff_identity") {
+  if (String(intent) === "staff_identity" || String(intent) === "human_agent") {
+    if (conversationMemory.hasRecentStaffIntro) {
+      return app
+        ? `أنا معك. طلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.
+
+احكيلي النقطة اللي بدك جوابها.`
+        : `أنا معك. ابعث رقم الطلب أو سؤالك وبراجع لك الموجود.`;
+    }
+
     return employeeIdentityReply(from, app);
   }
 
@@ -5542,8 +5713,16 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return callRequestReply(from, app);
   }
 
+  if (String(intent) === "keep_request") {
+    return keepRequestReply(app);
+  }
+
   if (String(intent) === "payment_amount") {
     return paymentAmountReply(app, text);
+  }
+
+  if (String(intent) === "self_employed") {
+    return selfEmployedReply(app);
   }
 
   if (String(intent) === "trust_verification") {
@@ -5566,37 +5745,12 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (app && isReviewTimeText(text) && isProcedureQuestionText(text)) {
-    const directReply = reviewAndProcedureReply(app);
-    return humanizeReply({
-      customerText: text,
-      deterministicReply: directReply,
-      customerName: firstTwoNames(app.full_name),
-      trackingId: app.tracking_id || app.id,
-      status: app.status || null,
-      paymentStatus: app.payment_status || null,
-      deviceName: app.device_name || null,
-      isSensitive: false,
-      hasApplication: true,
-      intent: "review_time",
-    });
+    return reviewAndProcedureReply(app);
   }
 
   if (app && (String(intent) === "requirements" || isProcedureQuestionText(text))) {
     const directReply = directRequirementQuestionReply(app, text);
-    if (directReply) {
-      return humanizeReply({
-        customerText: text,
-        deterministicReply: directReply,
-        customerName: firstTwoNames(app.full_name),
-        trackingId: app.tracking_id || app.id,
-        status: app.status || null,
-        paymentStatus: app.payment_status || null,
-        deviceName: app.device_name || null,
-        isSensitive: false,
-        hasApplication: true,
-        intent,
-      });
-    }
+    if (directReply) return directReply;
   }
 
   if (String(intent) === "media_upload" || String(intent) === "document_upload") {
@@ -5610,18 +5764,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
       memory: conversationMemory,
     });
 
-    return humanizeReply({
-      customerText: text,
-      deterministicReply: uploadReply,
-      customerName: app ? firstTwoNames(app.full_name) : undefined,
-      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
-      status: app?.status || null,
-      paymentStatus: app?.payment_status || null,
-      deviceName: app?.device_name || null,
-      isSensitive: false,
-      hasApplication: Boolean(app),
-      intent,
-    });
+    return uploadReply;
   }
 
   if (app && String(intent) === "continue_decision") {
@@ -5633,35 +5776,14 @@ async function buildReply(request: Request, from: string, text: string, messageT
       deterministicReply = alreadySentReceipt
         ? `تم تسجيل رغبتك بالاستمرار سابقًا، وتعليمات فتح الملف ورابط رفع الوصل موجودة فوق في نفس المحادثة. ما في حاجة نكرر الرابط.`
         : paymentMessage(app, baseUrl);
-
-      return humanizeReply({
-        customerText: text,
-        deterministicReply,
-        customerName: firstTwoNames(app.full_name),
-        trackingId: app.tracking_id || app.id,
-        status: app.status || null,
-        paymentStatus: app.payment_status || null,
-        deviceName: app.device_name || null,
-        isSensitive: sensitive,
-        hasApplication: true,
-        intent,
-      });
+      return deterministicReply;
     }
 
     if (app.status !== "preliminary_qualified") {
-      deterministicReply = `${humanOpening(`${from}:continue_guard`)}
+      deterministicReply = `تمام، طلبك مستمر وحالته الحالية: ${statusHumanLabel(app.status || "")}.
 
-وصلني ردك بخصوص الاستمرار، لكن هذا الخيار مرتبط فقط بطلب تم تأهيله مبدئيًا.
-
-حالة طلبك الحالية:
-${statusHumanLabel(app.status || "")}
-
-لا يوجد أي دفع مطلوب الآن من خلال هذه الرسالة.
-
-رقم التتبع:
-${app.tracking_id || app.id}
-
-${BUSINESS_NAME}`;
+حاليًا ما في خطوة جديدة مطلوبة منك.
+رقم الطلب: ${app.tracking_id || app.id}`;
 
       await sendDiscordNotification({
         title: "⚠️ رد استمرار خارج حالة التأهيل المبدئي",
@@ -5673,19 +5795,7 @@ ${BUSINESS_NAME}`;
         systemReply: deterministicReply,
         baseUrl,
       });
-
-      return humanizeReply({
-        customerText: text,
-        deterministicReply,
-        customerName: firstTwoNames(app.full_name),
-        trackingId: app.tracking_id || app.id,
-        status: app.status || null,
-        paymentStatus: app.payment_status || null,
-        deviceName: app.device_name || null,
-        isSensitive: sensitive,
-        hasApplication: true,
-        intent,
-      });
+      return deterministicReply;
     }
 
     const updatedApp = await updateCustomerDecision({ app, decision: "continue" });
@@ -5701,19 +5811,7 @@ ${BUSINESS_NAME}`;
       systemReply: deterministicReply,
       baseUrl,
     });
-
-    return humanizeReply({
-      customerText: text,
-      deterministicReply,
-      customerName: firstTwoNames(updatedApp.full_name),
-      trackingId: updatedApp.tracking_id || updatedApp.id,
-      status: updatedApp.status || null,
-      paymentStatus: updatedApp.payment_status || null,
-      deviceName: updatedApp.device_name || null,
-      isSensitive: sensitive,
-      hasApplication: true,
-      intent,
-    });
+      return deterministicReply;
   }
 
   if (app && String(intent) === "tracking_link_request") {
@@ -5829,18 +5927,7 @@ ${BUSINESS_NAME}`;
     });
 
     if (documentAutomationReply) {
-      return humanizeReply({
-        customerText: text,
-        deterministicReply: documentAutomationReply,
-        customerName: firstTwoNames(app.full_name),
-        trackingId: app.tracking_id || app.id,
-        status: app.status || null,
-        paymentStatus: app.payment_status || null,
-        deviceName: app.device_name || null,
-        isSensitive: false,
-        hasApplication: true,
-        intent,
-      });
+      return documentAutomationReply;
     }
   }
 
@@ -5878,6 +5965,10 @@ ${BUSINESS_NAME}`;
     });
   }
 
+  if (!app && String(intent) === "keep_request") {
+    return keepRequestReply(null);
+  }
+
   if (!app && (String(intent) === "continue_decision" || String(intent) === "decline_decision" || String(intent) === "cancel_refund_request" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed")) {
     if (String(intent) === "cancel_refund_request" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
       deterministicReply = cancelRequestWithoutAppReply(from);
@@ -5907,6 +5998,10 @@ ${BUSINESS_NAME}`;
 
   if (app) {
     deterministicReply = safeReply(app, baseUrl, text, intent);
+
+    if (shouldReturnExactCustomerReply(intent)) {
+      return deterministicReply;
+    }
 
     return humanizeReply({
       customerText: text,
@@ -5968,6 +6063,8 @@ ${BUSINESS_NAME}`;
     deterministicReply = locationReply(from);
   } else if (String(intent) === "installment_info") {
     deterministicReply = installmentInfoReply(baseUrl, from);
+  } else if (String(intent) === "self_employed") {
+    deterministicReply = selfEmployedReply(null);
   } else if (String(intent) === "requirements") {
     deterministicReply = requirementsReply(baseUrl, from);
   } else if (String(intent) === "apply") {
@@ -6002,6 +6099,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     "contact_info",
     "website",
     "location",
+    "self_employed",
     "office_pickup_policy",
     "loan",
     "greeting",
@@ -6239,8 +6337,8 @@ async function collectIncomingMessageBurst(input: {
   waitMs?: number;
   windowSeconds?: number;
 }): Promise<IncomingBurstResult> {
-  const waitMs = input.waitMs ?? 3200;
-  const windowSeconds = input.windowSeconds ?? 12;
+  const waitMs = input.waitMs ?? 3800;
+  const windowSeconds = input.windowSeconds ?? 8;
 
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 
