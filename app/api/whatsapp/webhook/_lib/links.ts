@@ -40,3 +40,9 @@ export function identityUrl(baseUrl: string, app: ApplicationRecord) {
   const phone = app.phone || "";
   return `${baseUrl}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
+
+export function changeDeviceUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/change-device?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+}

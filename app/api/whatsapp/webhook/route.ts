@@ -37,6 +37,7 @@ import {
 import {
   delayUrl,
   refundUrl,
+  changeDeviceUrl,
   guarantorUrl,
   identityUrl,
   receiptUrl,
@@ -211,31 +212,28 @@ function isDeviceChangeText(text: string) {
   return changeContext && deviceContext;
 }
 
-function isDeviceChangeConfirmationText(text: string) {
+function isCancelDeviceChangeText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  return [
-    "نعم",
-    "اه",
-    "اها",
-    "ايوه",
-    "ايوا",
-    "صح",
-    "موافق",
-    "اكد",
-    "أكد",
-    "تمام غيره",
-    "تمام غيرو",
-    "غيره",
-    "غيّره",
-    "بلش",
-    "ابدأ",
-    "ابدا",
-    "سجل",
-    "سجله",
-    "اعتمد",
-  ].includes(t) || hasAny(t, ["اكد تغيير الجهاز", "أكد تغيير الجهاز", "موافق على التغيير"]);
+  return hasAny(t, [
+    "ما بدي اغير جهاز",
+    "ما بدي أغير جهاز",
+    "مش بدي اغير جهاز",
+    "مش بدي أغير جهاز",
+    "لا اريد تغيير الجهاز",
+    "لا أريد تغيير الجهاز",
+    "الغاء تغيير الجهاز",
+    "إلغاء تغيير الجهاز",
+    "الغي طلب تغيير الجهاز",
+    "ألغي طلب تغيير الجهاز",
+    "خلي الجهاز مثل ما هو",
+    "خلي الجهاز زي ما هو",
+    "ثبت الجهاز الحالي",
+    "ما تغيروا الجهاز",
+    "ما تغيّروا الجهاز",
+    "cancel device change",
+  ]);
 }
 
 function isOfficeLocationText(text: string) {
@@ -1386,6 +1384,9 @@ function classifyIntent(text: string): CustomerIntent {
   // رسائل المتابعة الرسمية من صفحة التتبع ليست ضغطًا عاطفيًا حتى لو احتوت كلمة "الأمين".
   if (isStandardApplicationFollowupText(t)) return "order_status";
 
+  // إلغاء طلب تغيير الجهاز لا يعني إلغاء طلب التقسيط نفسه.
+  if (isCancelDeviceChangeText(t)) return "device_change_cancelled";
+
   // تغيير الجهاز ليس إلغاءً. يجب حسمه قبل أي منطق إلغاء.
   if (isDeviceChangeText(t)) return "device_change";
 
@@ -1766,6 +1767,10 @@ function legalThreatReply(baseUrl: string, from: string, app?: ApplicationRecord
   const status = app?.status || "";
 
   if (app) {
+    if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
+      return refundDeescalationReply(app, customerText);
+    }
+
     return `حقك تطلب توضيح واضح، وبنعتذر إذا حسّيت إن المتابعة ما كانت كافية.
 
 حسب البيانات الظاهرة عندي، حالة طلبك الحالية:
@@ -1792,6 +1797,10 @@ ${BUSINESS_NAME}`;
 
 function socialMediaThreatReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
   if (app) {
+    if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
+      return refundDeescalationReply(app, customerText);
+    }
+
     return `فاهمين إنك منزعج، وحقك يكون عندك تحديث واضح قبل ما تضطر تصعّد الموضوع بأي مكان.
 
 حالة طلبك الحالية:
@@ -2005,6 +2014,10 @@ function complaintReply(baseUrl: string, from: string, app?: ApplicationRecord |
   const reason = complaintReasonLabel(customerText);
 
   if (app) {
+    if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
+      return refundDeescalationReply(app, customerText);
+    }
+
     return `${opening}
 
 ${apology}
@@ -2044,6 +2057,28 @@ ${reason}
 
 ${BUSINESS_NAME}`;
 }
+function refundDeescalationReply(app: ApplicationRecord, customerText = "") {
+  const name = firstTwoNames(app.full_name);
+  const tracking = app.tracking_id || app.id;
+  const urgent = isLongDelayComplaintText(customerText) || isAngryCustomerText(customerText) || isLegalThreatText(customerText);
+
+  if (app.status === "refund_completed") {
+    return refundCompletedReply(app);
+  }
+
+  const opening = urgent
+    ? `${name}، معك حق تكون منزعج، وبنعتذر منك بصدق لأن مدة الانتظار سببت لك ضغطًا وعدم ثقة.`
+    : `${name}، فاهمين قلقك وحقك تعرف وين وصل طلب الاسترداد.`;
+
+  return `${opening}
+
+طلب الاسترداد مسجل ومحفوظ على رقم طلبك، وما تم إلغاؤه أو تجاهله، ولا تحتاج تعيد تقديمه أو ترسل بياناتك مرة ثانية.
+
+نمر حاليًا بظروف تشغيلية استثنائية وضغط خارج عن المعتاد، وسيتم التعامل مع طلبك بأقرب وقت ممكن حسب ترتيب الطلبات. ما رح نعطيك موعدًا غير مؤكد، وأول ما يتم تنفيذ الحوالة أو يظهر تحديث فعلي رح توصلك رسالة مباشرة.
+
+رقم الطلب: ${tracking}`;
+}
+
 function refundFirstRequestReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
@@ -2061,17 +2096,8 @@ ${url}
 رقم التتبع: ${tracking}`;
 }
 
-function refundAlreadyRequestedReply(app: ApplicationRecord) {
-  const name = firstTwoNames(app.full_name);
-  const tracking = app.tracking_id || app.id;
-
-  return `تمام ${name}، طلب الاسترداد مسجل عندنا مسبقًا وحالة الملف قيد الاسترداد.
-
-ما رح أكرر رابط الاسترداد حتى ما يصير أكثر من طلب على نفس الملف.
-
-إذا عبّيت البيانات، فهي تحت المراجعة حسب ترتيب الطلبات.
-
-رقم التتبع: ${tracking}`;
+function refundAlreadyRequestedReply(app: ApplicationRecord, customerText = "") {
+  return refundDeescalationReply(app, customerText);
 }
 
 function refundCompletedReply(app: ApplicationRecord) {
@@ -2087,7 +2113,7 @@ function refundCompletedReply(app: ApplicationRecord) {
 رقم التتبع: ${tracking}`;
 }
 
-function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | null) {
+function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
   const opening = humanOpening(`${from}:refund`);
 
   if (app) {
@@ -2096,7 +2122,7 @@ function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | nu
     }
 
     if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
-      return refundAlreadyRequestedReply(app);
+      return refundAlreadyRequestedReply(app, customerText);
     }
 
     return refundFirstRequestReply(app, baseUrl);
@@ -2688,175 +2714,6 @@ function contextualApplicationFallback(app: ApplicationRecord) {
 ما في تحديث إضافي ظاهر على الملف حاليًا.`;
 }
 
-type DeviceChangeAnalysis = {
-  requestedDevice: string | null;
-  confirmed: boolean;
-  needsDetails: boolean;
-};
-
-function extractPendingDeviceChangeFromMemory(memory: Awaited<ReturnType<typeof getConversationMemory>>) {
-  const replies = memory.lastAssistantReplies || [];
-
-  for (const reply of replies) {
-    const text = String(reply || "");
-    const confirmationMatch = text.match(/(?:من\s+[\s\S]+?\s+)?(?:إلى|الى)\s+([\s\S]+?)(?:\s+بدون\s+إلغاء|\s*[،,]?\s*صح[؟?]?|$)/i);
-    if (confirmationMatch?.[1]) return confirmationMatch[1].replace(/\s+/g, " ").trim();
-
-    const detailsMatch = text.match(/الجهاز الجديد المطلوب:\s*([\s\S]+?)(?:\n|$)/i);
-    if (detailsMatch?.[1]) return detailsMatch[1].replace(/\s+/g, " ").trim();
-  }
-
-  return "";
-}
-
-function hasPendingDeviceChangeDetailsRequest(memory: Awaited<ReturnType<typeof getConversationMemory>>) {
-  return (memory.lastAssistantReplies || []).some((reply) =>
-    /اكتب السعة واللون|حدد السعة واللون|حدّد السعة واللون|الجهاز الجديد المطلوب/i.test(String(reply || ""))
-  );
-}
-
-function deviceChangeTargetMissingDetails(target: string) {
-  const t = normalizeArabicText(target);
-  const hasCapacity = /(?:64|128|256|512|1024)\s*(?:gb|جيجا|ج ب)?/i.test(t) || hasAny(t, ["1 تيرا", "تيرا"]);
-  const hasColor = hasAny(t, [
-    "اسود", "ابيض", "ازرق", "كحلي", "فضي", "ذهبي", "برتقالي", "اخضر", "وردي", "بنفسجي", "رمادي",
-    "black", "white", "blue", "silver", "gold", "orange", "green", "pink", "purple", "gray", "grey",
-    "deep blue", "cosmic orange",
-  ]);
-
-  return { hasCapacity, hasColor };
-}
-
-function fallbackDeviceChangeTarget(text: string, currentDevice: string | null | undefined) {
-  let clean = String(text || "")
-    .replace(/بدي\s+[أا]?غير/gi, "")
-    .replace(/غيرولي|غيرلي|تغيير|تغير|استبدال|بدل/gi, "")
-    .replace(/الجهاز|التلفون|الموبايل|الطلب/gi, "")
-    .replace(/^(?:إلى|الى|لـ)\s*/i, "")
-    .replace(/^ل(?=[A-Za-z\u0600-\u06FF])/, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  if (!clean || clean.length < 3) return "";
-
-  if (/^(اللون|لون)\s+/i.test(clean) && currentDevice) {
-    return `${currentDevice} - ${clean}`;
-  }
-
-  if (/^(السعه|السعة|سعه|سعة|الذاكره|الذاكرة)\s+/i.test(clean) && currentDevice) {
-    return `${currentDevice} - ${clean}`;
-  }
-
-  return clean;
-}
-
-async function analyzeDeviceChange(input: {
-  text: string;
-  currentDevice?: string | null;
-  memory: Awaited<ReturnType<typeof getConversationMemory>>;
-  confirmationFromContext: boolean;
-}): Promise<DeviceChangeAnalysis> {
-  const pendingFromMemory = extractPendingDeviceChangeFromMemory(input.memory);
-
-  if (input.confirmationFromContext && pendingFromMemory) {
-    return {
-      requestedDevice: pendingFromMemory,
-      confirmed: true,
-      needsDetails: false,
-    };
-  }
-
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
-  const model = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
-
-  if (apiKey) {
-    try {
-      const response = await fetch(`${baseUrl}/chat/completions`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          temperature: 0.1,
-          max_tokens: 220,
-          messages: [
-            {
-              role: "system",
-              content: `استخرج طلب تغيير الجهاز من محادثة واتساب. أرجع JSON فقط بهذه المفاتيح:
-requested_device: وصف الجهاز الجديد كاملًا أو null
-confirmed: true فقط إذا العميل أكد التغيير صراحة أو كان يجيب بالموافقة على سؤال تأكيد سابق
-needs_details: true إذا طلب التغيير بدون تحديد الجهاز/اللون/السعة
-
-إذا طلب العميل تغيير اللون أو السعة فقط، حافظ على موديل الجهاز الحالي وادمج التغيير في requested_device.
-لا تخترع موديلًا أو لونًا أو سعة غير مذكورة.`,
-            },
-            {
-              role: "user",
-              content: `الجهاز الحالي: ${input.currentDevice || "غير متوفر"}
-
-رسالة العميل الحالية:
-${input.text}
-
-السياق القريب:
-${input.memory.conversationContext || "لا يوجد"}`,
-            },
-          ],
-        }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        const raw = extractDeepSeekText(data)
-          .replace(/```json/gi, "")
-          .replace(/```/g, "")
-          .trim();
-        const parsed = JSON.parse(raw);
-
-        return {
-          requestedDevice: typeof parsed?.requested_device === "string" && parsed.requested_device.trim()
-            ? parsed.requested_device.trim()
-            : null,
-          confirmed: Boolean(parsed?.confirmed),
-          needsDetails: Boolean(parsed?.needs_details),
-        };
-      }
-    } catch (error) {
-      console.error("Device change analysis failed:", error);
-    }
-  }
-
-  const fallbackTarget = fallbackDeviceChangeTarget(input.text, input.currentDevice);
-  const combinedTarget = pendingFromMemory && fallbackTarget && fallbackTarget !== pendingFromMemory
-    ? `${pendingFromMemory} - ${fallbackTarget}`
-    : fallbackTarget || pendingFromMemory;
-
-  return {
-    requestedDevice: combinedTarget || null,
-    confirmed: input.confirmationFromContext,
-    needsDetails: !combinedTarget,
-  };
-}
-
-async function updateApplicationDevice(app: ApplicationRecord, requestedDevice: string) {
-  const { error } = await supabaseAdmin
-    .from("applications")
-    .update({ device_name: requestedDevice })
-    .eq("id", app.id);
-
-  if (error) {
-    console.error("updateApplicationDevice error:", error.message);
-    return null;
-  }
-
-  return {
-    ...app,
-    device_name: requestedDevice,
-  } as ApplicationRecord;
-}
-
 async function handleDeviceChange(input: {
   app: ApplicationRecord | null;
   from: string;
@@ -2865,73 +2722,22 @@ async function handleDeviceChange(input: {
   baseUrl: string;
   confirmedFromContext: boolean;
 }) {
-  const staffName = assignedStaffName(input.from);
-
   if (!input.app) {
-    return `أكيد، تغيير الجهاز ما يعني إلغاء الطلب.
+    return `أكيد، تغيير الجهاز ما بيلغي طلب التقسيط.
 
-ابعث رقم الطلب الذي يبدأ بـ AM- حتى أربط التغيير بالملف الصحيح.`;
+ابعث رقم الطلب الذي يبدأ بـ AM- حتى أعطيك رابط التعديل الرسمي المرتبط بملفك.`;
   }
 
-  const currentDevice = customerFacingDeviceName(input.app.device_name) || "الجهاز المسجل حاليًا";
-  const analysis = await analyzeDeviceChange({
-    text: input.text,
-    currentDevice: input.app.device_name,
-    memory: input.memory,
-    confirmationFromContext: input.confirmedFromContext,
-  });
+  const currentDevice = customerFacingDeviceName(input.app.device_name) || "غير محدد";
+  const url = changeDeviceUrl(input.baseUrl, input.app);
 
-  if (analysis.needsDetails || !analysis.requestedDevice) {
-    return `أكيد، تغيير الجهاز ما يعني إلغاء الطلب.
+  return `أكيد، تغيير الجهاز ما بيلغي طلبك.
 
-طلبك الحالي على: ${currentDevice}
+حتى تسجل الجهاز والسعة واللون بدون لخبطة، استخدم رابط التعديل الرسمي:
+${url}
 
-اكتب الجهاز الجديد مع السعة واللون المطلوبين، وبأكدهم معك قبل تسجيل التغيير.`;
-  }
-
-  const requestedDevice = analysis.requestedDevice
-    .replace(/^(?:إلى|الى|لـ)\s*/i, "")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  const missingDetails = deviceChangeTargetMissingDetails(requestedDevice);
-  if (!missingDetails.hasCapacity || !missingDetails.hasColor) {
-    const missing = [
-      !missingDetails.hasCapacity ? "السعة" : "",
-      !missingDetails.hasColor ? "اللون" : "",
-    ].filter(Boolean).join(" و");
-
-    return `الجهاز الجديد المطلوب: ${requestedDevice}
-
-اكتب ${missing} المطلوبين حتى أثبت التفاصيل معك قبل تسجيل التغيير.`;
-  }
-
-  if (!analysis.confirmed) {
-    return `للتأكيد فقط: تغيير الجهاز من ${currentDevice} إلى ${requestedDevice} بدون إلغاء الطلب، صح؟`;
-  }
-
-  const updatedApp = await updateApplicationDevice(input.app, requestedDevice);
-
-  if (!updatedApp) {
-    return `وصلني تأكيد تغيير الجهاز إلى ${requestedDevice}، لكن ما قدرت أحفظ التعديل على الملف الآن.
-
-ابعث رقم الطلب مرة ثانية حتى أراجع الربط مباشرة.`;
-  }
-
-  await sendDiscordNotification({
-    title: "📱 تم تغيير الجهاز من واتساب",
-    description: `تم تحديث الجهاز بعد تأكيد صريح من العميل. الموظف الثابت للمحادثة: ${staffName}.`,
-    color: 0x57f287,
-    app: updatedApp,
-    customerPhone: input.from,
-    customerMessage: input.text,
-    systemReply: `تم تغيير الجهاز من ${currentDevice} إلى ${requestedDevice}`,
-    baseUrl: input.baseUrl,
-  });
-
-  return `تم تحديث الجهاز على طلبك من ${currentDevice} إلى ${requestedDevice} ✅
-
-حالة الطلب بقيت كما هي، وأي تفاصيل لاحقة رح توصلك برسالة واضحة.`;
+الجهاز الحالي: ${currentDevice}
+بعد إرسال النموذج يبقى الجهاز الحالي كما هو إلى أن تتم مراجعة طلب التعديل واعتماده.`;
 }
 
 function repeatedReplyRecoveryReply(intent: CustomerIntent) {
@@ -3036,7 +2842,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "device_delay_rage") return deviceDelayRageReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "emotional_pressure") return emotionalPressureReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "complaint") return complaintReply(baseUrl, app.phone || tracking, app, customerText);
-  if (String(intent) === "refund") return refundReply(baseUrl, app.phone || tracking, app);
+  if (String(intent) === "refund") return refundReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "cancel_refund_request") return cancelRefundRequestReply(app);
   if (String(intent) === "tracking_link_request") return trackingLinkReply(app, baseUrl);
   if (String(intent) === "cancel_request") return cancelRequestReply(app, baseUrl, customerText);
@@ -3184,16 +2990,7 @@ ${BUSINESS_NAME}`;
   }
 
   if (status === "refund_requested" || paymentStatus === "refund_requested") {
-    return `أهلًا ${name} 🌿
-
-طلب استرداد رسوم فتح الملف مسجل لدينا.
-
-سيتم مراجعة بيانات التحويل وتنفيذ الاسترداد حسب ترتيب الطلبات.
-
-رقم التتبع:
-${tracking}
-
-${BUSINESS_NAME}`;
+    return refundDeescalationReply(app, customerText);
   }
 
   if (status === "refund_completed") {
@@ -5085,6 +4882,11 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "سيتم رفع المحادثة",
     "رفع المحادثة",
     "تم تصعيد",
+    "تم إبلاغ الزملاء",
+    "راح أبلغ زملائي",
+    "سأبلغ الزملاء",
+    "تم إبلاغ الإدارة",
+    "تم رفع طلبك للإدارة",
     "0795733001",
     "خلال هذا الأسبوع",
     "بكرا",
@@ -5738,10 +5540,6 @@ async function buildReply(request: Request, from: string, text: string, messageT
   // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
   const conversationMemory = await getConversationMemory(from, 18);
 
-  const pendingDeviceConfirmation = (conversationMemory.lastAssistantReplies || []).some((reply) =>
-    /للتأكيد فقط: بدك تغيّر الجهاز|لتأكيد تغيير الجهاز/i.test(String(reply || ""))
-  );
-
   const pendingContinueDecision = (conversationMemory.lastAssistantReplies || []).some((reply) =>
     /أكديلي المتابعة|اكد المتابعة|أكد المتابعة|إذا حاب.*نكمل|اذا حاب.*نكمل|تعليمات فتح الملف|تعليمات الدفع/i.test(String(reply || ""))
   );
@@ -5750,13 +5548,6 @@ async function buildReply(request: Request, from: string, text: string, messageT
     intent = "continue_decision";
   }
 
-  if (pendingDeviceConfirmation && isDeviceChangeConfirmationText(text)) {
-    intent = "device_change_confirmed";
-  }
-  const pendingDeviceDetails = hasPendingDeviceChangeDetailsRequest(conversationMemory);
-  if (pendingDeviceDetails && !["greeting", "thanks", "cancel_request", "cancel_confirmed"].includes(String(intent))) {
-    intent = "device_change";
-  }
   const explicitlyNewApplication = isExplicitNewApplicationText(text);
   const memoryTracking = !explicitlyNewApplication
     ? conversationMemory.lastTrackingId || extractTracking(conversationMemory.conversationContext)
@@ -5849,6 +5640,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "call_request" ||
     String(intent) === "payment_amount" ||
     String(intent) === "device_change" ||
+    String(intent) === "device_change_cancelled" ||
     String(intent) === "device_change_confirmed" ||
     String(intent) === "unknown" ||
     String(intent) === "thanks" ||
@@ -5860,6 +5652,18 @@ async function buildReply(request: Request, from: string, text: string, messageT
 
   if (pendingCancellationConfirmation && typedPhone && app && String(intent) === "unknown") {
     intent = "cancel_request";
+  }
+
+  if (
+    app &&
+    (app.status === "refund_requested" || app.payment_status === "refund_requested") &&
+    ["unknown", "payment", "payment_amount", "loan", "order_status", "review_time"].includes(String(intent)) &&
+    hasAny(text, [
+      "استرداد", "استرجاع", "فلوسي", "مصاري", "المبلغ", "الدنانير", "دينار",
+      "حولولي", "رجعولي", "وين الفلوس", "وين المصاري", "وين المبلغ", "بدي حقي",
+    ])
+  ) {
+    intent = "refund";
   }
 
   let deterministicReply: string;
@@ -5907,6 +5711,15 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return receiptUploadConfirmationReply(app);
   }
 
+  if (String(intent) === "device_change_cancelled") {
+    return app
+      ? `تمام، ما رح نغيّر الجهاز المسجل على طلبك. طلب التقسيط نفسه بقي مستمرًا وحالته الحالية: ${statusHumanLabel(app.status || "")}.
+
+الجهاز المسجل: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.
+رقم الطلب: ${app.tracking_id || app.id}`
+      : `تمام، ما رح نعتبر رسالتك طلب تغيير جهاز. إذا عندك طلب قائم وبدك أتأكد من الجهاز المسجل، ابعث رقم التتبع.`;
+  }
+
   if (String(intent) === "device_change" || String(intent) === "device_change_confirmed") {
     return handleDeviceChange({
       app,
@@ -5914,7 +5727,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
       text,
       memory: conversationMemory,
       baseUrl,
-      confirmedFromContext: String(intent) === "device_change_confirmed",
+      confirmedFromContext: false,
     });
   }
 
@@ -6071,7 +5884,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     if (alreadyCompleted) {
       deterministicReply = refundCompletedReply(app);
     } else if (alreadyRequested) {
-      deterministicReply = refundAlreadyRequestedReply(app);
+      deterministicReply = refundAlreadyRequestedReply(app, text);
     } else {
       const updatedApp = await markRefundRequested(app);
       deterministicReply = refundFirstRequestReply(updatedApp, baseUrl);
@@ -6208,7 +6021,7 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "complaint") {
     deterministicReply = complaintReply(baseUrl, from, null, text);
   } else if (String(intent) === "refund") {
-    deterministicReply = refundReply(baseUrl, from, null);
+    deterministicReply = refundReply(baseUrl, from, null, text);
   } else if (String(intent) === "cancel_refund_request" || String(intent) === "cancel_request" || String(intent) === "cancel_confirmed") {
     deterministicReply = cancelRequestWithoutAppReply(from);
   } else if (String(intent) === "alternative_payment_source" || String(intent) === "receipt_upload_needed") {
@@ -6318,23 +6131,24 @@ function isLikelyOtpMessage(text: string) {
   const digits = digitsOnly(raw);
   const hasOtpContext = hasAny(normalized, [
     "otp",
-    "رمز",
     "رمز تحقق",
-    "كود",
     "كود تحقق",
-    "verification",
-    "code",
-    "تحقق",
-    "التحقق",
-    "دخول",
-    "login",
+    "verification code",
+    "رمز الدخول",
+    "كود الدخول",
+    "رمز الامان",
+    "رمز الأمان",
   ]);
 
-  const looksLikeStandaloneCode = /^\d{4,8}$/.test(digits) && raw.replace(/\D/g, "") === digits;
-  const hasCodeWithContext = hasOtpContext && /\d{4,8}/.test(digits);
+  const standaloneCandidate = raw
+    .replace(/[٠-٩]/g, (d) => String("٠١٢٣٤٥٦٧٨٩".indexOf(d)))
+    .replace(/[\s-]/g, "");
+  const looksLikeStandaloneCode = /^\d{4,8}$/.test(standaloneCandidate);
+  const hasCodeWithContext = hasOtpContext && /(?:^|\D)\d{4,8}(?:\D|$)/.test(normalized);
 
   if (digits.startsWith("07") && digits.length === 10) return false;
   if (digits.startsWith("9627") && digits.length === 12) return false;
+  if (hasAny(normalized, ["جيجا", "gb", "تيرا", "دينار", "جهاز", "ايفون", "سامسونج", "موديل", "سعه", "سعة"])) return false;
 
   return looksLikeStandaloneCode || hasCodeWithContext;
 }
@@ -6502,6 +6316,7 @@ export async function GET(request: Request) {
 type IncomingBurstResult = {
   shouldReply: boolean;
   combinedText: string;
+  messageCount: number;
 };
 
 async function collectIncomingMessageBurst(input: {
@@ -6509,15 +6324,19 @@ async function collectIncomingMessageBurst(input: {
   currentMessageId?: string | null;
   currentText: string;
   waitMs?: number;
-  windowSeconds?: number;
+  lookbackSeconds?: number;
+  maxGapMs?: number;
 }): Promise<IncomingBurstResult> {
-  const waitMs = input.waitMs ?? 3800;
-  const windowSeconds = input.windowSeconds ?? 8;
+  // ننتظر 10 ثوانٍ بعد كل رسالة. فقط أحدث رسالة في الدفعة ترد،
+  // وأي رسالة جديدة خلال الانتظار تجعل الاستدعاء الأقدم ينسحب بلا رد.
+  const waitMs = input.waitMs ?? 10000;
+  const lookbackSeconds = input.lookbackSeconds ?? 35;
+  const maxGapMs = input.maxGapMs ?? 12000;
 
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 
   try {
-    const since = new Date(Date.now() - windowSeconds * 1000).toISOString();
+    const since = new Date(Date.now() - lookbackSeconds * 1000).toISOString();
     const { data, error } = await supabaseAdmin
       .from("whatsapp_messages")
       .select("message_id,body,created_at,message_type")
@@ -6525,20 +6344,16 @@ async function collectIncomingMessageBurst(input: {
       .eq("direction", "incoming")
       .gte("created_at", since)
       .order("created_at", { ascending: true })
-      .limit(8);
+      .limit(30);
 
     if (error || !data?.length) {
       if (error) console.error("incoming burst query failed:", error);
-      return { shouldReply: true, combinedText: input.currentText };
+      return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
     }
 
-    const usable = data.filter((row) => {
-      const type = String(row.message_type || "text").toLowerCase();
-      return type === "text" && String(row.body || "").trim();
-    });
-
+    const usable = data.filter((row) => String(row.body || "").trim());
     if (!usable.length) {
-      return { shouldReply: true, combinedText: input.currentText };
+      return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
     }
 
     const latest = usable[usable.length - 1];
@@ -6547,10 +6362,19 @@ async function collectIncomingMessageBurst(input: {
       latest?.message_id &&
       String(latest.message_id) !== String(input.currentMessageId)
     ) {
-      return { shouldReply: false, combinedText: "" };
+      return { shouldReply: false, combinedText: "", messageCount: 0 };
     }
 
-    const combinedText = usable
+    // نأخذ آخر مجموعة متصلة فقط، حتى لا تختلط محادثة سابقة قريبة بالرسالة الحالية.
+    const tail = [latest];
+    for (let index = usable.length - 2; index >= 0; index -= 1) {
+      const newerTime = new Date(tail[0]?.created_at || 0).getTime();
+      const olderTime = new Date(usable[index]?.created_at || 0).getTime();
+      if (!Number.isFinite(newerTime) || !Number.isFinite(olderTime) || newerTime - olderTime > maxGapMs) break;
+      tail.unshift(usable[index]);
+    }
+
+    const combinedText = tail
       .map((row) => String(row.body || "").trim())
       .filter(Boolean)
       .join("\n");
@@ -6558,10 +6382,11 @@ async function collectIncomingMessageBurst(input: {
     return {
       shouldReply: true,
       combinedText: combinedText || input.currentText,
+      messageCount: tail.length,
     };
   } catch (error) {
     console.error("incoming burst collection failed:", error);
-    return { shouldReply: true, combinedText: input.currentText };
+    return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
   }
 }
 
@@ -6682,8 +6507,9 @@ export async function POST(request: Request) {
 
         let processingText = text;
         let processingIntent = incomingIntent;
+        let processingMessageType = type;
 
-        if (type === "text" && !extractedMessage.isOtpLike) {
+        if (!extractedMessage.isOtpLike) {
           const burst = await collectIncomingMessageBurst({
             waId: from,
             currentMessageId: message.id,
@@ -6696,7 +6522,11 @@ export async function POST(request: Request) {
           }
 
           processingText = burst.combinedText;
-          processingIntent = classifyIncomingIntent(processingText, type);
+          processingMessageType = burst.messageCount > 1 ? "text" : type;
+          processingIntent = classifyIncomingIntent(
+            processingText,
+            processingMessageType,
+          );
           needsHumanReview = shouldFlagHumanReview(processingText, processingIntent);
         }
 
@@ -6752,7 +6582,7 @@ export async function POST(request: Request) {
           continue;
         }
 
-        const rawReply = await buildReply(request, from, processingText, type);
+        const rawReply = await buildReply(request, from, processingText, processingMessageType);
         const outgoingMemory = await getConversationMemory(from);
         let reply = finalizeReplyBeforeSend(rawReply, {
           from,

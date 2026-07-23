@@ -153,6 +153,7 @@ export type CustomerIntent =
   | "staff_identity"
   | "call_request"
   | "device_change"
+  | "device_change_cancelled"
   | "device_change_confirmed"
   | "payment_amount"
   | "loan"
