@@ -166,7 +166,7 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
 
     const latestPaymentOutgoing = data.find((message) =>
       message.direction === "outgoing" &&
-      /(AMENPAY|PAYAMEEN|رسوم فتح الملف|\/receipt(?:$|[?#]))/i.test(String(message.body || ""))
+      /(AMENPAY|PAYAMEN|رسوم فتح الملف|\/receipt(?:$|[?#]))/i.test(String(message.body || ""))
     );
     const latestPaymentTime = latestPaymentOutgoing?.created_at
       ? new Date(latestPaymentOutgoing.created_at).getTime()

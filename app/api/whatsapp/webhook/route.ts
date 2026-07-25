@@ -2039,7 +2039,7 @@ ${statusHumanLabel(app.status || "")}`
 - واتساب الشركة: ${BUSINESS_PHONE_E164}
 - العنوان: ${BUSINESS_ADDRESS}
 
-الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي، وعلى AMENPAY أو PAYAMEEN، ويظهر اسم المستفيد ABDUL RAHMAN ALHARAHSHEH. لا تدفع لأي اسم أو رابط مختلف.${requestLines}
+الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي، وعلى AMENPAY أو PAYAMEN فقط. لا تدفع لأي اسم أو رابط مختلف.${requestLines}
 
 رابط المتابعة الرسمي:
 ${baseUrl}/track`;
@@ -2050,14 +2050,14 @@ function paymentGuaranteeReply(baseUrl: string, app?: ApplicationRecord | null) 
   if (!app) {
     return `ضمانك إن أي دفع يتم فقط بعد وصول تعليمات رسمية، ورفع الوصل يكون من موقع الأمين الرسمي.
 
-رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة النهائية. لا تحول لأي بيانات مختلفة عن AMENPAY أو PAYAMEEN واسم المستفيد الظاهر في الرسالة الرسمية.`;
+رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة النهائية. لا تحول لأي بيانات مختلفة عن AMENPAY أو PAYAMEN.`;
   }
 
   const tracking = app.tracking_id || app.id;
 
   return `ضمانك إن رسوم فتح الملف مرتبطة برقم طلبك، ورفع الوصل يتم من رابط الأمين الرسمي، والرسوم مستردة بالكامل في حال عدم الموافقة النهائية.
 
-لا تحول إلا إلى AMENPAY أو PAYAMEEN وباسم المستفيد الظاهر في تعليمات الدفع، ولا تستخدم أي رقم أو رابط مختلف.
+لا تحول إلا إلى AMENPAY أو PAYAMEN فقط، ولا تستخدم أي اسم أو رقم أو رابط مختلف.
 
 رقم الطلب: ${tracking}
 الموقع الرسمي: ${BUSINESS_WEBSITE}`;
@@ -2461,10 +2461,8 @@ function paymentMessage(app: ApplicationRecord, baseUrl: string) {
 التحويل عبر Orange Money إلى:
 AMENPAY
 أو
-PAYAMEEN
+PAYAMEN
 
-اسم المستفيد الظاهر:
-ABDUL RAHMAN ALHARAHSHEH
 
 بعد التحويل ارفع الوصل من رابط طلبك:
 ${receiptUrl(baseUrl, app)}
@@ -2506,10 +2504,8 @@ function paymentMethodReply(app: ApplicationRecord, baseUrl: string, customerTex
 التحويل إلى:
 AMENPAY
 أو
-PAYAMEEN
+PAYAMEN
 
-اسم المستفيد الظاهر:
-ABDUL RAHMAN ALHARAHSHEH
 
 بعد التحويل ارفع الوصل من رابط طلبك:
 ${receiptUrl(baseUrl, app)}`;
@@ -2536,10 +2532,8 @@ function paymentRecipientReply(app: ApplicationRecord, baseUrl: string) {
 التحويل عبر Orange Money إلى:
 AMENPAY
 أو
-PAYAMEEN
+PAYAMEN
 
-اسم المستفيد الظاهر:
-ABDUL RAHMAN ALHARAHSHEH
 
 المبلغ: ${FILE_OPENING_FEE_JOD} دنانير فقط.
 
@@ -2587,8 +2581,7 @@ function paymentObjectionReply(app: ApplicationRecord, baseUrl: string) {
 القسط الأول يكون بعد الاستلام حسب الاتفاق.
 
 لما تكون جاهز، معلومات الدفع ورابط رفع الوصل:
-AMENPAY أو PAYAMEEN
-اسم المستفيد: ABDUL RAHMAN ALHARAHSHEH
+AMENPAY أو PAYAMEN
 ${receiptUrl(baseUrl, app)}`;
 }
 
