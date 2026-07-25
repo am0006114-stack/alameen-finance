@@ -20,7 +20,7 @@ export async function findApplicationByPhone(phone: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, device_name, salary, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, payment_reference, device_name, salary, delivery_delay_until")
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -40,7 +40,7 @@ export async function findApplicationByTracking(tracking: string) {
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, device_name, salary, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, payment_reference, device_name, salary, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -70,7 +70,7 @@ export async function findApplicationByTrackingAndPhone(tracking: string, phone:
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, device_name, salary, delivery_delay_until")
+    .select("id, created_at, tracking_id, full_name, phone, status, payment_status, payment_confirmed_at, payment_reference, device_name, salary, delivery_delay_until")
     .eq("tracking_id", cleanTracking)
     .in("phone", phoneVariants)
     .order("created_at", { ascending: false })

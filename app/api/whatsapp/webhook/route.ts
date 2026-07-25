@@ -389,6 +389,9 @@ function isReviewTimeText(text: string) {
     "بستغرق",
     "كم بياخذ وقت",
     "كم باخذ وقت",
+    "كم بتحتاج وقت",
+    "قديش بتحتاج وقت",
+    "كم يحتاج وقت",
     "قديش بياخذ وقت",
     "قديش باخذ وقت",
     "كم بدكم وقت",
@@ -417,7 +420,7 @@ function isReviewTimeText(text: string) {
   ]);
 
   const standaloneReviewQuestion = hasAny(t, [
-    "كم بياخذ وقت", "كم باخذ وقت", "قديش بياخذ وقت", "قديش باخذ وقت",
+    "كم بياخذ وقت", "كم باخذ وقت", "كم بتحتاج وقت", "قديش بتحتاج وقت", "كم يحتاج وقت", "قديش بياخذ وقت", "قديش باخذ وقت",
     "كم بدكم وقت", "كم ودكم وقت", "قديش بدكم وقت", "خلال كم", "بالعادة كم",
   ]);
 
@@ -472,6 +475,159 @@ function isPaymentGuaranteeText(text: string) {
   ]);
 
   return directGuaranteeQuestion || (guaranteeContext && paymentContext);
+}
+
+
+function isPaymentMethodText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const directPhrases = hasAny(t, [
+    "بدفع بالمكتب", "بدفعها بالمكتب", "بدفع عندكم بالمكتب", "بدفعها عندكم بالمكتب",
+    "بدفع عندكوا بالمكتب", "بدفعها عندكوا بالمكتب", "بقدر ادفع بالمكتب", "بقدر أدفع بالمكتب",
+    "ادفع كاش بالمكتب", "أدفع كاش بالمكتب", "الدفع بالمكتب", "الدفع عندكم",
+    "وين ادفع", "وين أدفع", "كيف ادفع", "كيف أدفع", "طريقة الدفع", "طريقه الدفع",
+    "بقدر ادفع كاش", "بقدر أدفع كاش", "الدفع كاش", "دفع نقدي",
+  ]);
+
+  const paymentContext = hasAny(t, ["دفع", "ادفع", "أدفع", "رسوم", "احول", "أحول", "تحويل"]);
+  const methodContext = hasAny(t, ["مكتب", "كاش", "نقدي", "محفظه", "محفظة", "اورنج", "orange", "كيف", "وين"]);
+
+  return directPhrases || (paymentContext && methodContext);
+}
+
+function isPaymentTimingText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "لو للمسا عادي", "للمسا عادي", "للمساء عادي", "بقدر ادفع للمسا", "بقدر أدفع للمسا",
+    "بقدر ادفع بالليل", "بقدر أدفع بالليل", "بقدر ادفع بكرا", "بقدر أدفع بكرا",
+    "ادفع هسا", "أدفع هسا", "متى ادفع", "متى أدفع", "لازم ادفع هسا", "لازم أدفع هسا",
+    "في وقت محدد للدفع", "الدفع متاح متى", "اخر وقت للدفع", "آخر وقت للدفع",
+  ]);
+}
+
+function isPaymentRecipientText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const directPhrases = hasAny(t, [
+    "ع اي رقم احول", "على اي رقم احول", "ع أي رقم أحول", "على أي رقم أحول",
+    "ع اي اسم احول", "على اي اسم احول", "اسم مين احول", "اسم مين أحول",
+    "شو اسم المستفيد", "مين المستفيد", "اسم المستفيد", "الاسم اللي بطلع", "الاسم الذي يظهر",
+    "وين احول", "وين أحول", "ابعث معلومات الدفع", "ابعت معلومات الدفع", "ارسل معلومات الدفع",
+    "اعطيني رقم التحويل", "أعطيني رقم التحويل", "بيانات التحويل", "معلومات التحويل",
+    "رقم او اسم احول", "رقم أو اسم أحول",
+  ]);
+
+  const transferContext = hasAny(t, ["احول", "أحول", "تحويل", "حواله", "حوالة", "مستفيد"]);
+  const recipientContext = hasAny(t, ["رقم", "اسم", "مين", "وين", "محفظه", "محفظة"]);
+
+  return directPhrases || (transferContext && recipientContext);
+}
+
+function isPaymentReviewTimeText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const timeContext = hasAny(t, ["قديش", "كم يوم", "خلال كم", "متى", "شو المده", "شو المدة"]);
+  const decisionContext = hasAny(t, [
+    "بعد الدفع", "بعد ما ادفع", "بعد ما أدفع", "بعد رفع الوصل", "بعد تأكيد الدفع",
+    "الموافقه", "الموافقة", "الرفض", "النتيجه", "النتيجة", "الدراسه", "الدراسة",
+  ]);
+
+  return timeContext && decisionContext;
+}
+
+function isPaymentNextStepText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "بعد الدفع شو بصير", "بعد ما ادفع شو بصير", "بعد ما أدفع شو بصير",
+    "بعد التحويل شو بصير", "بعد رفع الوصل شو بصير", "وبعدين بعد الدفع",
+    "شو الخطوه بعد الدفع", "شو الخطوة بعد الدفع",
+  ]);
+}
+
+function isPaymentObjectionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "ليش ادفع", "ليش أدفع", "ليش رسوم", "ليش في رسوم", "ليش رسوم فتح الملف",
+    "ما بدي ادفع رسوم", "ما بدي أدفع رسوم", "مش مقتنع ادفع", "مش مقتنع أدفع",
+    "شو فايده الرسوم", "شو فائدة الرسوم", "على شو الرسوم", "ليش الخمسه", "ليش الخمسة",
+  ]);
+}
+
+function isPaymentLinkIssueText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const receiptContext = hasAny(t, ["وصل", "ايصال", "إيصال", "رفع الوصل", "رابط الدفع", "رابط الرفع", "receipt"]);
+  const problemContext = hasAny(t, ["ما بفتح", "مش بفتح", "ما فتح", "مش شغال", "ما بشتغل", "خطا", "خطأ", "404", "error"]);
+
+  return receiptContext && problemContext;
+}
+
+function isDeliveryCorrectionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "ما سالتك عن التوصيل", "ما سألتك عن التوصيل", "مش بسال عن التوصيل", "مش بسأل عن التوصيل",
+    "انا بحكي عن الدفع", "أنا بحكي عن الدفع", "قصدي الدفع", "سؤالي عن الدفع",
+  ]);
+}
+
+function isReopenCancelledConfirmedText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "اكد اعاده تفعيل الطلب", "أكد إعادة تفعيل الطلب", "اكد إعادة تفعيل الطلب",
+    "اكد اعاده فتح الطلب", "أكد إعادة فتح الطلب", "نعم رجع الطلب", "نعم ارجع الطلب",
+    "نعم أرجع الطلب", "موافق رجع الطلب", "confirm reopen", "reopen confirmed",
+  ]);
+}
+
+function isReopenCancelledRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t || isReopenCancelledConfirmedText(t)) return false;
+
+  return hasAny(t, [
+    "تراجعت عن الالغاء", "تراجعت عن الإلغاء", "بدي اتراجع عن الالغاء", "بدي أتراجع عن الإلغاء",
+    "بدي ارجع الطلب", "بدي أرجع الطلب", "رجعوا الطلب", "ارجعوا الطلب", "أرجعوا الطلب",
+    "الغاء الالغاء", "إلغاء الإلغاء", "فك الالغاء", "فك الإلغاء", "اعاده فتح الطلب", "إعادة فتح الطلب",
+    "اعاده تفعيل الطلب", "إعادة تفعيل الطلب", "بدي اكمل بعد ما لغيت", "بدي أكمل بعد ما لغيت",
+    "غيرت رايي وبدي اكمل", "غيرت رأيي وبدي أكمل", "reopen application", "undo cancellation",
+  ]);
+}
+
+function isSimpleReopenConfirmationText(text: string) {
+  const t = normalizeArabicText(text);
+  return ["نعم", "اه", "اها", "ايوه", "ايوا", "موافق", "تمام", "اكد", "أكد"].includes(t);
+}
+
+function paymentAssistanceStateActive(
+  app: ApplicationRecord | null,
+  memory: Awaited<ReturnType<typeof getConversationMemory>>,
+) {
+  if (!app) return false;
+
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  if (status === "cancelled" || status === "refund_completed" || paymentStatus === "refund_requested") return false;
+  if (paymentStatus === "confirmed" || paymentStatus === "customer_claimed_paid") return false;
+
+  return (
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus) ||
+    Boolean(memory.isPaymentAssistanceActive)
+  );
 }
 
 function currentCustomerActionLine(app: ApplicationRecord) {
@@ -785,7 +941,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "site_issue"].includes(finalIntent) || isLongDelayComplaintText(text) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "human_agent", "cancel_request", "cancel_confirmed", "reopen_cancelled_request", "reopen_cancelled_confirmed", "site_issue"].includes(finalIntent) || isLongDelayComplaintText(text) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -1390,6 +1546,19 @@ function classifyIntent(text: string): CustomerIntent {
   // تغيير الجهاز ليس إلغاءً. يجب حسمه قبل أي منطق إلغاء.
   if (isDeviceChangeText(t)) return "device_change";
 
+  // التراجع عن إلغاء طلب سابق مسار مستقل، ولا يُعامل كطلب استمرار عادي.
+  if (isReopenCancelledConfirmedText(t)) return "reopen_cancelled_confirmed";
+  if (isReopenCancelledRequestText(t)) return "reopen_cancelled_request";
+
+  // أسئلة الدفع التفصيلية يجب أن تُفهم قبل كلمات المكتب/التوصيل أو الحالة العامة.
+  if (isPaymentLinkIssueText(t)) return "payment_link_issue";
+  if (isPaymentMethodText(t)) return "payment_method";
+  if (isPaymentTimingText(t)) return "payment_timing";
+  if (isPaymentRecipientText(t)) return "payment_recipient";
+  if (isPaymentReviewTimeText(t)) return "payment_review_time";
+  if (isPaymentNextStepText(t)) return "payment_next_step";
+  if (isPaymentObjectionText(t)) return "payment_objection";
+
   // عبارات مثل "صارلو 3 أشهر" تعني شكوى عن طول الانتظار، وليست مدة تقسيط.
   if (isLongDelayComplaintText(t)) return "review_time";
 
@@ -1559,7 +1728,7 @@ function classifyIntent(text: string): CustomerIntent {
 
 function looksSensitive(text: string) {
   const intent = classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "cancel_refund_request", "complaint", "refund", "cancel_request", "cancel_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "cancel_refund_request", "complaint", "refund", "cancel_request", "cancel_confirmed", "reopen_cancelled_request", "reopen_cancelled_confirmed", "site_issue"].includes(intent) || shouldFlagHumanReview(text, intent);
 }
 
 function getSalaryNumber(value: number | string | null | undefined) {
@@ -2280,17 +2449,216 @@ function paymentMessage(app: ApplicationRecord, baseUrl: string) {
   const tracking = app.tracking_id || app.id;
   const device = customerFacingDeviceName(app.device_name);
 
-  return `أهلًا ${name}، طلبك مؤهل مبدئيًا للمتابعة.
+  return `تمام ${name}، طلبك مؤهل مبدئيًا ونقدر نبدأ باستكمال دراسة الملف.
 
 الجهاز: ${device}
 رقم الطلب: ${tracking}
 
-رسوم فتح الملف: ${FILE_OPENING_FEE_JOD} دنانير، ومستردة بالكامل في حال عدم الموافقة النهائية. القسط الأول بعد الاستلام حسب الاتفاق.
+رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط. هي ليست قسطًا على الجهاز، ودفعها هو الخطوة التي تثبت رغبتك بالاستمرار وتسمح ببدء مراجعة الملف والمتطلبات.
 
-الدفع عبر Orange Money إلى AMENPAY أو PAYAMEEN، واسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH.
+الرسوم مستردة بالكامل في حال عدم الموافقة النهائية، والقسط الأول لا يُدفع الآن؛ يكون بعد استلام الجهاز حسب الاتفاق.
 
-بعد التحويل ارفع الوصل من هنا:
+التحويل عبر Orange Money إلى:
+AMENPAY
+أو
+PAYAMEEN
+
+اسم المستفيد الظاهر:
+ABDUL RAHMAN ALHARAHSHEH
+
+بعد التحويل ارفع الوصل من رابط طلبك:
+${receiptUrl(baseUrl, app)}
+
+بعد تأكيد الوصل تُستكمل الدراسة، والنتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.`;
+}
+
+function paymentAlreadyHandledReply(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+
+  if (app.payment_status === "confirmed") {
+    return `رسوم فتح الملف مؤكدة على طلبك ✅
+
+لا تعيد الدفع ولا ترسل تحويلًا جديدًا.
+حالة الملف الحالية: ${statusHumanLabel(app.status || "")}.
+رقم الطلب: ${tracking}`;
+  }
+
+  if (app.payment_status === "customer_claimed_paid") {
+    return `وصل الدفع مسجل وبانتظار التأكيد.
+
+لا تعيد الدفع ولا ترفع الوصل مرة ثانية.
+رقم الطلب: ${tracking}`;
+  }
+
+  return "";
+}
+
+function paymentMethodReply(app: ApplicationRecord, baseUrl: string, customerText = "") {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) return handled;
+
+  const correction = isDeliveryCorrectionText(customerText)
+    ? "معك حق، فهمت سؤالك السابق غلط. أنت بتسأل عن دفع رسوم فتح الملف، مش عن التوصيل.\n\n"
+    : "";
+
+  return `${correction}الدفع يتم من خلال بيانات Orange Money الرسمية، وليس نقدًا في المكتب، حتى تنربط العملية بطلبك ويظل معك وصل واضح.
+
+التحويل إلى:
+AMENPAY
+أو
+PAYAMEEN
+
+اسم المستفيد الظاهر:
+ABDUL RAHMAN ALHARAHSHEH
+
+بعد التحويل ارفع الوصل من رابط طلبك:
 ${receiptUrl(baseUrl, app)}`;
+}
+
+function paymentTimingReply(app: ApplicationRecord, baseUrl: string) {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) return handled;
+
+  return `نعم عادي، تقدر تحول للمسا أو بالوقت المناسب إلك.
+
+بعد التحويل ارفع الوصل من رابط طلبك:
+${receiptUrl(baseUrl, app)}
+
+دراسة الملف تستكمل بعد وصول الوصل وتأكيد الدفع، فلا تحتاج تعيد إرسال التحويل أو الوصل أكثر من مرة.`;
+}
+
+function paymentRecipientReply(app: ApplicationRecord, baseUrl: string) {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) return handled;
+
+  return `أكيد، معلومات الدفع الرسمية:
+
+التحويل عبر Orange Money إلى:
+AMENPAY
+أو
+PAYAMEEN
+
+اسم المستفيد الظاهر:
+ABDUL RAHMAN ALHARAHSHEH
+
+المبلغ: ${FILE_OPENING_FEE_JOD} دنانير فقط.
+
+بعد التحويل ارفع الوصل من رابط طلبك:
+${receiptUrl(baseUrl, app)}
+
+بعد تأكيد الوصل تبدأ متابعة الدراسة، وعادةً تحتاج النتيجة من يومين إلى 3 أيام عمل حسب الضغط واكتمال المتطلبات.`;
+}
+
+function paymentNextStepReply(app: ApplicationRecord, baseUrl: string) {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) return handled;
+
+  return `بعد دفع رسوم فتح الملف ورفع الوصل من الرابط الرسمي، يتم تأكيد عملية الدفع وربطها بطلبك، وبعدها تُستكمل دراسة الملف والمتطلبات.
+
+النتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال الملف، والجمعة والسبت ما بتنحسب.
+
+رابط رفع الوصل:
+${receiptUrl(baseUrl, app)}`;
+}
+
+function paymentReviewTimeReply(app: ApplicationRecord) {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) {
+    return `${handled}
+
+بعد تأكيد الدفع واكتمال المتطلبات، الدراسة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات، والجمعة والسبت ما بتنحسب.`;
+  }
+
+  return `بعد دفع رسوم فتح الملف ورفع الوصل، يتم تأكيد الدفع واستكمال دراسة الطلب.
+
+النتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+
+الملفات ماشية حسب ترتيبها، لذلك ما بنعطي موعدًا غير مؤكد، وأول ما يصدر قرار بالموافقة أو عدمها رح يصلك تحديث مباشرة.`;
+}
+
+function paymentObjectionReply(app: ApplicationRecord, baseUrl: string) {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) return handled;
+
+  return `رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط، وليست دفعة على الجهاز ولا القسط الأول.
+
+هذه الخطوة تثبت رغبتك بالاستمرار وتسمح ببدء مراجعة الملف والمتطلبات. وإذا لم تصدر الموافقة النهائية، الرسوم مستردة بالكامل.
+
+القسط الأول يكون بعد الاستلام حسب الاتفاق.
+
+لما تكون جاهز، معلومات الدفع ورابط رفع الوصل:
+AMENPAY أو PAYAMEEN
+اسم المستفيد: ABDUL RAHMAN ALHARAHSHEH
+${receiptUrl(baseUrl, app)}`;
+}
+
+function paymentLinkIssueReply(
+  app: ApplicationRecord,
+  baseUrl: string,
+  memory: Awaited<ReturnType<typeof getConversationMemory>>,
+) {
+  const handled = paymentAlreadyHandledReply(app);
+  if (handled) return handled;
+
+  const rememberedReceipt = (memory.sentUrls || []).find((url) => /\/receipt(?:$|[?#])/i.test(url));
+  const url = rememberedReceipt || receiptUrl(baseUrl, app);
+
+  return `واضح إن رابط رفع الوصل ما فتح معك.
+
+جرّب فتحه مباشرة من Chrome، وهذا هو الرابط الخاص بطلبك:
+${url}
+
+لا تعيد الدفع. إذا استمرت المشكلة اكتبلي شو ظهر عندك بالضبط.`;
+}
+
+function paymentAssistanceReply(input: {
+  app: ApplicationRecord;
+  baseUrl: string;
+  customerText: string;
+  intent: CustomerIntent;
+  memory: Awaited<ReturnType<typeof getConversationMemory>>;
+}) {
+  const status = input.app.status || "";
+  const paymentStatus = input.app.payment_status || "";
+  const tracking = input.app.tracking_id || input.app.id;
+
+  if (status === "cancelled" || status === "refund_requested" || paymentStatus === "refund_requested") {
+    return `طلبك مش بمرحلة دفع حاليًا؛ حالته: ${statusHumanLabel(status)}.
+
+لا تحول أي مبلغ جديد. إذا كان قصدك التراجع عن الإلغاء، اكتب: أريد إعادة تفعيل الطلب.
+رقم الطلب: ${tracking}`;
+  }
+
+  const paymentActionable =
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus);
+
+  if (!paymentActionable && !["confirmed", "customer_claimed_paid"].includes(paymentStatus)) {
+    return `حسب حالة طلبك الحالية ما في دفع رسوم فتح ملف مطلوب الآن.
+
+الحالة: ${statusHumanLabel(status)}.
+رقم الطلب: ${tracking}`;
+  }
+
+  switch (String(input.intent)) {
+    case "payment_method":
+      return paymentMethodReply(input.app, input.baseUrl, input.customerText);
+    case "payment_timing":
+      return paymentTimingReply(input.app, input.baseUrl);
+    case "payment_recipient":
+      return paymentRecipientReply(input.app, input.baseUrl);
+    case "payment_next_step":
+      return paymentNextStepReply(input.app, input.baseUrl);
+    case "payment_review_time":
+      return paymentReviewTimeReply(input.app);
+    case "payment_objection":
+      return paymentObjectionReply(input.app, input.baseUrl);
+    case "payment_link_issue":
+      return paymentLinkIssueReply(input.app, input.baseUrl, input.memory);
+    default:
+      return paymentMessage(input.app, input.baseUrl);
+  }
 }
 
 function deliveryDateReply(app: ApplicationRecord, baseUrl: string) {
@@ -2604,7 +2972,12 @@ function keepRequestReply(app: ApplicationRecord | null) {
   }
 
   if (app.status === "cancelled" || app.status === "customer_declined_continue") {
-    return `طلبك ظاهر حاليًا كطلب ملغي. إذا كان قصدك التراجع عن الإلغاء، ابعث رقم التتبع واكتب: أريد إعادة متابعة الطلب.`;
+    return `طلبك ظاهر حاليًا كطلب ملغي، لكن ممكن تطلب التراجع عن الإلغاء.
+
+للبدء اكتب:
+أريد إعادة تفعيل الطلب
+
+لن يتغير وضع الطلب إلا بعد تأكيدك الصريح.`;
   }
 
   return `تمام، طلبك مستمر وما تم إلغاؤه.
@@ -2744,7 +3117,7 @@ function repeatedReplyRecoveryReply(intent: CustomerIntent) {
   if (["order_status", "delivery", "review_time"].includes(String(intent))) {
     return `ما في تحديث جديد مختلف عن آخر متابعة حاليًا.
 
-أول ما تتغير حالة الطلب رح توصلك رسالة مباشرة، وما في حاجة تعيد إرسال نفس الطلب أو تتصل.`;
+أول ما تتغير حالة الطلب رح توصلك رسالة مباشرة. وإذا عندك سؤال مختلف عن الحالة الحالية، اكتبه وبجاوبك عليه مباشرة.`;
   }
 
   return "";
@@ -2758,6 +3131,15 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
     "self_employed",
     "payment",
     "payment_amount",
+    "payment_method",
+    "payment_timing",
+    "payment_recipient",
+    "payment_next_step",
+    "payment_review_time",
+    "payment_objection",
+    "payment_link_issue",
+    "reopen_cancelled_request",
+    "reopen_cancelled_confirmed",
     "alternative_payment_source",
     "receipt_upload_needed",
     "receipt_upload_confirmation",
@@ -3956,6 +4338,10 @@ ${refundUrl(baseUrl, app)}
 
 مدة مراجعة ومعالجة الاسترداد تصل إلى 3 أيام عمل من وقت إدخال البيانات الصحيحة، والجمعة والسبت لا تُحسب ضمن أيام العمل.
 
+إذا غيرت رأيك قبل اكتمال الاسترداد، اكتب:
+أريد إعادة تفعيل الطلب
+وسيتم فحص إمكانية إيقاف الاسترداد أولًا.
+
 رقم التتبع:
 ${tracking}`;
   }
@@ -3963,6 +4349,9 @@ ${tracking}`;
   return `تم إلغاء الطلب بنجاح يا ${name}.
 
 لا يوجد أي دفع مطلوب عليكم.
+
+إذا غيرت رأيك، تقدر تطلب التراجع عن الإلغاء بكتابة:
+أريد إعادة تفعيل الطلب
 
 رقم التتبع:
 ${tracking}`;
@@ -4065,6 +4454,84 @@ function cancelRequestWithoutAppReply(from: string) {
 ${BUSINESS_NAME}`;
 }
 
+
+function reopenCancelledRequestReply(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+
+  if (app.status === "refund_completed") {
+    return `الاسترداد على هذا الطلب مكتمل، لذلك ما بنقدر نعيد فتح نفس الملف تلقائيًا.
+
+تقدر تقدم طلب جديد من الموقع، أو تكتب رقم الطلب حتى تتم مراجعة الحالة يدويًا.
+رقم الطلب: ${tracking}`;
+  }
+
+  if (app.status !== "cancelled" && app.status !== "refund_requested" && app.payment_status !== "refund_requested") {
+    return `طلبك مش ملغي حاليًا، وهو مستمر بحالة: ${statusHumanLabel(app.status || "")}.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  const paidCancellation = app.payment_status === "refund_requested" || app.payment_reference === "customer_cancelled_paid_refund_pending";
+
+  if (paidCancellation) {
+    return `ممكن تطلب التراجع عن الإلغاء ما دام الاسترداد ما اكتمل، لكن لازم نوقف مسار الاسترداد أولًا حتى ما يصير تعارض.
+
+للتأكيد اكتب:
+أكد إعادة تفعيل الطلب
+
+بعد التأكيد سيتم تسجيل طلبك للمتابعة، ولا تعتبر الملف مفتوحًا إلا بعد ما يصلك تأكيد واضح.
+رقم الطلب: ${tracking}`;
+  }
+
+  return `ممكن ترجع عن الإلغاء وتكمل على نفس الطلب.
+
+للتأكيد اكتب:
+أكد إعادة تفعيل الطلب
+
+بعد التأكيد رح نعيد تفعيل الملف ونرسل لك الخطوة الحالية مباشرة.
+رقم الطلب: ${tracking}`;
+}
+
+function reopenCancelledWithoutAppReply() {
+  return `فهمت إنك بدك تتراجع عن إلغاء طلب سابق.
+
+ابعث رقم التتبع الذي يبدأ بـ AM- أو رقم الهاتف المستخدم بالطلب حتى أربطه بالملف الصحيح.`;
+}
+
+async function reopenCancelledUnpaidApplication(app: ApplicationRecord) {
+  const updatePayload = {
+    status: "customer_confirmed_continue",
+    payment_status: "payment_info_sent",
+    payment_reference: "customer_reopened_after_cancel",
+  };
+
+  const { error } = await supabaseAdmin
+    .from("applications")
+    .update(updatePayload)
+    .eq("id", app.id);
+
+  if (error) {
+    console.error("reopen cancelled application error:", error.message);
+    throw error;
+  }
+
+  return {
+    ...app,
+    ...updatePayload,
+  } as ApplicationRecord;
+}
+
+function reopenPaidCancellationPendingReply(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+
+  return `وصل تأكيدك بالتراجع عن الإلغاء.
+
+بما أن الاسترداد مسجل على الطلب، تم وضع المحادثة للمتابعة حتى يتم التأكد من إمكانية إيقاف الاسترداد وإعادة فتح الملف بدون تعارض.
+
+لا تدفع أي مبلغ جديد، ولا تعتبر الطلب معاد التفعيل إلا بعد ما يصلك تأكيد واضح.
+رقم الطلب: ${tracking}`;
+}
+
 function alternativePaymentSourceReply(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
@@ -4150,9 +4617,7 @@ ${tracking}`;
   if (app.payment_status === "customer_claimed_paid") {
     return `هلا ${name} 🌿
 
-الوصل مسجل عندنا وبانتظار تأكيد الإدارة.
-إذا عندك صورة أوضح للوصل تقدر ترفعها من هون:
-${receipt}
+الوصل مسجل عندنا وبانتظار تأكيد الإدارة. لا تعيد الدفع ولا ترفع الوصل مرة ثانية.
 
 رقم التتبع:
 ${tracking}`;
@@ -4364,6 +4829,15 @@ async function findApplicationForAiMemory(from: string, text: string, intent: Cu
       "order_status",
       "delivery",
       "payment",
+      "payment_method",
+      "payment_timing",
+      "payment_recipient",
+      "payment_next_step",
+      "payment_review_time",
+      "payment_objection",
+      "payment_link_issue",
+      "reopen_cancelled_request",
+      "reopen_cancelled_confirmed",
       "refund",
       "complaint",
       "abuse",
@@ -5559,6 +6033,15 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const pendingCancellationConfirmation = (conversationMemory.lastAssistantReplies || []).some((reply) =>
     /اكد الغاء الطلب|أكد إلغاء الطلب|قبل الالغاء النهائي|قبل الإلغاء النهائي/i.test(String(reply || ""))
   );
+  const pendingReopenConfirmation = Boolean(conversationMemory.hasPendingReopenConfirmation) ||
+    (conversationMemory.lastAssistantReplies || []).some((reply) =>
+      /اكد اعاده تفعيل الطلب|أكد إعادة تفعيل الطلب|اكد اعاده فتح الطلب|أكد إعادة فتح الطلب/i.test(String(reply || ""))
+    );
+
+  if (pendingReopenConfirmation && isSimpleReopenConfirmationText(text)) {
+    intent = "reopen_cancelled_confirmed";
+  }
+
   const sensitive = looksSensitive(text) || (Boolean(conversationMemory.conversationContext) && isTinyContextFollowupText(text));
 
   const humanizeReply = (input: AiReplyInput) =>
@@ -5639,6 +6122,15 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "staff_identity" ||
     String(intent) === "call_request" ||
     String(intent) === "payment_amount" ||
+    String(intent) === "payment_method" ||
+    String(intent) === "payment_timing" ||
+    String(intent) === "payment_recipient" ||
+    String(intent) === "payment_next_step" ||
+    String(intent) === "payment_review_time" ||
+    String(intent) === "payment_objection" ||
+    String(intent) === "payment_link_issue" ||
+    String(intent) === "reopen_cancelled_request" ||
+    String(intent) === "reopen_cancelled_confirmed" ||
     String(intent) === "device_change" ||
     String(intent) === "device_change_cancelled" ||
     String(intent) === "device_change_confirmed" ||
@@ -5648,6 +6140,38 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "products"
   )) {
     app = await findApplicationByPhone(from);
+  }
+
+  const paymentContextActive = paymentAssistanceStateActive(app, conversationMemory);
+
+  if (paymentContextActive) {
+    if (isDeliveryCorrectionText(text) || isPaymentMethodText(text)) {
+      intent = "payment_method";
+    } else if (isPaymentTimingText(text)) {
+      intent = "payment_timing";
+    } else if (isPaymentRecipientText(text)) {
+      intent = "payment_recipient";
+    } else if (isPaymentReviewTimeText(text)) {
+      intent = "payment_review_time";
+    } else if (isPaymentNextStepText(text)) {
+      intent = "payment_next_step";
+    } else if (isPaymentObjectionText(text)) {
+      intent = "payment_objection";
+    } else if (
+      isPaymentLinkIssueText(text) ||
+      (["site_issue", "unknown"].includes(String(intent)) &&
+        Boolean(conversationMemory.hasSentReceiptLink) &&
+        hasAny(text, ["الرابط ما بفتح", "الرابط مش شغال", "ما بفتح", "مش شغال", "خطأ", "خطا", "404"]))
+    ) {
+      intent = "payment_link_issue";
+    } else if (
+      String(intent) === "review_time" &&
+      hasAny(text, ["الموافقة", "الموافقه", "الرفض", "النتيجة", "النتيجه"])
+    ) {
+      intent = "payment_review_time";
+    } else if (String(intent) === "unknown" && ["وبعدين", "بعدها شو", "شو بصير بعدها"].includes(normalizeArabicText(text))) {
+      intent = "payment_next_step";
+    }
   }
 
   if (pendingCancellationConfirmation && typedPhone && app && String(intent) === "unknown") {
@@ -5672,20 +6196,105 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return "";
   }
 
-  if (String(intent) === "staff_identity" || String(intent) === "human_agent") {
-    if (conversationMemory.hasRecentStaffIntro) {
-      return app
-        ? `أنا معك. طلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.
+  if (String(intent) === "staff_identity") {
+    return employeeIdentityReply(from, app);
+  }
 
-احكيلي النقطة اللي بدك جوابها.`
-        : `أنا معك. ابعث رقم الطلب أو سؤالك وبراجع لك الموجود.`;
-    }
-
+  if (String(intent) === "human_agent") {
     return employeeIdentityReply(from, app);
   }
 
   if (String(intent) === "call_request") {
     return callRequestReply(from, app);
+  }
+
+  if (
+    [
+      "payment_method",
+      "payment_timing",
+      "payment_recipient",
+      "payment_next_step",
+      "payment_review_time",
+      "payment_objection",
+      "payment_link_issue",
+    ].includes(String(intent))
+  ) {
+    if (!app) {
+      return `حتى أعطيك معلومات الدفع الصحيحة والرابط المرتبط بطلبك، ابعث رقم التتبع الذي يبدأ بـ AM- أو رقم الهاتف المستخدم بالتقديم.`;
+    }
+
+    return paymentAssistanceReply({
+      app,
+      baseUrl,
+      customerText: text,
+      intent,
+      memory: conversationMemory,
+    });
+  }
+
+  if (String(intent) === "reopen_cancelled_request") {
+    return app ? reopenCancelledRequestReply(app) : reopenCancelledWithoutAppReply();
+  }
+
+  if (String(intent) === "reopen_cancelled_confirmed") {
+    if (!app) return reopenCancelledWithoutAppReply();
+
+    if (app.status === "refund_completed") {
+      return reopenCancelledRequestReply(app);
+    }
+
+    if (app.status !== "cancelled" && app.status !== "refund_requested" && app.payment_status !== "refund_requested") {
+      return `طلبك مستمر أصلًا وحالته الحالية: ${statusHumanLabel(app.status || "")}.
+
+ما في حاجة لإعادة تفعيله.
+رقم الطلب: ${app.tracking_id || app.id}`;
+    }
+
+    const paidCancellation =
+      app.payment_status === "refund_requested" ||
+      app.payment_reference === "customer_cancelled_paid_refund_pending";
+
+    if (paidCancellation) {
+      deterministicReply = reopenPaidCancellationPendingReply(app);
+
+      await sendDiscordNotification({
+        title: "🔄 العميل تراجع عن إلغاء طلب مدفوع",
+        description: "الاسترداد مسجل، لذلك لم تتم إعادة فتح الطلب تلقائيًا. يلزم التحقق من إمكانية إيقاف الاسترداد ثم إعادة تفعيل الملف.",
+        color: 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+
+      return deterministicReply;
+    }
+
+    try {
+      const reopenedApp = await reopenCancelledUnpaidApplication(app);
+      deterministicReply = `تمت إعادة تفعيل طلبك بنجاح، ورجّعناه لمرحلة استكمال فتح الملف.
+
+${paymentMessage(reopenedApp, baseUrl)}`;
+
+      await sendDiscordNotification({
+        title: "✅ تمت إعادة تفعيل طلب ملغي",
+        description: "العميل تراجع عن الإلغاء وأكد إعادة التفعيل. تم فتح الطلب من جديد وإرسال معلومات الدفع الرسمية.",
+        color: 0x57f287,
+        app: reopenedApp,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+
+      return deterministicReply;
+    } catch (error) {
+      return `وصل تأكيدك بإعادة تفعيل الطلب، لكن تعذر تحديث الحالة الآن.
+
+الطلب ما زال ملغيًا حاليًا، ولا تدفع أي مبلغ إلى أن يصلك تأكيد واضح بإعادة فتحه.
+رقم الطلب: ${app.tracking_id || app.id}`;
+    }
   }
 
   if (String(intent) === "keep_request") {
@@ -5759,10 +6368,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
       app.status === "customer_confirmed_continue" ||
       ["pending", "pending_payment", "payment_info_sent"].includes(app.payment_status || "")
     ) {
-      const alreadySentReceipt = (conversationMemory.sentUrls || []).some((url) => /\/receipt(?:$|[?#])/i.test(url));
-      deterministicReply = alreadySentReceipt
-        ? `تم تسجيل رغبتك بالاستمرار سابقًا، وتعليمات فتح الملف ورابط رفع الوصل موجودة فوق في نفس المحادثة. ما في حاجة نكرر الرابط.`
-        : paymentMessage(app, baseUrl);
+      deterministicReply = paymentMessage(app, baseUrl);
       return deterministicReply;
     }
 
@@ -6319,6 +6925,38 @@ type IncomingBurstResult = {
   messageCount: number;
 };
 
+async function claimIncomingBurstProcessingLock(waId: string, latestMessageId: string) {
+  const cleanWaId = String(waId || "").trim();
+  const cleanMessageId = String(latestMessageId || "").trim();
+
+  if (!cleanWaId || !cleanMessageId) return { shouldProcess: true, reason: "missing_burst_lock_input" };
+
+  try {
+    const { error } = await supabaseAdmin
+      .from("whatsapp_outgoing_reply_locks")
+      .insert({
+        lock_key: `incoming-burst:${cleanWaId}:${cleanMessageId}`,
+        wa_id: cleanWaId,
+        incoming_message_id: cleanMessageId,
+        reply_body: "incoming_burst_processing",
+        created_at: new Date().toISOString(),
+      });
+
+    if (!error) return { shouldProcess: true, reason: "burst_lock_claimed" };
+    if ((error as any).code === "23505") return { shouldProcess: false, reason: "burst_lock_duplicate" };
+    if ((error as any).code === "42P01") {
+      console.error("whatsapp_outgoing_reply_locks table is missing; incoming burst lock degraded.");
+      return { shouldProcess: true, reason: "missing_burst_lock_table" };
+    }
+
+    console.error("incoming burst processing lock failed:", error);
+    return { shouldProcess: true, reason: "burst_lock_error" };
+  } catch (error) {
+    console.error("incoming burst processing lock exception:", error);
+    return { shouldProcess: true, reason: "burst_lock_exception" };
+  }
+}
+
 async function collectIncomingMessageBurst(input: {
   waId: string;
   currentMessageId?: string | null;
@@ -6363,6 +7001,13 @@ async function collectIncomingMessageBurst(input: {
       String(latest.message_id) !== String(input.currentMessageId)
     ) {
       return { shouldReply: false, combinedText: "", messageCount: 0 };
+    }
+
+    if (latest?.message_id) {
+      const burstLock = await claimIncomingBurstProcessingLock(input.waId, String(latest.message_id));
+      if (!burstLock.shouldProcess) {
+        return { shouldReply: false, combinedText: "", messageCount: 0 };
+      }
     }
 
     // نأخذ آخر مجموعة متصلة فقط، حتى لا تختلط محادثة سابقة قريبة بالرسالة الحالية.

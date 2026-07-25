@@ -15,6 +15,12 @@ export type ConversationMemory = {
   hasSentProductsLink?: boolean;
   hasSentTrackLink?: boolean;
   hasSentReceiptLink?: boolean;
+  lastRelevantUrl?: string | null;
+  isPaymentAssistanceActive?: boolean;
+  hasExplainedPaymentFee?: boolean;
+  hasExplainedRefundPolicy?: boolean;
+  hasExplainedReviewTime?: boolean;
+  hasPendingReopenConfirmation?: boolean;
 };
 
 function trimLine(value: string | null | undefined, max = 260) {
@@ -90,6 +96,12 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     hasSentProductsLink: false,
     hasSentTrackLink: false,
     hasSentReceiptLink: false,
+    lastRelevantUrl: null,
+    isPaymentAssistanceActive: false,
+    hasExplainedPaymentFee: false,
+    hasExplainedRefundPolicy: false,
+    hasExplainedReviewTime: false,
+    hasPendingReopenConfirmation: false,
   };
 
   const cleanWaId = String(waId || "").trim();
@@ -150,6 +162,18 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .join("\n");
 
     const sentUrls = extractUrlsFromMemory(outgoingText);
+    const latestRelevantUrl = sentUrls[0] || null;
+
+    const latestPaymentOutgoing = data.find((message) =>
+      message.direction === "outgoing" &&
+      /(AMENPAY|PAYAMEEN|رسوم فتح الملف|\/receipt(?:$|[?#]))/i.test(String(message.body || ""))
+    );
+    const latestPaymentTime = latestPaymentOutgoing?.created_at
+      ? new Date(latestPaymentOutgoing.created_at).getTime()
+      : NaN;
+    const isPaymentAssistanceActive =
+      Number.isFinite(latestPaymentTime) &&
+      Date.now() - latestPaymentTime <= 48 * 60 * 60 * 1000;
 
     const newestMessageTime = data[0]?.created_at ? new Date(data[0].created_at).getTime() : NaN;
     const hasRecentConversation =
@@ -172,6 +196,12 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       hasSentProductsLink: sentUrls.some((url) => /\/products(?:$|[?#])/i.test(url)),
       hasSentTrackLink: sentUrls.some((url) => /\/track(?:$|[?#])/i.test(url)),
       hasSentReceiptLink: sentUrls.some((url) => /\/receipt(?:$|[?#])/i.test(url)),
+      lastRelevantUrl: latestRelevantUrl,
+      isPaymentAssistanceActive,
+      hasExplainedPaymentFee: /رسوم فتح الملف[^\n]{0,80}(?:5|٥)\s*(?:دنانير|دينار)/i.test(outgoingText),
+      hasExplainedRefundPolicy: /مسترده بالكامل|مستردة بالكامل|استرداد رسوم فتح الملف/i.test(outgoingText),
+      hasExplainedReviewTime: /يومين\s*(?:الى|إلى)\s*(?:ثلاث|3)|2\s*(?:الى|إلى)\s*3\s*ايام عمل/i.test(outgoingText),
+      hasPendingReopenConfirmation: /اكد اعاده تفعيل الطلب|أكد إعادة تفعيل الطلب|تأكيد إعادة فتح الطلب/i.test(outgoingText),
     };
   } catch (error) {
     console.error("getConversationMemory failed:", error);
