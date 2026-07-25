@@ -2022,6 +2022,23 @@ ${BUSINESS_NAME}`;
 ${BUSINESS_NAME}`;
 }
 
+const PAYMENT_WALLET_TYPE = "Orange Money";
+const PAYMENT_DESTINATION_PRIMARY = "AMENPAY";
+const PAYMENT_DESTINATION_SECONDARY = "PAYAMEN";
+const PAYMENT_BENEFICIARY_NAME = "ABDUL RAHMAN ALHARAHSHEH";
+
+function paymentDestinationBlock() {
+  return `نوع المحفظة: ${PAYMENT_WALLET_TYPE}
+
+التحويل إلى:
+${PAYMENT_DESTINATION_PRIMARY}
+أو
+${PAYMENT_DESTINATION_SECONDARY}
+
+اسم المستفيد الظاهر:
+${PAYMENT_BENEFICIARY_NAME}`;
+}
+
 function trustVerificationReply(baseUrl: string, app?: ApplicationRecord | null) {
   const requestLines = app
     ? `
@@ -2039,7 +2056,11 @@ ${statusHumanLabel(app.status || "")}`
 - واتساب الشركة: ${BUSINESS_PHONE_E164}
 - العنوان: ${BUSINESS_ADDRESS}
 
-الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي، وعلى AMENPAY أو PAYAMEN فقط. لا تدفع لأي اسم أو رابط مختلف.${requestLines}
+الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي.
+
+${paymentDestinationBlock()}
+
+لا تدفع لأي بيانات أو رابط مختلف.${requestLines}
 
 رابط المتابعة الرسمي:
 ${baseUrl}/track`;
@@ -2050,14 +2071,20 @@ function paymentGuaranteeReply(baseUrl: string, app?: ApplicationRecord | null) 
   if (!app) {
     return `ضمانك إن أي دفع يتم فقط بعد وصول تعليمات رسمية، ورفع الوصل يكون من موقع الأمين الرسمي.
 
-رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة النهائية. لا تحول لأي بيانات مختلفة عن AMENPAY أو PAYAMEN.`;
+رسوم فتح الملف مستردة بالكامل في حال عدم الموافقة النهائية.
+
+${paymentDestinationBlock()}
+
+لا تحول لأي بيانات مختلفة عن المعلومات أعلاه.`;
   }
 
   const tracking = app.tracking_id || app.id;
 
   return `ضمانك إن رسوم فتح الملف مرتبطة برقم طلبك، ورفع الوصل يتم من رابط الأمين الرسمي، والرسوم مستردة بالكامل في حال عدم الموافقة النهائية.
 
-لا تحول إلا إلى AMENPAY أو PAYAMEN فقط، ولا تستخدم أي اسم أو رقم أو رابط مختلف.
+${paymentDestinationBlock()}
+
+لا تحول لأي اسم أو رقم أو رابط مختلف عن المعلومات أعلاه.
 
 رقم الطلب: ${tracking}
 الموقع الرسمي: ${BUSINESS_WEBSITE}`;
@@ -2458,10 +2485,7 @@ function paymentMessage(app: ApplicationRecord, baseUrl: string) {
 
 الرسوم مستردة بالكامل في حال عدم الموافقة النهائية، والقسط الأول لا يُدفع الآن؛ يكون بعد استلام الجهاز حسب الاتفاق.
 
-التحويل عبر Orange Money إلى:
-AMENPAY
-أو
-PAYAMEN
+${paymentDestinationBlock()}
 
 
 بعد التحويل ارفع الوصل من رابط طلبك:
@@ -2501,10 +2525,7 @@ function paymentMethodReply(app: ApplicationRecord, baseUrl: string, customerTex
 
   return `${correction}الدفع يتم من خلال بيانات Orange Money الرسمية، وليس نقدًا في المكتب، حتى تنربط العملية بطلبك ويظل معك وصل واضح.
 
-التحويل إلى:
-AMENPAY
-أو
-PAYAMEN
+${paymentDestinationBlock()}
 
 
 بعد التحويل ارفع الوصل من رابط طلبك:
@@ -2516,6 +2537,8 @@ function paymentTimingReply(app: ApplicationRecord, baseUrl: string) {
   if (handled) return handled;
 
   return `نعم عادي، تقدر تحول للمسا أو بالوقت المناسب إلك.
+
+${paymentDestinationBlock()}
 
 بعد التحويل ارفع الوصل من رابط طلبك:
 ${receiptUrl(baseUrl, app)}
@@ -2529,10 +2552,7 @@ function paymentRecipientReply(app: ApplicationRecord, baseUrl: string) {
 
   return `أكيد، معلومات الدفع الرسمية:
 
-التحويل عبر Orange Money إلى:
-AMENPAY
-أو
-PAYAMEN
+${paymentDestinationBlock()}
 
 
 المبلغ: ${FILE_OPENING_FEE_JOD} دنانير فقط.
@@ -2548,6 +2568,8 @@ function paymentNextStepReply(app: ApplicationRecord, baseUrl: string) {
   if (handled) return handled;
 
   return `بعد دفع رسوم فتح الملف ورفع الوصل من الرابط الرسمي، يتم تأكيد عملية الدفع وربطها بطلبك، وبعدها تُستكمل دراسة الملف والمتطلبات.
+
+${paymentDestinationBlock()}
 
 النتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال الملف، والجمعة والسبت ما بتنحسب.
 
@@ -2580,8 +2602,11 @@ function paymentObjectionReply(app: ApplicationRecord, baseUrl: string) {
 
 القسط الأول يكون بعد الاستلام حسب الاتفاق.
 
-لما تكون جاهز، معلومات الدفع ورابط رفع الوصل:
-AMENPAY أو PAYAMEN
+لما تكون جاهز، معلومات الدفع الرسمية:
+
+${paymentDestinationBlock()}
+
+رابط رفع الوصل:
 ${receiptUrl(baseUrl, app)}`;
 }
 
@@ -4572,7 +4597,9 @@ ${tracking}`;
 
   return `ولا يهمك ${name} 🌿
 
-عدم وجود محفظة أورنج مش مشكلة. ممكن يكون التحويل من رقم/حساب/شخص ثاني، المهم يكون على معلومات الدفع الرسمية اللي وصلتك.
+عدم وجود محفظة أورنج مش مشكلة. ممكن يكون التحويل من رقم/حساب/شخص ثاني، لكن لازم يكون التحويل على المعلومات الرسمية التالية:
+
+${paymentDestinationBlock()}
 
 بعد التحويل ضروري ترفع صورة الوصل من الرابط حتى نربطه بطلبك:
 ${receipt}
