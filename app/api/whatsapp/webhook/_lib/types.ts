@@ -172,6 +172,8 @@ export type CustomerIntent =
   | "location"
   | "installment_info"
   | "requirements"
+  | "application_data_correction"
+  | "application_data_correction_confirmed"
   | "self_employed"
   | "apply"
   | "products"
