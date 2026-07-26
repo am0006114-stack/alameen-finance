@@ -236,7 +236,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
       .from("whatsapp_messages")
       .select("body")
       .eq("wa_id", phoneFilter)
-      .eq("direction", "status")
+      .eq("direction", "outgoing")
       .eq("message_type", "admin_control")
       .order("created_at", { ascending: false })
       .limit(1)
@@ -251,7 +251,9 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
 
   // Status webhooks مثل sent / delivered / read ليست محادثات فعلية.
   // يتم تحديث حالة الرسالة الأصلية من webhook، وهنا نخفي أي سجلات قديمة من نوع status حتى لا تظهر كسطور فاضية.
-  const conversationMessages = rawMessages.filter((item) => item.direction !== "status");
+  const conversationMessages = rawMessages.filter(
+    (item) => item.direction !== "status" && item.message_type !== "admin_control"
+  );
 
   const filteredMessages = phoneFilter
     ? conversationMessages.filter((item) => cleanPhoneForWaLink(item.wa_id) === phoneFilter)

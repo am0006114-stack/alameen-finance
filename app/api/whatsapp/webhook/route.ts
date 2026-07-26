@@ -5006,7 +5006,7 @@ async function isAutoReplyIgnored(waId: string) {
       .from("whatsapp_messages")
       .select("body")
       .eq("wa_id", cleanWaId)
-      .eq("direction", "status")
+      .eq("direction", "outgoing")
       .eq("message_type", "admin_control")
       .order("created_at", { ascending: false })
       .limit(1)

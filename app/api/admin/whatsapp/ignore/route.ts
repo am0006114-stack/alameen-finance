@@ -45,7 +45,7 @@ export async function POST(request: Request) {
 
   const { error } = await supabaseAdmin.from("whatsapp_messages").insert({
     wa_id: waId,
-    direction: "status",
+    direction: "outgoing",
     customer_name: null,
     message_id: null,
     message_type: "admin_control",
@@ -55,8 +55,6 @@ export async function POST(request: Request) {
     application_id: null,
     needs_human_review: ignored,
     handled_by_ai: false,
-    status: ignored ? "auto_reply_ignored" : "auto_reply_active",
-    status_timestamp: nowIso,
     raw_payload: {
       source: "admin_whatsapp_ignore_button",
       auto_reply_ignored: ignored,
