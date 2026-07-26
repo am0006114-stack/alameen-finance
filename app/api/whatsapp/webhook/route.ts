@@ -4995,6 +4995,35 @@ function supplierDelayWithoutAppReply(from: string) {
 ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبعطيك الحالة المؤكدة بدون تخمين.`;
 }
 
+const AUTO_REPLY_IGNORED_MARKER = "AUTO_REPLY_IGNORED";
+
+async function isAutoReplyIgnored(waId: string) {
+  const cleanWaId = String(waId || "").replace(/\D/g, "");
+  if (!cleanWaId) return false;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("body")
+      .eq("wa_id", cleanWaId)
+      .eq("direction", "status")
+      .eq("message_type", "admin_control")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (error && (error as any).code !== "PGRST116") {
+      console.error("Failed to read WhatsApp ignore state:", error);
+      return false;
+    }
+
+    return data?.body === AUTO_REPLY_IGNORED_MARKER;
+  } catch (error) {
+    console.error("WhatsApp ignore state check failed:", error);
+    return false;
+  }
+}
+
 async function logMessage(input: {
   waId: string;
   direction: "incoming" | "outgoing";
@@ -7645,6 +7674,15 @@ export async function POST(request: Request) {
           return;
         }
 
+        if (await isAutoReplyIgnored(from)) {
+          console.log("WhatsApp automatic reply skipped for ignored customer:", {
+            waId: from,
+            messageId: message.id,
+          });
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          return;
+        }
+
         let processingText = text;
         let processingIntent = incomingIntent;
         let processingMessageType = type;
@@ -7668,6 +7706,16 @@ export async function POST(request: Request) {
             processingMessageType,
           );
           needsHumanReview = shouldFlagHumanReview(processingText, processingIntent);
+        }
+
+        // إعادة الفحص بعد تجميع الرسائل؛ يمكن للإدارة ضغط زر التجاهل أثناء نافذة الانتظار.
+        if (await isAutoReplyIgnored(from)) {
+          console.log("WhatsApp automatic reply skipped after burst for ignored customer:", {
+            waId: from,
+            messageId: message.id,
+          });
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          return;
         }
 
         const replyStartedAt = Date.now();
@@ -7704,6 +7752,16 @@ export async function POST(request: Request) {
 
           if (outgoingClaim.shouldSend && !(await hasRecentlySentSameReply(from, reply, 30))) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
+
+            if (await isAutoReplyIgnored(from)) {
+              console.log("WhatsApp OTP safety reply skipped because customer was ignored before send:", {
+                waId: from,
+                messageId: message.id,
+              });
+              await markIncomingWhatsAppMessageProcessed(message.id);
+              return;
+            }
+
             const outgoingMessageId = await sendWhatsAppText(from, reply);
             await logMessage({
               waId: from,
@@ -7763,6 +7821,16 @@ export async function POST(request: Request) {
 
         if (!alreadySentSameReply) {
           await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
+
+          if (await isAutoReplyIgnored(from)) {
+            console.log("WhatsApp automatic reply skipped because customer was ignored before send:", {
+              waId: from,
+              messageId: message.id,
+            });
+            await markIncomingWhatsAppMessageProcessed(message.id);
+            return;
+          }
+
           const outgoingMessageId = await sendWhatsAppText(from, reply);
           await logMessage({
             waId: from,

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import CopyConversationButtons from "./CopyConversationButtons";
+import IgnoreCustomerButton from "./IgnoreCustomerButton";
 import { redirect } from "next/navigation";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -227,6 +228,26 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
     .limit(500);
 
   const rawMessages = (data || []) as WhatsAppMessageRecord[];
+
+  let selectedAutoReplyIgnored = false;
+
+  if (phoneFilter) {
+    const { data: latestControl, error: controlError } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("body")
+      .eq("wa_id", phoneFilter)
+      .eq("direction", "status")
+      .eq("message_type", "admin_control")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (controlError && controlError.code !== "PGRST116") {
+      console.error("Failed to read WhatsApp ignore state:", controlError);
+    }
+
+    selectedAutoReplyIgnored = latestControl?.body === "AUTO_REPLY_IGNORED";
+  }
 
   // Status webhooks مثل sent / delivered / read ليست محادثات فعلية.
   // يتم تحديث حالة الرسالة الأصلية من webhook، وهنا نخفي أي سجلات قديمة من نوع status حتى لا تظهر كسطور فاضية.
@@ -468,9 +489,24 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                     <p dir="ltr" className="mt-1 text-sm font-bold text-[#aeb9af]">
                       {selectedCustomer?.subtitle || phoneFilter}
                     </p>
+                    <span
+                      className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-black ${
+                        selectedAutoReplyIgnored
+                          ? "border-red-300/30 bg-red-950/30 text-red-100"
+                          : "border-emerald-300/25 bg-emerald-950/25 text-emerald-100"
+                      }`}
+                    >
+                      {selectedAutoReplyIgnored
+                        ? "الرد التلقائي متوقف"
+                        : "الرد التلقائي يعمل"}
+                    </span>
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
+                    <IgnoreCustomerButton
+                      phone={phoneFilter}
+                      initialIgnored={selectedAutoReplyIgnored}
+                    />
                     <CopyConversationButtons
                       fullText={selectedConversationCopyText}
                       recentText={selectedRecentConversationCopyText}
