@@ -2201,14 +2201,18 @@ const PAYMENT_DESTINATION_SECONDARY = "PAYAMEN";
 const PAYMENT_BENEFICIARY_NAME = "ABDUL RAHMAN ALHARAHSHEH";
 
 function paymentDestinationBlock() {
-  return `نوع المحفظة: ${PAYMENT_WALLET_TYPE}
+  return `مصدر التحويل:
+حساب بنكي عبر CliQ أو أي محفظة إلكترونية
 
-التحويل إلى:
+الجهة المستلمة:
+محفظة ${PAYMENT_WALLET_TYPE}
+
+التحويل إلى الاسم المستعار:
 ${PAYMENT_DESTINATION_PRIMARY}
 أو
 ${PAYMENT_DESTINATION_SECONDARY}
 
-اسم المستفيد الظاهر:
+اسم المستفيد الذي يجب أن يظهر قبل التأكيد:
 ${PAYMENT_BENEFICIARY_NAME}`;
 }
 
@@ -2696,7 +2700,7 @@ function paymentMethodReply(app: ApplicationRecord, baseUrl: string, customerTex
     ? "معك حق، فهمت سؤالك السابق غلط. أنت بتسأل عن دفع رسوم فتح الملف، مش عن التوصيل.\n\n"
     : "";
 
-  return `${correction}الدفع يتم من خلال بيانات Orange Money الرسمية، وليس نقدًا في المكتب، حتى تنربط العملية بطلبك ويظل معك وصل واضح.
+  return `${correction}الدفع يتم بالتحويل إلى محفظة Orange Money الرسمية، ويمكنك التحويل من حساب بنكي عبر CliQ أو من أي محفظة إلكترونية. الدفع النقدي في المكتب غير معتمد حتى تنربط العملية بطلبك ويظل معك وصل واضح.
 
 ${paymentDestinationBlock()}
 
@@ -4894,27 +4898,24 @@ ${tracking}`;
   if (!(status === "preliminary_qualified" || paymentStatus === "pending" || paymentStatus === "pending_payment" || paymentStatus === "payment_info_sent" || status === "customer_confirmed_continue")) {
     return `هلا ${name} 🌿
 
-فهمت عليك بخصوص الدفع من مصدر ثاني، بس حسب حالة الملف الحالية ما في دفع مطلوب الآن.
+نعم، التحويل من حساب بنكي عبر CliQ ممكن، ومش شرط يكون عندك محفظة Orange Money.
+
+لكن حسب حالة طلبك الحالية ما في دفع مطلوب الآن. لما تصير خطوة فتح الملف مطلوبة رسميًا، بنرسل لك بيانات التحويل ورابط رفع الوصل.
 
 حالة الطلب:
 ${statusHumanLabel(status)}
-
-لما تكون خطوة فتح الملف مطلوبة رسميًا، بنعطيك تعليمات الدفع ورابط رفع الوصل.
 
 رقم التتبع:
 ${tracking}`;
   }
 
-  return `ولا يهمك ${name} 🌿
+  return `أكيد ${name}، بتقدر تحوّل من أي حساب بنكي يدعم CliQ، أو من أي محفظة إلكترونية، ومش شرط يكون عندك محفظة Orange Money.
 
-عدم وجود محفظة أورنج مش مشكلة. ممكن يكون التحويل من رقم/حساب/شخص ثاني، لكن لازم يكون التحويل على المعلومات الرسمية التالية:
+الجهة المستلمة هي محفظة Orange Money. استخدم الاسم المستعار AMENPAY أو PAYAMEN، وتأكد قبل الإرسال أن اسم المستفيد الظاهر هو:
+ABDUL RAHMAN ALHARAHSHEH
 
-${paymentDestinationBlock()}
-
-بعد التحويل ضروري ترفع صورة الوصل من الرابط حتى نربطه بطلبك:
+بعد التحويل ارفع الوصل من رابط طلبك:
 ${receipt}
-
-يفضل يكون الوصل واضح فيه المبلغ ووقت التحويل واسم/رقم الجهة المحوّل منها.
 
 رقم التتبع:
 ${tracking}`;
@@ -4923,9 +4924,9 @@ ${tracking}`;
 function alternativePaymentSourceWithoutAppReply(from: string) {
   return `${followupCaseOpening(`${from}:alternative_payment`)}
 
-عادي، إذا ما عندك محفظة ممكن يكون التحويل من مصدر أو رقم ثاني، لكن لازم نربطه بطلبك الصحيح.
+نعم، التحويل من حساب بنكي عبر CliQ ممكن، ومش شرط يكون عندك محفظة Orange Money. كمان ممكن التحويل من أي محفظة إلكترونية.
 
-ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبعطيك رابط رفع الوصل المناسب.
+قبل أي دفع ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى نتأكد إن رسوم فتح الملف مطلوبة على طلبك ونرسل لك رابط رفع الوصل الصحيح.
 
 ${BUSINESS_NAME}`;
 }
@@ -5537,9 +5538,29 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
     "يتم تدقيقه يدويًا",
     "الطلبات غير الجادة",
     "صفحة الإدارة",
+    "التحويل من بنك عادي ما بنفع",
+    "التحويل من البنك ما بنفع",
+    "التحويل البنكي ما بنفع",
+    "الدفع من Orange Money فقط",
+    "الدفع من اورنج موني فقط",
+    "لازم يكون عندك محفظة أورنج",
+    "لازم يكون عندك محفظة اورنج",
+    "لازم شخص قريب أو صديق عنده محفظة أورنج",
+    "هذا الحل الوحيد للدفع حاليًا",
   ];
 
   if (internalNarration.some((phrase) => clean.includes(phrase))) {
+    return input.deterministicReply;
+  }
+
+  if (
+    String(input.intent) === "alternative_payment_source" &&
+    (
+      /(?:البنك|بنكي|حساب بنكي).{0,35}(?:ما بنفع|ما بقدر|غير مسموح|ممنوع|لا يمكن)/i.test(clean) ||
+      /(?:الدفع|التحويل).{0,25}(?:فقط|حصرا|حصريًا).{0,20}(?:اورنج|أورنج|Orange Money)/i.test(clean) ||
+      /(?:لازم|ضروري).{0,25}(?:محفظة|محفظه).{0,15}(?:اورنج|أورنج)/i.test(clean)
+    )
+  ) {
     return input.deterministicReply;
   }
 
@@ -5792,6 +5813,7 @@ function canUseSafeHumanConversation(input: AiReplyInput) {
     "order_status",
     "unknown",
     "human_agent",
+    "alternative_payment_source",
   ];
 
   if (input.isSensitive) return false;
@@ -5846,6 +5868,7 @@ async function generateAiReply(input: AiReplyInput) {
     "cancel_confirmed",
     "site_issue",
     "human_agent",
+    "alternative_payment_source",
   ];
 
   const contextNeedsReasoning =
@@ -5997,9 +6020,14 @@ async function generateAiReply(input: AiReplyInput) {
 - ممنوع اعتبار الإلغاء نهائيًا إلا إذا قال العميل بوضوح: "أكد إلغاء الطلب" أو ما يعادلها.
 - في طلب الإلغاء المبدئي: افهم السبب أولًا، خصوصًا إذا كان الدفع، عدم وجود محفظة، أو تأخير المورد، ثم وضّح الحل.
 
-قاعدة الدفع من مصدر ثاني:
-- إذا قال العميل إنه لا يملك محفظة أو يريد التحويل من رقم/حساب/شخص آخر، فهذا ليس سببًا للإلغاء.
-- وضّح له أن التحويل من مصدر آخر ممكن طالما يتم على معلومات الدفع الرسمية، ثم يجب رفع صورة الوصل من رابط رفع الوصل حتى يربط الطلب.
+قاعدة الدفع من مصدر ثاني وCliQ:
+- الجهة المستلمة هي محفظة Orange Money، لكن مصدر التحويل لا يلزم أن يكون محفظة Orange Money.
+- يستطيع العميل التحويل من أي حساب بنكي يدعم CliQ، أو من أي محفظة إلكترونية.
+- عند التحويل عبر CliQ يستخدم العميل الاسم المستعار AMENPAY أو PAYAMEN.
+- قبل تأكيد الحوالة يجب أن يظهر اسم المستفيد: ABDUL RAHMAN ALHARAHSHEH.
+- إذا قال العميل: "من بنك بحول؟" أو "ما عندي محفظة" أو "عبر كليك" فابدأ مباشرة بعبارة واضحة أن التحويل البنكي عبر CliQ مسموح، ثم اشرح أن الجهة المستلمة محفظة Orange Money.
+- ممنوع قول إن التحويل من البنك لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يحول شخص آخر لديه محفظة أورنج.
+- التحويل من رقم/حساب/شخص آخر ليس سببًا للإلغاء، بشرط استخدام بيانات الدفع الرسمية ورفع صورة الوصل من الرابط المخصص.
 - إذا كان رابط الوصل موجودًا في الرد الآمن الأساسي، حافظ عليه كما هو.
 
 شخصيتك وأسلوبك:
