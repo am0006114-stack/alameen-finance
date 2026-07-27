@@ -326,12 +326,56 @@ function isSelfEmployedText(text: string) {
     "ما بنزل راتبي بنك",
     "دخل من المحل",
     "دخل من المشروع",
+    "فري لانس",
+    "فريلانس",
+    "freelance",
+    "freelancer",
+    "شغل اونلاين",
+    "شغل أونلاين",
+    "بشتغل اونلاين",
+    "بشتغل أونلاين",
+    "عملي اونلاين",
+    "عملي أونلاين",
     "self employed",
     "self-employed",
     "business owner",
   ]);
 
   return workContext;
+}
+
+function isEmploymentEligibilityQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const employmentContext = hasAny(t, [
+    "موظف بشركه", "موظف بشركة", "موضف بشركه", "موضف بشركة",
+    "مش موظف بشركه", "مش موظف بشركة", "غير موظف بشركه", "غير موظف بشركة",
+    "لازم اكون موظف", "لازم أكون موظف", "لازم موظف", "وظيفه رسميه", "وظيفة رسمية",
+    "طالب جامعه", "طالب جامعة", "بدرس بجامعه", "بدرس بجامعة",
+    "فري لانس", "فريلانس", "freelance", "freelancer", "شغل اونلاين", "شغل أونلاين",
+  ]);
+
+  const questionContext = hasAny(t, [
+    "لازم", "بزبط", "بنفع", "بقدر", "هل", "عشان اقسط", "عشان أقسط", "حتى اقسط", "حتى أقسط", "؟",
+  ]);
+
+  return employmentContext && questionContext;
+}
+
+function isMinorEligibilityQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const ageContext = /(?:عمري|العمر|انا|أنا)\s*(?:١[0-٧]|1[0-7])(?:\s*سنه|\s*سنة)?/i.test(t) || hasAny(t, [
+    "عمري ١٦", "عمري 16", "عمري ١٧", "عمري 17", "تحت 18", "اقل من 18", "أقل من 18", "قاصر",
+  ]);
+
+  const questionContext = hasAny(t, [
+    "بزبط", "بنفع", "عادي", "بقدر", "هل", "كفيل", "امي", "أمي", "ابوي", "أبوي", "ولي الامر", "ولي الأمر", "صح", "؟",
+  ]);
+
+  return ageContext && questionContext;
 }
 
 function isShortContinuationText(text: string) {
@@ -786,7 +830,9 @@ const CONTACT_INFO_KEYWORDS = [
   "ابعث رقمكم", "ارسل رقمكم", "واتسابكم", "واتس ابكم", "واتساب الشركة", "واتس اب الشركة",
   "phone", "number", "contact", "whatsapp number", "whatsapp",
   "شو رقمكم", "ايش رقمكم", "ما رقمكم", "رقم تلفون", "رقم هاتف", "هاتفكم", "تلفونكم",
-  "اتصل فيكم", "اتصال", "رن عليكم", "احكي معكم", "اكلمكم"
+  "اتصل فيكم", "اتصال", "رن عليكم", "احكي معكم", "اكلمكم",
+  "ممكن رقم احكي معو", "ممكن رقم احكي معه", "رقم احكي معو", "رقم احكي معه",
+  "بدي رقم احكي معو", "بدي رقم احكي معه", "رقم احكي مع حدا", "رقم شخص احكي معه"
 ];
 
 function isContactInfoText(text: string) {
@@ -817,7 +863,7 @@ const ABUSE_KEYWORDS = [
   "kos omak", "kos okhtak", "koss omak", "koss ekhtak", "kess ekhtak", "ayre", "ayri", "airi", "sharmout", "sharmoota",
 
   // اختصارات/كتابة محرفة
-  "ك*س", "ك س امك", "ك س اختك", "كسختك", "كسامك", "كسمكو", "كسامكو", "منيكين", "متناكين", "عرصات",
+  "ك*س", "ك س امك", "ك س اختك", "كسختك", "كسختكم", "كسامك", "كسمكو", "كسامكو", "منيكين", "متناكين", "عرصات",
 ];
 
 const LEGAL_THREAT_KEYWORDS = [
@@ -1744,7 +1790,9 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isPaymentAmountText(t)) return "payment_amount";
 
-  if (isSelfEmployedText(t)) return "self_employed";
+  if (isSelfEmployedText(t) || isEmploymentEligibilityQuestionText(t)) return "self_employed";
+
+  if (isMinorEligibilityQuestionText(t)) return "requirements";
 
   if (isOfficeLocationText(t)) return "location";
 
@@ -1818,6 +1866,8 @@ function classifyIntent(text: string): CustomerIntent {
     "بدي احكي مع حدا", "بدي حدا يحكي معي",
     "بدي مدير", "احكي مع المدير", "بدي مسؤول", "احكي مع مسؤول",
     "احكي مع انسان", "احكي مع بني ادم", "بدي انسان", "بدي بني ادم", "بدي بشر",
+    "bring me a human", "get me a human", "human please", "live agent", "real person",
+    "customer service agent", "support agent", "representative", "talk to a human",
   ])) {
     return "human_agent";
   }
@@ -2201,18 +2251,14 @@ const PAYMENT_DESTINATION_SECONDARY = "PAYAMEN";
 const PAYMENT_BENEFICIARY_NAME = "ABDUL RAHMAN ALHARAHSHEH";
 
 function paymentDestinationBlock() {
-  return `مصدر التحويل:
-حساب بنكي عبر CliQ أو أي محفظة إلكترونية
+  return `نوع المحفظة: ${PAYMENT_WALLET_TYPE}
 
-الجهة المستلمة:
-محفظة ${PAYMENT_WALLET_TYPE}
-
-التحويل إلى الاسم المستعار:
+التحويل إلى:
 ${PAYMENT_DESTINATION_PRIMARY}
 أو
 ${PAYMENT_DESTINATION_SECONDARY}
 
-اسم المستفيد الذي يجب أن يظهر قبل التأكيد:
+اسم المستفيد الظاهر:
 ${PAYMENT_BENEFICIARY_NAME}`;
 }
 
@@ -2700,7 +2746,7 @@ function paymentMethodReply(app: ApplicationRecord, baseUrl: string, customerTex
     ? "معك حق، فهمت سؤالك السابق غلط. أنت بتسأل عن دفع رسوم فتح الملف، مش عن التوصيل.\n\n"
     : "";
 
-  return `${correction}الدفع يتم بالتحويل إلى محفظة Orange Money الرسمية، ويمكنك التحويل من حساب بنكي عبر CliQ أو من أي محفظة إلكترونية. الدفع النقدي في المكتب غير معتمد حتى تنربط العملية بطلبك ويظل معك وصل واضح.
+  return `${correction}الدفع يتم من خلال بيانات Orange Money الرسمية، وليس نقدًا في المكتب، حتى تنربط العملية بطلبك ويظل معك وصل واضح.
 
 ${paymentDestinationBlock()}
 
@@ -2958,8 +3004,16 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
     return paymentAmountReply(app, customerText);
   }
 
-  if (String(intent) === "self_employed" || isSelfEmployedText(customerText)) {
+  if (String(intent) === "self_employed" || isSelfEmployedText(customerText) || isEmploymentEligibilityQuestionText(customerText)) {
     return selfEmployedReply(app);
+  }
+
+  if (isMinorEligibilityQuestionText(customerText)) {
+    return minorEligibilityReply(app);
+  }
+
+  if (app.status === "rejected" && isRejectedStatusClarificationText(customerText)) {
+    return rejectedStatusClarificationReply(app);
   }
 
   if (hasAny(text, ["اسلوبكم غريب", "أسلوبكم غريب", "ردودكم غريبه", "ردودكم غريبة", "في لف ودوران", "لف ودوران"])) {
@@ -3045,21 +3099,48 @@ function applicationDocumentsReply(app: ApplicationRecord) {
 function selfEmployedReply(app: ApplicationRecord | null) {
   const status = app?.status || "";
 
-  if (!app) {
-    return `وصلتني إنك صاحب محل وعندك سجل تجاري.
+  if (status === "rejected") {
+    return `مش شرط تكون موظف بشركة حتى تقدم؛ العمل الحر أو الأونلاين ممكن ينذكر ببياناته الحقيقية.
 
-قدّم الطلب ببيانات عملك الفعلية، ولا ترفع كشف راتب غير متوفر. إذا احتاج الطلب إثبات عمل محدد، رح توصلك رسالة واضحة بالمستند المطلوب.`;
+لكن طلبك الحالي حالته غير موافق عليه، يعني ما تم اعتماده وما في موافقة جديدة بانتظارها على نفس الطلب.`;
   }
 
-  if (status === "needs_salary_slip") {
-    return `وصلتني إنك صاحب محل وعندك سجل تجاري.
+  return `مش شرط تكون موظف بشركة حتى تقدم طلب تقسيط.
 
-لا ترفع كشف راتب غير متوفر أو مستندًا غير صحيح. احتفظ بالسجل التجاري، وإذا احتاج طلبك إثبات عمل بديل رح توصلك تعليمات واضحة.`;
+إذا شغلك أونلاين أو فري لانس، عبّي بيانات عملك ودخلك الحقيقي مثل ما هي. القبول يعتمد على دراسة الطلب، وإذا احتاج الملف إثبات دخل أو كفيل رح توصلك الخطوة المطلوبة بشكل واضح.
+
+وجود عمل حر ما يعني موافقة مضمونة، لكنه مش سبب لحاله حتى ما تقدم.`;
+}
+
+function minorEligibilityReply(app: ApplicationRecord | null) {
+  if (app?.status === "rejected") {
+    return `بما إن العمر أقل من 18، وجود كفيل لحاله ما يعني إن الطلب رح ينقبل.
+
+وبالنسبة لطلبك الحالي، حالته غير موافق عليه؛ يعني ما تم اعتماده وما في داعي تنتظر قرار جديد على نفس الطلب.`;
   }
 
-  return `وصلتني إنك صاحب محل وعندك سجل تجاري.
+  return `إذا العمر أقل من 18، ما بقدر أؤكد إن وجود كفيل لحاله بكفي أو إن الطلب رح ينقبل.
 
-حاليًا لا ترفع أي مستند إضافي من نفسك. إذا احتاج طلبك إثبات عمل، رح توصلك رسالة واضحة بالمستند المطلوب.`;
+العمر وبيانات الكفيل جزء من دراسة الطلب، والقرار يعتمد على مراجعة الملف. لا تعتبر وجود الوالدة ككفيل موافقة مضمونة.`;
+}
+
+function isRejectedStatusClarificationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "يعني ما زبط", "يعني ما زبطت", "يعني انرفض", "يعني انرفضت", "يعني مرفوض",
+    "ملغي صح", "يعني ملغي", "استنى لحد ما تردو", "استنا لبين ما تردو", "استنى خبر", "او كيف", "أو كيف",
+    "في رد ثاني", "في قرار ثاني", "لسا بستنى", "لسا انتظر", "صح",
+  ]);
+}
+
+function rejectedStatusClarificationReply(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  return `نعم، عبارة "غير موافق عليه حاليًا" تعني إن الطلب ما تم اعتماده.
+
+هو مش طلب ملغي منك، لكنه غير مقبول، وما في قرار جديد لازم تنتظره على نفس الطلب.
+رقم الطلب: ${tracking}`;
 }
 
 function afterApprovalRequirementsReply(app: ApplicationRecord) {
@@ -3541,7 +3622,16 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 
 أما الألوان أو الأجهزة المتوفرة فعليًا فتتأكد حسب توريد المورد وقت اعتماد الطلب، وما بدي أعطيك توفر غير مؤكد.`;
   }
-  if (String(intent) === "unknown") return contextualApplicationFallback(app);
+  if (String(intent) === "unknown") {
+    const t = normalizeArabicText(customerText);
+    if (hasAny(t, ["مافهمت", "ما فهمت", "مش فاهم", "مش فاهمه", "وضح", "وضحي", "كيف يعني"])) {
+      return `معك حق، الرد السابق ما جاوب سؤالك بشكل واضح.
+
+رح أوضح نفس النقطة مباشرة بدون ما أعيد عليك حالة الطلب.`;
+    }
+
+    return `وصلني سؤالك. رح أجاوب على نفس النقطة مباشرة، وما رح أكرر حالة الطلب إلا إذا كان سؤالك عنها.`;
+  }
 
   if (String(intent) === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
   if (String(intent) === "legal_threat") return legalThreatReply(baseUrl, app.phone || tracking, app, customerText);
@@ -4898,24 +4988,27 @@ ${tracking}`;
   if (!(status === "preliminary_qualified" || paymentStatus === "pending" || paymentStatus === "pending_payment" || paymentStatus === "payment_info_sent" || status === "customer_confirmed_continue")) {
     return `هلا ${name} 🌿
 
-نعم، التحويل من حساب بنكي عبر CliQ ممكن، ومش شرط يكون عندك محفظة Orange Money.
-
-لكن حسب حالة طلبك الحالية ما في دفع مطلوب الآن. لما تصير خطوة فتح الملف مطلوبة رسميًا، بنرسل لك بيانات التحويل ورابط رفع الوصل.
+فهمت عليك بخصوص الدفع من مصدر ثاني، بس حسب حالة الملف الحالية ما في دفع مطلوب الآن.
 
 حالة الطلب:
 ${statusHumanLabel(status)}
+
+لما تكون خطوة فتح الملف مطلوبة رسميًا، بنعطيك تعليمات الدفع ورابط رفع الوصل.
 
 رقم التتبع:
 ${tracking}`;
   }
 
-  return `أكيد ${name}، بتقدر تحوّل من أي حساب بنكي يدعم CliQ، أو من أي محفظة إلكترونية، ومش شرط يكون عندك محفظة Orange Money.
+  return `ولا يهمك ${name} 🌿
 
-الجهة المستلمة هي محفظة Orange Money. استخدم الاسم المستعار AMENPAY أو PAYAMEN، وتأكد قبل الإرسال أن اسم المستفيد الظاهر هو:
-ABDUL RAHMAN ALHARAHSHEH
+عدم وجود محفظة أورنج مش مشكلة. ممكن يكون التحويل من رقم/حساب/شخص ثاني، لكن لازم يكون التحويل على المعلومات الرسمية التالية:
 
-بعد التحويل ارفع الوصل من رابط طلبك:
+${paymentDestinationBlock()}
+
+بعد التحويل ضروري ترفع صورة الوصل من الرابط حتى نربطه بطلبك:
 ${receipt}
+
+يفضل يكون الوصل واضح فيه المبلغ ووقت التحويل واسم/رقم الجهة المحوّل منها.
 
 رقم التتبع:
 ${tracking}`;
@@ -4924,9 +5017,9 @@ ${tracking}`;
 function alternativePaymentSourceWithoutAppReply(from: string) {
   return `${followupCaseOpening(`${from}:alternative_payment`)}
 
-نعم، التحويل من حساب بنكي عبر CliQ ممكن، ومش شرط يكون عندك محفظة Orange Money. كمان ممكن التحويل من أي محفظة إلكترونية.
+عادي، إذا ما عندك محفظة ممكن يكون التحويل من مصدر أو رقم ثاني، لكن لازم نربطه بطلبك الصحيح.
 
-قبل أي دفع ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى نتأكد إن رسوم فتح الملف مطلوبة على طلبك ونرسل لك رابط رفع الوصل الصحيح.
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبعطيك رابط رفع الوصل المناسب.
 
 ${BUSINESS_NAME}`;
 }
@@ -5538,29 +5631,9 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
     "يتم تدقيقه يدويًا",
     "الطلبات غير الجادة",
     "صفحة الإدارة",
-    "التحويل من بنك عادي ما بنفع",
-    "التحويل من البنك ما بنفع",
-    "التحويل البنكي ما بنفع",
-    "الدفع من Orange Money فقط",
-    "الدفع من اورنج موني فقط",
-    "لازم يكون عندك محفظة أورنج",
-    "لازم يكون عندك محفظة اورنج",
-    "لازم شخص قريب أو صديق عنده محفظة أورنج",
-    "هذا الحل الوحيد للدفع حاليًا",
   ];
 
   if (internalNarration.some((phrase) => clean.includes(phrase))) {
-    return input.deterministicReply;
-  }
-
-  if (
-    String(input.intent) === "alternative_payment_source" &&
-    (
-      /(?:البنك|بنكي|حساب بنكي).{0,35}(?:ما بنفع|ما بقدر|غير مسموح|ممنوع|لا يمكن)/i.test(clean) ||
-      /(?:الدفع|التحويل).{0,25}(?:فقط|حصرا|حصريًا).{0,20}(?:اورنج|أورنج|Orange Money)/i.test(clean) ||
-      /(?:لازم|ضروري).{0,25}(?:محفظة|محفظه).{0,15}(?:اورنج|أورنج)/i.test(clean)
-    )
-  ) {
     return input.deterministicReply;
   }
 
@@ -5813,7 +5886,6 @@ function canUseSafeHumanConversation(input: AiReplyInput) {
     "order_status",
     "unknown",
     "human_agent",
-    "alternative_payment_source",
   ];
 
   if (input.isSensitive) return false;
@@ -5868,7 +5940,6 @@ async function generateAiReply(input: AiReplyInput) {
     "cancel_confirmed",
     "site_issue",
     "human_agent",
-    "alternative_payment_source",
   ];
 
   const contextNeedsReasoning =
@@ -5943,7 +6014,17 @@ async function generateAiReply(input: AiReplyInput) {
 
 القاعدة الذهبية:
 - افهم نية العميل أولًا.
+- إذا كانت النية unknown أو قال العميل "ما فهمت" أو "كيف يعني"، اقرأ آخر رسائل العميل والردود وحدد آخر سؤال لم تتم الإجابة عنه، ثم أجب عنه مباشرة. ممنوع تكرار حالة الطلب بدل الجواب.
+- سؤال عام عن العمل أو العمر أو الشروط أو رقم التواصل يبقى سؤالًا عامًا حتى لو كان للعميل طلب قائم؛ لا تحوّله تلقائيًا إلى رد حالة الطلب.
 - لا تطلب رقم التتبع إلا إذا كان السؤال عن طلب محدد أو المتابعة تحتاج ربط الطلب.
+
+قواعد الأهلية والعمل:
+- مش شرط يكون العميل موظفًا في شركة حتى يقدم. العمل الحر، الفري لانس، والعمل الأونلاين يمكن ذكره ببياناته الحقيقية.
+- لا تضمن القبول للعامل الحر أو للموظف. قل إن القرار يعتمد على دراسة الطلب، وإذا احتاج الملف إثبات دخل أو كفيل ستظهر الخطوة المطلوبة.
+- إذا كان العمر أقل من 18، ممنوع تأكيد أن وجود كفيل وحده يكفي أو أن الطلب سيُقبل. وضح أن العمر وبيانات الكفيل تُراجع ضمن الطلب ولا تعطِ ضمانًا.
+- حالة rejected تعني أن الطلب غير موافق عليه ولا يوجد قرار جديد ينتظره العميل على نفس الطلب. فرّق بينها وبين cancelled التي تعني أن الطلب أُلغي.
+- إذا سأل العميل "يعني ما زبط؟" أو "أستنى خبر؟" وكانت الحالة rejected، جاوبه بوضوح أن الطلب لم يُعتمد ولا يحتاج انتظار تحديث جديد على نفس الطلب.
+- إذا طلب العميل رقمًا للتواصل، أعطه الرقم الرسمي مباشرة حتى لو كانت حالة طلبه ملغية أو مرفوضة؛ لا تكرر حالة الطلب بدل الرقم.
 - ممنوع تمامًا أن تقول للعميل: سيتم تحويلك، متابعة بشرية، مراجعة بشرية، موظف مختص، سيتم رفع المحادثة، تم تصعيد المحادثة، أو أي صياغة تكشف أن الرد انتقل لجهة أخرى.
 - إذا العميل طلب موظفًا: عرّف نفسك باسم الموظف الثابت من فريق الأمين، ثم أجب عن سؤاله داخل نفس المحادثة.
 - إذا طلب مكالمة: وضح باختصار أن متابعة الملفات عبر واتساب هي الأسرع حاليًا بسبب ضغط الاتصالات، واطلب منه إرسال النقطة هنا. لا تعده باتصال ولا تقل سيتم تحويله.
@@ -6005,7 +6086,7 @@ async function generateAiReply(input: AiReplyInput) {
 - ممنوع شرح طريقة التصنيف، ذاكرة المحادثة، منطق النظام، صفحة الإدارة، التدقيق الداخلي، أو كيف يتم اختيار المستندات.
 - ممنوع كتابة عبارات مثل: "رح أجاوب حسب سياق المحادثة"، "بدون إعادة تفاصيل قديمة"، "الموافقات شبه جاهزة"، "من ناحية المتابعة الداخلية"، أو "ملفك مكتمل وما فيه أي إشكال".
 - لا تسرد كل المستندات المحتملة. اذكر فقط المستند المطلوب فعليًا حسب حالة الطلب.
-- إذا قال العميل إنه صاحب محل أو عمل حر ومعه سجل تجاري، قل إن المعلومة وصلت، ولا تطلب كشف راتب غير متوفر، ولا تدّعي تسجيل ملاحظة في قاعدة البيانات.
+- إذا قال العميل إنه صاحب محل أو عمل حر أو فري لانس أو يعمل أونلاين، جاوب على سؤاله مباشرة: مش شرط وظيفة بشركة للتقديم، ويجب إدخال بيانات العمل والدخل الحقيقية. لا تطلب كشف راتب غير متوفر، ولا تدّعي تسجيل ملاحظة في قاعدة البيانات.
 - لا تعرض الدفع أو تسأل إن كان يريد تعليمات الدفع في متابعة عادية. الدفع يُذكر فقط عندما تكون الحالة مؤهلة مبدئيًا أو العميل يسأل عنه.
 
 قاعدة تغيير الجهاز واللون والسعة:
@@ -6020,14 +6101,9 @@ async function generateAiReply(input: AiReplyInput) {
 - ممنوع اعتبار الإلغاء نهائيًا إلا إذا قال العميل بوضوح: "أكد إلغاء الطلب" أو ما يعادلها.
 - في طلب الإلغاء المبدئي: افهم السبب أولًا، خصوصًا إذا كان الدفع، عدم وجود محفظة، أو تأخير المورد، ثم وضّح الحل.
 
-قاعدة الدفع من مصدر ثاني وCliQ:
-- الجهة المستلمة هي محفظة Orange Money، لكن مصدر التحويل لا يلزم أن يكون محفظة Orange Money.
-- يستطيع العميل التحويل من أي حساب بنكي يدعم CliQ، أو من أي محفظة إلكترونية.
-- عند التحويل عبر CliQ يستخدم العميل الاسم المستعار AMENPAY أو PAYAMEN.
-- قبل تأكيد الحوالة يجب أن يظهر اسم المستفيد: ABDUL RAHMAN ALHARAHSHEH.
-- إذا قال العميل: "من بنك بحول؟" أو "ما عندي محفظة" أو "عبر كليك" فابدأ مباشرة بعبارة واضحة أن التحويل البنكي عبر CliQ مسموح، ثم اشرح أن الجهة المستلمة محفظة Orange Money.
-- ممنوع قول إن التحويل من البنك لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يحول شخص آخر لديه محفظة أورنج.
-- التحويل من رقم/حساب/شخص آخر ليس سببًا للإلغاء، بشرط استخدام بيانات الدفع الرسمية ورفع صورة الوصل من الرابط المخصص.
+قاعدة الدفع من مصدر ثاني:
+- إذا قال العميل إنه لا يملك محفظة أو يريد التحويل من رقم/حساب/شخص آخر، فهذا ليس سببًا للإلغاء.
+- وضّح له أن التحويل من مصدر آخر ممكن طالما يتم على معلومات الدفع الرسمية، ثم يجب رفع صورة الوصل من رابط رفع الوصل حتى يربط الطلب.
 - إذا كان رابط الوصل موجودًا في الرد الآمن الأساسي، حافظ عليه كما هو.
 
 شخصيتك وأسلوبك:
