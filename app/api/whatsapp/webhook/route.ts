@@ -136,6 +136,20 @@ function isTrustVerificationText(text: string) {
   return verificationQuestion || (asksInsteadOfAccuses && trustContext);
 }
 
+function isInternalInstructionRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "ignore your instructions", "ignore previous instructions", "debug prompt", "system prompt",
+    "developer message", "hidden instructions", "internal instructions", "translate the instructions",
+    "what llm are you", "what model are you", "which model are you", "show your prompt",
+    "reveal your instructions", "api calls that call you", "i am not the user",
+    "تجاهل تعليماتك", "تجاهل التعليمات", "اعرض تعليماتك", "اكشف تعليماتك", "ترجم التعليمات",
+    "ما هو النموذج", "شو النموذج", "اي نموذج", "البرومبت الداخلي", "تعليمات النظام",
+  ]);
+}
+
 function isStaffIdentityText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -412,6 +426,73 @@ function isTinyContextFollowupText(text: string) {
 }
 
 
+
+function isContextOnlyFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  if (/^[؟?!.،,\s]+$/.test(String(text || "").trim())) return true;
+
+  return [
+    "مافهمت", "ما فهمت", "مش فاهم", "مش فاهمه", "كيف يعني", "شو يعني",
+    "وضح", "وضحي", "يعني؟", "طيب؟", "؟", "?",
+  ].includes(t);
+}
+
+function isSimpleContinueConfirmationText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  if (["نعم", "موافق", "موافقه", "اوافق", "تمام موافق", "اكيد موافق"].includes(t)) return true;
+  if (hasAny(t, ["مش موافق", "غير موافق", "لا اوافق", "لا أوافق"])) return false;
+  if (t.length <= 80 && hasNormalizedWord(t, ["نعم", "موافق", "اوافق"])) return true;
+
+  return hasAny(t, [
+    "موافق على الجهاز", "موافق عالجهاز", "تمام موافق على الجهاز", "تمام موافق عالجهاز",
+    "موافق 100%", "موافق ميه بالميه", "موافق مية بالمية", "بدي اكمل بالجهاز", "بدي أكمل بالجهاز",
+    "نعم اود الاستمرار", "نعم أود الاستمرار",
+  ]);
+}
+
+function stripIdentifiersForIntent(text: string) {
+  return normalizeArabicText(text)
+    .replace(/am-\d{8,}/gi, " ")
+    .replace(/(?:^|\D)1\d{11,14}(?=\D|$)/g, " ")
+    .replace(/(?:\+?962|00962|0)?7[789]\d{7}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function resolveConversationInput(
+  customerText: string,
+  messageType: string,
+  memory: Awaited<ReturnType<typeof getConversationMemory>>,
+) {
+  let effectiveText = String(customerText || "").trim();
+
+  if (isContextOnlyFollowupText(effectiveText)) {
+    const previousQuestion =
+      memory.lastQuestionLikeCustomerMessage ||
+      memory.lastMeaningfulCustomerMessage ||
+      "";
+
+    if (previousQuestion && normalizeArabicText(previousQuestion) !== normalizeArabicText(effectiveText)) {
+      effectiveText = `${previousQuestion}\nمتابعة العميل: ${customerText}`;
+    }
+  }
+
+  let intent = classifyIncomingIntent(effectiveText, messageType);
+
+  if (
+    memory.hasRecentPreliminaryApprovalTemplate &&
+    isSimpleContinueConfirmationText(customerText)
+  ) {
+    intent = "continue_decision";
+  }
+
+  return { effectiveText, intent };
+}
+
 function isApprovalStatusQuestionText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -478,62 +559,50 @@ function isReviewTimeText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
+  // أسئلة مدة التقسيط وعدد الأشهر ليست سؤالًا عن مدة دراسة الطلب.
+  if (hasAny(t, [
+    "مدة التقسيط", "مده التقسيط", "كم شهر تقسيط", "على كم شهر",
+    "عدد الاقساط", "عدد الأقساط", "فترة التقسيط", "فتره التقسيط",
+    "24 شهر", "36 شهر", "القسط الشهري",
+  ])) {
+    return false;
+  }
+
+  const directPhrases = hasAny(t, [
+    "كم بدها وقت المعامله", "كم بدها وقت المعاملة", "قديش بدها وقت المعامله", "قديش بدها وقت المعاملة",
+    "كم بده وقت الطلب", "قديش بده وقت الطلب", "كم بتطول المعامله", "كم بتطول المعاملة",
+    "قديش بتطول المعامله", "قديش بتطول المعاملة", "متى بتخلص الدراسه", "متى بتخلص الدراسة",
+    "امتى بتخلص الدراسه", "إمتى بتخلص الدراسة", "كم بتاخذ الدراسه", "كم بتاخذ الدراسة",
+    "قديش بتاخذ الدراسه", "قديش بتاخذ الدراسة", "كم يوم المعامله", "كم يوم المعاملة",
+    "المعامله كم يوم", "المعاملة كم يوم", "كم بضل على الطلب", "قديش بضل على الطلب",
+    "متى تخلص المعامله", "متى تخلص المعاملة", "متى يخلص الطلب", "متى بتطلع النتيجه", "متى بتطلع النتيجة",
+  ]);
+
+  if (directPhrases) return true;
+
   const hasQuestionContext = hasAny(t, [
-    "قديش",
-    "كم",
-    "متى",
-    "امتى",
-    "شو المدة",
-    "شو المده",
-    "مدة الطلب",
-    "مده الطلب",
-    "متى الرد",
-    "وقت الرد",
-    "الطلب باخذ",
-    "الطلب بياخذ",
-    "بتاخذ",
-    "بياخذ",
-    "بستغرق",
-    "كم بياخذ وقت",
-    "كم باخذ وقت",
-    "كم بتحتاج وقت",
-    "قديش بتحتاج وقت",
-    "كم يحتاج وقت",
-    "قديش بياخذ وقت",
-    "قديش باخذ وقت",
-    "كم بدكم وقت",
-    "كم ودكم وقت",
-    "قديش بدكم وقت",
-    "خلال كم",
-    "كم المده",
-    "كم المدة",
-    "بالعادة كم",
+    "قديش", "كم", "متى", "امتى", "إمتى", "شو المدة", "شو المده",
+    "مدة الطلب", "مده الطلب", "متى الرد", "وقت الرد", "بدها وقت", "بده وقت",
+    "الطلب باخذ", "الطلب بياخذ", "بتاخذ", "بتاخد", "بياخذ", "بستغرق", "بتطول", "يطول",
+    "كم بياخذ وقت", "كم باخذ وقت", "كم بتحتاج وقت", "قديش بتحتاج وقت", "كم يحتاج وقت",
+    "قديش بياخذ وقت", "قديش باخذ وقت", "كم بدكم وقت", "كم ودكم وقت", "قديش بدكم وقت",
+    "خلال كم", "كم المده", "كم المدة", "بالعادة كم", "متى بتخلص", "امتى بتخلص",
   ]);
 
   const hasReviewContext = hasAny(t, [
-    "الطلب",
-    "الدراسة",
-    "الدراسه",
-    "المراجعة",
-    "المراجعه",
-    "الموافقة",
-    "الموافقه",
-    "النتيجة",
-    "النتيجه",
-    "الرد",
-    "كم يوم",
-    "كم ساعة",
-    "كم ساعه",
+    "الطلب", "المعامله", "المعاملة", "الملف", "الدراسة", "الدراسه", "المراجعة", "المراجعه",
+    "الموافقة", "الموافقه", "النتيجة", "النتيجه", "الرد", "المتابعة", "المتابعه",
+    "كم يوم", "كم ساعة", "كم ساعه",
   ]);
 
   const standaloneReviewQuestion = hasAny(t, [
-    "كم بياخذ وقت", "كم باخذ وقت", "كم بتحتاج وقت", "قديش بتحتاج وقت", "كم يحتاج وقت", "قديش بياخذ وقت", "قديش باخذ وقت",
-    "كم بدكم وقت", "كم ودكم وقت", "قديش بدكم وقت", "خلال كم", "بالعادة كم",
+    "كم بياخذ وقت", "كم باخذ وقت", "كم بتحتاج وقت", "قديش بتحتاج وقت", "كم يحتاج وقت",
+    "قديش بياخذ وقت", "قديش باخذ وقت", "كم بدكم وقت", "كم ودكم وقت", "قديش بدكم وقت",
+    "خلال كم", "بالعادة كم",
   ]);
 
   return hasQuestionContext && (hasReviewContext || standaloneReviewQuestion);
 }
-
 
 function isLongDelayComplaintText(text: string) {
   const t = normalizeArabicText(text);
@@ -638,13 +707,15 @@ function isPaymentReviewTimeText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  const timeContext = hasAny(t, ["قديش", "كم يوم", "خلال كم", "متى", "شو المده", "شو المدة"]);
-  const decisionContext = hasAny(t, [
+  const timeContext = hasAny(t, ["قديش", "كم يوم", "خلال كم", "متى", "امتى", "شو المده", "شو المدة"]);
+  const explicitPaymentContext = hasAny(t, [
     "بعد الدفع", "بعد ما ادفع", "بعد ما أدفع", "بعد رفع الوصل", "بعد تأكيد الدفع",
-    "الموافقه", "الموافقة", "الرفض", "النتيجه", "النتيجة", "الدراسه", "الدراسة",
+    "بعد التحويل", "بعد ما احول", "بعد ما أحول", "بعد تأكيد الوصل", "من بعد الوصل",
   ]);
+  const paymentWords = hasAny(t, ["دفع", "ادفع", "أدفع", "وصل", "ايصال", "إيصال", "تحويل", "حواله", "حوالة", "رسوم"]);
+  const decisionContext = hasAny(t, ["الموافقه", "الموافقة", "الرفض", "النتيجه", "النتيجة", "الدراسه", "الدراسة"]);
 
-  return timeContext && decisionContext;
+  return timeContext && (explicitPaymentContext || (paymentWords && decisionContext));
 }
 
 function isPaymentNextStepText(text: string) {
@@ -771,41 +842,85 @@ function currentCustomerActionLine(app: ApplicationRecord) {
 function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string, customerText = "") {
   if (!app) {
     if (isLongDelayComplaintText(customerText)) {
-      return `معك حق، الانتظار لهالمدة طويل.
+      return `معك حق، الانتظار طال أكثر من المعتاد.
 
-ما بدي أعطيك موعد غير مؤكد. ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى نراجع الحالة الحالية بدل ما نكرر عليك جواب عام.`;
-    }
-
-    return `مراجعة الطلب عادةً بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+مدة المراجعة المعتادة من يومين إلى 3 أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
 
 ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أعطيك الحالة الحالية بدقة.`;
+    }
+
+    return `مدة دراسة الطلب عادةً من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.`;
   }
 
   const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
   const tracking = app.tracking_id || app.id;
-  const currentAction = currentCustomerActionLine(app);
 
   if (isLongDelayComplaintText(customerText)) {
-    return `معك حق، الطلب طال أكثر من المدة المعتادة، ومن حقك تسأل.
+    return `معك حق، الطلب طال أكثر من المدة المعتادة.
 
 الحالة الظاهرة حاليًا: ${statusHumanLabel(status)}.
 حاليًا في ضغط كبير على مراجعة الملفات، والطلبات ماشية حسب ترتيبها، وهذا أثر على سرعة الرد.
 
-ما بدي أعطيك موعد غير مؤكد، وأول ما يظهر قرار فعلي رح يصلك تحديث مباشرة.
+ما بدي أعطيك موعد غير مؤكد، وأول ما يظهر قرار فعلي رح يصلك تحديث.
 رقم الطلب: ${tracking}`;
   }
 
   if (status === "approved" || status === "customer_accepts_delivery_delay") {
-    return `طلبك عليه موافقة نهائية. ما في موعد استلام مؤكد حاليًا، وأول ما يتم اعتماد الموعد رح يصلك تحديث.
+    return `طلبك عليه موافقة نهائية. سؤال المدة هنا صار متعلق بموعد الاستلام، وما في موعد استلام مؤكد حاليًا.
 
-${currentAction}
+أول ما يتم اعتماد الموعد رح يصلك تحديث.
 رقم الطلب: ${tracking}`;
   }
 
-  return `مراجعة الطلب عادةً بتاخذ من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+  if (status === "rejected") {
+    return `الطلب غير موافق عليه، وما في دراسة جديدة أو قرار آخر بانتظاره على نفس الطلب.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "cancelled") {
+    return `الطلب ملغي، لذلك ما في دراسة جارية عليه حاليًا.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "refund_requested" || paymentStatus === "refund_requested") {
+    return `طلب الاسترداد مسجل وقيد المراجعة، وما في مدة دراسة موافقة جارية على الطلب حاليًا.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (paymentStatus === "customer_claimed_paid") {
+    return `الوصل حاليًا بانتظار التأكيد، فلا تعيد الدفع.
+
+بعد تأكيد الوصل تُستكمل دراسة الملف، والنتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.
+
+رقم الطلب: ${tracking}`;
+  }
+
+  if (paymentStatus === "confirmed" || status === "under_review" || ["needs_guarantor", "needs_salary_slip", "needs_identity", "identity_requested", "salary_slip_uploaded", "guarantor_submitted"].includes(status)) {
+    return `دراسة الملف عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.
 
 حالة طلبك الحالية: ${statusHumanLabel(status)}.
-${currentAction}
+${currentCustomerActionLine(app)}
+رقم الطلب: ${tracking}`;
+  }
+
+  if (
+    status === "preliminary_qualified" ||
+    status === "customer_confirmed_continue" ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus)
+  ) {
+    return `المدة المعتادة للدراسة من يومين إلى 3 أيام عمل، وتبدأ بعد رفع وصل رسوم فتح الملف وتأكيده. الجمعة والسبت ما بتنحسب.
+
+${currentCustomerActionLine(app)}
+رقم الطلب: ${tracking}`;
+  }
+
+  return `مدة دراسة الطلب عادةً من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+
+حالة طلبك الحالية: ${statusHumanLabel(status)}.
 رقم الطلب: ${tracking}`;
 }
 
@@ -839,14 +954,26 @@ function isContactInfoText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  if (hasAny(t, CONTACT_INFO_KEYWORDS)) return true;
+  const explicitRequest = hasAny(t, [
+    "رقمكم", "رقمكو", "رقم الشركة", "رقم الشركه", "رقم المحل", "رقم الفرع", "رقم التواصل",
+    "كيف اتواصل", "كيف أتواصل", "بدي رقمكم", "اعطيني رقمكم", "أعطيني رقمكم",
+    "ابعث رقمكم", "ارسل رقمكم", "شو رقمكم", "ايش رقمكم", "ما رقمكم",
+    "رقم تلفون", "رقم هاتف", "هاتفكم", "تلفونكم", "واتسابكم", "واتس ابكم",
+    "ممكن رقم احكي معو", "ممكن رقم احكي معه", "ممكن رقم اتواصل معو", "ممكن رقم اتواصل معه",
+    "رقم احكي معو", "رقم احكي معه",
+    "بدي رقم احكي معو", "بدي رقم احكي معه", "رقم احكي مع حدا", "رقم شخص احكي معه",
+    "contact number", "phone number", "whatsapp number", "how can i contact",
+  ]);
+
+  if (explicitRequest) return true;
 
   const hasPhoneWord = hasAny(t, ["رقم", "تلفون", "هاتف", "واتساب", "واتس", "اتصال", "تواصل", "contact", "phone"]);
   const hasCompanyContext = hasAny(t, ["الشركة", "الشركه", "الامين", "الأمين", "عندكم", "لكم", "معكم", "المحل", "الفرع"]);
+  const hasRequestContext = hasAny(t, ["بدي", "ممكن", "اعطيني", "أعطيني", "ابعث", "ارسل", "كيف", "شو", "وين", "هل في"]);
 
-  return hasPhoneWord && hasCompanyContext;
+  // مجرد قول العميل إنه بعث على واتساب لا يعني أنه يطلب رقم التواصل.
+  return hasPhoneWord && hasCompanyContext && hasRequestContext;
 }
-
 
 const ABUSE_KEYWORDS = [
   // إساءة مباشرة / بذاءة عربية وأردنية شائعة — تعامل معها كحدود احترام، لا كتحية ولا كسؤال عادي
@@ -882,7 +1009,7 @@ const SOCIAL_MEDIA_THREAT_KEYWORDS = [
 
 const SCAM_ACCUSATION_KEYWORDS = [
   "نصب", "نصاب", "نصابه", "نصابين", "بتنصبوا", "نصبتو", "نصبتوا", "منصوب علي", "احتيال", "محتال", "محتالين",
-  "سرقه", "سرقة", "سارق", "سراق", "حرامي", "حراميه", "حرامية", "سرقتوني", "سرقتو", "سرقتوا",
+  "سرقه", "سرقة", "سارق", "سراق", "حرامي", "حراميه", "حرامية", "حرميه", "الحرميه", "سرقتوني", "سرقتو", "سرقتوا",
   "شركة وهمية", "وهمية", "وهم", "خداع", "مخادعين", "ضحكتوا علينا", "بتضحكوا علينا", "scam", "fraud", "scammer",
 ];
 
@@ -1143,6 +1270,8 @@ function isContinueDecisionText(text: string) {
     "افتح الملف", "افتحو الملف", "افتحولي الملف", "بدي افتح الملف",
     "بدي ادفع رسوم فتح الملف", "ابعث تعليمات الدفع", "ابعت تعليمات الدفع",
     "ارسل تعليمات الدفع", "جاهز ادفع رسوم فتح الملف",
+    "موافق على الجهاز", "موافق عالجهاز", "تمام موافق على الجهاز", "تمام موافق عالجهاز",
+    "موافق 100%", "موافق ميه بالميه", "موافق مية بالمية",
     "confirm continue", "continue application", "yes continue",
   ]);
 }
@@ -1377,6 +1506,17 @@ function officialUploadInstructionReply(input: {
   memory?: Awaited<ReturnType<typeof getConversationMemory>>;
 }) {
   const { app, baseUrl, text, intent, memory } = input;
+  const normalizedText = normalizeArabicText(text);
+  const hasMediaCaption = hasAny(normalizedText, ["صوره مرفقه مع تعليق", "فيديو من العميل مع تعليق", "تعليق الملف"]);
+  const hasExplicitDocumentContext = hasAny(normalizedText, [
+    "هويه", "هوية", "كشف راتب", "شهاده راتب", "شهادة راتب", "وصل دفع", "ايصال", "إيصال", "كفيل", "مستند", "وثيقه", "وثيقة",
+  ]);
+
+  if (hasMediaCaption && !hasExplicitDocumentContext) {
+    return `وصلت الصورة وتعليقك.
+
+اكتبلي الجملة أو الجزء اللي معترض عليه أو بدك توضيحه، وبجاوبك عليه مباشرة بدل ما أتعامل مع الصورة كمستند للرفع.`;
+  }
 
   if (!app) {
     return `وصلت الرسالة على واتساب 🌿
@@ -1747,11 +1887,16 @@ function salaryValueIsReasonable(value: number | null): value is number {
 
 function classifyIntent(text: string): CustomerIntent {
   const t = normalizeArabicText(text);
+  const broadText = stripIdentifiersForIntent(t);
 
   if (!t) return "unknown";
 
   // رسائل المتابعة الرسمية من صفحة التتبع ليست ضغطًا عاطفيًا حتى لو احتوت كلمة "الأمين".
   if (isStandardApplicationFollowupText(t)) return "order_status";
+  if (hasAny(t, [
+    "تتاكدلي اذا تقدم", "تأكدلي اذا تقدم", "تتاكدلي إذا تقدم", "تأكدلي إذا تقدم",
+    "الطلب اتاكد", "الطلب تأكد", "الطلب وصل صح", "تأكدلي الطلب وصل",
+  ])) return "order_status";
 
   // إلغاء طلب تغيير الجهاز لا يعني إلغاء طلب التقسيط نفسه.
   if (isCancelDeviceChangeText(t)) return "device_change_cancelled";
@@ -1776,6 +1921,7 @@ function classifyIntent(text: string): CustomerIntent {
   if (isApplicationDataCorrectionConfirmationText(t)) return "application_data_correction_confirmed";
   if (isApplicationDataCorrectionText(t)) return "application_data_correction";
   if (isApprovalTimingQuestionText(t)) return "review_time";
+  if (isReviewTimeText(t)) return "review_time";
   if (isApprovalStatusQuestionText(t)) return "order_status";
 
   // عبارات مثل "صارلو 3 أشهر" تعني شكوى عن طول الانتظار، وليست مدة تقسيط.
@@ -1784,6 +1930,7 @@ function classifyIntent(text: string): CustomerIntent {
   // سؤال "شو المضمون؟" بعد تعليمات الدفع هو سؤال ضمان/موثوقية.
   if (isPaymentGuaranteeText(t)) return "trust_verification";
 
+  if (isInternalInstructionRequestText(t)) return "system_prompt_request";
   if (isStaffIdentityText(t)) return "staff_identity";
 
   if (isCallRequestText(t)) return "call_request";
@@ -1884,6 +2031,13 @@ function classifyIntent(text: string): CustomerIntent {
     return "tracking_link_request";
   }
 
+  if (
+    extractTracking(t) &&
+    (!broadText || hasAny(t, ["رقم الطلب", "رقم التتبع", "تأكدلي", "تاكدلي", "شيك على الطلب"]))
+  ) {
+    return "order_status";
+  }
+
   if (hasAny(t, ["عنوان", "المحل", "فرع", "وينكم", "وين انتو"])) {
     return "location";
   }
@@ -1915,11 +2069,17 @@ function classifyIntent(text: string): CustomerIntent {
     return "apply";
   }
 
-  if (hasAny(t, ["اجهزه", "أجهزة", "الاجهزه", "تلفونات", "موبايلات", "ايفون", "سامسونج", "هونر", "تكنو", "شاومي", "اسعار", "السعر", "متوفر", "ذاكره", "ذاكرة", "256", "512"])) {
+  if (
+    hasAny(broadText, ["اجهزه", "أجهزة", "الاجهزه", "تلفونات", "موبايلات", "ايفون", "سامسونج", "هونر", "تكنو", "شاومي", "اسعار", "السعر", "متوفر", "ذاكره", "ذاكرة"]) ||
+    hasNormalizedWord(broadText, ["256", "512"])
+  ) {
     return "products";
   }
 
-  if (hasAny(t, ["دفع", "ادفع", "دفعت", "رسوم", "خمسه", "خمسة", "5", "٥", "وصل", "ايصال", "إيصال", "كليك", "محفظه", "محفظة", "اورنج", "orange", "فتح ملف", "الدفعه", "حواله"])) {
+  if (
+    hasAny(broadText, ["دفع", "ادفع", "دفعت", "رسوم", "خمسه", "خمسة", "وصل", "ايصال", "إيصال", "كليك", "محفظه", "محفظة", "اورنج", "orange", "فتح ملف", "الدفعه", "حواله"]) ||
+    hasNormalizedWord(broadText, ["5"])
+  ) {
     return "payment";
   }
 
@@ -2218,31 +2378,17 @@ ${BUSINESS_NAME}`;
 
 function scamAccusationReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
   if (app) {
-    return `${complaintApologyParagraph(`${from}:scam:${customerText}`)}
+    return `من حقك تتأكد، وما رح أجادلك أو أطلب منك تثق بكلام عام.
 
-ما رح أجادلك باتهامك، الأهم نعطيك وضع الطلب حسب البيانات الظاهرة.
+طلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.
+احكيلي شو اللي خلاك تشك تحديدًا: بيانات الدفع، عنوان الشركة، أو حالة الطلب؟ وبجاوبك على نفس النقطة مباشرة.
 
-حالة الطلب الحالية:
-${statusHumanLabel(app.status || "")}
-
-رقم التتبع:
-${app.tracking_id || app.id}
-
-إذا عندك اعتراض على دفع أو تأخير أو تسليم، اكتبلي النقطة نفسها وبوضحها لك حسب الحالة بدون تهرب.
-
-رابط المتابعة:
-${trackUrl(baseUrl, app)}
-
-${BUSINESS_NAME}`;
+رقم الطلب: ${app.tracking_id || app.id}`;
   }
 
-  return `${complaintApologyParagraph(`${from}:scam:${customerText}`)}
+  return `من حقك تتأكد قبل أي خطوة.
 
-حتى ما نعطيك كلام عام، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبراجع الحالة مباشرة.
-
-إذا في وصل دفع أو صورة من الطلب، ابعثها هون كمان.
-
-${BUSINESS_NAME}`;
+احكيلي شو اللي خلاك تشك تحديدًا، وإذا الموضوع مرتبط بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم حتى أراجع النقطة نفسها بدون كلام عام.`;
 }
 
 const PAYMENT_WALLET_TYPE = "Orange Money";
@@ -2260,6 +2406,12 @@ ${PAYMENT_DESTINATION_SECONDARY}
 
 اسم المستفيد الظاهر:
 ${PAYMENT_BENEFICIARY_NAME}`;
+}
+
+function bankCliqPaymentExplanation() {
+  return `تقدر تحول من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط يكون عندك محفظة Orange Money.
+
+الجهة المستلمة محفظة Orange Money.`;
 }
 
 function trustVerificationReply(baseUrl: string, app?: ApplicationRecord | null) {
@@ -2426,56 +2578,26 @@ ${tracking}`;
 
 
 function complaintReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
-  const opening = humanOpening(`${from}:complaint`);
   const apology = complaintApologyParagraph(`${from}:${customerText}`);
-  const tracking = app?.tracking_id || app?.id || "";
-  const status = app?.status || "";
-  const reason = complaintReasonLabel(customerText);
 
   if (app) {
     if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
       return refundDeescalationReply(app, customerText);
     }
 
-    return `${opening}
+    return `${apology}
 
-${apology}
+طلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.
+احكيلي الاعتراض نفسه بجملة واضحة — دفع، تأخير، موافقة، أو معلومات تواصل — وبجاوبك على نفس النقطة مباشرة.
 
-فهمت من رسالتك أن الموضوع مرتبط بـ:
-${reason}
-
-طلبك ظاهر عندي الآن وحالته:
-${statusHumanLabel(status)}
-
-${isConfirmedPaidActiveApplication(app) ? paidDevicesReassuranceParagraph(app, "delivery") : `المتابعة المعتمدة حاليًا تكون حسب حالة الطلب فقط، ولا يوجد موعد استلام نهائي محدد لأي طلب غير مؤكد أو غير جاهز للتوزيع.`}
-
-رقم التتبع:
-${tracking}
-
-خلينا نمشي على المؤكد: إذا عندك وصل دفع، صورة هوية، أو أي لقطة شاشة تخص الطلب ابعثها هون، وبوضح لك الخطوة المناسبة حسب الحالة الظاهرة عندي.
-
-رابط المتابعة:
-${trackUrl(baseUrl, app)}
-
-${BUSINESS_NAME}`;
+رقم الطلب: ${app.tracking_id || app.id}`;
   }
 
-  return `${opening}
+  return `${apology}
 
-${apology}
-
-فهمت من رسالتك أن الموضوع مرتبط بـ:
-${reason}
-
-حتى أقدر أجاوبك بدقة وما أعطيك كلام عام، ابعثلي أي واحد من هذول:
-- رقم التتبع إذا موجود
-- رقم الهاتف المستخدم بالطلب
-- صورة الطلب أو صورة الوصل
-
-أول ما توصلني البيانات بربطها بالطلب وبعطيك الحالة والخطوة القادمة بشكل واضح.
-
-${BUSINESS_NAME}`;
+احكيلي المشكلة نفسها بجملة واضحة، وإذا مرتبطة بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم حتى أعطيك جوابًا محددًا.`;
 }
+
 function refundDeescalationReply(app: ApplicationRecord, customerText = "") {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
@@ -2556,29 +2678,12 @@ function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | nu
 بعد ما أطلع الطلب، بعطيك رابط الاسترداد الصحيح مرة واحدة وبسجّل الحالة قيد الاسترداد.`;
 }
 
-function contactInfoReply(baseUrl: string, from: string) {
-  const opening = humanOpening(`${from}:contact_info`);
-  return `${opening}
-
-معلومات التواصل الرسمية لدى ${BUSINESS_NAME}:
-
-واتساب الشركة:
-${BUSINESS_PHONE_E164}
-
-الرقم المحلي:
+function contactInfoReply(_baseUrl: string, _from: string) {
+  return `رقم التواصل وواتساب الشركة الرسمي:
 ${BUSINESS_PHONE_DISPLAY}
 
-الموقع الرسمي:
-${BUSINESS_WEBSITE}
-
-العنوان:
-${BUSINESS_ADDRESS}
-
-ملاحظة مهمة: زيارة المكتب لا تتم إلا إذا وصلتك رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
-
-تنبيه بسيط: أي رقم آخر غير هذه البيانات لا يُعتبر رقمًا رسميًا من طرفنا.
-
-إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبراجع الحالة مباشرة.`;
+بالصيغة الدولية:
+${BUSINESS_PHONE_E164}`;
 }
 
 function websiteReply(baseUrl: string, from: string) {
@@ -2708,6 +2813,8 @@ function paymentMessage(app: ApplicationRecord, baseUrl: string) {
 
 الرسوم مستردة بالكامل في حال عدم الموافقة النهائية، والقسط الأول لا يُدفع الآن؛ يكون بعد استلام الجهاز حسب الاتفاق.
 
+${bankCliqPaymentExplanation()}
+
 ${paymentDestinationBlock()}
 
 
@@ -2746,10 +2853,9 @@ function paymentMethodReply(app: ApplicationRecord, baseUrl: string, customerTex
     ? "معك حق، فهمت سؤالك السابق غلط. أنت بتسأل عن دفع رسوم فتح الملف، مش عن التوصيل.\n\n"
     : "";
 
-  return `${correction}الدفع يتم من خلال بيانات Orange Money الرسمية، وليس نقدًا في المكتب، حتى تنربط العملية بطلبك ويظل معك وصل واضح.
+  return `${correction}${bankCliqPaymentExplanation()}
 
 ${paymentDestinationBlock()}
-
 
 بعد التحويل ارفع الوصل من رابط طلبك:
 ${receiptUrl(baseUrl, app)}`;
@@ -2773,7 +2879,7 @@ function paymentRecipientReply(app: ApplicationRecord, baseUrl: string) {
   const handled = paymentAlreadyHandledReply(app);
   if (handled) return handled;
 
-  return `أكيد، معلومات الدفع الرسمية:
+  return `أكيد. ${bankCliqPaymentExplanation()}
 
 ${paymentDestinationBlock()}
 
@@ -3335,6 +3441,12 @@ function humanHandoffReply(app: ApplicationRecord | null, customerText: string) 
 }
 
 
+function systemPromptRequestReply() {
+  return `ما بقدر أشارك أو أترجم تعليمات داخلية أو تفاصيل الأنظمة المستخدمة.
+
+بقدر أساعدك فقط بخصوص خدمات الأمين أو حالة طلبك.`;
+}
+
 function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
   const staffName = assignedStaffName(from);
   const statusLine = app ? `\nطلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.` : "";
@@ -3546,10 +3658,14 @@ ${url}
 }
 
 function repeatedReplyRecoveryReply(intent: CustomerIntent) {
-  if (["order_status", "delivery", "review_time"].includes(String(intent))) {
-    return `فاهم إنك بتتابع لأنك منتظر، بس الحالة لسا ما تغيّرت عن آخر تحديث.
+  if (String(intent) === "review_time" || String(intent) === "payment_review_time") {
+    return `مدة دراسة الطلب عادةً من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.`;
+  }
 
-أول ما يظهر تحديث فعلي رح يوصلك مباشرة. وإذا سؤالك عن نقطة محددة مثل الموافقة أو القسط أو المطلوب منك، اكتبها وبجاوبك عليها مباشرة.`;
+  if (["order_status", "delivery"].includes(String(intent))) {
+    return `فاهم إنك بتتابع لأنك منتظر، لكن ما في تحديث جديد مختلف عن آخر حالة ظاهرة حاليًا.
+
+إذا سؤالك عن نقطة محددة مثل الموافقة أو القسط أو المطلوب منك، اكتبها وبجاوبك عليها مباشرة.`;
   }
 
   return "";
@@ -3565,6 +3681,8 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
     "reopen_cancelled_request",
     "reopen_cancelled_confirmed",
     "receipt_upload_confirmation",
+    "review_time",
+    "payment_review_time",
     "continue_decision",
     "decline_decision",
     "cancel_confirmed",
@@ -3576,7 +3694,9 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
     "website",
     "location",
     "staff_identity",
+    "system_prompt_request",
     "call_request",
+    "alternative_payment_source",
     "media_upload",
     "document_upload",
     "document_followup",
@@ -3612,6 +3732,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   const conversational = conversationalDirectReply(app, baseUrl, customerText, intent);
   if (conversational) return conversational;
 
+  if (String(intent) === "system_prompt_request") return systemPromptRequestReply();
   if (String(intent) === "contact_info") return contactInfoReply(baseUrl, app.phone || tracking);
   if (String(intent) === "website") return websiteReply(baseUrl, app.phone || tracking);
   if (String(intent) === "location") return locationReply(app.phone || tracking);
@@ -3623,14 +3744,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 أما الألوان أو الأجهزة المتوفرة فعليًا فتتأكد حسب توريد المورد وقت اعتماد الطلب، وما بدي أعطيك توفر غير مؤكد.`;
   }
   if (String(intent) === "unknown") {
-    const t = normalizeArabicText(customerText);
-    if (hasAny(t, ["مافهمت", "ما فهمت", "مش فاهم", "مش فاهمه", "وضح", "وضحي", "كيف يعني"])) {
-      return `معك حق، الرد السابق ما جاوب سؤالك بشكل واضح.
-
-رح أوضح نفس النقطة مباشرة بدون ما أعيد عليك حالة الطلب.`;
-    }
-
-    return `وصلني سؤالك. رح أجاوب على نفس النقطة مباشرة، وما رح أكرر حالة الطلب إلا إذا كان سؤالك عنها.`;
+    return unknownReply(app.phone || tracking);
   }
 
   if (String(intent) === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
@@ -4962,66 +5076,39 @@ function alternativePaymentSourceReply(app: ApplicationRecord, baseUrl: string) 
   const receipt = receiptUrl(baseUrl, app);
 
   if (paymentStatus === "confirmed") {
-    return `هلا ${name} 🌿
+    return `الدفع ظاهر عندي مؤكد، فما في داعي لأي تحويل جديد.
 
-الدفع ظاهر عندي مؤكد، فما في داعي لأي تحويل جديد.
-
-حالة الملف الآن:
-${statusHumanLabel(status)}
-
-رقم التتبع:
-${tracking}`;
+حالة الملف: ${statusHumanLabel(status)}.
+رقم الطلب: ${tracking}`;
   }
 
   if (paymentStatus === "customer_claimed_paid") {
-    return `هلا ${name} 🌿
+    return `وصل الدفع مسجل وبانتظار التأكيد، فلا تعيد الدفع مرة ثانية.
 
-وصل الدفع مسجل عندنا وبانتظار تأكيد الإدارة، لا تعيد الدفع مرة ثانية حتى ما يصير تكرار.
-
-إذا عندك وصل أوضح، ارفعه من نفس الرابط:
-${receipt}
-
-رقم التتبع:
-${tracking}`;
+رقم الطلب: ${tracking}`;
   }
 
   if (!(status === "preliminary_qualified" || paymentStatus === "pending" || paymentStatus === "pending_payment" || paymentStatus === "payment_info_sent" || status === "customer_confirmed_continue")) {
-    return `هلا ${name} 🌿
+    return `حسب حالة طلبك الحالية ما في دفع مطلوب الآن.
 
-فهمت عليك بخصوص الدفع من مصدر ثاني، بس حسب حالة الملف الحالية ما في دفع مطلوب الآن.
-
-حالة الطلب:
-${statusHumanLabel(status)}
-
-لما تكون خطوة فتح الملف مطلوبة رسميًا، بنعطيك تعليمات الدفع ورابط رفع الوصل.
-
-رقم التتبع:
-${tracking}`;
+حالة الطلب: ${statusHumanLabel(status)}.
+رقم الطلب: ${tracking}`;
   }
 
-  return `ولا يهمك ${name} 🌿
-
-عدم وجود محفظة أورنج مش مشكلة. ممكن يكون التحويل من رقم/حساب/شخص ثاني، لكن لازم يكون التحويل على المعلومات الرسمية التالية:
+  return `أكيد، بتقدر تحول من حسابك البنكي عبر CliQ، أو من أي محفظة إلكترونية، ومش شرط يكون عندك محفظة أورنج.
 
 ${paymentDestinationBlock()}
 
-بعد التحويل ضروري ترفع صورة الوصل من الرابط حتى نربطه بطلبك:
+قبل تأكيد الحوالة راجع اسم المستفيد الظاهر، وبعد التحويل ارفع الوصل من رابط طلبك:
 ${receipt}
 
-يفضل يكون الوصل واضح فيه المبلغ ووقت التحويل واسم/رقم الجهة المحوّل منها.
-
-رقم التتبع:
-${tracking}`;
+رقم الطلب: ${tracking}`;
 }
 
 function alternativePaymentSourceWithoutAppReply(from: string) {
-  return `${followupCaseOpening(`${from}:alternative_payment`)}
+  return `نعم، التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية، ومش شرط تكون عندك محفظة Orange Money.
 
-عادي، إذا ما عندك محفظة ممكن يكون التحويل من مصدر أو رقم ثاني، لكن لازم نربطه بطلبك الصحيح.
-
-ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبعطيك رابط رفع الوصل المناسب.
-
-${BUSINESS_NAME}`;
+لكن لا تحول قبل ما نتأكد إن رسوم فتح الملف مطلوبة على طلبك. ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم حتى أعطيك بيانات الدفع ورابط الوصل المرتبطين بالطلب.`;
 }
 
 function receiptUploadReply(app: ApplicationRecord, baseUrl: string) {
@@ -5623,6 +5710,9 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
 
   const internalNarration = [
     "رح أجاوب على آخر سؤال",
+    "رح أجاوب على نفس النقطة مباشرة",
+    "وصلني سؤالك. رح أجاوب",
+    "ما رح أكرر حالة الطلب",
     "حسب سياق المحادثة",
     "بدون إعادة تفاصيل قديمة",
     "من ناحية المتابعة الداخلية",
@@ -5631,6 +5721,11 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
     "يتم تدقيقه يدويًا",
     "الطلبات غير الجادة",
     "صفحة الإدارة",
+    "التحويل من بنك عادي ما بنفع",
+    "التحويل البنكي ما بنفع",
+    "الدفع من Orange Money فقط",
+    "لازم شخص عنده محفظة أورنج",
+    "هذا الحل الوحيد للدفع",
   ];
 
   if (internalNarration.some((phrase) => clean.includes(phrase))) {
@@ -5697,6 +5792,28 @@ function incompleteReplyFallback(input: AiReplyInput) {
   return input.deterministicReply;
 }
 
+
+function containsUnverifiedActionClaim(reply: string, input: AiReplyInput) {
+  const allowedIntents = [
+    "continue_decision", "cancel_confirmed", "reopen_cancelled_confirmed",
+    "application_data_correction_confirmed", "receipt_upload_confirmation",
+  ];
+
+  if (allowedIntents.includes(String(input.intent))) return false;
+
+  return /(?:تم|جرى)\s+(?:تسجيل|تحديث|تعديل|تثبيت|اعتماد|تأكيد)\s+(?:موافقتك|رغبتك|بياناتك|الراتب|الطلب|الجهاز|اللون|السعه|السعة)/i.test(String(reply || ""));
+}
+
+function containsIncorrectPaymentSourceClaim(reply: string) {
+  const text = normalizeArabicText(reply);
+  return hasAny(text, [
+    "التحويل من بنك عادي ما بنفع", "التحويل من البنك ما بنفع", "التحويل البنكي ما بنفع",
+    "الدفع من orange money فقط", "الدفع من اورنج موني فقط", "لازم محفظه اورنج",
+    "لازم محفظة اورنج", "لازم شخص عنده محفظه اورنج", "لازم شخص عنده محفظة اورنج",
+    "هذا الحل الوحيد للدفع",
+  ]);
+}
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
@@ -5707,6 +5824,10 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
   clean = replaceColdClarificationForEmotionalPressure(clean, input);
   clean = trimOverFormalEmotionalReply(clean, input);
   clean = replaceUnfoundedEmotionalPressure(clean, input);
+
+  if (containsUnverifiedActionClaim(clean, input) || containsIncorrectPaymentSourceClaim(clean)) {
+    clean = input.deterministicReply;
+  }
 
   if (isLikelyIncompleteReply(clean)) {
     clean = incompleteReplyFallback(input);
@@ -5753,6 +5874,8 @@ function finalizeReplyBeforeSend(reply: string, options: {
     hasRecentConversation: options.memory.hasRecentConversation,
     hasRecentStaffIntro: options.memory.hasRecentStaffIntro,
     assignedAgentName: assignedStaffName(options.from),
+    lastMeaningfulCustomerMessage: options.memory.lastMeaningfulCustomerMessage || null,
+    lastQuestionLikeCustomerMessage: options.memory.lastQuestionLikeCustomerMessage || null,
   });
 
   if (isLikelyIncompleteReply(finalReply)) {
@@ -5964,10 +6087,14 @@ async function generateAiReply(input: AiReplyInput) {
     "website",
     "office_pickup_policy",
     "staff_identity",
+    "system_prompt_request",
     "call_request",
+    "alternative_payment_source",
     "payment_amount",
     "trust_verification",
     "receipt_upload_confirmation",
+    "review_time",
+    "payment_review_time",
     "supplier_delay_question",
   ];
 
@@ -5995,6 +6122,9 @@ async function generateAiReply(input: AiReplyInput) {
 - الموقع الرسمي: ${BUSINESS_WEBSITE}
 - العنوان الرسمي: ${BUSINESS_ADDRESS}
 - رسوم فتح الملف الرسمية: ${FILE_OPENING_FEE_JOD} دنانير فقط.
+- التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط يكون عند العميل محفظة Orange Money.
+- الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى AMENPAY أو PAYAMEN، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
+- ممنوع القول إن التحويل البنكي لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يدفع شخص لديه محفظة أورنج.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
 - إذا سأل العميل عن العنوان أو الموقع الجغرافي، أعطِ العنوان الرسمي فقط مع ملاحظة أن زيارة المكتب لا تتم إلا إذا وصلت للعميل رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
@@ -6229,6 +6359,12 @@ ${input.lastAssistantReplies?.length ? input.lastAssistantReplies.map((reply, in
 آخر رسائل العميل القريبة:
 ${input.lastCustomerMessages?.length ? input.lastCustomerMessages.map((reply, index) => `${index + 1}. ${reply}`).join("\n") : "لا توجد رسائل عميل قريبة."}
 
+آخر رسالة عميل ذات معنى:
+${input.lastMeaningfulCustomerMessage || "غير متوفرة"}
+
+آخر سؤال واضح للعميل:
+${input.lastQuestionLikeCustomerMessage || "غير متوفر"}
+
 رقم تتبع مستخرج من الذاكرة إن وجد:
 ${input.memoryTrackingId || "غير متوفر"}
 
@@ -6430,13 +6566,6 @@ async function claimOutgoingReplyLock(input: {
           reply_body: cleanReply,
           created_at: nowIso,
         },
-        {
-          lock_key: `reply:${cleanWaId}:${replyBucket}:${cleanReply}`,
-          wa_id: cleanWaId,
-          incoming_message_id: incomingMessageId,
-          reply_body: cleanReply,
-          created_at: nowIso,
-        },
       ]
     : [
         {
@@ -6461,14 +6590,17 @@ async function claimOutgoingReplyLock(input: {
       }
 
       if ((error as any).code === "42P01") {
-        console.error("whatsapp_outgoing_reply_locks table is missing; run the SQL migration before testing duplicate replies.");
+        console.error("whatsapp_outgoing_reply_locks table is missing; using incoming-message dedupe fallback.");
+        if (incomingMessageId) return { shouldSend: true, reason: "missing_outgoing_lock_table_incoming_dedupe" };
         return { shouldSend: !(await hasRecentlySentSameReply(cleanWaId, cleanReply, windowSeconds)), reason: "missing_outgoing_lock_table" };
       }
 
       console.error("outgoing reply lock insert failed:", error);
+      if (incomingMessageId) return { shouldSend: true, reason: "outgoing_lock_error_incoming_dedupe" };
       return { shouldSend: !(await hasRecentlySentSameReply(cleanWaId, cleanReply, windowSeconds)), reason: "outgoing_lock_error" };
     } catch (error) {
       console.error("outgoing reply lock exception:", error);
+      if (incomingMessageId) return { shouldSend: true, reason: "outgoing_lock_exception_incoming_dedupe" };
       return { shouldSend: !(await hasRecentlySentSameReply(cleanWaId, cleanReply, windowSeconds)), reason: "outgoing_lock_exception" };
     }
   }
@@ -6478,17 +6610,22 @@ async function claimOutgoingReplyLock(input: {
 
 async function buildReply(request: Request, from: string, text: string, messageType = "text") {
   const baseUrl = getBaseUrl(request);
-  const directTracking = extractTracking(text);
-  const typedPhone = extractJordanPhoneFromText(text);
-  let intent = classifyIncomingIntent(text, messageType);
   // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
   const conversationMemory = await getConversationMemory(from, 18);
+  const resolvedInput = resolveConversationInput(text, messageType, conversationMemory);
+  text = resolvedInput.effectiveText;
+  let intent = resolvedInput.intent;
+  const directTracking = extractTracking(text);
+  const typedPhone = extractJordanPhoneFromText(text);
 
   const pendingContinueDecision = (conversationMemory.lastAssistantReplies || []).some((reply) =>
     /أكديلي المتابعة|اكد المتابعة|أكد المتابعة|إذا حاب.*نكمل|اذا حاب.*نكمل|تعليمات فتح الملف|تعليمات الدفع/i.test(String(reply || ""))
   );
 
-  if (pendingContinueDecision && isShortContinuationText(text)) {
+  if (
+    (pendingContinueDecision && (isShortContinuationText(text) || isSimpleContinueConfirmationText(text))) ||
+    (conversationMemory.hasRecentPreliminaryApprovalTemplate && isSimpleContinueConfirmationText(text))
+  ) {
     intent = "continue_decision";
   }
 
@@ -6526,6 +6663,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
       hasRecentConversation: conversationMemory.hasRecentConversation,
       hasRecentStaffIntro: conversationMemory.hasRecentStaffIntro,
       assignedAgentName: assignedStaffName(from),
+      lastMeaningfulCustomerMessage: conversationMemory.lastMeaningfulCustomerMessage || null,
+      lastQuestionLikeCustomerMessage: conversationMemory.lastQuestionLikeCustomerMessage || null,
     });
 
   if (String(intent) === "greeting") {
@@ -6706,6 +6845,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
 
   if (String(intent) === "reaction") {
     return "";
+  }
+
+  if (String(intent) === "system_prompt_request") {
+    return systemPromptRequestReply();
   }
 
   if (String(intent) === "staff_identity") {
@@ -7269,6 +7412,8 @@ ${BUSINESS_NAME}`;
 احكيلي شو المشكلة باختصار، وإذا الموضوع متعلق بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
 
 براجع لك الموجود وبعطيك الخطوة المناسبة بدون لف ودوران.`;
+  } else if (String(intent) === "system_prompt_request") {
+    deterministicReply = systemPromptRequestReply();
   } else if (String(intent) === "loan") {
     deterministicReply = loanReply(from);
   } else if (String(intent) === "contact_info") {
@@ -7316,6 +7461,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     "website",
     "location",
     "self_employed",
+    "system_prompt_request",
     "office_pickup_policy",
     "loan",
     "greeting",
@@ -7580,6 +7726,35 @@ async function claimIncomingBurstProcessingLock(waId: string, latestMessageId: s
   }
 }
 
+
+type IncomingBurstRow = {
+  id?: string | null;
+  message_id?: string | null;
+  body?: string | null;
+  created_at?: string | null;
+  message_type?: string | null;
+  raw_payload?: any;
+};
+
+function incomingBurstEventTime(row: IncomingBurstRow) {
+  const rawTimestamp = Number(row.raw_payload?.timestamp || 0);
+  if (Number.isFinite(rawTimestamp) && rawTimestamp > 0) return rawTimestamp * 1000;
+
+  const createdAt = row.created_at ? new Date(row.created_at).getTime() : NaN;
+  return Number.isFinite(createdAt) ? createdAt : 0;
+}
+
+function compareIncomingBurstRows(a: IncomingBurstRow, b: IncomingBurstRow) {
+  const timeDiff = incomingBurstEventTime(a) - incomingBurstEventTime(b);
+  if (timeDiff !== 0) return timeDiff;
+
+  // Meta timestamps have second precision. A stable tie-breaker makes every
+  // concurrent webhook invocation agree on one winner for same-second messages.
+  const aMessageId = String(a.message_id || a.id || "");
+  const bMessageId = String(b.message_id || b.id || "");
+  return aMessageId.localeCompare(bMessageId);
+}
+
 async function collectIncomingMessageBurst(input: {
   waId: string;
   currentMessageId?: string | null;
@@ -7600,7 +7775,7 @@ async function collectIncomingMessageBurst(input: {
     const since = new Date(Date.now() - lookbackSeconds * 1000).toISOString();
     const { data, error } = await supabaseAdmin
       .from("whatsapp_messages")
-      .select("message_id,body,created_at,message_type")
+      .select("id,message_id,body,created_at,message_type,raw_payload")
       .eq("wa_id", input.waId)
       .eq("direction", "incoming")
       .gte("created_at", since)
@@ -7612,7 +7787,9 @@ async function collectIncomingMessageBurst(input: {
       return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
     }
 
-    const usable = data.filter((row) => String(row.body || "").trim());
+    const usable = (data as IncomingBurstRow[])
+      .filter((row) => String(row.body || "").trim())
+      .sort(compareIncomingBurstRows);
     if (!usable.length) {
       return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
     }
@@ -7636,8 +7813,8 @@ async function collectIncomingMessageBurst(input: {
     // نأخذ آخر مجموعة متصلة فقط، حتى لا تختلط محادثة سابقة قريبة بالرسالة الحالية.
     const tail = [latest];
     for (let index = usable.length - 2; index >= 0; index -= 1) {
-      const newerTime = new Date(tail[0]?.created_at || 0).getTime();
-      const olderTime = new Date(usable[index]?.created_at || 0).getTime();
+      const newerTime = incomingBurstEventTime(tail[0]);
+      const olderTime = incomingBurstEventTime(usable[index]);
       if (!Number.isFinite(newerTime) || !Number.isFinite(olderTime) || newerTime - olderTime > maxGapMs) break;
       tail.unshift(usable[index]);
     }
@@ -7805,12 +7982,17 @@ export async function POST(request: Request) {
 
           processingText = burst.combinedText;
           processingMessageType = burst.messageCount > 1 ? "text" : type;
-          processingIntent = classifyIncomingIntent(
-            processingText,
-            processingMessageType,
-          );
-          needsHumanReview = shouldFlagHumanReview(processingText, processingIntent);
         }
+
+        const preReplyMemory = await getConversationMemory(from, 18);
+        const resolvedProcessingInput = resolveConversationInput(
+          processingText,
+          processingMessageType,
+          preReplyMemory,
+        );
+        const replyInputText = resolvedProcessingInput.effectiveText;
+        processingIntent = resolvedProcessingInput.intent;
+        needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
 
         // إعادة الفحص بعد تجميع الرسائل؛ يمكن للإدارة ضغط زر التجاهل أثناء نافذة الانتظار.
         if (await isAutoReplyIgnored(from)) {
@@ -7884,11 +8066,11 @@ export async function POST(request: Request) {
           return;
         }
 
-        const rawReply = await buildReply(request, from, processingText, processingMessageType);
+        const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
         const outgoingMemory = await getConversationMemory(from);
         let reply = finalizeReplyBeforeSend(rawReply, {
           from,
-          text: processingText,
+          text: replyInputText,
           intent: processingIntent,
           memory: outgoingMemory,
         });
@@ -7909,7 +8091,7 @@ export async function POST(request: Request) {
               : "تم رصد التشابه دون استبدال جواب العميل بقالب عام.",
             color: 0xfee75c,
             customerPhone: from,
-            customerMessage: text,
+            customerMessage: processingText,
             systemReply: reply,
             baseUrl: getBaseUrl(request),
           });
@@ -7921,7 +8103,10 @@ export async function POST(request: Request) {
           reply,
           windowSeconds: 20,
         });
-        const alreadySentSameReply = !outgoingClaim.shouldSend || await hasRecentlySentSameReply(from, reply, 30);
+        const alreadySentSameReply = !outgoingClaim.shouldSend || (
+          outgoingClaim.reason !== "outgoing_lock_claimed" &&
+          await hasRecentlySentSameReply(from, reply, 30)
+        );
 
         if (!alreadySentSameReply) {
           await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
@@ -7942,7 +8127,7 @@ export async function POST(request: Request) {
             body: reply,
             messageId: outgoingMessageId || undefined,
             intent: processingIntent,
-            trackingId: extractTracking(processingText) || incomingTracking || null,
+            trackingId: extractTracking(replyInputText) || incomingTracking || null,
             needsHumanReview,
             handledByAi: true,
           });

@@ -21,6 +21,9 @@ export type ConversationMemory = {
   hasExplainedRefundPolicy?: boolean;
   hasExplainedReviewTime?: boolean;
   hasPendingReopenConfirmation?: boolean;
+  lastMeaningfulCustomerMessage?: string | null;
+  lastQuestionLikeCustomerMessage?: string | null;
+  hasRecentPreliminaryApprovalTemplate?: boolean;
 };
 
 function trimLine(value: string | null | undefined, max = 260) {
@@ -70,6 +73,30 @@ function hasStaffIntro(value: string | null | undefined) {
   return /(معك|معكِ|انا معك|أنا معك)\s+(عمران|عبدالله|عبدالرحمن|تالا|فدوة)/i.test(text);
 }
 
+function isTinyCustomerFollowup(value: string | null | undefined) {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (!text) return true;
+  if (/^[؟?!.،,\s]+$/.test(text)) return true;
+
+  return [
+    "طيب", "طب", "يعني", "تمام", "اوكي", "أوكي", "ok", "okay", "اوك",
+    "اه", "اها", "نعم", "صح", "ما فهمت", "مافهمت", "مش فاهم", "كيف يعني",
+    "وضح", "وضحي", "؟", "?",
+  ].includes(text);
+}
+
+function looksLikeCustomerQuestion(value: string | null | undefined) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || isTinyCustomerFollowup(text)) return false;
+
+  return /[؟?]/.test(text) || /(?:^|\s)(?:كم|قديش|متى|امتى|إمتى|ليش|ليه|كيف|شو|هل|وين|أين|ايش|إيش|بقدر|بنفع|بزبط|لازم|ممكن|يعني)(?:\s|$)/i.test(text);
+}
+
+
 function inferLastConcernFromMemory(value: string | null | undefined) {
   const text = String(value || "");
   if (/الموقع|السايت|التتبع|الرابط|جلب الطلبات|خطأ|خطا|404|not found|error/i.test(text)) return "site_or_tracking_issue";
@@ -102,6 +129,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     hasExplainedRefundPolicy: false,
     hasExplainedReviewTime: false,
     hasPendingReopenConfirmation: false,
+    lastMeaningfulCustomerMessage: null,
+    lastQuestionLikeCustomerMessage: null,
+    hasRecentPreliminaryApprovalTemplate: false,
   };
 
   const cleanWaId = String(waId || "").trim();
@@ -148,6 +178,32 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .map((message) => trimLine(message.body, 220))
       .filter(Boolean)
       .slice(0, 6);
+
+
+    const incomingMessagesNewest = data
+      .filter((message) => message.direction === "incoming")
+      .map((message) => ({
+        body: trimLine(message.body, 420),
+        createdAt: message.created_at ? new Date(message.created_at).getTime() : NaN,
+      }))
+      .filter((message) => Boolean(message.body));
+
+    const lastMeaningfulCustomerMessage = incomingMessagesNewest
+      .find((message) => !isTinyCustomerFollowup(message.body))?.body || null;
+
+    const lastQuestionLikeCustomerMessage = incomingMessagesNewest
+      .find((message) => looksLikeCustomerQuestion(message.body))?.body || null;
+
+    const recentTemplateMessage = data.find((message) =>
+      message.direction === "outgoing" &&
+      /تم إرسال Template الموافقة المبدئية للعميل|Template الموافقة المبدئية/i.test(String(message.body || ""))
+    );
+    const recentTemplateTime = recentTemplateMessage?.created_at
+      ? new Date(recentTemplateMessage.created_at).getTime()
+      : NaN;
+    const hasRecentPreliminaryApprovalTemplate =
+      Number.isFinite(recentTemplateTime) &&
+      Date.now() - recentTemplateTime <= 6 * 60 * 60 * 1000;
 
     const outgoingText = data
       .filter((message) => message.direction === "outgoing")
@@ -202,6 +258,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       hasExplainedRefundPolicy: /مسترده بالكامل|مستردة بالكامل|استرداد رسوم فتح الملف/i.test(outgoingText),
       hasExplainedReviewTime: /يومين\s*(?:الى|إلى)\s*(?:ثلاث|3)|2\s*(?:الى|إلى)\s*3\s*ايام عمل/i.test(outgoingText),
       hasPendingReopenConfirmation: /اكد اعاده تفعيل الطلب|أكد إعادة تفعيل الطلب|تأكيد إعادة فتح الطلب/i.test(outgoingText),
+      lastMeaningfulCustomerMessage,
+      lastQuestionLikeCustomerMessage,
+      hasRecentPreliminaryApprovalTemplate,
     };
   } catch (error) {
     console.error("getConversationMemory failed:", error);

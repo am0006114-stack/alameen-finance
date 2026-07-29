@@ -151,6 +151,7 @@ export type CustomerIntent =
   | "site_issue"
   | "human_agent"
   | "staff_identity"
+  | "system_prompt_request"
   | "call_request"
   | "device_change"
   | "device_change_cancelled"
@@ -206,4 +207,6 @@ export type AiReplyInput = {
   hasRecentConversation?: boolean;
   hasRecentStaffIntro?: boolean;
   assignedAgentName?: string | null;
+  lastMeaningfulCustomerMessage?: string | null;
+  lastQuestionLikeCustomerMessage?: string | null;
 };
