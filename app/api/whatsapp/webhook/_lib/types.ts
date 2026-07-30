@@ -168,6 +168,8 @@ export type CustomerIntent =
   | "reopen_cancelled_confirmed"
   | "loan"
   | "contact_info"
+  | "branch_affiliation"
+  | "unrelated_content"
   | "website"
   | "tracking_link_request"
   | "location"

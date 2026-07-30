@@ -9,11 +9,13 @@ import type {
 } from "./_lib/types";
 import {
   BUSINESS_ADDRESS,
+  BUSINESS_INDEPENDENCE_TEXT,
   BUSINESS_NAME,
   BUSINESS_PHONE_DISPLAY,
   BUSINESS_PHONE_E164,
   BUSINESS_WEBSITE,
   FILE_OPENING_FEE_JOD,
+  SENSITIVE_DOCUMENT_POLICY_TEXT,
   POST_EID_DELIVERY_STRICT_TEXT,
   POST_EID_DELIVERY_TEXT,
   fileOpeningFeeExplanation,
@@ -192,6 +194,20 @@ function isCallRequestText(text: string) {
     "برن عليكم",
     "ما حدا برد عالرقم",
     "ما حدا برد على الرقم",
+    "ما حد برد عالرقم",
+    "ما حد برد على الرقم",
+    "برن ما حدا برد",
+    "برن ما حد برد",
+    "برن وما حدا برد",
+    "برن وما حد برد",
+    "ولا احد يجيب",
+    "ولا أحد يجيب",
+    "ولا احد يرد",
+    "ولا أحد يرد",
+    "الهاتف لا يجيب",
+    "التلفون ما حد برد",
+    "اتصلت وما حدا رد",
+    "اتصلت وما حد رد",
   ]);
 }
 
@@ -272,6 +288,65 @@ function isOfficeLocationText(text: string) {
     "location",
     "وين الفرع",
     "عنوان الفرع",
+  ]);
+}
+
+
+function isBranchAffiliationQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const explicitAffiliation = hasAny(t, [
+    "شركة الامين للتمويل الاصغر", "الامين للتمويل الاصغر", "التمويل الاصغر",
+    "انتو الامين للتمويل", "انتم الامين للتمويل", "هل انتو الامين للتمويل", "هل انتم الامين للتمويل",
+    "انتو نفس الامين", "انتم نفس الامين", "هل انتو نفس الامين", "هل انتم نفس الامين",
+    "تابعين للامين", "تابعين لشركه الامين", "تابعين لشركة الامين",
+    "نفس الشركه", "نفس الشركة", "بينكم شراكه", "بينكم شراكة",
+    "الكم علاقه", "الكم علاقة", "مرتبطين فيهم", "تابعين الهم",
+  ]);
+
+  const officeNetworkContext = hasAny(t, [
+    "فروع", "فروعكم", "فروعكو", "عندكم فروع", "وين فروعكم", "وين فروعكو", "فرع", "فرعكم",
+    "المحافظات", "محافظات اخرى", "محافظات ثانية", "محافظه اخرى", "محافظة أخرى",
+    "ارقام الفروع", "أرقام الفروع", "رقم الفرع", "بالمحافظات",
+    "الزرقاء", "اربد", "إربد", "العقبه", "العقبة", "الكرك", "المفرق", "السلط",
+    "مادبا", "جرش", "عجلون", "الطفيله", "الطفيلة", "معان",
+  ]);
+
+  const questionOrContactContext = hasAny(t, [
+    "عندكم", "الكم", "إلكم", "وين", "رقم", "اتواصل", "بتردوا", "ما حد برد", "ما حدا برد",
+    "ليه", "ليش", "هويه", "هوية", "صور", "مستند", "؟",
+  ]);
+
+  return explicitAffiliation || (officeNetworkContext && questionOrContactContext);
+}
+
+function isClearlyUnrelatedPastedContentText(text: string) {
+  const raw = String(text || "").trim();
+  const t = normalizeArabicText(raw);
+  if (!t || extractTracking(raw)) return false;
+
+  if (hasAny(t, [
+    "وين لاقي", "ملف الخدمات تطبيق وين لاقي", "خدمه مشوار", "خدمة مشوار",
+    "تنكات المياه", "مواد البناء", "نظام السائق", "بطاقه الولاء", "بطاقة الولاء",
+  ])) return true;
+
+  const bulletLines = raw.split(/\r?\n/).filter((line) => /^\s*(?:[-*•]|\d+[.)]|[🚗✂️🚰🔥🧱⚡🚿❄️🧰🚘🚛🪚🎨🔨])/.test(line)).length;
+  const looksLikeLongDocument = raw.length >= 1400 && bulletLines >= 8;
+  const hasAmeenRequest = hasAny(t, [
+    "رقم التتبع", "طلب تقسيط لدى الامين", "الامين للاقساط", "متابعه طلبي لدى الامين",
+  ]);
+
+  return looksLikeLongDocument && !hasAmeenRequest;
+}
+
+function isCourtesyText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "كل الاحترام", "كل التقدير", "احترامي", "بانتظار الرد", "بانتظاركم",
+    "مشكورين", "الله يعطيكم العافيه", "الله يعطيكم العافية", "يسعدكم", "تسلموا",
   ]);
 }
 
@@ -1521,7 +1596,7 @@ function officialUploadInstructionReply(input: {
   if (!app) {
     return `وصلت الرسالة على واتساب 🌿
 
-بس للتوضيح المهم: صور أو ملفات واتساب ما بتنحسب كرفع رسمي داخل الملف.
+${SENSITIVE_DOCUMENT_POLICY_TEXT}.
 
 حتى نربط المستند بالطلب، ابعث رقم التتبع AM- أو رقم الهاتف المستخدم بالطلب، وبعدها بنعطيك رابط الرفع الصحيح حسب حالة الملف.`;
   }
@@ -1537,7 +1612,7 @@ function officialUploadInstructionReply(input: {
   if (!url || kind === "unknown") {
     return `وصلت الرسالة يا ${name} 🌿
 
-بس للتوضيح المهم: الصور أو الملفات المرسلة على واتساب لا تُعتمد رسميًا داخل الملف.
+${SENSITIVE_DOCUMENT_POLICY_TEXT}.
 
 حتى أعطيك رابط الرفع الصحيح، اكتبلي نوع المستند: هوية / كشف راتب / وصل دفع / كفيل.
 
@@ -1552,7 +1627,7 @@ ${url}`;
 
   return `وصلت الرسالة يا ${name} 🌿
 
-توضيح مهم: صور أو ملفات واتساب بنعتبرها توضيح فقط، وما بتنحسب كرفع رسمي داخل الملف.
+${SENSITIVE_DOCUMENT_POLICY_TEXT}.
 
 ${linkLine}
 
@@ -1898,6 +1973,11 @@ function classifyIntent(text: string): CustomerIntent {
     "الطلب اتاكد", "الطلب تأكد", "الطلب وصل صح", "تأكدلي الطلب وصل",
   ])) return "order_status";
 
+  if (isClearlyUnrelatedPastedContentText(t)) return "unrelated_content";
+
+  // الاستفسار عن المكاتب/المحافظات أو أي تشابه مع جهة أخرى له توضيح استقلال إلزامي.
+  if (isBranchAffiliationQuestionText(t)) return "branch_affiliation";
+
   // إلغاء طلب تغيير الجهاز لا يعني إلغاء طلب التقسيط نفسه.
   if (isCancelDeviceChangeText(t)) return "device_change_cancelled";
 
@@ -2102,7 +2182,9 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isGreeting(t) || isCasualWellbeingText(t)) return "greeting";
 
-  if (hasAny(t, ["شكرا", "شكراً", "اشكرك", "أشكرك", "شكرك", "شكرا الك", "يسلمو", "تسلم", "تمام", "يعطيك العافيه", "يعطيكم العافيه", "مشكور"])) {
+  if (isCourtesyText(t)) return "thanks";
+
+  if (hasAny(t, ["شكرا", "شكراً", "اشكرك", "أشكرك", "شكرك", "شكرا الك", "يسلمو", "تسلم", "تمام", "يعطيك العافيه", "يعطيكم العافيه", "مشكور", "كل الاحترام", "كل التقدير", "بانتظار الرد", "بانتظاركم"])) {
     return "thanks";
   }
 
@@ -2429,7 +2511,7 @@ ${statusHumanLabel(app.status || "")}`
 بيانات الأمين الرسمية:
 - الموقع: ${BUSINESS_WEBSITE}
 - واتساب الشركة: ${BUSINESS_PHONE_E164}
-- العنوان: ${BUSINESS_ADDRESS}
+- عنوان المكتب لا يُرسل إلا بعد الموافقة النهائية أو عند إرسال موعد حضور رسمي.
 
 الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي.
 
@@ -2683,7 +2765,9 @@ function contactInfoReply(_baseUrl: string, _from: string) {
 ${BUSINESS_PHONE_DISPLAY}
 
 بالصيغة الدولية:
-${BUSINESS_PHONE_E164}`;
+${BUSINESS_PHONE_E164}
+
+التواصل الأساسي للطلبات والمتابعة عبر واتساب، والرد يكون حسب الدور وضغط المراجعات.`;
 }
 
 function websiteReply(baseUrl: string, from: string) {
@@ -2702,19 +2786,54 @@ ${baseUrl}
 تنويه سريع: ${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، وما بنقدم قروض نقدية أو تمويل شخصي.`;
 }
 
-function locationReply(from: string) {
-  const opening = humanOpening(`${from}:location`);
-  return `${opening}
+function canRevealOfficeAddress(app?: ApplicationRecord | null) {
+  const status = String(app?.status || "");
+  return [
+    "approved",
+    "customer_accepts_delivery_delay",
+    "pickup_scheduled",
+    "ready_for_pickup",
+    "appointment_scheduled",
+    "pickup_appointment_confirmed",
+  ].includes(status);
+}
 
-عنواننا الرسمي:
+function locationReply(from: string, app?: ApplicationRecord | null) {
+  if (!canRevealOfficeAddress(app)) {
+    return `الحضور إلى المكتب لا يتم لاستلام مستندات أو تقديمها، ولا نرسل العنوان قبل الموافقة النهائية أو قبل إرسال موعد حضور رسمي من الإدارة.
+
+إذا عندك طلب قائم، اترك رقم التتبع هنا وبراجع لك الخطوة الحالية عبر واتساب.`;
+  }
+
+  return `عنوان المكتب الرسمي:
 ${BUSINESS_ADDRESS}
 
-للتواصل عبر واتساب:
-${BUSINESS_PHONE_DISPLAY}
+الحضور يكون فقط حسب الموعد والتعليمات التي تصلك من الإدارة، ولا تُسلّم أي مستندات حساسة في المكتب.`;
+}
 
-ملاحظة مهمة: زيارة المكتب لا تتم إلا إذا وصلتك رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
+function branchAffiliationReply(text: string, app?: ApplicationRecord | null) {
+  const documentLine = hasAny(text, ["هويه", "هوية", "كشف راتب", "شهادة راتب", "كفيل", "مستند", "صور"])
+    ? `\n\n${SENSITIVE_DOCUMENT_POLICY_TEXT}.`
+    : "";
+  const addressLine = canRevealOfficeAddress(app)
+    ? `\n\nعنوان المكتب لا يُستخدم إلا حسب الموعد والتعليمات الرسمية المرسلة لك.`
+    : `\n\nالحضور إلى المكتب يكون فقط بعد الموافقة النهائية أو عند إرسال موعد رسمي من الإدارة.`;
 
-إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبراجع الحالة مباشرة.`;
+  return `${BUSINESS_INDEPENDENCE_TEXT}.
+
+التواصل الأساسي للطلبات والمتابعة يتم عبر واتساب، والرد يكون حسب الدور وضغط المراجعات. اترك رسالتك ورقم طلبك هنا وسيتم الرد عند الوصول لمحادثتك.${documentLine}${addressLine}`;
+}
+
+function unrelatedContentReply() {
+  return `يبدو أن الرسالة لا تتعلق بطلب لدى الأمين للأقساط.
+
+لمتابعة طلب قائم، أرسل رقم التتبع الذي يبدأ بـ AM- أو رقم الهاتف المستخدم بالتقديم.`;
+}
+
+function thanksReply(text: string) {
+  return hasAny(text, ["كل الاحترام", "كل التقدير", "احترامي"])
+    ? "تسلم، كل الاحترام إلك 🌿"
+    : "العفو 🌿";
 }
 
 function loanReply(from: string) {
@@ -2740,6 +2859,8 @@ ${baseUrl}/products`;
 
 function requirementsReply(baseUrl: string, from: string) {
   return `المستندات المطلوبة تختلف حسب حالة كل طلب، لذلك لا ترفع أي ورقة من نفسك.
+
+${SENSITIVE_DOCUMENT_POLICY_TEXT}.
 
 قدّم الطلب أولًا، وإذا احتاج ملفك مستندًا محددًا رح توصلك رسالة باسمه ورابط رفعه.
 
@@ -3095,7 +3216,7 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   }
 
   if (String(intent) === "thanks") {
-    return `العفو 🌿`;
+    return thanksReply(customerText);
   }
 
   if (String(intent) === "human_agent") {
@@ -3188,15 +3309,15 @@ function applicationDocumentsReply(app: ApplicationRecord) {
   const status = app.status || "";
 
   if (status === "needs_guarantor") {
-    return `المطلوب حاليًا تعبئة بيانات الكفيل من الرابط الرسمي المرسل لك. لا ترفع أي مستند إضافي غير المطلوب.`;
+    return `المطلوب حاليًا تعبئة بيانات الكفيل من الرابط الرسمي الآمن المرسل لك. ${SENSITIVE_DOCUMENT_POLICY_TEXT}.`;
   }
 
   if (status === "needs_salary_slip") {
-    return `المطلوب حاليًا كشف راتب أو شهادة راتب من الرابط الرسمي. لا ترفع أي مستند إضافي غير المطلوب.`;
+    return `المطلوب حاليًا كشف راتب أو شهادة راتب من الرابط الرسمي الآمن. ${SENSITIVE_DOCUMENT_POLICY_TEXT}.`;
   }
 
   if (status === "needs_identity" || status === "identity_requested") {
-    return `المطلوب حاليًا صورة الهوية الأمامية والخلفية من رابط الهوية الرسمي. لا ترفع أي مستند إضافي غير المطلوب.`;
+    return `المطلوب حاليًا صورة الهوية الأمامية والخلفية من رابط الهوية الرسمي الآمن. ${SENSITIVE_DOCUMENT_POLICY_TEXT}.`;
   }
 
   return `حاليًا ما في أوراق إضافية مطلوبة منك. إذا احتاج طلبك مستندًا محددًا، رح توصلك رسالة باسمه وطريقة رفعه.`;
@@ -3456,15 +3577,12 @@ function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
 تفضل، شو النقطة اللي بدك أراجعها؟`;
 }
 
-function callRequestReply(from: string, app?: ApplicationRecord | null) {
-  const staffName = assignedStaffName(from);
+function callRequestReply(_from: string, app?: ApplicationRecord | null) {
   const requestLine = app
-    ? `طلبك رقم ${app.tracking_id || app.id} ظاهر عندي، وبقدر أتابعه معك هون مباشرة.`
-    : "ابعث رقم الطلب أو سؤالك هون وبراجعه معك مباشرة.";
+    ? `اترك رسالتك ورقم طلبك ${app.tracking_id || app.id} هنا، وبنكمل المتابعة ضمن نفس المحادثة.`
+    : "اترك رسالتك ورقم طلبك هنا، وبنكمل المتابعة ضمن نفس المحادثة.";
 
-  return `معك ${staffName} من فريق الأمين.
-
-حاليًا بسبب ضغط الاتصالات، متابعة الملفات عبر واتساب هي الأسرع والأدق حتى يظل كل تحديث موثق.
+  return `نتفهم إنك حاولت تتواصل هاتفيًا. التواصل الأساسي للطلبات والمتابعة عندنا عبر واتساب، والرد بيكون حسب الدور وضغط المراجعات.
 
 ${requestLine}`;
 }
@@ -3691,6 +3809,8 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
     "office_pickup_policy",
     "tracking_link_request",
     "contact_info",
+    "branch_affiliation",
+    "unrelated_content",
     "website",
     "location",
     "staff_identity",
@@ -3729,13 +3849,20 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   const paymentStatus = app.payment_status || "";
   const url = trackUrl(baseUrl, app);
 
+  // دفاع إضافي: سؤال القرض لا يعرض أي بيانات طلب حتى لو وصل app بالخطأ من مسار آخر.
+  if (String(intent) === "loan") return loanReply(app.phone || tracking);
+  if (String(intent) === "branch_affiliation") return branchAffiliationReply(customerText, null);
+  if (String(intent) === "unrelated_content") return unrelatedContentReply();
+
   const conversational = conversationalDirectReply(app, baseUrl, customerText, intent);
   if (conversational) return conversational;
 
   if (String(intent) === "system_prompt_request") return systemPromptRequestReply();
   if (String(intent) === "contact_info") return contactInfoReply(baseUrl, app.phone || tracking);
+  if (String(intent) === "branch_affiliation") return branchAffiliationReply(customerText, app);
+  if (String(intent) === "unrelated_content") return unrelatedContentReply();
   if (String(intent) === "website") return websiteReply(baseUrl, app.phone || tracking);
-  if (String(intent) === "location") return locationReply(app.phone || tracking);
+  if (String(intent) === "location") return locationReply(app.phone || tracking, app);
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
@@ -4647,6 +4774,16 @@ function postPaymentRequirementsAlreadySentReply(app: ApplicationRecord) {
 تم رفع كشف الراتب`;
 }
 
+
+function usableOfficialUploadUrl(value: string, expectedPath: string) {
+  try {
+    const parsed = new URL(value);
+    return parsed.protocol === "https:" && parsed.pathname === expectedPath && Boolean(parsed.searchParams.get("tracking")) && Boolean(parsed.searchParams.get("phone"));
+  } catch {
+    return false;
+  }
+}
+
 async function postPaymentRequirementsReplyOnce(app: ApplicationRecord, baseUrl: string, waId: string) {
   const salary = getSalaryNumber(app.salary);
   const needsSalarySlip = salary !== null && salary < 350;
@@ -4661,6 +4798,10 @@ async function postPaymentRequirementsReplyOnce(app: ApplicationRecord, baseUrl:
 
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
+  const guarantorLink = guarantorUrl(baseUrl, app);
+  const salaryLink = salarySlipUrl(baseUrl, app);
+  const validGuarantorLink = usableOfficialUploadUrl(guarantorLink, "/guarantor");
+  const validSalaryLink = usableOfficialUploadUrl(salaryLink, "/salary-slip");
   const lines: string[] = [
     `أهلًا ${name} 🌿`,
     "",
@@ -4671,16 +4812,27 @@ async function postPaymentRequirementsReplyOnce(app: ApplicationRecord, baseUrl:
 
   let index = 1;
 
-  if (!guarantorSent) {
-    lines.push("", `${index}. تعبئة بيانات الكفيل من الرابط:`, guarantorUrl(baseUrl, app));
+  if (!guarantorSent && validGuarantorLink) {
+    lines.push("", `${index}. تعبئة بيانات الكفيل من الرابط الرسمي الآمن:`, guarantorLink);
     index += 1;
   }
 
-  if (needsSalarySlip && !salarySent) {
-    lines.push("", `${index}. رفع كشف راتب رسمي حديث أو شهادة راتب من الرابط:`, salarySlipUrl(baseUrl, app));
+  if (needsSalarySlip && !salarySent && validSalaryLink) {
+    lines.push("", `${index}. رفع كشف راتب رسمي حديث أو شهادة راتب من الرابط الرسمي الآمن:`, salaryLink);
+  }
+
+  if ((!guarantorSent && !validGuarantorLink) || (needsSalarySlip && !salarySent && !validSalaryLink)) {
+    return `تعذر إظهار رابط المتطلبات بشكل صحيح الآن، لذلك ما رح أرسل لك رسالة ناقصة أو أطلب إرسال المستندات بطريقة بديلة.
+
+${SENSITIVE_DOCUMENT_POLICY_TEXT}.
+
+رقم الطلب:
+${tracking}`;
   }
 
   lines.push(
+    "",
+    SENSITIVE_DOCUMENT_POLICY_TEXT + ".",
     "",
     "هذه الخطوة لاستكمال الدراسة فقط، ولا تعني رفض الطلب.",
     "",
@@ -5360,11 +5512,12 @@ async function findApplicationForAiMemory(from: string, text: string, intent: Cu
 
   try {
     if (tracking && typedPhone) {
-      return (await findApplicationByTrackingAndPhone(tracking, typedPhone)) || (await findApplicationByTracking(tracking));
+      return await findApplicationByTrackingAndPhone(tracking, typedPhone);
     }
 
     if (tracking) {
-      return (await findApplicationByTracking(tracking)) || (await findApplicationByTrackingAndPhone(tracking, from));
+      const candidate = await findApplicationByTracking(tracking);
+      return candidate && phonesBelongToSameCustomer(candidate.phone, from) ? candidate : null;
     }
 
     if ([
@@ -5579,7 +5732,7 @@ function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
 
   const lines = clean.split("\n");
   const output: string[] = [];
-  let keptFirstUrl = false;
+  const urlsKeptInReply = new Set<string>();
   let suppressedAny = false;
 
   for (const line of lines) {
@@ -5589,19 +5742,24 @@ function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
       continue;
     }
 
-    const isRepeated = urls.some((url) => previousUrls.has(url));
-    if (isRepeated || keptFirstUrl) {
+    const isRepeated = urls.some((url) => previousUrls.has(url) || urlsKeptInReply.has(url));
+    if (isRepeated) {
       suppressedAny = true;
+      const previousLine = String(output[output.length - 1] || "").trim();
+      if (/(?:من|عبر) الرابط(?: الرسمي(?: الآمن)?)?[:：]$|الرابط التالي[:：]$/i.test(previousLine)) {
+        output.pop();
+        if (!String(output[output.length - 1] || "").trim()) output.pop();
+      }
       continue;
     }
 
     let updatedLine = line;
     for (const url of urls) {
       const normalized = normalizeUrlForMemory(url);
+      urlsKeptInReply.add(normalized);
       if (normalized !== url) updatedLine = updatedLine.replace(url, normalized);
     }
     output.push(updatedLine);
-    keptFirstUrl = true;
   }
 
   clean = output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
@@ -5629,6 +5787,16 @@ function removeOverusedManagerName(reply: string, input: AiReplyInput) {
   }
 
   return clean.replace(/\n{3,}/g, "\n\n").trim();
+}
+
+
+function removeForbiddenOfficeNetworkTerms(reply: string) {
+  return String(reply || "")
+    .replace(/فروعنا|فروعكم|الفروع|فروع/gi, "المكتب")
+    .replace(/فرعنا|فرعكم|الفرع|فرع/gi, "المكتب")
+    .replace(/المكتب\s+المكتب/g, "المكتب")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 function oneFaithPhraseOnly(reply: string) {
@@ -5736,6 +5904,14 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
     return input.deterministicReply;
   }
 
+  if (!isApproved && clean.includes(BUSINESS_ADDRESS)) {
+    return input.deterministicReply;
+  }
+
+  if (isBranchAffiliationQuestionText(input.customerText || "") && !clean.includes(BUSINESS_INDEPENDENCE_TEXT)) {
+    return input.deterministicReply;
+  }
+
   if (!isApproved && /(بانتظار وصول الاجهزه|بانتظار وصول الأجهزة|الجهاز لسا ما توفر|الجهاز غير متوفر عند المورد)/i.test(clean)) {
     return input.deterministicReply;
   }
@@ -5815,7 +5991,7 @@ function containsIncorrectPaymentSourceClaim(reply: string) {
 }
 
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
-  let clean = String(reply || "").trim();
+  let clean = removeForbiddenOfficeNetworkTerms(String(reply || "").trim());
   clean = shortenTrackingLinks(clean);
   clean = removeOverusedManagerName(clean, input);
   clean = stripRepeatedStaffIntro(clean, input);
@@ -6083,6 +6259,9 @@ async function generateAiReply(input: AiReplyInput) {
 
   const strictDeterministicIntents: CustomerIntent[] = [
     "contact_info",
+    "branch_affiliation",
+    "unrelated_content",
+    "loan",
     "location",
     "website",
     "office_pickup_policy",
@@ -6120,14 +6299,17 @@ async function generateAiReply(input: AiReplyInput) {
 - رقم واتساب الشركة الرسمي: ${BUSINESS_PHONE_E164}
 - الرقم المحلي الرسمي: ${BUSINESS_PHONE_DISPLAY}
 - الموقع الرسمي: ${BUSINESS_WEBSITE}
-- العنوان الرسمي: ${BUSINESS_ADDRESS}
+- عنوان المكتب لا يُرسل إلا بعد الموافقة النهائية أو عند وجود موعد حضور رسمي من الإدارة
 - رسوم فتح الملف الرسمية: ${FILE_OPENING_FEE_JOD} دنانير فقط.
 - التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط يكون عند العميل محفظة Orange Money.
 - الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى AMENPAY أو PAYAMEN، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
 - ممنوع القول إن التحويل البنكي لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يدفع شخص لديه محفظة أورنج.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
-- إذا سأل العميل عن العنوان أو الموقع الجغرافي، أعطِ العنوان الرسمي فقط مع ملاحظة أن زيارة المكتب لا تتم إلا إذا وصلت للعميل رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
+- إذا سأل العميل عن العنوان أو الموقع الجغرافي قبل الموافقة النهائية، لا تذكر العنوان. وضح أن الحضور يتم فقط بعد الموافقة النهائية أو عند إرسال موعد رسمي من الإدارة.
+- لا تستخدم كلمة «فروع» في أي رد. استخدم «المكتب» فقط.
+- عند السؤال عن مكاتب في محافظات أخرى أو أرقام مشابهة أو وجود صلة بجهة أخرى، يجب قول: ${BUSINESS_INDEPENDENCE_TEXT}.
+- التواصل الأساسي للطلبات والمتابعة عبر واتساب، والرد حسب الدور وضغط المراجعات. إذا قال العميل إن الهاتف لا يُجاب، اطلب منه ترك رسالته ورقم طلبه على واتساب دون وعد بمكالمة.
 - ممنوع دعوة العميل لزيارة المكتب، أو قول "جاهزين لاستقبالك"، أو ذكر دوام المكتب، أو ساعات العمل، أو أي موعد زيارة، إلا إذا كانت رسالة الإدارة نفسها تطلب ذلك صراحة.
 
 قاعدة التوصيل وأرامكس والاستلام:
@@ -6182,6 +6364,8 @@ async function generateAiReply(input: AiReplyInput) {
 - رابط المنتجات يرسل مرة واحدة فقط في المحادثة، وبعدها قل للعميل إن الرابط موجود فوق.
 
 قاعدة رفع المستندات الرسمية:
+- ${SENSITIVE_DOCUMENT_POLICY_TEXT}. هذه سياسة ثابتة وغير قابلة للاستثناء.
+- ممنوع اقتراح إرسال الهوية أو كشف/شهادة الراتب أو بيانات الكفيل عبر واتساب أو الهاتف أو الحضور إلى المكتب.
 - صور واتساب أو ملفات واتساب لا تُعتمد كاستكمال رسمي داخل الملف، حتى لو وصلت في المحادثة.
 - الاعتماد الرسمي للهوية أو كشف الراتب أو وصل الدفع أو بيانات الكفيل يكون فقط من الرابط المخصص حسب حالة الطلب.
 - ممنوع قول: تم اعتماد الهوية، تم تثبيت الكشف، خلصنا كل المتطلبات، أو تم ربط المستند، إلا إذا كانت حالة الطلب في قاعدة البيانات تدل على ذلك صراحة.
@@ -6608,10 +6792,89 @@ async function claimOutgoingReplyLock(input: {
   return { shouldSend: true, reason: "outgoing_lock_claimed" };
 }
 
-async function buildReply(request: Request, from: string, text: string, messageType = "text") {
+
+function normalizedNameTokens(value: string | null | undefined) {
+  return normalizeArabicText(value)
+    .replace(/[^\u0600-\u06FFA-Za-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length >= 2 && !["واتساب", "whatsapp", "user", "عميل"].includes(token));
+}
+
+function namesClearlyConflict(applicationName: string | null | undefined, displayName: string | null | undefined) {
+  const applicationTokens = normalizedNameTokens(applicationName);
+  const displayTokens = normalizedNameTokens(displayName);
+  if (!applicationTokens.length || !displayTokens.length) return false;
+  return !applicationTokens.some((token) => displayTokens.includes(token));
+}
+
+function phonesBelongToSameCustomer(first: string | null | undefined, second: string | null | undefined) {
+  const firstPhone = normalizeJordanPhone(first);
+  const secondPhone = normalizeJordanPhone(second);
+  return Boolean(firstPhone && secondPhone && firstPhone === secondPhone);
+}
+
+function trackingOwnershipVerificationReply(tracking: string) {
+  return `حفاظًا على خصوصية الطلب، رقم التتبع وحده غير كافٍ لعرض بيانات الملف من رقم واتساب مختلف.
+
+أرسل رقم الهاتف المسجل بالطلب مع رقم التتبع في نفس الرسالة:
+${tracking}`;
+}
+
+function phoneOwnershipVerificationReply(phone: string) {
+  return `حفاظًا على خصوصية الطلب، لا يمكن عرض بيانات ملف اعتمادًا على رقم هاتف مختلف عن رقم واتساب المرسل وحده.
+
+أرسل رقم التتبع AM- مع رقم الهاتف المسجل بالطلب في نفس الرسالة:
+${phone}`;
+}
+
+function identifierMismatchReply(tracking: string, phone: string) {
+  return `رقم التتبع ورقم الهاتف المرسلان لا يطابقان طلبًا واحدًا، لذلك ما رح أعرض اسمًا أو حالة من طلب مختلف.\n\nراجع الرقمين وأرسلهما مرة ثانية:\n${tracking}\n${phone}`;
+}
+
+async function buildReply(request: Request, from: string, text: string, messageType = "text", customerDisplayName = "") {
   const baseUrl = getBaseUrl(request);
   // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
-  const conversationMemory = await getConversationMemory(from, 18);
+  const rawConversationMemory = await getConversationMemory(from, 18);
+  const rememberedPhoneBeforeResolution = rawConversationMemory.lastPhoneNumber ||
+    extractJordanPhoneFromText(rawConversationMemory.lastCustomerMessages?.join("\n") || "");
+  const rememberedTrackingBeforeResolution = rawConversationMemory.lastTrackingId ||
+    extractTracking(rawConversationMemory.conversationContext || "");
+  const normalizedSenderBeforeResolution = normalizeJordanPhone(from);
+  const senderIsJordanMobile = /^07[789]\d{7}$/.test(normalizedSenderBeforeResolution);
+  const unsafeCrossPhoneMemory = Boolean(
+    (rememberedPhoneBeforeResolution && !phonesBelongToSameCustomer(rememberedPhoneBeforeResolution, from)) ||
+    (!senderIsJordanMobile && rememberedTrackingBeforeResolution)
+  );
+
+  // إذا كانت ذاكرة المحادثة تحمل رقم طلب/هاتف لشخص آخر، نمسحها قبل تفسير الرسالة الحالية.
+  // هذا يمنع الرسائل القصيرة من إعادة إحياء طلب قديم وإظهار اسمه أو جهازه أو رابط دفعه.
+  const conversationMemory = unsafeCrossPhoneMemory
+    ? {
+        ...rawConversationMemory,
+        conversationContext: "",
+        lastAssistantReplies: [],
+        lastCustomerMessages: [],
+        lastIntent: null,
+        lastDirection: null,
+        lastTrackingId: null,
+        lastPhoneNumber: null,
+        lastCustomerConcern: null,
+        sentUrls: [],
+        hasRecentStaffIntro: false,
+        hasSentProductsLink: false,
+        hasSentTrackLink: false,
+        hasSentReceiptLink: false,
+        lastRelevantUrl: null,
+        isPaymentAssistanceActive: false,
+        hasExplainedPaymentFee: false,
+        hasExplainedRefundPolicy: false,
+        hasExplainedReviewTime: false,
+        hasPendingReopenConfirmation: false,
+        lastMeaningfulCustomerMessage: null,
+        lastQuestionLikeCustomerMessage: null,
+        hasRecentPreliminaryApprovalTemplate: false,
+      }
+    : rawConversationMemory;
   const resolvedInput = resolveConversationInput(text, messageType, conversationMemory);
   text = resolvedInput.effectiveText;
   let intent = resolvedInput.intent;
@@ -6630,13 +6893,29 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   const explicitlyNewApplication = isExplicitNewApplicationText(text);
-  const memoryTracking = !explicitlyNewApplication
+  const blocksRememberedApplicationContext = [
+    "loan",
+    "branch_affiliation",
+    "unrelated_content",
+    "contact_info",
+    "website",
+    "installment_info",
+    "apply",
+    "products",
+    "greeting",
+    "thanks",
+    "system_prompt_request",
+  ].includes(String(intent));
+  const rawMemoryTracking = !explicitlyNewApplication && !blocksRememberedApplicationContext
     ? conversationMemory.lastTrackingId || extractTracking(conversationMemory.conversationContext)
     : "";
-  const memoryPhone = !explicitlyNewApplication
+  const rawMemoryPhone = !explicitlyNewApplication && !blocksRememberedApplicationContext
     ? conversationMemory.lastPhoneNumber || extractJordanPhoneFromText(conversationMemory.lastCustomerMessages?.join("\n") || "")
     : "";
-  const tracking = directTracking || memoryTracking;
+  const memoryTracking = rawMemoryTracking;
+  // لا نعيد استخدام رقم محفوظ من محادثة سابقة إذا كان مختلفًا عن رقم واتساب المرسل.
+  const memoryPhone = phonesBelongToSameCustomer(rawMemoryPhone, from) ? rawMemoryPhone : "";
+  let tracking = directTracking || memoryTracking;
   const pendingCancellationConfirmation = (conversationMemory.lastAssistantReplies || []).some((reply) =>
     /اكد الغاء الطلب|أكد إلغاء الطلب|قبل الالغاء النهائي|قبل الإلغاء النهائي/i.test(String(reply || ""))
   );
@@ -6657,7 +6936,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
       conversationContext: conversationMemory.conversationContext,
       lastAssistantReplies: conversationMemory.lastAssistantReplies,
       lastCustomerMessages: conversationMemory.lastCustomerMessages,
-      memoryTrackingId: memoryTracking || null,
+      memoryTrackingId: directTracking || null,
       messageType,
       sentUrls: conversationMemory.sentUrls || [],
       hasRecentConversation: conversationMemory.hasRecentConversation,
@@ -6675,28 +6954,55 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (String(intent) === "thanks" && !conversationMemory.hasRecentConversation) {
-    return `العفو 🌿
-بخدمتك بأي وقت.`;
+    return thanksReply(text);
+  }
+
+  // هذه استفسارات عامة لا يجوز أن تستدعي ملف عميل محفوظًا من سياق قديم.
+  // خصوصًا سؤال القرض أو العلاقة مع شركة أخرى: الرد يجب أن يبقى عامًا بلا اسم أو رقم طلب أو رابط دفع.
+  if (String(intent) === "loan") {
+    return loanReply(from);
+  }
+  if (String(intent) === "branch_affiliation") {
+    return branchAffiliationReply(text, null);
+  }
+  if (String(intent) === "unrelated_content") {
+    return unrelatedContentReply();
   }
 
   let app: ApplicationRecord | null = null;
 
-  if (tracking && typedPhone) {
-    app = await findApplicationByTrackingAndPhone(tracking, typedPhone);
-    if (!app) app = await findApplicationByTracking(tracking);
-  } else if (tracking) {
-    app = await findApplicationByTracking(tracking);
-    if (!app) app = await findApplicationByTrackingAndPhone(tracking, typedPhone || memoryPhone || from);
+  const hasExplicitTrackingAndPhone = Boolean(directTracking && typedPhone);
+  let explicitIdentifierMismatch = false;
+  let ownershipVerificationReply = "";
+
+  if (directTracking && typedPhone) {
+    // السماح بالوصول من رقم واتساب مختلف فقط عند إرسال رقم التتبع والهاتف المسجل معًا ومطابقتهما لنفس الطلب.
+    app = await findApplicationByTrackingAndPhone(directTracking, typedPhone);
+    explicitIdentifierMismatch = !app;
+  } else if (directTracking) {
+    const candidate = await findApplicationByTracking(directTracking);
+    if (candidate && phonesBelongToSameCustomer(candidate.phone, from)) {
+      app = candidate;
+    } else if (candidate) {
+      ownershipVerificationReply = trackingOwnershipVerificationReply(directTracking);
+    }
   } else if (typedPhone) {
-    app = await findApplicationByPhone(typedPhone);
-    if (!app && normalizeJordanPhone(typedPhone) !== normalizeJordanPhone(from)) {
-      app = await findApplicationByPhone(from);
+    if (phonesBelongToSameCustomer(typedPhone, from)) {
+      app = await findApplicationByPhone(typedPhone);
+    } else {
+      ownershipVerificationReply = phoneOwnershipVerificationReply(typedPhone);
+    }
+  } else if (memoryTracking) {
+    // رقم تتبع من الذاكرة لا يُقبل إلا إذا كان الهاتف داخل الطلب هو نفس رقم واتساب الحالي.
+    const candidate = await findApplicationByTracking(memoryTracking);
+    if (candidate && phonesBelongToSameCustomer(candidate.phone, from)) {
+      app = candidate;
+    } else {
+      // لا نسمح باستخدام رقم تتبع غير موثوق لاحقًا في رد عام أو داخل نموذج الذكاء.
+      tracking = directTracking;
     }
   } else if (memoryPhone && !explicitlyNewApplication) {
-    app = await findApplicationByPhone(memoryPhone);
-    if (!app && normalizeJordanPhone(memoryPhone) !== normalizeJordanPhone(from)) {
-      app = await findApplicationByPhone(from);
-    }
+    app = await findApplicationByPhone(from);
   } else if (!explicitlyNewApplication && (
     String(intent) === "order_status" ||
     String(intent) === "delivery" ||
@@ -6751,6 +7057,29 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "products"
   )) {
     app = await findApplicationByPhone(from);
+  }
+
+  // قفل أمان أخير: لا نسمح أبدًا بربط ملف هاتفه مختلف عن المرسل، إلا عند تحقق الزوج الصريح (تتبع + هاتف).
+  if (app && !hasExplicitTrackingAndPhone && !phonesBelongToSameCustomer(app.phone, from)) {
+    console.error("Blocked cross-phone application context", {
+      sender: normalizeJordanPhone(from),
+      applicationPhone: normalizeJordanPhone(app.phone),
+      tracking: app.tracking_id || app.id,
+      intent,
+    });
+    app = null;
+  }
+
+  if (explicitIdentifierMismatch) {
+    return identifierMismatchReply(directTracking, typedPhone);
+  }
+
+  if (ownershipVerificationReply) {
+    return ownershipVerificationReply;
+  }
+
+  if (app && namesClearlyConflict(app.full_name, customerDisplayName)) {
+    app = { ...app, full_name: null };
   }
 
   const paymentContextActive = paymentAssistanceStateActive(app, conversationMemory);
@@ -7418,10 +7747,14 @@ ${BUSINESS_NAME}`;
     deterministicReply = loanReply(from);
   } else if (String(intent) === "contact_info") {
     deterministicReply = contactInfoReply(baseUrl, from);
+  } else if (String(intent) === "branch_affiliation") {
+    deterministicReply = branchAffiliationReply(text, null);
+  } else if (String(intent) === "unrelated_content") {
+    deterministicReply = unrelatedContentReply();
   } else if (String(intent) === "website") {
     deterministicReply = websiteReply(baseUrl, from);
   } else if (String(intent) === "location") {
-    deterministicReply = locationReply(from);
+    deterministicReply = locationReply(from, null);
   } else if (String(intent) === "installment_info") {
     deterministicReply = installmentInfoReply(baseUrl, from);
   } else if (String(intent) === "self_employed") {
@@ -7450,14 +7783,15 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
   } else if (String(intent) === "greeting") {
     deterministicReply = generalGreetingReply(from);
   } else if (String(intent) === "thanks") {
-    deterministicReply = `العفو 🌿
-بخدمتك بأي وقت.`;
+    deterministicReply = thanksReply(text);
   } else {
     deterministicReply = unknownReply(from);
   }
 
   const factualIntentNeedsExactReply = [
     "contact_info",
+    "branch_affiliation",
+    "unrelated_content",
     "website",
     "location",
     "self_employed",
@@ -8066,7 +8400,7 @@ export async function POST(request: Request) {
           return;
         }
 
-        const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
+        const rawReply = await buildReply(request, from, replyInputText, processingMessageType, contactName);
         const outgoingMemory = await getConversationMemory(from);
         let reply = finalizeReplyBeforeSend(rawReply, {
           from,
