@@ -213,4 +213,6 @@ export type AiReplyInput = {
   lastUnansweredQuestion?: string | null;
   contextualCustomerText?: string | null;
   managerSessionActive?: boolean;
+  hasRecentOmranIntro?: boolean;
+  omranActivationReason?: string | null;
 };

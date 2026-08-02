@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasAny, normalizeArabicText } from "./text";
+import { OMRAN_SESSION_MS } from "./omranAgent";
 
 export type ConversationMemory = {
   conversationContext: string;
@@ -28,6 +29,9 @@ export type ConversationMemory = {
   customerTone?: "neutral" | "concerned" | "frustrated" | "angry" | "urgent";
   humanRequestedRecently?: boolean;
   managerSessionActive?: boolean;
+  hasRecentOmranIntro?: boolean;
+  unansweredQuestionRepeatCount?: number;
+  consecutiveGenericNonAnswers?: number;
   lastOperationalIntent?: string | null;
 };
 
@@ -167,6 +171,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     customerTone: "neutral",
     humanRequestedRecently: false,
     managerSessionActive: false,
+    hasRecentOmranIntro: false,
+    unansweredQuestionRepeatCount: 0,
+    consecutiveGenericNonAnswers: 0,
     lastOperationalIntent: null,
   };
 
@@ -282,21 +289,51 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       "بدي احكي مع موظف", "بدي اتواصل مع موظف", "بدي موظف", "احكي مع موظف", "bring me a human", "get me a human", "talk to a human",
     ]);
 
-    // جلسة عمران هي تصعيد آلي داخل نفس المحادثة، وليست تحويلًا لموظف بشري.
-    // تبقى فعّالة لمدة ساعتين من آخر تعريف بعمران أو طلب صريح لموظف،
-    // حتى يكمل العميل الحديث معه بدون أن تعود أسماء المتابعة العادية.
-    const managerSessionMessage = visibleData.find((message) => {
-      const body = String(message.body || "");
-      if (message.direction === "outgoing" && /معك\s+عمران\s+من\s+متابعه\s+الحالات/i.test(normalizeArabicText(body))) {
-        return true;
-      }
-      return message.direction === "incoming" && String(message.intent || "") === "human_agent";
+    // جلسة عمران هي متابعة آلية متقدمة داخل نفس المحادثة، وليست تحويلًا لموظف بشري.
+    // نلتقط آخر تعريف بعمران أو آخر طلب صريح لموظف، ونبقي الجلسة فعالة لمدة محددة.
+    const omranIntroMessage = visibleData.find((message) => {
+      if (message.direction !== "outgoing") return false;
+      const body = normalizeArabicText(String(message.body || ""));
+      return /(?:معك|انا معك)\s+عمران(?:\s|$)/i.test(body);
     });
+    const humanRequestMessage = visibleData.find((message) =>
+      message.direction === "incoming" && String(message.intent || "") === "human_agent"
+    );
+    const managerSessionMessage = [omranIntroMessage, humanRequestMessage]
+      .filter(Boolean)
+      .sort((a, b) => new Date(String(b?.created_at || 0)).getTime() - new Date(String(a?.created_at || 0)).getTime())[0];
     const managerSessionTime = managerSessionMessage?.created_at
       ? new Date(managerSessionMessage.created_at).getTime()
       : NaN;
     const managerSessionActive = Number.isFinite(managerSessionTime) &&
-      Date.now() - managerSessionTime <= 2 * 60 * 60 * 1000;
+      Date.now() - managerSessionTime <= OMRAN_SESSION_MS;
+    const omranIntroTime = omranIntroMessage?.created_at
+      ? new Date(omranIntroMessage.created_at).getTime()
+      : NaN;
+    const hasRecentOmranIntro = Number.isFinite(omranIntroTime) &&
+      Date.now() - omranIntroTime <= OMRAN_SESSION_MS;
+
+    const pendingTopic = inferTopic(pendingQuestion || "");
+    const normalizedPendingQuestion = normalizeArabicText(pendingQuestion || "");
+    const unansweredQuestionRepeatCount = pendingQuestion
+      ? incomingMessages.slice(0, 10).filter((message) => {
+          const body = trimLine(message.body, 420);
+          if (!body || !isQuestionLike(body)) return false;
+          const normalizedBody = normalizeArabicText(body);
+          if (normalizedBody === normalizedPendingQuestion) return true;
+          return pendingTopic !== "general" && inferTopic(body) === pendingTopic;
+        }).length
+      : 0;
+
+    let consecutiveGenericNonAnswers = 0;
+    for (const message of visibleData) {
+      if (message.direction !== "outgoing") continue;
+      if (isGenericNonAnswer(message.body)) {
+        consecutiveGenericNonAnswers += 1;
+        continue;
+      }
+      break;
+    }
 
     const lastOperationalIntent = visibleData.find((message) =>
       message.direction === "incoming" &&
@@ -333,6 +370,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       customerTone,
       humanRequestedRecently,
       managerSessionActive,
+      hasRecentOmranIntro,
+      unansweredQuestionRepeatCount,
+      consecutiveGenericNonAnswers,
       lastOperationalIntent,
     };
   } catch (error) {
