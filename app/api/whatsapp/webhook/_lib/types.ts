@@ -137,6 +137,7 @@ export type CustomerIntent =
   | "reaction"
   | "complaint"
   | "refund"
+  | "refund_reversal_request"
   | "continue_decision"
   | "keep_request"
   | "decline_decision"
@@ -151,7 +152,6 @@ export type CustomerIntent =
   | "site_issue"
   | "human_agent"
   | "staff_identity"
-  | "system_prompt_request"
   | "call_request"
   | "device_change"
   | "device_change_cancelled"
@@ -168,8 +168,6 @@ export type CustomerIntent =
   | "reopen_cancelled_confirmed"
   | "loan"
   | "contact_info"
-  | "branch_affiliation"
-  | "unrelated_content"
   | "website"
   | "tracking_link_request"
   | "location"
@@ -209,6 +207,9 @@ export type AiReplyInput = {
   hasRecentConversation?: boolean;
   hasRecentStaffIntro?: boolean;
   assignedAgentName?: string | null;
-  lastMeaningfulCustomerMessage?: string | null;
-  lastQuestionLikeCustomerMessage?: string | null;
+  conversationTopic?: string | null;
+  customerTone?: string | null;
+  empathyLevel?: "none" | "light" | "strong";
+  lastUnansweredQuestion?: string | null;
+  contextualCustomerText?: string | null;
 };
