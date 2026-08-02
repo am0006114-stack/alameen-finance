@@ -212,4 +212,5 @@ export type AiReplyInput = {
   empathyLevel?: "none" | "light" | "strong";
   lastUnansweredQuestion?: string | null;
   contextualCustomerText?: string | null;
+  managerSessionActive?: boolean;
 };

@@ -1034,7 +1034,7 @@ function isAngryCustomerText(text: string) {
 
 function shouldFlagHumanReview(text: string, intent?: CustomerIntent) {
   const finalIntent = intent || classifyIntent(text);
-  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "refund_reversal_request", "human_agent", "cancel_request", "cancel_confirmed", "reopen_cancelled_request", "reopen_cancelled_confirmed", "application_data_correction", "application_data_correction_confirmed", "site_issue"].includes(finalIntent) || isLongDelayComplaintText(text) || isAngryCustomerText(text);
+  return ["abuse", "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage", "emotional_pressure", "media_upload", "document_upload", "document_followup", "receipt_upload_confirmation", "cancel_refund_request", "tracking_link_request", "complaint", "refund", "refund_reversal_request", "cancel_request", "cancel_confirmed", "reopen_cancelled_request", "reopen_cancelled_confirmed", "application_data_correction", "application_data_correction_confirmed", "site_issue"].includes(finalIntent) || isLongDelayComplaintText(text) || isAngryCustomerText(text);
 }
 
 function complaintReasonLabel(text: string) {
@@ -2980,7 +2980,7 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   }
 
   if (String(intent) === "human_agent") {
-    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app);
+    return managerTakeoverReply(app, customerText);
   }
 
   if (String(intent) === "keep_request") {
@@ -3310,17 +3310,89 @@ function directRequirementQuestionReply(app: ApplicationRecord, customerText: st
   return null;
 }
 
-function humanHandoffReply(app: ApplicationRecord | null, _customerText: string) {
-  const tracking = app ? app.tracking_id || app.id : "";
-  const statusLine = app ? `
-طلبك ظاهر عندي وحالته الحالية: ${statusHumanLabel(app.status || "")}.` : "";
+function managerTakeoverReply(app: ApplicationRecord | null, customerText: string) {
+  const opening = criticalCaseOpening();
 
-  return `أكيد. تم تثبيت طلبك للمتابعة المباشرة، وما رح نكرر عليك نفس الردود.${statusLine}
+  if (!app) {
+    return `${opening}
 
-رقم الشركة الرسمي: ${BUSINESS_PHONE_DISPLAY}${tracking ? `
-رقم الطلب: ${tracking}` : ""}`;
+أنا رح أكمل معك هون بنفسي، وما في تحويل لموظف بشري أو انتظار اتصال.
+
+ابعث رقم التتبع اللي ببدأ بـ AM- أو رقم الهاتف المستخدم بالطلب، وبراجع الحالة وبعطيك الخيارات المتاحة بوضوح.`;
+  }
+
+  const tracking = app.tracking_id || app.id;
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  const paid = paymentStatus === "confirmed" || paymentStatus === "customer_claimed_paid" || Boolean(app.payment_confirmed_at);
+  const isRefundPending = status === "refund_requested" || paymentStatus === "refund_requested";
+
+  if (status === "refund_completed") {
+    return `${opening}
+
+راجعت طلبك ${tracking}. الاسترداد منفذ بالفعل، لذلك ما بقدر أوقفه أو أرجع الطلب لنفس المرحلة.
+
+إذا بدك جهاز، الخطوة الصحيحة تكون تقديم طلب جديد.`;
+  }
+
+  if (isRefundPending) {
+    return `${opening}
+
+راجعت طلبك ${tracking}. الموجود حاليًا هو طلب استرداد مسجل.
+
+قدامك خياران واضحان:
+1) تكمل بإجراءات الاسترداد.
+2) تطلب إيقاف الاسترداد والاستمرار بالمعاملة، وبنراجع أولًا إذا لسه ممكن إيقافه قبل التنفيذ.
+
+اكتب اختيارك بوضوح: "أكمل الاسترداد" أو "أوقف الاسترداد وأكمل الطلب".`;
+  }
+
+  if (status === "cancelled") {
+    return `${opening}
+
+راجعت طلبك ${tracking}. الطلب ملغي حاليًا.
+
+إذا بدك ترجع تكمل، اكتب: "أريد إعادة تفعيل الطلب"، وبنفحص إمكانية إعادته حسب حالته الحالية.${paid ? " وإذا بدك تكمل بالإلغاء واسترداد الرسوم، اكتب: \"أريد الاسترداد\"." : ""}`;
+  }
+
+  if (status === "approved" || status === "customer_accepts_delivery_delay" || status === "delivery_delay_notice_sent") {
+    return `${opening}
+
+راجعت طلبك ${tracking}. الطلب عليه موافقة نهائية، لكن ما في موعد استلام مؤكد ظاهر حاليًا.
+
+قدامك خياران:
+1) تكمّل انتظار توفر الجهاز واعتماد موعد الاستلام من المكتب.
+2) تلغي الطلب${paid ? " وتطلب استرداد رسوم فتح الملف" : ""}.
+
+اكتبلي: "أنتظر" أو "ألغي الطلب${paid ? " وأسترد الرسوم" : ""}"، وأنا أكمل معك على نفس الخيار.`;
+  }
+
+  if (["under_review", "guarantor_submitted", "identity_uploaded", "salary_slip_uploaded", "customer_confirmed_continue", "preliminary_qualified"].includes(status)) {
+    return `${opening}
+
+راجعت طلبك ${tracking}. حالته الحالية: ${statusHumanLabel(status)}.
+
+قدامك خياران:
+1) تكمّل انتظار نتيجة الدراسة والتحديث القادم.
+2) تلغي الطلب${paid ? " وتطلب استرداد رسوم فتح الملف" : ""}.
+
+اكتبلي: "أنتظر" أو "ألغي الطلب${paid ? " وأسترد الرسوم" : ""}"، وأنا أكمل معك مباشرة.`;
+  }
+
+  if (status === "rejected") {
+    return `${opening}
+
+راجعت طلبك ${tracking}. الطلب غير موافق عليه حاليًا.${paid ? " وبما إن رسوم فتح الملف مدفوعة، خيار الاسترداد متاح." : " وما في دفع مطلوب عليك."}
+
+${paid ? "اكتب: \"أريد الاسترداد\" حتى أكمل معك بخطوة تثبيت البيانات." : "إذا بدك تعرف سبب الحالة أو تقدم لاحقًا بطلب جديد، احكيلي النقطة اللي بدك أوضحها."}`;
+  }
+
+  return `${opening}
+
+راجعت طلبك ${tracking}. حالته الحالية: ${statusHumanLabel(status)}.
+
+احكيلي شو بدك تعمل تحديدًا: تكمل بالطلب، تلغيه، أو تستفسر عن الخطوة الحالية، وأنا أكمل معك هون بدون تحويل لموظف آخر.`;
 }
-
 
 function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
   const staffName = assignedStaffName(from);
@@ -5073,29 +5145,6 @@ async function isAutoReplyIgnored(waId: string) {
   }
 }
 
-async function pauseAutomaticRepliesForDirectFollowup(waId: string, reason: string) {
-  const cleanWaId = normalizeWhatsAppToSend(waId);
-  if (!cleanWaId) return;
-
-  try {
-    const { error } = await supabaseAdmin.from("whatsapp_messages").insert({
-      wa_id: cleanWaId,
-      direction: "outgoing",
-      message_type: "admin_control",
-      body: AUTO_REPLY_IGNORED_MARKER,
-      intent: "human_agent",
-      needs_human_review: true,
-      handled_by_ai: false,
-      status: "auto_reply_ignored",
-      raw_payload: { source: "dialogue_vnext", reason },
-    });
-
-    if (error) console.error("Failed to pause WhatsApp automatic replies:", error);
-  } catch (error) {
-    console.error("Pause automatic replies failed:", error);
-  }
-}
-
 async function logMessage(input: {
   waId: string;
   direction: "incoming" | "outgoing";
@@ -5511,7 +5560,8 @@ function removeOverusedManagerName(reply: string, input: AiReplyInput) {
   let clean = String(reply || "");
   const escalationIntents: CustomerIntent[] = ["legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "refund", "complaint", "abuse"];
   const explicitManagerRequest = /مدير|عمران|مسؤول|اداره|إدارة/i.test(input.customerText || "");
-  const allowManager = escalationIntents.includes(input.intent) && explicitManagerRequest;
+  const allowManager = Boolean(input.managerSessionActive) || String(input.intent) === "human_agent" ||
+    (escalationIntents.includes(input.intent) && explicitManagerRequest);
 
   if (!allowManager) {
     clean = clean
@@ -5664,7 +5714,11 @@ function isLikelyIncompleteReply(reply: string) {
 }
 
 function incompleteReplyFallback(input: AiReplyInput) {
-  if (String(input.intent) === "staff_identity" || String(input.intent) === "human_agent") {
+  if (String(input.intent) === "human_agent" || input.managerSessionActive) {
+    return `معك عمران من متابعة الحالات في الأمين للأقساط. احكيلي شو بدك تعمل بالطلب، وبوضحلك الخيارات وبكمل معك هون.`;
+  }
+
+  if (String(input.intent) === "staff_identity") {
     return `معك ${input.assignedAgentName || "موظف من فريق الأمين"} من فريق الأمين. احكيلي سؤالك وبجاوبك حسب حالة الطلب.`;
   }
 
@@ -5721,6 +5775,15 @@ function aiTemperatureForInput(input: AiReplyInput, useDeepThinking: boolean) {
   return Number(process.env.AI_TEMPERATURE || "0.52");
 }
 
+function assignedAgentForTurn(
+  from: string,
+  intent: CustomerIntent,
+  memory: Awaited<ReturnType<typeof getConversationMemory>>,
+) {
+  if (String(intent) === "human_agent" || memory.managerSessionActive) return "عمران";
+  return assignedStaffName(from);
+}
+
 function finalizeReplyBeforeSend(reply: string, options: {
   from: string;
   text: string;
@@ -5740,7 +5803,7 @@ function finalizeReplyBeforeSend(reply: string, options: {
     sentUrls: options.memory.sentUrls || [],
     hasRecentConversation: options.memory.hasRecentConversation,
     hasRecentStaffIntro: options.memory.hasRecentStaffIntro,
-    assignedAgentName: assignedStaffName(options.from),
+    assignedAgentName: assignedAgentForTurn(options.from, options.intent, options.memory),
     contextualCustomerText: options.memory.lastUnansweredCustomerQuestion
       ? `${options.memory.lastUnansweredCustomerQuestion}
 متابعة العميل: ${options.text}`
@@ -5753,6 +5816,7 @@ function finalizeReplyBeforeSend(reply: string, options: {
         ? "light"
         : "none",
     lastUnansweredQuestion: options.memory.lastUnansweredCustomerQuestion || null,
+    managerSessionActive: Boolean(options.memory.managerSessionActive) || String(options.intent) === "human_agent",
   });
 
   if (isLikelyIncompleteReply(finalReply)) {
@@ -6111,6 +6175,16 @@ ${input.messageType || "text"}
 اسم الموظف الرسمي الثابت لهذه المحادثة:
 ${input.assignedAgentName || "غير محدد"}
 
+هل المحادثة داخل جلسة تصعيد مع عمران؟
+${input.managerSessionActive ? "نعم" : "لا"}
+
+قاعدة جلسة عمران:
+- طلب العميل التحدث مع موظف لا يعني تحويلًا بشريًا؛ أنت عمران من متابعة الحالات وتكمل الحوار بنفسك.
+- لا تعطِ رقم الشركة بدل متابعة الحالة، إلا إذا طلب العميل الرقم صراحة.
+- اعرض الخيارات الواقعية بحسب حالة الطلب: الانتظار، الإلغاء، والاسترداد إذا كان الدفع مؤكدًا.
+- لا تدّعي تنفيذ إلغاء أو استرداد أو إيقاف استرداد إلا بعد نجاح الإجراء في قاعدة البيانات.
+- خلال جلسة عمران لا تستخدم أسماء فدوة أو تالا أو عبدالله أو عبدالرحمن.
+
 قاعدة الأسماء:
 - لا تخاطب العميل بأي اسم غير الاسم الموجود في خانة "الاسم" أعلاه.
 - لا تغيّر اسم الموظف الثابت ولا تستخدم اسم موظف آخر.
@@ -6120,7 +6194,8 @@ ${input.assignedAgentName || "غير محدد"}
 هل سبق تعريف العميل باسم الموظف في رد سابق؟
 ${input.hasRecentStaffIntro ? "نعم" : "لا"}
 
-إذا كانت الإجابة "لا"، ابدأ الرد الأول فقط بعبارة قصيرة: "معك ${input.assignedAgentName || "موظف المتابعة"} من فريق الأمين."
+إذا كانت جلسة عمران فعّالة ولم يسبق تعريفه، ابدأ: "معك عمران من متابعة الحالات في الأمين للأقساط."
+إذا لم تكن جلسة عمران وكانت الإجابة "لا"، ابدأ الرد الأول فقط بعبارة قصيرة: "معك ${input.assignedAgentName || "موظف المتابعة"} من فريق الأمين."
 إذا كانت الإجابة "نعم"، لا تكرر اسم الموظف إلا إذا سأل العميل عنه.
 
 الروابط التي سبق إرسالها في نفس المحادثة:
@@ -6412,10 +6487,14 @@ async function buildReply(request: Request, from: string, text: string, messageT
       sentUrls: conversationMemory.sentUrls || [],
       hasRecentConversation: conversationMemory.hasRecentConversation,
       hasRecentStaffIntro: conversationMemory.hasRecentStaffIntro,
-      assignedAgentName: assignedStaffName(from),
+      assignedAgentName: assignedAgentForTurn(from, intent, conversationMemory),
+      managerSessionActive: Boolean(conversationMemory.managerSessionActive) || String(intent) === "human_agent",
     });
 
   if (String(intent) === "greeting") {
+    if (conversationMemory.managerSessionActive) {
+      return `أهلًا، معك عمران من متابعة الحالات. أنا مكمل معك بنفس الموضوع، احكيلي شو صار.`;
+    }
     if (!conversationMemory.hasRecentStaffIntro) {
       return `أهلًا وسهلًا، معك ${assignedStaffName(from)} من فريق الأمين 🌿`;
     }
@@ -6610,7 +6689,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (String(intent) === "human_agent") {
-    return humanHandoffReply(app, text);
+    return managerTakeoverReply(app, text);
   }
 
   if (String(intent) === "call_request") {
@@ -7213,11 +7292,7 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "supplier_delay_question") {
     deterministicReply = supplierDelayWithoutAppReply(from);
   } else if (String(intent) === "human_agent") {
-    deterministicReply = `أنا معك 🌿
-
-احكيلي شو المشكلة باختصار، وإذا الموضوع متعلق بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
-
-براجع لك الموجود وبعطيك الخطوة المناسبة بدون لف ودوران.`;
+    deterministicReply = managerTakeoverReply(null, text);
   } else if (String(intent) === "loan") {
     deterministicReply = loanReply(from);
   } else if (String(intent) === "contact_info") {
@@ -7886,10 +7961,6 @@ export async function POST(request: Request) {
             needsHumanReview,
             handledByAi: true,
           });
-
-          if (["human_agent", "refund_reversal_request"].includes(String(processingIntent))) {
-            await pauseAutomaticRepliesForDirectFollowup(from, String(processingIntent));
-          }
 
           const aiMemoryApp = await findApplicationForAiMemory(from, processingText, processingIntent);
           await logAiConversation({

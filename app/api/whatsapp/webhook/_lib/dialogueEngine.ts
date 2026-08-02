@@ -126,6 +126,10 @@ export function classifyStandaloneDialogueIntent(text: string): CustomerIntent |
     return "refund_reversal_request";
   }
 
+  if (["انتظر", "أنتظر", "بستنى", "استنى", "خلي الطلب", "اكمل انتظار", "أكمل انتظار"].includes(t)) {
+    return "keep_request";
+  }
+
   if (hasAny(t, [
     "بدي احكي مع موظف", "بدي اتواصل مع موظف", "احكي مع موظف بالشركه", "احكي مع موظف بالشركة",
     "ممكن موظف", "بدي موظف", "بدي حدا من الشركه", "بدي حدا من الشركة",
