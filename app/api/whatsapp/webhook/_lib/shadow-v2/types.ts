@@ -63,6 +63,7 @@ export type ShadowCandidatePayload = {
   model: string;
   generationMs: number;
   parseMode: "json" | "text" | "fallback";
+  generationError?: string | null;
 };
 
 export type RunShadowModeInput = {

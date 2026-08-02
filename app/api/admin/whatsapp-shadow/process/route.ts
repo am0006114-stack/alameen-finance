@@ -7,6 +7,7 @@ import { runShadowModeV2 } from "@/app/api/whatsapp/webhook/_lib/shadow-v2";
 import type { CustomerIntent } from "@/app/api/whatsapp/webhook/_lib/types";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 const SHADOW_QUEUE_BODY = "[SHADOW_V2_QUEUED]";
 const SHADOW_PROCESSING_BODY = "[SHADOW_V2_PROCESSING]";
@@ -140,7 +141,11 @@ export async function POST() {
       memory,
       trackingId: trackingId || application?.tracking_id || null,
       logShadow: async (shadowPayload) => {
-        const shadowState = shadowPayload.validation.valid ? "pass" : "blocked";
+        const shadowState = shadowPayload.parseMode === "fallback"
+          ? "failed"
+          : shadowPayload.validation.valid
+            ? "pass"
+            : "blocked";
         const { error: saveError } = await supabaseAdmin
           .from("whatsapp_messages")
           .update({

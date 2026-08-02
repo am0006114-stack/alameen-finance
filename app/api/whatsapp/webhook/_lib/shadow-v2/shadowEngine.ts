@@ -55,6 +55,26 @@ function parseCandidate(raw: string): { candidate: string; parseMode: "json" | "
   return { candidate: clean, parseMode: "text" };
 }
 
+function generationErrorMessage(error: unknown, timeoutMs: number) {
+  if (error instanceof Error) {
+    if (error.name === "AbortError") {
+      return `انتهت مهلة توليد الرد التجريبي بعد ${timeoutMs}ms`;
+    }
+    return error.message || error.name;
+  }
+  return String(error || "خطأ غير معروف أثناء توليد الرد التجريبي");
+}
+
+function failedValidation(topics: ShadowTopic[]) {
+  return {
+    valid: false,
+    score: 0,
+    riskFlags: ["generation_failed"],
+    answeredTopics: [] as ShadowTopic[],
+    missingTopics: [...topics],
+  };
+}
+
 function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
   return [
     `هل يوجد طلب مرتبط: ${facts.hasApplication ? "نعم" : "لا"}`,
@@ -139,7 +159,7 @@ export async function runShadowModeV2(input: RunShadowModeInput) {
   const topics = detectShadowTopics(input.customerText);
   const facts = buildShadowFacts(input.application, input.trackingId, input.customerName);
   const agent = routeShadowAgent(topics, input.customerText);
-  const model = process.env.DEEPSEEK_REASONING_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-v4-pro";
+  const model = process.env.DEEPSEEK_MODEL || process.env.DEEPSEEK_REASONING_MODEL || "deepseek-chat";
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
 
   const userPrompt = `
@@ -165,11 +185,15 @@ ${topicInstructions(topics) || "لا توجد تعليمات إضافية"}
 `;
 
   const controller = new AbortController();
-  const timeoutMs = Math.max(2500, Number(process.env.WHATSAPP_SHADOW_V2_TIMEOUT_MS || "6000"));
+  const requestedTimeout = Number(process.env.WHATSAPP_SHADOW_V2_TIMEOUT_MS || "30000");
+  const timeoutMs = Number.isFinite(requestedTimeout)
+    ? Math.min(45000, Math.max(20000, requestedTimeout))
+    : 30000;
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let candidate = "";
   let parseMode: ShadowCandidatePayload["parseMode"] = "fallback";
+  let generationError: string | null = null;
 
   try {
     const response = await fetch(`${baseUrl}/chat/completions`, {
@@ -184,8 +208,8 @@ ${topicInstructions(topics) || "لا توجد تعليمات إضافية"}
           { role: "system", content: buildSystemPrompt(shadowAgentStyle(agent)) },
           { role: "user", content: userPrompt },
         ],
-        temperature: 0.25,
-        max_tokens: Number(process.env.WHATSAPP_SHADOW_V2_MAX_TOKENS || "700"),
+        temperature: 0.2,
+        max_tokens: Number(process.env.WHATSAPP_SHADOW_V2_MAX_TOKENS || "550"),
       }),
       signal: controller.signal,
     });
@@ -199,14 +223,21 @@ ${topicInstructions(topics) || "لا توجد تعليمات إضافية"}
     candidate = parsed.candidate;
     parseMode = parsed.parseMode;
   } catch (error) {
-    console.error("Shadow v2 generation failed:", error);
+    generationError = generationErrorMessage(error, timeoutMs);
+    console.error("Shadow v2 generation failed:", {
+      model,
+      timeoutMs,
+      error: generationError,
+    });
     candidate = "[فشل توليد الرد التجريبي؛ لم يتأثر الرد الفعلي للعميل]";
     parseMode = "fallback";
   } finally {
     clearTimeout(timeout);
   }
 
-  const validation = validateShadowReply(candidate, topics, facts);
+  const validation = parseMode === "fallback"
+    ? failedValidation(topics)
+    : validateShadowReply(candidate, topics, facts);
   const payload: ShadowCandidatePayload = {
     version: "multi-agent-v2-shadow",
     generatedAt: new Date().toISOString(),
@@ -223,6 +254,7 @@ ${topicInstructions(topics) || "لا توجد تعليمات إضافية"}
     model,
     generationMs: Date.now() - startedAt,
     parseMode,
+    generationError,
   };
 
   try {

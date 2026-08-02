@@ -46,6 +46,7 @@ type ShadowPayload = {
   model?: string;
   generationMs?: number;
   parseMode?: string;
+  generationError?: string | null;
   shadowState?: "queued" | "processing" | "pass" | "blocked" | "failed";
 };
 
@@ -235,6 +236,11 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
                     <div className="text-xs font-bold leading-6 text-[#aeb9af]">
                       النموذج: {payload.model || "—"} | الزمن: {payload.generationMs ?? 0}ms | التحليل: {payload.parseMode || "—"}
                     </div>
+                    {payload.generationError ? (
+                      <div className="md:col-span-2 rounded-2xl border border-orange-300/20 bg-orange-950/20 px-4 py-3 text-xs font-bold leading-6 text-orange-100">
+                        سبب فشل التوليد: {payload.generationError}
+                      </div>
+                    ) : null}
                   </div>
                 </article>
               );
