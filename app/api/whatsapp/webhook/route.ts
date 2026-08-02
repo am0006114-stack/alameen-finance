@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextResponse, after } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type {
   AiReplyInput,
@@ -45,6 +45,7 @@ import {
   trackUrl,
 } from "./_lib/links";
 import { getConversationMemory } from "./_lib/conversationMemory";
+import { runShadowModeV2 } from "./_lib/shadow-v2";
 import {
   buildDialogueFallback,
   classifyStandaloneDialogueIntent,
@@ -5073,7 +5074,7 @@ async function isAutoReplyIgnored(waId: string) {
 
 async function logMessage(input: {
   waId: string;
-  direction: "incoming" | "outgoing";
+  direction: "incoming" | "outgoing" | "status";
   body: string;
   customerName?: string;
   messageId?: string;
@@ -7934,6 +7935,38 @@ export async function POST(request: Request) {
             aiReply: reply,
             intent: processingIntent,
             applicationStatus: aiMemoryApp?.status || null,
+          });
+
+          after(async () => {
+            await runShadowModeV2({
+              waId: from,
+              incomingMessageId: message.id || null,
+              customerName: contactName || null,
+              customerText: processingText,
+              messageType: processingMessageType,
+              initialIntent: processingIntent,
+              actualReply: reply,
+              application: aiMemoryApp,
+              memory: outgoingMemory,
+              trackingId: extractTracking(processingText) || incomingTracking || aiMemoryApp?.tracking_id || null,
+              logShadow: async (shadowPayload) => {
+                await logMessage({
+                  waId: `shadow_v2:${from}`,
+                  direction: "status",
+                  body: shadowPayload.candidateReply,
+                  customerName: contactName || undefined,
+                  messageId: `shadow-v2:${message.id || Date.now()}`,
+                  messageType: "shadow_v2",
+                  intent: processingIntent,
+                  trackingId: shadowPayload.facts.trackingId || null,
+                  applicationId: aiMemoryApp?.id || null,
+                  needsHumanReview: false,
+                  handledByAi: true,
+                  rawPayload: shadowPayload,
+                  status: shadowPayload.validation.valid ? "shadow_pass" : "shadow_blocked",
+                });
+              },
+            });
           });
         } else {
           console.log("Skipped duplicate outgoing reply", {
