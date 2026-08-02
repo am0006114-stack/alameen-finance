@@ -1,6 +1,4 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import { hasAny, normalizeArabicText } from "./text";
-import { OMRAN_SESSION_MS } from "./omranAgent";
 
 export type ConversationMemory = {
   conversationContext: string;
@@ -23,16 +21,9 @@ export type ConversationMemory = {
   hasExplainedRefundPolicy?: boolean;
   hasExplainedReviewTime?: boolean;
   hasPendingReopenConfirmation?: boolean;
-  lastSubstantiveCustomerMessage?: string | null;
-  lastUnansweredCustomerQuestion?: string | null;
-  activeTopic?: string | null;
-  customerTone?: "neutral" | "concerned" | "frustrated" | "angry" | "urgent";
-  humanRequestedRecently?: boolean;
-  managerSessionActive?: boolean;
-  hasRecentOmranIntro?: boolean;
-  unansweredQuestionRepeatCount?: number;
-  consecutiveGenericNonAnswers?: number;
-  lastOperationalIntent?: string | null;
+  lastMeaningfulCustomerMessage?: string | null;
+  lastQuestionLikeCustomerMessage?: string | null;
+  hasRecentPreliminaryApprovalTemplate?: boolean;
 };
 
 function trimLine(value: string | null | undefined, max = 260) {
@@ -82,6 +73,30 @@ function hasStaffIntro(value: string | null | undefined) {
   return /(معك|معكِ|انا معك|أنا معك)\s+(عمران|عبدالله|عبدالرحمن|تالا|فدوة)/i.test(text);
 }
 
+function isTinyCustomerFollowup(value: string | null | undefined) {
+  const text = String(value || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+
+  if (!text) return true;
+  if (/^[؟?!.،,\s]+$/.test(text)) return true;
+
+  return [
+    "طيب", "طب", "يعني", "تمام", "اوكي", "أوكي", "ok", "okay", "اوك",
+    "اه", "اها", "نعم", "صح", "ما فهمت", "مافهمت", "مش فاهم", "كيف يعني",
+    "وضح", "وضحي", "؟", "?",
+  ].includes(text);
+}
+
+function looksLikeCustomerQuestion(value: string | null | undefined) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text || isTinyCustomerFollowup(text)) return false;
+
+  return /[؟?]/.test(text) || /(?:^|\s)(?:كم|قديش|متى|امتى|إمتى|ليش|ليه|كيف|شو|هل|وين|أين|ايش|إيش|بقدر|بنفع|بزبط|لازم|ممكن|يعني)(?:\s|$)/i.test(text);
+}
+
+
 function inferLastConcernFromMemory(value: string | null | undefined) {
   const text = String(value || "");
   if (/الموقع|السايت|التتبع|الرابط|جلب الطلبات|خطأ|خطا|404|not found|error/i.test(text)) return "site_or_tracking_issue";
@@ -90,57 +105,6 @@ function inferLastConcernFromMemory(value: string | null | undefined) {
   if (/خطيبتي|خطيبي|زوجتي|زوجي|ابني|بنتي|امي|أمي|ابوي|أبوي|هدية|هديه|احراج|إحراج|محرج|بضحك عليها|بضحك عليه|باجلها|بأجلها|باجله|بأجله|وعدتها|وعدته|عيد ميلاد|عرس|خطبة/i.test(text)) return "emotional_or_gift_pressure";
   if (/وين الجهاز|وين طلبي|تأخير|تاخير|متى بستلم/i.test(text)) return "device_or_delay";
   return null;
-}
-
-
-function isQuestionLike(value: string | null | undefined) {
-  const text = String(value || "").trim();
-  const normalized = normalizeArabicText(text);
-  if (!normalized) return false;
-
-  return /[؟?]/.test(text) || hasAny(normalized, [
-    "شو", "ليش", "كيف", "متى", "قديش", "كم", "وين", "هل", "يعني", "بقدر", "بنفع", "بزبط", "صح",
-  ]);
-}
-
-function isGenericNonAnswer(value: string | null | undefined) {
-  const text = normalizeArabicText(value);
-  if (!text) return false;
-  return hasAny(text, [
-    "وصلتني الرساله لكن معناها مش واضح",
-    "اكتب النقطه بكلمتين",
-    "اكتب السؤال كامل بجمله واحده",
-    "رح اجاوب على نفس النقطه مباشرة",
-    "ما في تحديث جديد مختلف",
-    "اذا سؤالك عن نقطه محدده",
-    "حاليا ما عليك اي خطوه اضافيه",
-  "ممكن توضحلي النقطه المقصوده",
-    "ما في قرار جديد مختلف",
-  ]);
-}
-
-function inferTopic(value: string | null | undefined) {
-  const text = normalizeArabicText(value);
-  if (!text) return null;
-  if (hasAny(text, ["موظف", "اتواصل", "رقم الشركه", "احكي مع حدا", "human", "agent"])) return "human_contact";
-  if (hasAny(text, ["الغاء طلب الاسترداد", "استرداد", "استرجاع", "رجعولي", "فلوسي", "مصاري"])) return "refund";
-  if (hasAny(text, ["توريد", "المورد", "وصول الجهاز", "جدول الاستلام"])) return "supplier";
-  if (hasAny(text, ["متى بتخلص الدراسه", "كم بدها وقت المعامله", "كم بدو وقت", "مدة المعامله", "كم يوم", "72 ساعه", "٧٢ ساعه"])) return "review_time";
-  if (hasAny(text, ["الموافقه", "الموافقة", "قبول", "انقبل", "رفض", "القرار"])) return "approval";
-  if (hasAny(text, ["دفع", "رسوم", "وصل", "حواله", "كليك", "cliq", "اورنج", "amenpay", "payamen"])) return "payment";
-  if (hasAny(text, ["الغاء الطلب", "الغي الطلب", "اكد الغاء", "بطلت بدي"])) return "cancellation";
-  if (hasAny(text, ["الطلب", "طلبي", "حاله الطلب", "شو صار", "صار اشي", "تحديث"])) return "status";
-  return "general";
-}
-
-function inferTone(value: string | null | undefined): "neutral" | "concerned" | "frustrated" | "angry" | "urgent" {
-  const text = normalizeArabicText(value);
-  if (!text) return "neutral";
-  if (hasAny(text, ["ضروري جدا", "مستعجل", "عاجل", "هسا", "الان"])) return "urgent";
-  if (hasAny(text, ["نصب", "حراميه", "سرقه", "كذب", "مماطله", "جننتوني", "استوعبي", "افهمي", "bullshit", "fuck"])) return "angry";
-  if (hasAny(text, ["صارلي", "طولتوا", "تاخير", "تأخير", "مو معقول", "ما حدا رد", "وينكم"])) return "frustrated";
-  if (hasAny(text, ["قلقان", "خايف", "متوتر", "مش فاهم", "ما فهمت", "لو سمحت", "لو سمحتي"])) return "concerned";
-  return "neutral";
 }
 
 export async function getConversationMemory(waId: string, limit = 60): Promise<ConversationMemory> {
@@ -165,16 +129,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     hasExplainedRefundPolicy: false,
     hasExplainedReviewTime: false,
     hasPendingReopenConfirmation: false,
-    lastSubstantiveCustomerMessage: null,
-    lastUnansweredCustomerQuestion: null,
-    activeTopic: null,
-    customerTone: "neutral",
-    humanRequestedRecently: false,
-    managerSessionActive: false,
-    hasRecentOmranIntro: false,
-    unansweredQuestionRepeatCount: 0,
-    consecutiveGenericNonAnswers: 0,
-    lastOperationalIntent: null,
+    lastMeaningfulCustomerMessage: null,
+    lastQuestionLikeCustomerMessage: null,
+    hasRecentPreliminaryApprovalTemplate: false,
   };
 
   const cleanWaId = String(waId || "").trim();
@@ -194,10 +151,7 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       return empty;
     }
 
-    const visibleData = data.filter((message) =>
-      message.message_type !== "admin_control" && message.message_type !== "status"
-    );
-    const chronological = [...visibleData].reverse();
+    const chronological = [...data].reverse();
 
     const conversationContext = chronological
       .map((message) => {
@@ -213,19 +167,45 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .filter(Boolean)
       .join("\n");
 
-    const lastAssistantReplies = visibleData
+    const lastAssistantReplies = data
       .filter((message) => message.direction === "outgoing")
       .map((message) => trimLine(message.body, 280))
       .filter(Boolean)
       .slice(0, 4);
 
-    const lastCustomerMessages = visibleData
+    const lastCustomerMessages = data
       .filter((message) => message.direction === "incoming")
       .map((message) => trimLine(message.body, 220))
       .filter(Boolean)
       .slice(0, 6);
 
-    const outgoingText = visibleData
+
+    const incomingMessagesNewest = data
+      .filter((message) => message.direction === "incoming")
+      .map((message) => ({
+        body: trimLine(message.body, 420),
+        createdAt: message.created_at ? new Date(message.created_at).getTime() : NaN,
+      }))
+      .filter((message) => Boolean(message.body));
+
+    const lastMeaningfulCustomerMessage = incomingMessagesNewest
+      .find((message) => !isTinyCustomerFollowup(message.body))?.body || null;
+
+    const lastQuestionLikeCustomerMessage = incomingMessagesNewest
+      .find((message) => looksLikeCustomerQuestion(message.body))?.body || null;
+
+    const recentTemplateMessage = data.find((message) =>
+      message.direction === "outgoing" &&
+      /تم إرسال Template الموافقة المبدئية للعميل|Template الموافقة المبدئية/i.test(String(message.body || ""))
+    );
+    const recentTemplateTime = recentTemplateMessage?.created_at
+      ? new Date(recentTemplateMessage.created_at).getTime()
+      : NaN;
+    const hasRecentPreliminaryApprovalTemplate =
+      Number.isFinite(recentTemplateTime) &&
+      Date.now() - recentTemplateTime <= 6 * 60 * 60 * 1000;
+
+    const outgoingText = data
       .filter((message) => message.direction === "outgoing")
       .map((message) => String(message.body || ""))
       .join("\n");
@@ -240,7 +220,7 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     const sentUrls = extractUrlsFromMemory(outgoingText);
     const latestRelevantUrl = sentUrls[0] || null;
 
-    const latestPaymentOutgoing = visibleData.find((message) =>
+    const latestPaymentOutgoing = data.find((message) =>
       message.direction === "outgoing" &&
       /(AMENPAY|PAYAMEN|رسوم فتح الملف|\/receipt(?:$|[?#]))/i.test(String(message.body || ""))
     );
@@ -251,108 +231,22 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       Number.isFinite(latestPaymentTime) &&
       Date.now() - latestPaymentTime <= 48 * 60 * 60 * 1000;
 
-    const newestMessageTime = visibleData[0]?.created_at ? new Date(visibleData[0].created_at).getTime() : NaN;
+    const newestMessageTime = data[0]?.created_at ? new Date(data[0].created_at).getTime() : NaN;
     const hasRecentConversation =
       Number.isFinite(newestMessageTime) && Date.now() - newestMessageTime <= 30 * 60 * 1000;
-
-    const incomingMessages = visibleData.filter((message) => message.direction === "incoming");
-    const lastSubstantiveCustomerMessage = incomingMessages
-      .map((message) => trimLine(message.body, 320))
-      .find((body) => body.length >= 2 && !/^العميل تفاعل/.test(body)) || null;
-
-    let pendingQuestion: string | null = null;
-    for (const message of chronological) {
-      const body = trimLine(message.body, 420);
-      if (!body) continue;
-
-      if (message.direction === "incoming" && isQuestionLike(body)) {
-        pendingQuestion = body;
-        continue;
-      }
-
-      if (message.direction === "outgoing" && pendingQuestion && !isGenericNonAnswer(body)) {
-        const questionTopic = inferTopic(pendingQuestion);
-        const answerTopic = inferTopic(body);
-        if (questionTopic === "general" || questionTopic === answerTopic || body.length >= 70) {
-          pendingQuestion = null;
-        }
-      }
-    }
-
-    const recentIncomingText = incomingMessages
-      .slice(0, 6)
-      .map((message) => String(message.body || ""))
-      .join("\n");
-    const activeTopic = inferTopic(`${pendingQuestion || ""}\n${recentIncomingText}`);
-    const customerTone = inferTone(recentIncomingText);
-    const humanRequestedRecently = hasAny(recentIncomingText, [
-      "بدي احكي مع موظف", "بدي اتواصل مع موظف", "بدي موظف", "احكي مع موظف", "bring me a human", "get me a human", "talk to a human",
-    ]);
-
-    // جلسة عمران هي متابعة آلية متقدمة داخل نفس المحادثة، وليست تحويلًا لموظف بشري.
-    // نلتقط آخر تعريف بعمران أو آخر طلب صريح لموظف، ونبقي الجلسة فعالة لمدة محددة.
-    const omranIntroMessage = visibleData.find((message) => {
-      if (message.direction !== "outgoing") return false;
-      const body = normalizeArabicText(String(message.body || ""));
-      return /(?:معك|انا معك)\s+عمران(?:\s|$)/i.test(body);
-    });
-    const humanRequestMessage = visibleData.find((message) =>
-      message.direction === "incoming" && String(message.intent || "") === "human_agent"
-    );
-    const managerSessionMessage = [omranIntroMessage, humanRequestMessage]
-      .filter(Boolean)
-      .sort((a, b) => new Date(String(b?.created_at || 0)).getTime() - new Date(String(a?.created_at || 0)).getTime())[0];
-    const managerSessionTime = managerSessionMessage?.created_at
-      ? new Date(managerSessionMessage.created_at).getTime()
-      : NaN;
-    const managerSessionActive = Number.isFinite(managerSessionTime) &&
-      Date.now() - managerSessionTime <= OMRAN_SESSION_MS;
-    const omranIntroTime = omranIntroMessage?.created_at
-      ? new Date(omranIntroMessage.created_at).getTime()
-      : NaN;
-    const hasRecentOmranIntro = Number.isFinite(omranIntroTime) &&
-      Date.now() - omranIntroTime <= OMRAN_SESSION_MS;
-
-    const pendingTopic = inferTopic(pendingQuestion || "");
-    const normalizedPendingQuestion = normalizeArabicText(pendingQuestion || "");
-    const unansweredQuestionRepeatCount = pendingQuestion
-      ? incomingMessages.slice(0, 10).filter((message) => {
-          const body = trimLine(message.body, 420);
-          if (!body || !isQuestionLike(body)) return false;
-          const normalizedBody = normalizeArabicText(body);
-          if (normalizedBody === normalizedPendingQuestion) return true;
-          return pendingTopic !== "general" && inferTopic(body) === pendingTopic;
-        }).length
-      : 0;
-
-    let consecutiveGenericNonAnswers = 0;
-    for (const message of visibleData) {
-      if (message.direction !== "outgoing") continue;
-      if (isGenericNonAnswer(message.body)) {
-        consecutiveGenericNonAnswers += 1;
-        continue;
-      }
-      break;
-    }
-
-    const lastOperationalIntent = visibleData.find((message) =>
-      message.direction === "incoming" &&
-      message.intent &&
-      !["unknown", "greeting", "thanks", "reaction"].includes(String(message.intent))
-    )?.intent || null;
 
     return {
       conversationContext,
       lastAssistantReplies,
       lastCustomerMessages,
-      lastIntent: visibleData[0]?.intent || null,
-      lastDirection: visibleData[0]?.direction || null,
+      lastIntent: data[0]?.intent || null,
+      lastDirection: data[0]?.direction || null,
       lastTrackingId: extractTrackingFromMemory(incomingText) || extractTrackingFromMemory(conversationContext) || null,
       lastPhoneNumber: extractJordanPhoneFromMemory(incomingText) || null,
       lastCustomerConcern: inferLastConcernFromMemory(conversationContext),
       hasRecentConversation,
       sentUrls,
-      hasRecentStaffIntro: visibleData
+      hasRecentStaffIntro: data
         .filter((message) => message.direction === "outgoing")
         .some((message) => hasStaffIntro(message.body)),
       hasSentProductsLink: sentUrls.some((url) => /\/products(?:$|[?#])/i.test(url)),
@@ -364,16 +258,9 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       hasExplainedRefundPolicy: /مسترده بالكامل|مستردة بالكامل|استرداد رسوم فتح الملف/i.test(outgoingText),
       hasExplainedReviewTime: /يومين\s*(?:الى|إلى)\s*(?:ثلاث|3)|2\s*(?:الى|إلى)\s*3\s*ايام عمل/i.test(outgoingText),
       hasPendingReopenConfirmation: /اكد اعاده تفعيل الطلب|أكد إعادة تفعيل الطلب|تأكيد إعادة فتح الطلب/i.test(outgoingText),
-      lastSubstantiveCustomerMessage,
-      lastUnansweredCustomerQuestion: pendingQuestion,
-      activeTopic,
-      customerTone,
-      humanRequestedRecently,
-      managerSessionActive,
-      hasRecentOmranIntro,
-      unansweredQuestionRepeatCount,
-      consecutiveGenericNonAnswers,
-      lastOperationalIntent,
+      lastMeaningfulCustomerMessage,
+      lastQuestionLikeCustomerMessage,
+      hasRecentPreliminaryApprovalTemplate,
     };
   } catch (error) {
     console.error("getConversationMemory failed:", error);
