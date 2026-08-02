@@ -1,4 +1,4 @@
-import Link from "next/link";
+﻿import Link from "next/link";
 import CopyConversationButtons from "./CopyConversationButtons";
 import IgnoreCustomerButton from "./IgnoreCustomerButton";
 import { redirect } from "next/navigation";
@@ -272,7 +272,7 @@ async function fetchFullConversation(phone: string) {
     if (batch.length < CONVERSATION_PAGE_SIZE) {
       return {
         messages: messages.filter(
-          (item) => item.direction !== "status" && item.message_type !== "admin_control"
+          (item) => item.direction !== "status" && item.message_type !== "admin_control" && !String(item.wa_id || "").startsWith("shadow_v2:")
         ),
         errorMessage: "",
         truncated: false,
@@ -282,7 +282,7 @@ async function fetchFullConversation(phone: string) {
 
   return {
     messages: messages.filter(
-      (item) => item.direction !== "status" && item.message_type !== "admin_control"
+      (item) => item.direction !== "status" && item.message_type !== "admin_control" && !String(item.wa_id || "").startsWith("shadow_v2:")
     ),
     errorMessage: "",
     truncated: true,
@@ -348,7 +348,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
   // قائمة المحادثات والإحصاءات تعتمد على أحدث السجلات فقط للحفاظ على سرعة الصفحة.
   // أما الرقم المفتوح فيُجلب تاريخه مباشرة من Supabase على دفعات، ولا يتقيد بآخر 500 سجل عالمي.
   const conversationMessages = rawMessages.filter(
-    (item) => item.direction !== "status" && item.message_type !== "admin_control"
+    (item) => item.direction !== "status" && item.message_type !== "admin_control" && !String(item.wa_id || "").startsWith("shadow_v2:")
   );
 
   const filteredMessages = phoneFilter

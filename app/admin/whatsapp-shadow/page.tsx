@@ -46,6 +46,7 @@ type ShadowPayload = {
   model?: string;
   generationMs?: number;
   parseMode?: string;
+  shadowState?: "queued" | "processing" | "pass" | "blocked" | "failed";
 };
 
 function parsePayload(value: unknown): ShadowPayload {
@@ -89,26 +90,28 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
   const { data, error } = await supabaseAdmin
     .from("whatsapp_messages")
     .select("id, created_at, wa_id, body, status, intent, tracking_id, raw_payload")
-    .eq("message_type", "shadow_v2")
+    .like("wa_id", "shadow_v2:%")
+    .eq("direction", "outgoing")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(500);
 
-  const rows = ((data || []) as ShadowRow[])
-    .map((row) => ({ row, payload: parsePayload(row.raw_payload) }))
-    .filter(({ payload }) => {
-      const passed = payload.validation?.valid === true;
-      if (resultFilter === "pass" && !passed) return false;
-      if (resultFilter === "blocked" && passed) return false;
-      if (agentFilter !== "all" && payload.agent !== agentFilter) return false;
-      return true;
-    });
+  const mappedRows = ((data || []) as ShadowRow[])
+    .map((row) => ({ row, payload: parsePayload(row.raw_payload) }));
 
-  const allRows = ((data || []) as ShadowRow[]).map((row) => parsePayload(row.raw_payload));
-  const passedCount = allRows.filter((payload) => payload.validation?.valid === true).length;
-  const queuedCount = ((data || []) as ShadowRow[]).filter((row) => ["shadow_queued", "shadow_processing"].includes(String(row.status || ""))).length;
-  const failedCount = ((data || []) as ShadowRow[]).filter((row) => row.status === "shadow_failed").length;
-  const blockedCount = ((data || []) as ShadowRow[]).filter((row) => row.status === "shadow_blocked").length;
+  const rows = mappedRows.filter(({ payload }) => {
+    const state = String(payload.shadowState || "");
+    if (resultFilter === "pass" && state !== "pass") return false;
+    if (resultFilter === "blocked" && state !== "blocked") return false;
+    if (agentFilter !== "all" && payload.agent !== agentFilter) return false;
+    return true;
+  });
+
+  const allRows = mappedRows.map(({ payload }) => payload);
+  const passedCount = allRows.filter((payload) => payload.shadowState === "pass").length;
+  const queuedCount = allRows.filter((payload) => ["queued", "processing"].includes(String(payload.shadowState || ""))).length;
+  const failedCount = allRows.filter((payload) => payload.shadowState === "failed").length;
+  const blockedCount = allRows.filter((payload) => payload.shadowState === "blocked").length;
   const averageScore = allRows.length
     ? Math.round(allRows.reduce((sum, payload) => sum + Number(payload.validation?.score || 0), 0) / allRows.length)
     : 0;
@@ -176,9 +179,9 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
         ) : (
           <div className="space-y-5">
             {rows.map(({ row, payload }) => {
-              const valid = payload.validation?.valid === true;
-              const queued = ["shadow_queued", "shadow_processing"].includes(String(row.status || ""));
-              const failed = row.status === "shadow_failed";
+              const valid = payload.shadowState === "pass";
+              const queued = ["queued", "processing"].includes(String(payload.shadowState || ""));
+              const failed = payload.shadowState === "failed";
               const resultLabel = queued ? "قيد المعالجة" : failed ? "فشل تقني" : valid ? "اجتاز" : "محجوب";
               const resultClass = queued
                 ? "border-amber-300/25 bg-amber-950/25 text-amber-100"

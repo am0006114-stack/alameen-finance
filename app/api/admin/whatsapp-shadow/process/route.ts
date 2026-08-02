@@ -8,12 +8,15 @@ import type { CustomerIntent } from "@/app/api/whatsapp/webhook/_lib/types";
 
 export const dynamic = "force-dynamic";
 
+const SHADOW_QUEUE_BODY = "[SHADOW_V2_QUEUED]";
+const SHADOW_PROCESSING_BODY = "[SHADOW_V2_PROCESSING]";
+
 type QueueRow = {
   id: string;
   created_at?: string | null;
   wa_id?: string | null;
   message_id?: string | null;
-  status?: string | null;
+  body?: string | null;
   raw_payload?: unknown;
 };
 
@@ -24,6 +27,7 @@ type QueuePayload = {
   actualReply?: string;
   initialIntent?: string;
   facts?: { trackingId?: string | null };
+  shadowState?: "queued" | "processing" | "pass" | "blocked" | "failed";
   [key: string]: unknown;
 };
 
@@ -61,9 +65,12 @@ export async function POST() {
 
   const { data: queuedRow, error: queueReadError } = await supabaseAdmin
     .from("whatsapp_messages")
-    .select("id, created_at, wa_id, message_id, status, raw_payload")
-    .eq("message_type", "shadow_v2")
-    .eq("status", "shadow_queued")
+    .select("id, created_at, wa_id, message_id, body, raw_payload")
+    .like("wa_id", "shadow_v2:%")
+    .eq("direction", "outgoing")
+    .eq("message_type", "text")
+    .eq("status", "sent")
+    .eq("body", SHADOW_QUEUE_BODY)
     .order("created_at", { ascending: true })
     .limit(1)
     .maybeSingle();
@@ -81,9 +88,15 @@ export async function POST() {
 
   const { data: claimedRows, error: claimError } = await supabaseAdmin
     .from("whatsapp_messages")
-    .update({ status: "shadow_processing" })
+    .update({
+      body: SHADOW_PROCESSING_BODY,
+      raw_payload: {
+        ...payload,
+        shadowState: "processing",
+      },
+    })
     .eq("id", row.id)
-    .eq("status", "shadow_queued")
+    .eq("body", SHADOW_QUEUE_BODY)
     .select("id")
     .limit(1);
 
@@ -96,7 +109,13 @@ export async function POST() {
     if (!actualWaId || !customerText || !actualReply) {
       await supabaseAdmin
         .from("whatsapp_messages")
-        .update({ status: "shadow_queued" })
+        .update({
+          body: SHADOW_QUEUE_BODY,
+          raw_payload: {
+            ...payload,
+            shadowState: "queued",
+          },
+        })
         .eq("id", row.id);
 
       return NextResponse.json({ processed: false, pending: true });
@@ -121,6 +140,7 @@ export async function POST() {
       memory,
       trackingId: trackingId || application?.tracking_id || null,
       logShadow: async (shadowPayload) => {
+        const shadowState = shadowPayload.validation.valid ? "pass" : "blocked";
         const { error: saveError } = await supabaseAdmin
           .from("whatsapp_messages")
           .update({
@@ -128,8 +148,12 @@ export async function POST() {
             intent: shadowPayload.initialIntent || null,
             tracking_id: shadowPayload.facts.trackingId || null,
             application_id: application?.id || null,
-            raw_payload: shadowPayload,
-            status: shadowPayload.validation.valid ? "shadow_pass" : "shadow_blocked",
+            raw_payload: {
+              ...shadowPayload,
+              shadowState,
+            },
+            status: "sent",
+            message_type: "text",
           })
           .eq("id", row.id);
 
@@ -143,11 +167,13 @@ export async function POST() {
         .from("whatsapp_messages")
         .update({
           body: "[تعذر تشغيل محرك Shadow v2 من معالج لوحة المراجعة]",
-          status: "shadow_failed",
+          status: "sent",
+          message_type: "text",
           raw_payload: {
             ...payload,
             actualWaId,
             actualReply,
+            shadowState: "failed",
             candidateReply: "[تعذر تشغيل محرك Shadow v2 من معالج لوحة المراجعة]",
             validation: { valid: false, score: 0, riskFlags: ["shadow_processor_skipped"] },
           },
@@ -162,9 +188,11 @@ export async function POST() {
       .from("whatsapp_messages")
       .update({
         body: "[فشل معالج Shadow v2؛ الرد الفعلي للعميل لم يتأثر]",
-        status: "shadow_failed",
+        status: "sent",
+        message_type: "text",
         raw_payload: {
           ...payload,
+          shadowState: "failed",
           candidateReply: "[فشل معالج Shadow v2؛ الرد الفعلي للعميل لم يتأثر]",
           validation: { valid: false, score: 0, riskFlags: ["shadow_processor_failed"] },
           runtimeError: message,

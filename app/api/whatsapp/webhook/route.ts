@@ -8109,13 +8109,16 @@ export async function POST(request: Request) {
             .from("whatsapp_messages")
             .insert({
               wa_id: `shadow_v2:${from}`,
-              direction: "status",
+              direction: "outgoing",
               customer_name: contactName || null,
               message_id: shadowMessageId,
-              message_type: "shadow_v2",
-              body: shadowQueuedPayload.candidateReply,
-              raw_payload: shadowQueuedPayload,
-              status: "shadow_queued",
+              message_type: "text",
+              body: "[SHADOW_V2_QUEUED]",
+              raw_payload: {
+                ...shadowQueuedPayload,
+                shadowState: "queued",
+              },
+              status: "sent",
             });
 
           if (shadowQueueError && (shadowQueueError as any).code !== "23505") {
