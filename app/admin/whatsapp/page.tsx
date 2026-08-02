@@ -203,6 +203,93 @@ function buildConversationCopyText({
 }
 
 
+const WHATSAPP_MESSAGE_SELECT =
+  "id, created_at, wa_id, direction, customer_name, message_id, message_type, body, status, status_timestamp, intent, tracking_id, application_id, needs_human_review, handled_by_ai";
+const RECENT_MESSAGES_LIMIT = 500;
+const CONVERSATION_PAGE_SIZE = 1000;
+const MAX_CONVERSATION_PAGES = 50;
+
+function getPhoneStorageVariants(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const digits = raw.replace(/\D/g, "");
+  const canonical = cleanPhoneForWaLink(raw);
+  const variants = new Set<string>();
+
+  if (raw) variants.add(raw);
+  if (digits) {
+    variants.add(digits);
+    variants.add(`+${digits}`);
+  }
+  if (canonical) {
+    variants.add(canonical);
+    variants.add(`+${canonical}`);
+    variants.add(`00${canonical}`);
+  }
+
+  if (canonical.startsWith("962") && canonical.length === 12) {
+    const local = `0${canonical.slice(3)}`;
+    variants.add(local);
+    variants.add(local.slice(1));
+  }
+
+  return Array.from(variants).filter(Boolean);
+}
+
+async function fetchFullConversation(phone: string) {
+  const phoneVariants = getPhoneStorageVariants(phone);
+  const messages: WhatsAppMessageRecord[] = [];
+
+  if (!phoneVariants.length) {
+    return {
+      messages,
+      errorMessage: "رقم واتساب غير صالح.",
+      truncated: false,
+    };
+  }
+
+  for (let page = 0; page < MAX_CONVERSATION_PAGES; page += 1) {
+    const from = page * CONVERSATION_PAGE_SIZE;
+    const to = from + CONVERSATION_PAGE_SIZE - 1;
+
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select(WHATSAPP_MESSAGE_SELECT)
+      .in("wa_id", phoneVariants)
+      .order("created_at", { ascending: true })
+      .range(from, to);
+
+    if (error) {
+      return {
+        messages,
+        errorMessage: error.message,
+        truncated: false,
+      };
+    }
+
+    const batch = (data || []) as WhatsAppMessageRecord[];
+    messages.push(...batch);
+
+    if (batch.length < CONVERSATION_PAGE_SIZE) {
+      return {
+        messages: messages.filter(
+          (item) => item.direction !== "status" && item.message_type !== "admin_control"
+        ),
+        errorMessage: "",
+        truncated: false,
+      };
+    }
+  }
+
+  return {
+    messages: messages.filter(
+      (item) => item.direction !== "status" && item.message_type !== "admin_control"
+    ),
+    errorMessage: "",
+    truncated: true,
+  };
+}
+
+
 type PageProps = {
   searchParams?: Promise<{
     phone?: string;
@@ -221,51 +308,52 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
 
   const { data, error } = await supabaseAdmin
     .from("whatsapp_messages")
-    .select(
-      "id, created_at, wa_id, direction, customer_name, message_id, message_type, body, status, status_timestamp, intent, tracking_id, application_id, needs_human_review, handled_by_ai"
-    )
+    .select(WHATSAPP_MESSAGE_SELECT)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(RECENT_MESSAGES_LIMIT);
 
   const rawMessages = (data || []) as WhatsAppMessageRecord[];
+  const phoneVariants = phoneFilter ? getPhoneStorageVariants(phoneFilter) : [];
 
   let selectedAutoReplyIgnored = false;
+  let selectedConversationMessages: WhatsAppMessageRecord[] = [];
+  let selectedConversationError = "";
+  let selectedConversationTruncated = false;
 
   if (phoneFilter) {
-    const { data: latestControl, error: controlError } = await supabaseAdmin
-      .from("whatsapp_messages")
-      .select("body")
-      .eq("wa_id", phoneFilter)
-      .eq("direction", "outgoing")
-      .eq("message_type", "admin_control")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [conversationResult, controlResult] = await Promise.all([
+      fetchFullConversation(phoneFilter),
+      supabaseAdmin
+        .from("whatsapp_messages")
+        .select("body")
+        .in("wa_id", phoneVariants)
+        .eq("direction", "outgoing")
+        .eq("message_type", "admin_control")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    if (controlError && controlError.code !== "PGRST116") {
-      console.error("Failed to read WhatsApp ignore state:", controlError);
+    selectedConversationMessages = conversationResult.messages;
+    selectedConversationError = conversationResult.errorMessage;
+    selectedConversationTruncated = conversationResult.truncated;
+
+    if (controlResult.error && controlResult.error.code !== "PGRST116") {
+      console.error("Failed to read WhatsApp ignore state:", controlResult.error);
     }
 
-    selectedAutoReplyIgnored = latestControl?.body === "AUTO_REPLY_IGNORED";
+    selectedAutoReplyIgnored = controlResult.data?.body === "AUTO_REPLY_IGNORED";
   }
 
-  // Status webhooks مثل sent / delivered / read ليست محادثات فعلية.
-  // يتم تحديث حالة الرسالة الأصلية من webhook، وهنا نخفي أي سجلات قديمة من نوع status حتى لا تظهر كسطور فاضية.
+  // قائمة المحادثات والإحصاءات تعتمد على أحدث السجلات فقط للحفاظ على سرعة الصفحة.
+  // أما الرقم المفتوح فيُجلب تاريخه مباشرة من Supabase على دفعات، ولا يتقيد بآخر 500 سجل عالمي.
   const conversationMessages = rawMessages.filter(
     (item) => item.direction !== "status" && item.message_type !== "admin_control"
   );
 
   const filteredMessages = phoneFilter
-    ? conversationMessages.filter((item) => cleanPhoneForWaLink(item.wa_id) === phoneFilter)
+    ? [...selectedConversationMessages].reverse()
     : conversationMessages;
-
-  const selectedConversationMessages = phoneFilter
-    ? [...filteredMessages].sort((a, b) => {
-        const aTime = new Date(a.created_at || 0).getTime();
-        const bTime = new Date(b.created_at || 0).getTime();
-        return aTime - bTime;
-      })
-    : [];
 
   const selectedLatestMessage = selectedConversationMessages.length
     ? selectedConversationMessages[selectedConversationMessages.length - 1]
@@ -327,7 +415,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
         customerTitle: selectedCustomer?.title || normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter,
         customerPhone: normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter,
         messages: selectedConversationMessages,
-        scopeLabel: "المحادثة كاملة",
+        scopeLabel: "المحادثة كاملة من قاعدة البيانات",
       })
     : "";
 
@@ -348,11 +436,29 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
             <p className="mb-2 text-sm font-bold text-[#d6b56b]">الأمين للأقساط</p>
             <h1 className="text-3xl font-black text-white">مراقبة رسائل واتساب</h1>
             <p className="mt-2 text-sm font-bold text-[#aeb9af]">
-              آخر 500 سجل، مع إخفاء سجلات الحالة الفارغة وربط كل محادثة برقم واتساب.
+              قائمة الأرقام والإحصاءات من آخر 500 سجل حديث، وعند فتح أي رقم يتم تحميل محادثته الكاملة مباشرة من قاعدة البيانات.
             </p>
           </div>
 
-          <div className="flex flex-col gap-2 sm:flex-row">
+          <div className="flex flex-col gap-2">
+            <form action="/admin/whatsapp" method="get" className="flex flex-col gap-2 sm:flex-row">
+              <input
+                dir="ltr"
+                type="text"
+                name="phone"
+                defaultValue={phoneFilter || ""}
+                placeholder="رقم واتساب مثل 079... أو 614..."
+                className="min-w-[260px] rounded-2xl border border-white/10 bg-black/20 px-4 py-3 text-sm font-bold text-white outline-none placeholder:text-[#7d8b82] focus:border-[#d6b56b]/50"
+              />
+              <button
+                type="submit"
+                className="rounded-2xl border border-sky-300/25 bg-sky-950/25 px-5 py-3 text-sm font-black text-sky-100 transition hover:bg-sky-950/40"
+              >
+                فتح المحادثة بالرقم
+              </button>
+            </form>
+
+            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
             {phoneFilter ? (
               <Link
                 href="/admin/whatsapp"
@@ -368,6 +474,7 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
             >
               العودة للوحة الأدمن
             </Link>
+            </div>
           </div>
         </div>
 
@@ -484,12 +591,15 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
               <section className="mb-6 overflow-hidden rounded-[28px] border border-[#d6b56b]/20 bg-[#061b14] shadow-2xl shadow-black/30">
                 <div className="flex flex-col gap-4 border-b border-white/10 bg-black/20 px-5 py-4 md:flex-row md:items-center md:justify-between">
                   <div>
-                    <p className="text-xs font-black text-[#d6b56b]">عرض محادثة كاملة</p>
+                    <p className="text-xs font-black text-[#d6b56b]">عرض محادثة كاملة من قاعدة البيانات</p>
                     <h2 className="mt-1 text-xl font-black text-white">
                       {selectedCustomer?.title || normalizeJordanPhoneDisplay(phoneFilter) || phoneFilter}
                     </h2>
                     <p dir="ltr" className="mt-1 text-sm font-bold text-[#aeb9af]">
                       {selectedCustomer?.subtitle || phoneFilter}
+                    </p>
+                    <p className="mt-2 text-xs font-bold text-[#aeb9af]">
+                      تم تحميل {selectedConversationMessages.length} رسالة محفوظة لهذا الرقم، من الأقدم إلى الأحدث.
                     </p>
                     <span
                       className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-black ${
@@ -532,6 +642,18 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                     </Link>
                   </div>
                 </div>
+
+                {selectedConversationError ? (
+                  <div className="border-b border-red-300/20 bg-red-950/25 px-5 py-4 text-sm font-bold leading-7 text-red-100">
+                    تعذر تحميل التاريخ الكامل لهذا الرقم: {selectedConversationError}
+                  </div>
+                ) : null}
+
+                {selectedConversationTruncated ? (
+                  <div className="border-b border-orange-300/20 bg-orange-950/20 px-5 py-4 text-sm font-bold leading-7 text-orange-100">
+                    المحادثة كبيرة جدًا؛ تم تحميل أول {MAX_CONVERSATION_PAGES * CONVERSATION_PAGE_SIZE} سجل. لا يوجد حذف تلقائي، لكن يلزم تقسيم إضافي لعرض ما بعد ذلك.
+                  </div>
+                ) : null}
 
                 {selectedConversationMessages.length === 0 ? (
                   <div className="px-5 py-10 text-center text-sm font-bold text-[#aeb9af]">
