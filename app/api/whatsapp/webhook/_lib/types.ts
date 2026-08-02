@@ -215,4 +215,7 @@ export type AiReplyInput = {
   managerSessionActive?: boolean;
   hasRecentOmranIntro?: boolean;
   omranActivationReason?: string | null;
+  activeAgentRole?: "followup" | "study" | "escalation";
+  activeAgentReason?: string | null;
+  hasRecentAssignedAgentIntro?: boolean;
 };
