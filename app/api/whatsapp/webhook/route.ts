@@ -45,7 +45,6 @@ import {
   trackUrl,
 } from "./_lib/links";
 import { getConversationMemory } from "./_lib/conversationMemory";
-import { runShadowModeV2 } from "./_lib/shadow-v2";
 
 import {
   findApplicationByPhone,
@@ -8067,6 +8066,76 @@ export async function POST(request: Request) {
           return;
         }
 
+        // Queue Shadow v2 before the expensive reply-generation and human-delay path.
+        // This guarantees a persisted review record even if the webhook reaches its runtime limit
+        // immediately after the real WhatsApp reply is sent. Shadow generation itself is processed
+        // later by the authenticated admin processor and never delays the customer reply.
+        const shadowMessageId = `shadow-v2:${message.id || Date.now()}`;
+        const shadowApplication = await findApplicationForAiMemory(from, processingText, processingIntent);
+        const shadowTrackingId =
+          extractTracking(processingText) ||
+          incomingTracking ||
+          shadowApplication?.tracking_id ||
+          null;
+        const shadowQueuedPayload = {
+          version: "multi-agent-v2-shadow",
+          generatedAt: new Date().toISOString(),
+          actualWaId: from,
+          incomingMessageId: message.id || null,
+          customerMessage: processingText,
+          actualReply: "",
+          candidateReply: "[بانتظار معالجة الرد التجريبي من لوحة المراجعة]",
+          initialIntent: processingIntent,
+          agent: "followup",
+          topics: [],
+          facts: {
+            hasApplication: Boolean(shadowApplication),
+            status: shadowApplication?.status || null,
+            paymentStatus: shadowApplication?.payment_status || null,
+            trackingId: shadowTrackingId,
+          },
+          validation: {
+            valid: false,
+            score: 0,
+            riskFlags: ["shadow_generation_queued"],
+          },
+          model: process.env.DEEPSEEK_REASONING_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-v4-pro",
+          generationMs: 0,
+          parseMode: "fallback",
+        };
+
+        try {
+          const { error: shadowQueueError } = await supabaseAdmin
+            .from("whatsapp_messages")
+            .insert({
+              wa_id: `shadow_v2:${from}`,
+              direction: "status",
+              customer_name: contactName || null,
+              message_id: shadowMessageId,
+              message_type: "shadow_v2",
+              body: shadowQueuedPayload.candidateReply,
+              raw_payload: shadowQueuedPayload,
+              status: "shadow_queued",
+            });
+
+          if (shadowQueueError && (shadowQueueError as any).code !== "23505") {
+            console.error("Shadow v2 pre-queue insert failed", {
+              waId: from,
+              messageId: message.id || null,
+              code: (shadowQueueError as any).code || null,
+              message: (shadowQueueError as any).message || String(shadowQueueError),
+            });
+          } else {
+            console.log("Shadow v2 pre-queued", { waId: from, messageId: message.id || null });
+          }
+        } catch (shadowQueueException) {
+          console.error("Shadow v2 pre-queue exception", {
+            waId: from,
+            messageId: message.id || null,
+            error: shadowQueueException,
+          });
+        }
+
         const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
         const outgoingMemory = await getConversationMemory(from);
         let reply = finalizeReplyBeforeSend(rawReply, {
@@ -8133,7 +8202,7 @@ export async function POST(request: Request) {
             handledByAi: true,
           });
 
-          const aiMemoryApp = await findApplicationForAiMemory(from, processingText, processingIntent);
+          const aiMemoryApp = shadowApplication;
           await logAiConversation({
             phone: from,
             customerMessage: processingText,
@@ -8142,157 +8211,25 @@ export async function POST(request: Request) {
             applicationStatus: aiMemoryApp?.status || null,
           });
 
-          const shadowMessageId = `shadow-v2:${message.id || Date.now()}`;
-          const shadowQueuedPayload = {
-            version: "multi-agent-v2-shadow",
-            generatedAt: new Date().toISOString(),
-            actualWaId: from,
-            incomingMessageId: message.id || null,
-            customerMessage: processingText,
-            actualReply: reply,
-            candidateReply: "[جارٍ توليد الرد التجريبي]",
-            initialIntent: processingIntent,
-            agent: "followup",
-            topics: [],
-            facts: {
-              hasApplication: Boolean(aiMemoryApp),
-              status: aiMemoryApp?.status || null,
-              paymentStatus: aiMemoryApp?.payment_status || null,
-              trackingId:
-                extractTracking(processingText) ||
-                incomingTracking ||
-                aiMemoryApp?.tracking_id ||
-                null,
-            },
-            validation: {
-              valid: false,
-              score: 0,
-              riskFlags: ["shadow_generation_pending"],
-            },
-            model: process.env.DEEPSEEK_REASONING_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-v4-pro",
-            generationMs: 0,
-            parseMode: "fallback",
-          };
-
+          // Enrich the already-persisted queue with the real reply. The dedicated admin
+          // processor will generate and validate the v2 candidate outside the webhook.
           try {
-            const { error: shadowQueueError } = await supabaseAdmin
-              .from("whatsapp_messages")
-              .insert({
-                wa_id: `shadow_v2:${from}`,
-                direction: "status",
-                customer_name: contactName || null,
-                message_id: shadowMessageId,
-                message_type: "shadow_v2",
-                body: shadowQueuedPayload.candidateReply,
-                intent: processingIntent,
-                tracking_id: shadowQueuedPayload.facts.trackingId,
-                application_id: aiMemoryApp?.id || null,
-                needs_human_review: false,
-                handled_by_ai: true,
-                raw_payload: shadowQueuedPayload,
-                status: "shadow_queued",
-              });
-
-            if (shadowQueueError && (shadowQueueError as any).code !== "23505") {
-              throw shadowQueueError;
-            }
-
-            console.log("Shadow v2 queued", {
-              waId: from,
-              messageId: message.id || null,
-            });
-
-            await runShadowModeV2({
-              waId: from,
-              incomingMessageId: message.id || null,
-              customerName: contactName || null,
-              customerText: processingText,
-              messageType: processingMessageType,
-              initialIntent: processingIntent,
-              actualReply: reply,
-              application: aiMemoryApp,
-              memory: outgoingMemory,
-              trackingId: shadowQueuedPayload.facts.trackingId,
-              logShadow: async (shadowPayload) => {
-                const { data: updatedShadowRows, error: shadowUpdateError } = await supabaseAdmin
-                  .from("whatsapp_messages")
-                  .update({
-                    body: shadowPayload.candidateReply,
-                    tracking_id: shadowPayload.facts.trackingId || null,
-                    application_id: aiMemoryApp?.id || null,
-                    raw_payload: shadowPayload,
-                    status: shadowPayload.validation.valid
-                      ? "shadow_pass"
-                      : "shadow_blocked",
-                  })
-                  .eq("message_id", shadowMessageId)
-                  .eq("message_type", "shadow_v2")
-                  .select("id")
-                  .limit(1);
-
-                if (shadowUpdateError) {
-                  throw shadowUpdateError;
-                }
-
-                if (!updatedShadowRows?.length) {
-                  const { error: shadowInsertError } = await supabaseAdmin
-                    .from("whatsapp_messages")
-                    .insert({
-                      wa_id: `shadow_v2:${from}`,
-                      direction: "status",
-                      customer_name: contactName || null,
-                      message_id: shadowMessageId,
-                      message_type: "shadow_v2",
-                      body: shadowPayload.candidateReply,
-                      intent: processingIntent,
-                      tracking_id: shadowPayload.facts.trackingId || null,
-                      application_id: aiMemoryApp?.id || null,
-                      needs_human_review: false,
-                      handled_by_ai: true,
-                      raw_payload: shadowPayload,
-                      status: shadowPayload.validation.valid
-                        ? "shadow_pass"
-                        : "shadow_blocked",
-                    });
-
-                  if (shadowInsertError && (shadowInsertError as any).code !== "23505") {
-                    throw shadowInsertError;
-                  }
-                }
-
-                console.log("Shadow v2 record saved", {
-                  waId: from,
-                  messageId: message.id || null,
-                  agent: shadowPayload.agent,
-                  valid: shadowPayload.validation.valid,
-                });
-              },
-            });
-          } catch (shadowError) {
-            console.error("Shadow v2 execution failed", {
-              waId: from,
-              messageId: message.id || null,
-              error: shadowError,
-            });
-
-            await supabaseAdmin
+            const { error: shadowActualReplyError } = await supabaseAdmin
               .from("whatsapp_messages")
               .update({
-                body: "[فشل تشغيل Shadow v2؛ الرد الفعلي للعميل لم يتأثر]",
-                status: "shadow_failed",
                 raw_payload: {
                   ...shadowQueuedPayload,
-                  candidateReply: "[فشل تشغيل Shadow v2؛ الرد الفعلي للعميل لم يتأثر]",
-                  validation: {
-                    valid: false,
-                    score: 0,
-                    riskFlags: ["shadow_runtime_failed"],
-                  },
-                  runtimeError: shadowError instanceof Error ? shadowError.message : String(shadowError),
+                  actualReply: reply,
                 },
               })
               .eq("message_id", shadowMessageId)
               .eq("message_type", "shadow_v2");
+
+            if (shadowActualReplyError) {
+              console.error("Shadow v2 actual reply update failed", shadowActualReplyError);
+            }
+          } catch (shadowActualReplyException) {
+            console.error("Shadow v2 actual reply update exception", shadowActualReplyException);
           }
         } else {
           console.log("Skipped duplicate outgoing reply", {

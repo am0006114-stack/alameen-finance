@@ -165,7 +165,7 @@ ${topicInstructions(topics) || "لا توجد تعليمات إضافية"}
 `;
 
   const controller = new AbortController();
-  const timeoutMs = Math.max(2500, Number(process.env.WHATSAPP_SHADOW_V2_TIMEOUT_MS || "8000"));
+  const timeoutMs = Math.max(2500, Number(process.env.WHATSAPP_SHADOW_V2_TIMEOUT_MS || "6000"));
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   let candidate = "";

@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { redirect } from "next/navigation";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import ShadowQueueProcessor from "./ShadowQueueProcessor";
 
 export const dynamic = "force-dynamic";
 
@@ -105,11 +106,12 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
 
   const allRows = ((data || []) as ShadowRow[]).map((row) => parsePayload(row.raw_payload));
   const passedCount = allRows.filter((payload) => payload.validation?.valid === true).length;
-  const blockedCount = allRows.length - passedCount;
+  const queuedCount = ((data || []) as ShadowRow[]).filter((row) => ["shadow_queued", "shadow_processing"].includes(String(row.status || ""))).length;
+  const failedCount = ((data || []) as ShadowRow[]).filter((row) => row.status === "shadow_failed").length;
+  const blockedCount = ((data || []) as ShadowRow[]).filter((row) => row.status === "shadow_blocked").length;
   const averageScore = allRows.length
     ? Math.round(allRows.reduce((sum, payload) => sum + Number(payload.validation?.score || 0), 0) / allRows.length)
     : 0;
-  const omranCount = allRows.filter((payload) => payload.agent === "omran").length;
 
   return (
     <main dir="rtl" className="min-h-screen bg-[#03120e] px-4 py-8 text-[#f7f3e8]">
@@ -122,22 +124,26 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
               الرد الفعلي أُرسل من النسخة المستقرة. الرد التجريبي محفوظ هنا للمقارنة فقط ولم يصل للعميل ولم ينفذ أي إجراء.
             </p>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-col gap-3 md:items-end">
+            <ShadowQueueProcessor />
+            <div className="flex gap-2">
             <Link href="/admin/whatsapp" className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black text-white">
               محادثات واتساب
             </Link>
             <Link href="/admin" className="rounded-2xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-5 py-3 text-sm font-black text-[#f3dfac]">
               لوحة الأدمن
             </Link>
+            </div>
           </div>
         </div>
 
-        <section className="mb-6 grid gap-4 md:grid-cols-5">
+        <section className="mb-6 grid gap-4 md:grid-cols-6">
           <Stat label="ردود تجريبية" value={allRows.length} />
           <Stat label="اجتازت السياسات" value={passedCount} tone="green" />
           <Stat label="محجوبة" value={blockedCount} tone="red" />
+          <Stat label="معلقة" value={queuedCount} tone="gold" />
+          <Stat label="فشل تقني" value={failedCount} tone="red" />
           <Stat label="متوسط الجودة" value={`${averageScore}%`} tone="gold" />
-          <Stat label="حالات عمران" value={omranCount} tone="orange" />
         </section>
 
         <section className="mb-6 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
@@ -171,13 +177,23 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
           <div className="space-y-5">
             {rows.map(({ row, payload }) => {
               const valid = payload.validation?.valid === true;
+              const queued = ["shadow_queued", "shadow_processing"].includes(String(row.status || ""));
+              const failed = row.status === "shadow_failed";
+              const resultLabel = queued ? "قيد المعالجة" : failed ? "فشل تقني" : valid ? "اجتاز" : "محجوب";
+              const resultClass = queued
+                ? "border-amber-300/25 bg-amber-950/25 text-amber-100"
+                : failed
+                  ? "border-orange-300/25 bg-orange-950/25 text-orange-100"
+                  : valid
+                    ? "border-emerald-300/25 bg-emerald-950/25 text-emerald-100"
+                    : "border-red-300/25 bg-red-950/25 text-red-100";
               const phone = payload.actualWaId || String(row.wa_id || "").replace(/^shadow_v2:/, "");
               return (
                 <article key={row.id} className="overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.04]">
                   <div className="flex flex-col gap-3 border-b border-white/10 bg-black/20 px-5 py-4 md:flex-row md:items-center md:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className={`rounded-full border px-3 py-1 text-xs font-black ${valid ? "border-emerald-300/25 bg-emerald-950/25 text-emerald-100" : "border-red-300/25 bg-red-950/25 text-red-100"}`}>
-                        {valid ? "اجتاز" : "محجوب"}
+                      <span className={`rounded-full border px-3 py-1 text-xs font-black ${resultClass}`}>
+                        {resultLabel}
                       </span>
                       <span className="rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]">
                         {agentLabel(payload.agent)}
