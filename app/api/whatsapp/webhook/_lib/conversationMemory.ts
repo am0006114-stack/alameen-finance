@@ -1,7 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { hasAny, normalizeArabicText } from "./text";
 import { OMRAN_SESSION_MS } from "./omranAgent";
-import type { AgentName, AgentRole } from "./personas";
 
 export type ConversationMemory = {
   conversationContext: string;
@@ -34,9 +33,6 @@ export type ConversationMemory = {
   unansweredQuestionRepeatCount?: number;
   consecutiveGenericNonAnswers?: number;
   lastOperationalIntent?: string | null;
-  lastAgentName?: AgentName | null;
-  lastAgentRole?: AgentRole | null;
-  agentSessionActive?: boolean;
 };
 
 function trimLine(value: string | null | undefined, max = 260) {
@@ -84,19 +80,6 @@ function extractUrlsFromMemory(value: string | null | undefined) {
 function hasStaffIntro(value: string | null | undefined) {
   const text = String(value || "");
   return /(معك|معكِ|انا معك|أنا معك)\s+(عمران|عبدالله|عبدالرحمن|تالا|فدوة)/i.test(text);
-}
-
-function extractAgentName(value: string | null | undefined): AgentName | null {
-  const text = String(value || "");
-  const match = text.match(/(?:معك|معكِ|انا معك|أنا معك)\s+(عمران|عبدالله|عبدالرحمن|تالا|فدوة)/i);
-  return (match?.[1] as AgentName | undefined) || null;
-}
-
-function roleForAgent(name: AgentName | null): AgentRole | null {
-  if (name === "عمران") return "escalation";
-  if (name === "عبدالله" || name === "عبدالرحمن") return "study";
-  if (name === "فدوة" || name === "تالا") return "followup";
-  return null;
 }
 
 function inferLastConcernFromMemory(value: string | null | undefined) {
@@ -192,9 +175,6 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     unansweredQuestionRepeatCount: 0,
     consecutiveGenericNonAnswers: 0,
     lastOperationalIntent: null,
-    lastAgentName: null,
-    lastAgentRole: null,
-    agentSessionActive: false,
   };
 
   const cleanWaId = String(waId || "").trim();
@@ -361,17 +341,6 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       !["unknown", "greeting", "thanks", "reaction"].includes(String(message.intent))
     )?.intent || null;
 
-    const latestAgentIntroMessage = visibleData.find((message) =>
-      message.direction === "outgoing" && Boolean(extractAgentName(message.body))
-    );
-    const lastAgentName = extractAgentName(latestAgentIntroMessage?.body);
-    const lastAgentRole = roleForAgent(lastAgentName);
-    const latestAgentIntroTime = latestAgentIntroMessage?.created_at
-      ? new Date(latestAgentIntroMessage.created_at).getTime()
-      : NaN;
-    const agentSessionActive = Number.isFinite(latestAgentIntroTime) &&
-      Date.now() - latestAgentIntroTime <= 60 * 60 * 1000;
-
     return {
       conversationContext,
       lastAssistantReplies,
@@ -405,9 +374,6 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       unansweredQuestionRepeatCount,
       consecutiveGenericNonAnswers,
       lastOperationalIntent,
-      lastAgentName,
-      lastAgentRole,
-      agentSessionActive,
     };
   } catch (error) {
     console.error("getConversationMemory failed:", error);
