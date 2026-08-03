@@ -6,6 +6,13 @@ function containsAny(text: string, values: string[]) {
   return values.some((value) => text.includes(normalizeArabicText(value)));
 }
 
+function isAcknowledgementOnly(text: string) {
+  const compact = text.replace(/\s+/g, "").trim();
+  if (!compact) return false;
+  if (/^(?:👍|✅|👌|🙏|💚|🌿|❤️|❤|🙂|😊|تمام|اوكي|ok|okay|شكرا|شكرًا|العفو)+$/i.test(compact)) return true;
+  return false;
+}
+
 export function detectShadowTopics(
   customerText: string,
   messageType: string | null | undefined,
@@ -18,44 +25,76 @@ export function detectShadowTopics(
     if (!topics.includes(topic)) topics.push(topic);
   };
 
+  if (type === "unsupported") add("unsupported_message");
   if (["audio", "voice"].includes(type)) add("voice_message");
   if (["image", "video", "sticker"].includes(type)) add("media_upload");
   if (type === "document") add("document_upload");
+  if (isAcknowledgementOnly(String(customerText || "")) || initialIntent === "reaction" || initialIntent === "thanks") {
+    add("acknowledgement");
+  }
 
   if (containsAny(text, [
-    "بدي التواصل مع احد الاعضاء الاخرين", "بدي التواصل مع أحد الأعضاء الآخرين",
-    "بدي موظف ثاني", "موظف اخر", "موظف آخر", "حدا غيرك", "شخص غيرك",
-    "غير الموظف", "غيري الموظف", "بدي عضو ثاني", "مع حدا ثاني",
+    "بدي التواصل مع احد الاعضاء الاخرين", "بدي موظف ثاني", "موظف اخر", "موظف آخر",
+    "حدا غيرك", "شخص غيرك", "غير الموظف", "غيري الموظف", "بدي عضو ثاني", "مع حدا ثاني",
   ])) {
     add("staff_change");
     add("human_agent");
   }
 
-  if (initialIntent === "human_agent") add("human_agent");
+  const paymentIntents: CustomerIntent[] = [
+    "payment", "payment_amount", "payment_method", "payment_timing", "payment_recipient",
+    "payment_next_step", "payment_review_time", "payment_objection", "payment_link_issue",
+    "payment_trust_question", "alternative_payment_source", "continue_decision",
+  ];
+  const paymentStatusIntents: CustomerIntent[] = [
+    "receipt_upload_needed", "receipt_upload_confirmation", "payment_dispute",
+  ];
+  const cancellationIntents: CustomerIntent[] = [
+    "cancel_request", "cancel_confirmed", "decline_decision",
+  ];
+  const refundIntents: CustomerIntent[] = ["refund", "cancel_refund_request"];
+  const deviceChangeIntents: CustomerIntent[] = [
+    "device_change", "device_change_cancelled", "device_change_confirmed",
+  ];
+
+  if (initialIntent === "human_agent" || initialIntent === "staff_identity") add("human_agent");
   if (initialIntent === "order_status") add("order_status");
   if (initialIntent === "review_time" || initialIntent === "payment_review_time") add("review_time");
-  if (["refund", "cancel_refund_request"].includes(initialIntent)) add("refund");
-  if (["cancel_request", "cancel_confirmed"].includes(initialIntent)) add("cancellation");
-  if (["complaint", "legal_threat", "social_media_threat", "device_delay_rage"].includes(initialIntent)) add("complaint");
+  if (paymentIntents.includes(initialIntent)) add("payment_method");
+  if (paymentStatusIntents.includes(initialIntent)) add("payment_status");
+  if (refundIntents.includes(initialIntent)) add("refund");
+  if (cancellationIntents.includes(initialIntent)) add("cancellation");
+  if (deviceChangeIntents.includes(initialIntent)) add("device_change");
+  if (initialIntent === "requirements" || initialIntent === "self_employed") add("requirements");
+  if (initialIntent === "office_pickup_policy" || initialIntent === "location") add("office_location");
+  if (initialIntent === "delivery" || initialIntent === "supplier_delay_question") add("delivery");
+  if (["complaint", "legal_threat", "social_media_threat", "device_delay_rage", "emotional_pressure"].includes(initialIntent)) add("complaint");
   if (["trust_verification", "scam_accusation"].includes(initialIntent)) add("trust");
+  if (["media_upload"].includes(initialIntent)) add("media_upload");
+  if (["document_upload", "document_followup"].includes(initialIntent)) add("document_upload");
+  if (["apply", "products", "installment_info", "loan"].includes(initialIntent)) add("procedures");
 
-  if (containsAny(text, ["شو صار", "حاله الطلب", "حالة الطلب", "متابعه الطلب", "متابعة الطلب", "وين وصل الطلب", "اخر تحديث", "آخر تحديث"])) add("order_status");
-  if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت"])) add("review_time");
+  if (containsAny(text, ["شو صار", "حاله الطلب", "حالة الطلب", "متابعه الطلب", "متابعة الطلب", "وين وصل الطلب", "اخر تحديث", "آخر تحديث", "شو صار بالطلب"])) add("order_status");
+  if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام"])) add("review_time");
   if (containsAny(text, ["يحتاج بنك", "بدها بنك", "لازم بنك", "بنك معين", "بنك محدد", "التقسيط بنك"])) add("bank_requirement");
-  if (containsAny(text, ["اسدد كامل", "أسدد كامل", "سداد كامل", "ادفع كامل", "أدفع كامل", "دفعة واحدة", "دفعه وحده", "اغلق الاقساط", "أسكر الأقساط", "السداد المبكر"])) add("early_settlement");
-  if (containsAny(text, ["كيف ادفع", "كيف أدفع", "وين ادفع", "وين أدفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي"])) add("payment_method");
-  if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "وين فلوسي"])) add("payment_status");
-  if (containsAny(text, ["الاجراءات", "الإجراءات", "كيف بتم", "كيف تتم", "شو الخطوات", "طريقة التقديم", "طريقه التقديم"])) add("procedures");
+  if (containsAny(text, ["اسدد كامل", "سداد كامل", "ادفع كامل", "دفعة واحدة", "اغلق الاقساط", "اسكر الاقساط", "السداد المبكر"])) add("early_settlement");
+  if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات"])) add("payment_method");
+  if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "رفعت الوصل", "تأكيد الوصل"])) add("payment_status");
+  if (containsAny(text, ["الاجراءات", "الإجراءات", "كيف بتم", "كيف تتم", "شو الخطوات", "ايش ضل خطوات", "ما هي الخطوات", "طريقة التقديم", "طريقه التقديم"])) add("procedures");
   if (containsAny(text, ["شو المطلوب", "المتطلبات", "كفيل", "كشف راتب", "شهادة راتب", "شهاده راتب", "هويه", "هوية"])) add("requirements");
-  if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "مكانكم", "الفرع", "فروعكم"])) add("office_location");
-  if (containsAny(text, ["توصيل", "شحن", "مندوب", "استلام", "وين الجهاز"])) add("delivery");
+  if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "مكانكم", "الفرع", "فروعكم", "فروع"])) {
+    add("office_location");
+    if (containsAny(text, ["الفرع", "فروعكم", "فروع"])) add("independence");
+  }
+  if (containsAny(text, ["توصيل", "شحن", "مندوب", "استلام الجهاز", "وين استلم", "كيف استلم"])) add("delivery");
   if (containsAny(text, ["المورد", "التوريد", "متى يوصل الجهاز", "متى بتوفر الجهاز"])) add("supplier_delay");
+  if (containsAny(text, ["بدي اغير الجهاز", "تغيير الجهاز", "غير الجهاز", "أغير الجهاز"])) add("device_change");
   if (containsAny(text, ["بدي الغي", "بدي ألغي", "الغاء الطلب", "إلغاء الطلب", "اكد الغاء", "أكد إلغاء"])) add("cancellation");
-  if (containsAny(text, ["استرداد", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم"])) add("refund");
+  if (containsAny(text, ["استرداد", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم", "متى بتم استرداد المصاري"])) add("refund");
   if (containsAny(text, ["الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "وقف الاسترداد", "اوقف الاسترداد", "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة"])) add("stop_refund");
-  if (containsAny(text, ["بدي موظف", "احكي مع موظف", "أحكي مع موظف", "بدي مسؤول", "احكي مع مسؤول", "أحكي مع مسؤول", "بدي عمران", "human", "manager"])) add("human_agent");
-  if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا"])) add("complaint");
-  if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "اتاكد انكم", "موثوقين", "مش واثق", "ما بدفع اي رسوم لما اتأكد"])) add("trust");
+  if (containsAny(text, ["بدي موظف", "احكي مع موظف", "بدي مسؤول", "احكي مع مسؤول", "بدي عمران", "انسان مش بوت", "human", "manager"])) add("human_agent");
+  if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك"])) add("complaint");
+  if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق"])) add("trust");
 
   if (!topics.length) add("general_question");
   return topics;

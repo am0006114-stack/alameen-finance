@@ -33,6 +33,19 @@ const JOB_FIELDS = [
   "comparison_group_id",
   "variant",
   "requested_model",
+  "agent_name",
+  "decision_mode",
+  "route_reason",
+  "sensitive_route",
+  "deterministic_template",
+  "draft_reply",
+  "draft_risk_flags",
+  "policy_checks",
+  "fallback_applied",
+  "prompt_version",
+  "decision_outcome",
+  "draft_model",
+  "final_model",
   "wa_id",
   "customer_name",
   "customer_message",
@@ -92,7 +105,7 @@ function parseResult(value: string | null) {
 }
 
 function parseAgent(value: string | null) {
-  const allowed = ["all", "followup", "study", "omran"];
+  const allowed = ["all", "tala", "fadwa", "abdullah", "abdulrahman", "omran", "followup", "study"];
   return allowed.includes(String(value || "")) ? String(value) : "all";
 }
 
@@ -232,6 +245,16 @@ function toCsv(jobs: ExportedJob[]) {
     "comparison_group_id",
     "variant",
     "requested_model",
+    "agent_name",
+    "decision_mode",
+    "route_reason",
+    "sensitive_route",
+    "deterministic_template",
+    "fallback_applied",
+    "prompt_version",
+    "decision_outcome",
+    "draft_model",
+    "final_model",
     "case_id",
     "status",
     "initial_intent",
@@ -241,8 +264,11 @@ function toCsv(jobs: ExportedJob[]) {
     "customer_message",
     "actual_reply",
     "candidate_reply",
+    "draft_reply",
     "topics",
     "risk_flags",
+    "draft_risk_flags",
+    "policy_checks",
     "answered_topics",
     "missing_topics",
     "model",
@@ -265,6 +291,16 @@ function toCsv(jobs: ExportedJob[]) {
       job.comparison_group_id,
       job.variant,
       job.requested_model,
+      job.agent_name,
+      job.decision_mode,
+      job.route_reason,
+      job.sensitive_route,
+      job.deterministic_template,
+      job.fallback_applied,
+      job.prompt_version,
+      job.decision_outcome,
+      job.draft_model,
+      job.final_model,
       job.wa_id,
       job.status,
       job.initial_intent,
@@ -274,8 +310,11 @@ function toCsv(jobs: ExportedJob[]) {
       job.customer_message,
       job.actual_reply,
       job.candidate_reply,
+      job.draft_reply,
       job.topics,
       job.risk_flags,
+      job.draft_risk_flags,
+      job.policy_checks,
       job.answered_topics,
       job.missing_topics,
       job.model,
@@ -356,6 +395,21 @@ export async function GET(request: NextRequest) {
         .filter(Boolean)
     );
 
+    const architecture = {
+      promptVersion: exportedJobs.find((job) => typeof job.prompt_version === "string")?.prompt_version || null,
+      deterministic: exportedJobs.filter((job) => job.decision_mode === "deterministic").length,
+      pro: exportedJobs.filter((job) => job.decision_mode === "pro").length,
+      flash: exportedJobs.filter((job) => job.decision_mode === "flash").length,
+      safeFallbacks: exportedJobs.filter((job) => job.fallback_applied === true).length,
+      byAgent: {
+        tala: exportedJobs.filter((job) => job.agent === "tala").length,
+        fadwa: exportedJobs.filter((job) => job.agent === "fadwa").length,
+        abdullah: exportedJobs.filter((job) => job.agent === "abdullah").length,
+        abdulrahman: exportedJobs.filter((job) => job.agent === "abdulrahman").length,
+        omran: exportedJobs.filter((job) => job.agent === "omran").length,
+      },
+    };
+
     const summary = {
       total: exportedJobs.length,
       succeeded: exportedJobs.filter((job) => job.status === "succeeded").length,
@@ -370,11 +424,12 @@ export async function GET(request: NextRequest) {
     };
 
     const payload = {
-      schemaVersion: "alameen-shadow-export-v2-ab",
+      schemaVersion: "alameen-shadow-export-v3-solid-multi-agent",
       exportedAt: new Date().toISOString(),
       privacy,
       filters: { hours, result, agent, since },
       summary,
+      architecture,
       jobs: exportedJobs,
     };
 

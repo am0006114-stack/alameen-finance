@@ -56,9 +56,10 @@ function retryAt(attemptCount: number) {
 }
 
 function safeApplication(value: unknown): ApplicationRecord | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as ApplicationRecord
-    : null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const obj = value as Record<string, unknown>;
+  const meaningful = Boolean(obj.id || obj.tracking_id || obj.status || obj.payment_status || obj.full_name);
+  return meaningful ? value as ApplicationRecord : null;
 }
 
 function safeConversation(value: unknown) {
@@ -73,7 +74,7 @@ function safeConversation(value: unknown) {
 
 async function saveAttempts(job: ShadowJob, attempts: Awaited<ReturnType<typeof evaluateShadowReply>>["generation"]["attempts"]) {
   if (!attempts.length) return;
-  const rows = attempts.map((attempt) => ({
+  const rows = attempts.map((attempt: (typeof attempts)[number]) => ({
     job_id: job.id,
     job_attempt: job.attempt_count,
     provider_attempt: attempt.providerAttempt,
@@ -91,10 +92,41 @@ async function saveAttempts(job: ShadowJob, attempts: Awaited<ReturnType<typeof 
   if (error) console.error("Shadow attempt logging failed", { jobId: job.id, error });
 }
 
+function evaluationColumns(evaluation: Awaited<ReturnType<typeof evaluateShadowReply>>) {
+  return {
+    candidate_reply: evaluation.candidateReply,
+    draft_reply: evaluation.draftReply || null,
+    topics: evaluation.topics,
+    agent: evaluation.agent,
+    agent_name: evaluation.agentName,
+    quality_score: evaluation.validation.score,
+    risk_flags: evaluation.validation.riskFlags,
+    answered_topics: evaluation.validation.answeredTopics,
+    missing_topics: evaluation.validation.missingTopics,
+    facts: evaluation.facts,
+    decision_mode: evaluation.route.mode,
+    route_reason: evaluation.route.reason,
+    sensitive_route: evaluation.route.sensitiveRoute,
+    deterministic_template: evaluation.route.templateId,
+    policy_checks: evaluation.validation.policyChecks,
+    draft_risk_flags: evaluation.draftValidation?.riskFlags || [],
+    fallback_applied: evaluation.fallbackApplied,
+    prompt_version: evaluation.promptVersion,
+    decision_outcome: evaluation.decisionOutcome,
+    draft_model: evaluation.generation.model,
+    final_model: evaluation.finalModel,
+    model: evaluation.finalModel,
+    provider_http_status: evaluation.generation.providerHttpStatus,
+    parse_mode: evaluation.generation.parseMode,
+    generation_ms: evaluation.generation.generationMs,
+  };
+}
+
 async function processJob(job: ShadowJob, workerId: string) {
   try {
     const evaluation = await evaluateShadowReply({
       requestedModel: job.requested_model || null,
+      waId: job.wa_id,
       customerName: job.customer_name || null,
       customerMessage: job.customer_message,
       messageType: job.message_type || "text",
@@ -107,64 +139,33 @@ async function processJob(job: ShadowJob, workerId: string) {
 
     await saveAttempts(job, evaluation.generation.attempts);
 
-    if (evaluation.generation.ok) {
-      const finalStatus = evaluation.validation.valid ? "succeeded" : "blocked";
-      const { error } = await supabaseAdmin
-        .from("whatsapp_shadow_jobs")
-        .update({
-          status: finalStatus,
-          candidate_reply: evaluation.candidateReply,
-          topics: evaluation.topics,
-          agent: evaluation.agent,
-          quality_score: evaluation.validation.score,
-          risk_flags: evaluation.validation.riskFlags,
-          answered_topics: evaluation.validation.answeredTopics,
-          missing_topics: evaluation.validation.missingTopics,
-          facts: evaluation.facts,
-          model: evaluation.generation.model,
-          provider_http_status: evaluation.generation.providerHttpStatus,
-          parse_mode: evaluation.generation.parseMode,
-          generation_ms: evaluation.generation.generationMs,
-          last_error_code: null,
-          last_error_message: null,
-          completed_at: new Date().toISOString(),
-          locked_at: null,
-          locked_by: null,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", job.id)
-        .eq("locked_by", workerId);
-      if (error) throw error;
-      return { id: job.id, status: finalStatus };
-    }
-
-    const permanent = !evaluation.generation.retryable || job.attempt_count >= job.max_attempts;
-    const status = permanent ? "dead_letter" : "retry_wait";
+    const finalStatus = evaluation.validation.valid ? "succeeded" : "blocked";
+    const technicalFallback = evaluation.decisionOutcome === "technical_fallback";
     const { error } = await supabaseAdmin
       .from("whatsapp_shadow_jobs")
       .update({
-        status,
-        topics: evaluation.topics,
-        agent: evaluation.agent,
-        quality_score: 0,
-        risk_flags: evaluation.validation.riskFlags,
-        facts: evaluation.facts,
-        model: evaluation.generation.model,
-        provider_http_status: evaluation.generation.providerHttpStatus,
-        parse_mode: evaluation.generation.parseMode,
-        generation_ms: evaluation.generation.generationMs,
-        last_error_code: evaluation.generation.errorCode,
-        last_error_message: evaluation.generation.errorMessage,
-        next_attempt_at: permanent ? null : retryAt(job.attempt_count),
-        completed_at: permanent ? new Date().toISOString() : null,
+        status: finalStatus,
+        ...evaluationColumns(evaluation),
+        last_error_code: technicalFallback ? evaluation.generation.errorCode : null,
+        last_error_message: technicalFallback ? evaluation.generation.errorMessage : null,
+        completed_at: new Date().toISOString(),
         locked_at: null,
         locked_by: null,
+        next_attempt_at: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", job.id)
       .eq("locked_by", workerId);
     if (error) throw error;
-    return { id: job.id, status, error: evaluation.generation.errorCode };
+
+    return {
+      id: job.id,
+      status: finalStatus,
+      agent: evaluation.agent,
+      mode: evaluation.route.mode,
+      outcome: evaluation.decisionOutcome,
+      fallbackApplied: evaluation.fallbackApplied,
+    };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const permanent = job.attempt_count >= job.max_attempts;

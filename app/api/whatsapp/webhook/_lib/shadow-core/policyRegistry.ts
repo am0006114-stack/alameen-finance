@@ -10,30 +10,64 @@ const PAYMENT_ALLOWED_PAYMENT_STATUSES = new Set([
   "pending",
   "pending_payment",
   "payment_info_sent",
+  "not_requested_yet",
 ]);
 
-const PAYMENT_CONFIRMED_STATUSES = new Set([
-  "confirmed",
+const PAYMENT_CONFIRMED_STATUSES = new Set(["confirmed"]);
+const PAYMENT_RECEIPT_PENDING_STATUSES = new Set([
   "customer_claimed_paid",
+  "pending_payment_confirmation",
+  "receipt_uploaded",
 ]);
+
+function hasMeaningfulApplication(app: ApplicationRecord | null | undefined) {
+  return Boolean(app && (app.id || app.tracking_id || app.status || app.payment_status || app.full_name));
+}
+
+function statusLabel(status: string | null, paymentStatus: string | null) {
+  if (status === "refund_completed") return "تم تنفيذ الاسترداد";
+  if (status === "refund_requested" || paymentStatus === "refund_requested") return "طلب الاسترداد قيد المتابعة";
+  if (status === "cancelled") return "الطلب ملغي";
+  if (status === "approved" || status === "customer_accepts_delivery_delay") return "موافقة نهائية";
+  if (status === "guarantor_submitted") return "تم استلام بيانات الكفيل والملف قيد الدراسة";
+  if (status === "needs_guarantor") return "الملف يحتاج بيانات الكفيل";
+  if (status === "needs_salary_slip") return "الملف يحتاج كشف راتب رسمي";
+  if (status === "needs_identity" || status === "identity_requested") return "الملف يحتاج رفع الهوية من الرابط الرسمي";
+  if (status === "pending_payment_confirmation" || PAYMENT_RECEIPT_PENDING_STATUSES.has(String(paymentStatus || ""))) {
+    return "وصل الدفع بانتظار التأكيد";
+  }
+  if (status === "under_review") return "قيد الدراسة النهائية";
+  if (status === "preliminary_qualified" || status === "customer_confirmed_continue") return "مؤهل مبدئيًا";
+  if (status === "preliminary_application") return "قيد مراجعة الموافقة المبدئية";
+  return status || "لا توجد حالة مؤكدة";
+}
 
 export function buildShadowFacts(
   app: ApplicationRecord | null | undefined,
   trackingId?: string | null,
   customerName?: string | null,
+  messageType?: string | null,
 ): ShadowFacts {
-  const status = app?.status || null;
-  const paymentStatus = app?.payment_status || null;
+  const meaningfulApp = hasMeaningfulApplication(app) ? app : null;
+  const status = meaningfulApp?.status || null;
+  const paymentStatus = meaningfulApp?.payment_status || null;
   const isApproved = status === "approved" || status === "customer_accepts_delivery_delay";
+  const isCancelled = status === "cancelled";
   const refundActive = status === "refund_requested" || paymentStatus === "refund_requested";
   const refundCompleted = status === "refund_completed";
-  const paymentAlreadyConfirmed = Boolean(paymentStatus && PAYMENT_CONFIRMED_STATUSES.has(paymentStatus));
+  const paymentConfirmed = Boolean(paymentStatus && PAYMENT_CONFIRMED_STATUSES.has(paymentStatus));
+  const paymentReceiptPending = Boolean(
+    status === "pending_payment_confirmation" ||
+      (paymentStatus && PAYMENT_RECEIPT_PENDING_STATUSES.has(paymentStatus)),
+  );
+  const paymentAlreadyConfirmed = paymentConfirmed || paymentReceiptPending;
   const paymentCurrentlyAllowed = Boolean(
-    app &&
+    meaningfulApp &&
       !paymentAlreadyConfirmed &&
       !refundActive &&
       !refundCompleted &&
-      status !== "cancelled" &&
+      !isCancelled &&
+      !isApproved &&
       ((status && PAYMENT_ALLOWED_STATUSES.has(status)) ||
         (paymentStatus && PAYMENT_ALLOWED_PAYMENT_STATUSES.has(paymentStatus))),
   );
@@ -44,17 +78,23 @@ export function buildShadowFacts(
   if (status === "needs_identity" || status === "identity_requested") requiredDocument = "identity";
 
   return {
-    hasApplication: Boolean(app),
+    hasApplication: Boolean(meaningfulApp),
     status,
+    statusLabel: statusLabel(status, paymentStatus),
     paymentStatus,
-    trackingId: app?.tracking_id || app?.id || trackingId || null,
-    customerName: app?.full_name || customerName || null,
-    deviceName: app?.device_name || null,
+    trackingId: meaningfulApp?.tracking_id || trackingId || null,
+    customerName: meaningfulApp?.full_name || customerName || null,
+    deviceName: meaningfulApp?.device_name || null,
+    messageType: String(messageType || "text").toLowerCase(),
     paymentCurrentlyAllowed,
     paymentAlreadyConfirmed,
+    paymentConfirmed,
+    paymentReceiptPending,
     refundActive,
     refundCompleted,
+    refundEligible: paymentConfirmed && !isApproved && !refundCompleted,
     isApproved,
+    isCancelled,
     requiredDocument,
     reviewDurationText: "من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات، والجمعة والسبت لا تُحسبان",
     officeAddressCanBeShared: isApproved,

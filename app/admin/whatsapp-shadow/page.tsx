@@ -40,6 +40,19 @@ type ShadowJob = {
   comparison_group_id?: string | null;
   variant?: string | null;
   requested_model?: string | null;
+  agent_name?: string | null;
+  decision_mode?: string | null;
+  route_reason?: string | null;
+  sensitive_route?: boolean | null;
+  deterministic_template?: string | null;
+  draft_reply?: string | null;
+  draft_risk_flags?: string[] | null;
+  policy_checks?: Array<{ id?: string; passed?: boolean; severity?: string; message?: string }> | null;
+  fallback_applied?: boolean | null;
+  prompt_version?: string | null;
+  decision_outcome?: string | null;
+  draft_model?: string | null;
+  final_model?: string | null;
 };
 
 function formatDate(value: string | null | undefined) {
@@ -56,10 +69,21 @@ function formatDate(value: string | null | undefined) {
 }
 
 function agentLabel(agent: string | null | undefined) {
+  if (agent === "tala") return "تالا";
+  if (agent === "fadwa") return "فدوة";
+  if (agent === "abdullah") return "عبدالله";
+  if (agent === "abdulrahman") return "عبدالرحمن";
   if (agent === "omran") return "عمران";
-  if (agent === "study") return "الدراسة";
-  if (agent === "followup") return "المتابعة";
+  if (agent === "study") return "الدراسة (قديم)";
+  if (agent === "followup") return "المتابعة (قديم)";
   return agent || "—";
+}
+
+function modeInfo(mode: string | null | undefined) {
+  if (mode === "deterministic") return { label: "حتمي", cls: "border-emerald-300/25 bg-emerald-950/25 text-emerald-100" };
+  if (mode === "pro") return { label: "PRO", cls: "border-violet-300/25 bg-violet-950/25 text-violet-100" };
+  if (mode === "flash") return { label: "FLASH", cls: "border-cyan-300/25 bg-cyan-950/25 text-cyan-100" };
+  return { label: mode || "قديم", cls: "border-white/10 bg-white/5 text-[#d7ddd5]" };
 }
 
 function statusInfo(status: string | null | undefined) {
@@ -110,12 +134,12 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
   const hours = [6, 12, 24, 48, 72].includes(Number(params.hours)) ? Number(params.hours) : 24;
   const allowedResults = ["all", "succeeded", "blocked", "queued", "retry_wait", "dead_letter"];
   const resultFilter = allowedResults.includes(String(params.result)) ? String(params.result) : "all";
-  const agentFilter = ["followup", "study", "omran"].includes(String(params.agent)) ? String(params.agent) : "all";
+  const agentFilter = ["tala", "fadwa", "abdullah", "abdulrahman", "omran", "followup", "study"].includes(String(params.agent)) ? String(params.agent) : "all";
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
   let query = supabaseAdmin
     .from("whatsapp_shadow_jobs")
-    .select("id, created_at, updated_at, wa_id, customer_message, actual_reply, candidate_reply, status, initial_intent, tracking_id, topics, agent, quality_score, risk_flags, answered_topics, missing_topics, facts, model, provider_http_status, parse_mode, generation_ms, last_error_code, last_error_message, attempt_count, max_attempts, next_attempt_at, completed_at, experiment_key, comparison_group_id, variant, requested_model")
+    .select("id, created_at, updated_at, wa_id, customer_message, actual_reply, candidate_reply, status, initial_intent, tracking_id, topics, agent, quality_score, risk_flags, answered_topics, missing_topics, facts, model, provider_http_status, parse_mode, generation_ms, last_error_code, last_error_message, attempt_count, max_attempts, next_attempt_at, completed_at, experiment_key, comparison_group_id, variant, requested_model, agent_name, decision_mode, route_reason, sensitive_route, deterministic_template, draft_reply, draft_risk_flags, policy_checks, fallback_applied, prompt_version, decision_outcome, draft_model, final_model")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(500);
@@ -129,10 +153,10 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
 
   const { data: statsData } = await supabaseAdmin
     .from("whatsapp_shadow_jobs")
-    .select("status, quality_score")
+    .select("status, quality_score, agent, decision_mode, fallback_applied")
     .gte("created_at", since)
     .limit(2000);
-  const allRows = (statsData || []) as Array<{ status?: string | null; quality_score?: number | null }>;
+  const allRows = (statsData || []) as Array<{ status?: string | null; quality_score?: number | null; agent?: string | null; decision_mode?: string | null; fallback_applied?: boolean | null }>;
 
   const count = (statuses: string[]) => allRows.filter((row) => statuses.includes(String(row.status || ""))).length;
   const scored = allRows.filter((row) => ["succeeded", "blocked"].includes(String(row.status || "")));
@@ -143,7 +167,7 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
   const { data: settingData } = await supabaseAdmin
     .from("whatsapp_shadow_settings")
     .select("key, value")
-    .in("key", ["ab_test_enabled", "ab_test_target_messages", "ab_test_key"]);
+    .in("key", ["ab_test_enabled", "ab_test_target_messages", "ab_test_key", "multi_agent_enabled", "shadow_prompt_version"]);
   const settings = new Map<string, string>();
   for (const row of (Array.isArray(settingData) ? settingData : []) as unknown as Array<{ key?: string; value?: string }>) {
     if (row.key) settings.set(row.key, String(row.value || ""));
@@ -151,6 +175,13 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
   const abEnabled = settings.get("ab_test_enabled") !== "false";
   const abTarget = Math.max(1, Number(settings.get("ab_test_target_messages") || "30"));
   const abKey = settings.get("ab_test_key") || "pro-vs-flash-20260803";
+  const multiAgentEnabled = settings.get("multi_agent_enabled") === "true";
+  const promptVersion = settings.get("shadow_prompt_version") || "legacy";
+  const deterministicCount = allRows.filter((row) => row.decision_mode === "deterministic").length;
+  const fallbackCount = allRows.filter((row) => row.fallback_applied).length;
+  const agentCounts = ["tala", "fadwa", "abdullah", "abdulrahman", "omran"]
+    .map((agent) => `${agentLabel(agent)} ${allRows.filter((row) => row.agent === agent).length}`)
+    .join(" | ");
 
   const { data: abData } = await supabaseAdmin
     .from("whatsapp_shadow_jobs")
@@ -240,6 +271,26 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
           </div>
         </section>
 
+        <section className="mb-6 rounded-[26px] border border-emerald-300/20 bg-emerald-950/15 p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black text-emerald-200">Solid Multi-Agent — Shadow Only</p>
+              <h2 className="mt-1 text-xl font-black text-white">موجّه حتمي + موظفون متخصصون + Policy Judge</h2>
+              <p className="mt-2 text-sm font-bold leading-7 text-[#aeb9af]">
+                النسخة: {promptVersion} — المسارات الحساسة حتمية، وPro/Flash للصياغة غير الحساسة فقط. المسودة المخالفة تُحفظ ثم تُستبدل برد آمن.
+              </p>
+            </div>
+            <span className={`rounded-full border px-4 py-2 text-xs font-black ${multiAgentEnabled ? "border-emerald-300/25 bg-emerald-950/25 text-emerald-100" : "border-red-300/25 bg-red-950/25 text-red-100"}`}>
+              {multiAgentEnabled ? "مفعّل" : "غير مفعّل"}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <MiniStat label="ردود حتمية" value={String(deterministicCount)} />
+            <MiniStat label="Fallback آمن" value={String(fallbackCount)} />
+            <MiniStat label="توزيع الموظفين" value={agentCounts || "لا توجد بيانات"} />
+          </div>
+        </section>
+
         <section className="mb-6 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
           <div className="flex flex-wrap gap-2">
             {[6, 12, 24, 48, 72].map((value) => (
@@ -254,8 +305,10 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
             <FilterLink active={resultFilter === "retry_wait"} href={`?hours=${hours}&result=retry_wait&agent=${agentFilter}`}>إعادة محاولة</FilterLink>
             <FilterLink active={resultFilter === "dead_letter"} href={`?hours=${hours}&result=dead_letter&agent=${agentFilter}`}>فشل نهائي</FilterLink>
             <FilterLink active={agentFilter === "all"} href={`?hours=${hours}&result=${resultFilter}&agent=all`}>كل الموظفين</FilterLink>
-            <FilterLink active={agentFilter === "followup"} href={`?hours=${hours}&result=${resultFilter}&agent=followup`}>المتابعة</FilterLink>
-            <FilterLink active={agentFilter === "study"} href={`?hours=${hours}&result=${resultFilter}&agent=study`}>الدراسة</FilterLink>
+            <FilterLink active={agentFilter === "tala"} href={`?hours=${hours}&result=${resultFilter}&agent=tala`}>تالا</FilterLink>
+            <FilterLink active={agentFilter === "fadwa"} href={`?hours=${hours}&result=${resultFilter}&agent=fadwa`}>فدوة</FilterLink>
+            <FilterLink active={agentFilter === "abdullah"} href={`?hours=${hours}&result=${resultFilter}&agent=abdullah`}>عبدالله</FilterLink>
+            <FilterLink active={agentFilter === "abdulrahman"} href={`?hours=${hours}&result=${resultFilter}&agent=abdulrahman`}>عبدالرحمن</FilterLink>
             <FilterLink active={agentFilter === "omran"} href={`?hours=${hours}&result=${resultFilter}&agent=omran`}>عمران</FilterLink>
           </div>
         </section>
@@ -278,7 +331,9 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full border px-3 py-1 text-xs font-black ${status.cls}`}>{status.label}</span>
                       <span className={`rounded-full border px-3 py-1 text-xs font-black ${variantInfo(row.variant).cls}`}>{variantInfo(row.variant).label}</span>
-                      <span className="rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]">{agentLabel(row.agent)}</span>
+                      <span className="rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]">{row.agent_name || agentLabel(row.agent)}</span>
+                      <span className={`rounded-full border px-3 py-1 text-xs font-black ${modeInfo(row.decision_mode).cls}`}>{modeInfo(row.decision_mode).label}</span>
+                      {row.fallback_applied ? <span className="rounded-full border border-orange-300/25 bg-orange-950/25 px-3 py-1 text-xs font-black text-orange-100">SAFE FALLBACK</span> : null}
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[#d7ddd5]">الجودة {row.quality_score ?? 0}%</span>
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[#d7ddd5]">المحاولة {row.attempt_count ?? 0}/{row.max_attempts ?? 3}</span>
                       <span dir="ltr" className="text-xs font-bold text-[#aeb9af]">{row.wa_id || "—"}</span>
@@ -294,17 +349,26 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
                   <div className="grid gap-4 p-5 lg:grid-cols-3">
                     <MessageCard title="رسالة العميل" text={row.customer_message || "—"} tone="customer" />
                     <MessageCard title="الرد الفعلي المرسل" text={row.actual_reply || "—"} tone="actual" />
-                    <MessageCard title="الرد التجريبي" text={row.candidate_reply || "—"} tone={row.status === "succeeded" ? "shadow" : "blocked"} />
+                    <MessageCard title="الرد التجريبي النهائي" text={row.candidate_reply || "—"} tone={row.status === "succeeded" ? "shadow" : "blocked"} />
                   </div>
+                  {row.draft_reply && row.draft_reply !== row.candidate_reply ? (
+                    <div className="border-t border-white/10 px-5 py-4">
+                      <MessageCard title="مسودة النموذج قبل الحماية" text={row.draft_reply} tone="blocked" />
+                    </div>
+                  ) : null}
 
                   <div className="grid gap-4 border-t border-white/10 px-5 py-4 md:grid-cols-2">
                     <Info title="الموضوعات" value={row.topics?.join("، ") || "—"} />
-                    <Info title="مخاطر / نواقص" value={row.risk_flags?.length ? row.risk_flags.join("، ") : "لا توجد مخالفات مكتشفة"} />
+                    <Info title="مخاطر الرد النهائي" value={row.risk_flags?.length ? row.risk_flags.join("، ") : "لا توجد مخالفات مكتشفة"} />
+                    <Info title="سبب التوجيه" value={row.route_reason || "—"} />
+                    <Info title="قالب / نتيجة القرار" value={`${row.deterministic_template || "بدون قالب"} | ${row.decision_outcome || "—"}`} />
+                    {row.draft_risk_flags?.length ? <Info title="مخاطر المسودة الأصلية" value={row.draft_risk_flags.join("، ")} /> : null}
+                    {row.policy_checks?.length ? <Info title="فحوصات Policy Judge الفاشلة" value={row.policy_checks.filter((check) => check.passed === false).map((check) => `${check.id}: ${check.message || ""}`).join(" | ") || "كل الفحوصات اجتازت"} /> : null}
                     <div className="text-xs font-bold leading-6 text-[#aeb9af]">
                       الحالة: {String(facts.status || "—")} | الدفع: {String(facts.paymentStatus || "—")} | الدفع مسموح: {facts.paymentCurrentlyAllowed ? "نعم" : "لا"}
                     </div>
                     <div className="text-xs font-bold leading-6 text-[#aeb9af]">
-                      النموذج المطلوب: {row.requested_model || "Pro ثم Flash احتياطي"} | المستخدم: {row.model || "—"} | HTTP: {row.provider_http_status ?? "—"} | الزمن: {row.generation_ms ?? 0}ms | التحليل: {row.parse_mode || "—"}
+                      النموذج المطلوب: {row.requested_model || "حسب الموجّه"} | المسودة: {row.draft_model || "—"} | النهائي: {row.final_model || row.model || "—"} | HTTP: {row.provider_http_status ?? "—"} | الزمن: {row.generation_ms ?? 0}ms | التحليل: {row.parse_mode || "—"}
                     </div>
                     {row.last_error_code || row.last_error_message ? (
                       <div className="md:col-span-2 rounded-2xl border border-orange-300/20 bg-orange-950/20 px-4 py-3 text-xs font-bold leading-6 text-orange-100">
