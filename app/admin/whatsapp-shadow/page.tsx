@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { RetryShadowJobButton, RunShadowWorkerButton } from "./ShadowActions";
+import { ShadowExportActions } from "./ShadowExportActions";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,7 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
           </div>
           <div className="flex flex-col gap-3 md:items-end">
             <RunShadowWorkerButton />
+            <ShadowExportActions hours={hours} result={resultFilter} agent={agentFilter} />
             <div className="flex gap-2">
               <Link href="/admin/whatsapp" className="rounded-2xl border border-white/10 bg-white/5 px-5 py-3 text-sm font-black text-white">محادثات واتساب</Link>
               <Link href="/admin" className="rounded-2xl border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-5 py-3 text-sm font-black text-[#f3dfac]">لوحة الأدمن</Link>
