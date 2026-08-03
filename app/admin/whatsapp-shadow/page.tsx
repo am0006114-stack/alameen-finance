@@ -36,6 +36,10 @@ type ShadowJob = {
   max_attempts?: number | null;
   next_attempt_at?: string | null;
   completed_at?: string | null;
+  experiment_key?: string | null;
+  comparison_group_id?: string | null;
+  variant?: string | null;
+  requested_model?: string | null;
 };
 
 function formatDate(value: string | null | undefined) {
@@ -69,6 +73,32 @@ function statusInfo(status: string | null | undefined) {
   }
 }
 
+
+function variantInfo(variant: string | null | undefined) {
+  if (variant === "pro") return { label: "PRO", cls: "border-violet-300/30 bg-violet-950/30 text-violet-100" };
+  if (variant === "flash") return { label: "FLASH", cls: "border-cyan-300/30 bg-cyan-950/30 text-cyan-100" };
+  return { label: "PRIMARY", cls: "border-white/10 bg-white/5 text-[#d7ddd5]" };
+}
+
+type AbRow = {
+  comparison_group_id?: string | null;
+  variant?: string | null;
+  status?: string | null;
+  quality_score?: number | null;
+  generation_ms?: number | null;
+  model?: string | null;
+};
+
+function averageNumber(rows: AbRow[], key: "quality_score" | "generation_ms") {
+  const eligible = key === "quality_score"
+    ? rows.filter((row) => ["succeeded", "blocked"].includes(String(row.status || "")))
+    : rows.filter((row) => Number(row.generation_ms || 0) > 0);
+  const values = eligible
+    .map((row) => Number(row[key]))
+    .filter((value) => Number.isFinite(value) && value >= 0);
+  return values.length ? Math.round(values.reduce((sum, value) => sum + value, 0) / values.length) : 0;
+}
+
 type PageProps = {
   searchParams?: Promise<{ hours?: string; result?: string; agent?: string }>;
 };
@@ -85,7 +115,7 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
 
   let query = supabaseAdmin
     .from("whatsapp_shadow_jobs")
-    .select("id, created_at, updated_at, wa_id, customer_message, actual_reply, candidate_reply, status, initial_intent, tracking_id, topics, agent, quality_score, risk_flags, answered_topics, missing_topics, facts, model, provider_http_status, parse_mode, generation_ms, last_error_code, last_error_message, attempt_count, max_attempts, next_attempt_at, completed_at")
+    .select("id, created_at, updated_at, wa_id, customer_message, actual_reply, candidate_reply, status, initial_intent, tracking_id, topics, agent, quality_score, risk_flags, answered_topics, missing_topics, facts, model, provider_http_status, parse_mode, generation_ms, last_error_code, last_error_message, attempt_count, max_attempts, next_attempt_at, completed_at, experiment_key, comparison_group_id, variant, requested_model")
     .gte("created_at", since)
     .order("created_at", { ascending: false })
     .limit(500);
@@ -109,6 +139,53 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
   const averageScore = scored.length
     ? Math.round(scored.reduce((sum, row) => sum + Number(row.quality_score || 0), 0) / scored.length)
     : 0;
+
+  const { data: settingData } = await supabaseAdmin
+    .from("whatsapp_shadow_settings")
+    .select("key, value")
+    .in("key", ["ab_test_enabled", "ab_test_target_messages", "ab_test_key"]);
+  const settings = new Map<string, string>();
+  for (const row of (Array.isArray(settingData) ? settingData : []) as unknown as Array<{ key?: string; value?: string }>) {
+    if (row.key) settings.set(row.key, String(row.value || ""));
+  }
+  const abEnabled = settings.get("ab_test_enabled") !== "false";
+  const abTarget = Math.max(1, Number(settings.get("ab_test_target_messages") || "30"));
+  const abKey = settings.get("ab_test_key") || "pro-vs-flash-20260803";
+
+  const { data: abData } = await supabaseAdmin
+    .from("whatsapp_shadow_jobs")
+    .select("comparison_group_id, variant, status, quality_score, generation_ms, model")
+    .eq("experiment_key", abKey)
+    .order("created_at", { ascending: true })
+    .limit(2000);
+  const abRows = (Array.isArray(abData) ? abData : []) as unknown as AbRow[];
+  const proRows = abRows.filter((row) => row.variant === "pro");
+  const flashRows = abRows.filter((row) => row.variant === "flash");
+  const abPairCount = new Set(proRows.map((row) => row.comparison_group_id).filter(Boolean)).size;
+  const terminal = new Set(["succeeded", "blocked", "dead_letter"]);
+  const pairs = new Map<string, { pro?: AbRow; flash?: AbRow }>();
+  for (const row of abRows) {
+    const key = String(row.comparison_group_id || "");
+    if (!key) continue;
+    const pair = pairs.get(key) || {};
+    if (row.variant === "pro") pair.pro = row;
+    if (row.variant === "flash") pair.flash = row;
+    pairs.set(key, pair);
+  }
+  let completePairs = 0;
+  let proWins = 0;
+  let flashWins = 0;
+  let ties = 0;
+  for (const pair of pairs.values()) {
+    if (!pair.pro || !pair.flash) continue;
+    if (!terminal.has(String(pair.pro.status || "")) || !terminal.has(String(pair.flash.status || ""))) continue;
+    completePairs += 1;
+    const proScore = Number(pair.pro.quality_score || 0);
+    const flashScore = Number(pair.flash.quality_score || 0);
+    if (proScore > flashScore) proWins += 1;
+    else if (flashScore > proScore) flashWins += 1;
+    else ties += 1;
+  }
 
   return (
     <main dir="rtl" className="min-h-screen bg-[#03120e] px-4 py-8 text-[#f7f3e8]">
@@ -138,6 +215,29 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
           <Stat label="معلقة/تعمل" value={count(["queued", "processing"])} tone="gold" />
           <Stat label="إعادة/فشل" value={count(["retry_wait", "dead_letter"])} tone="orange" />
           <Stat label="متوسط الجودة" value={`${averageScore}%`} tone="gold" />
+        </section>
+
+
+        <section className="mb-6 rounded-[26px] border border-violet-300/20 bg-violet-950/15 p-5">
+          <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+            <div>
+              <p className="text-xs font-black text-violet-200">اختبار A/B — نفس الرسالة على النموذجين</p>
+              <h2 className="mt-1 text-xl font-black text-white">DeepSeek V4 Pro مقابل V4 Flash</h2>
+              <p className="mt-2 text-sm font-bold text-[#aeb9af]">
+                التقدم: {abPairCount}/{abTarget} رسالة — أزواج مكتملة: {completePairs}. بعد اكتمال الهدف يصبح Pro هو الأساسي وFlash احتياطيًا للأخطاء التقنية.
+              </p>
+            </div>
+            <span className={`rounded-full border px-4 py-2 text-xs font-black ${abEnabled ? "border-emerald-300/25 bg-emerald-950/25 text-emerald-100" : "border-white/10 bg-white/5 text-[#aeb9af]"}`}>
+              {abEnabled && abPairCount < abTarget ? "الاختبار يعمل" : "الاختبار مكتمل / متوقف"}
+            </span>
+          </div>
+          <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-5">
+            <MiniStat label="متوسط Pro" value={`${averageNumber(proRows, "quality_score")}%`} />
+            <MiniStat label="متوسط Flash" value={`${averageNumber(flashRows, "quality_score")}%`} />
+            <MiniStat label="زمن Pro" value={`${averageNumber(proRows, "generation_ms")}ms`} />
+            <MiniStat label="زمن Flash" value={`${averageNumber(flashRows, "generation_ms")}ms`} />
+            <MiniStat label="الفوز" value={`Pro ${proWins} | Flash ${flashWins} | تعادل ${ties}`} />
+          </div>
         </section>
 
         <section className="mb-6 rounded-[24px] border border-white/10 bg-white/[0.04] p-4">
@@ -177,10 +277,12 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
                   <div className="flex flex-col gap-3 border-b border-white/10 bg-black/20 px-5 py-4 md:flex-row md:items-center md:justify-between">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className={`rounded-full border px-3 py-1 text-xs font-black ${status.cls}`}>{status.label}</span>
+                      <span className={`rounded-full border px-3 py-1 text-xs font-black ${variantInfo(row.variant).cls}`}>{variantInfo(row.variant).label}</span>
                       <span className="rounded-full border border-[#d6b56b]/25 bg-[#d6b56b]/10 px-3 py-1 text-xs font-black text-[#f3dfac]">{agentLabel(row.agent)}</span>
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[#d7ddd5]">الجودة {row.quality_score ?? 0}%</span>
                       <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-[#d7ddd5]">المحاولة {row.attempt_count ?? 0}/{row.max_attempts ?? 3}</span>
                       <span dir="ltr" className="text-xs font-bold text-[#aeb9af]">{row.wa_id || "—"}</span>
+                      {row.comparison_group_id ? <span dir="ltr" className="text-[10px] font-bold text-violet-200">PAIR {row.comparison_group_id.slice(-8)}</span> : null}
                     </div>
                     <div className="flex flex-wrap items-center gap-3 text-xs font-bold text-[#aeb9af]">
                       <span>{formatDate(row.created_at)}</span>
@@ -202,7 +304,7 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
                       الحالة: {String(facts.status || "—")} | الدفع: {String(facts.paymentStatus || "—")} | الدفع مسموح: {facts.paymentCurrentlyAllowed ? "نعم" : "لا"}
                     </div>
                     <div className="text-xs font-bold leading-6 text-[#aeb9af]">
-                      النموذج: {row.model || "—"} | HTTP: {row.provider_http_status ?? "—"} | الزمن: {row.generation_ms ?? 0}ms | التحليل: {row.parse_mode || "—"}
+                      النموذج المطلوب: {row.requested_model || "Pro ثم Flash احتياطي"} | المستخدم: {row.model || "—"} | HTTP: {row.provider_http_status ?? "—"} | الزمن: {row.generation_ms ?? 0}ms | التحليل: {row.parse_mode || "—"}
                     </div>
                     {row.last_error_code || row.last_error_message ? (
                       <div className="md:col-span-2 rounded-2xl border border-orange-300/20 bg-orange-950/20 px-4 py-3 text-xs font-bold leading-6 text-orange-100">
@@ -219,6 +321,10 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
       </div>
     </main>
   );
+}
+
+function MiniStat({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><p className="text-[11px] font-black text-[#aeb9af]">{label}</p><p className="mt-2 text-lg font-black text-white">{value}</p></div>;
 }
 
 function Info({ title, value }: { title: string; value: string }) {

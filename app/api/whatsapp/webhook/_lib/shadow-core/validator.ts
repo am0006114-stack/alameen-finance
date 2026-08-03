@@ -6,6 +6,23 @@ function includesAny(text: string, values: string[]) {
   return values.some((value) => normalized.includes(normalizeArabicText(value)));
 }
 
+
+function hasUnsupportedFinalApprovalClaim(value: string) {
+  const normalized = normalizeArabicText(value);
+  const withoutNegativeOrConditional = normalized
+    .replace(/(?:اذا|لو|في حال|بحال)\s+(?:ما|لم)\s+(?:تمت|تصدر|صدرت)?\s*(?:ال)?موافقه (?:ال)?نهاييه/g, " ")
+    .replace(/(?:عدم|ما|لم|لا توجد|ما في)\s+(?:تمت|صدرت|صدور)?\s*(?:ال)?موافقه (?:ال)?نهاييه/g, " ")
+    .replace(/(?:ال)?موافقه (?:ال)?نهاييه\s+(?:غير موجوده|غير صادرة|غير صادره)/g, " ");
+
+  return includesAny(withoutNegativeOrConditional, [
+    "تمت الموافقه النهاييه",
+    "صدرت الموافقه النهاييه",
+    "طلبك موافق نهائيا",
+    "عليه موافقه نهائيه",
+    "موافقه نهائيه",
+  ]);
+}
+
 function topicAnswered(topic: ShadowTopic, reply: string) {
   const checks: Partial<Record<ShadowTopic, string[]>> = {
     order_status: ["حاله", "الحالة", "طلبك", "الملف"],
@@ -15,7 +32,7 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
     payment_method: ["كليك", "cliq", "محفظه", "محفظة", "الدفع"],
     payment_status: ["الدفع", "الوصل", "مؤكد", "بانتظار التأكيد", "لا يوجد مبلغ"],
     procedures: ["الخطوه", "الخطوة", "المراجعه", "المراجعة", "بعد"],
-    requirements: ["المطلوب", "كفيل", "راتب", "هويه", "هوية", "لا يوجد مستند"],
+    requirements: ["المطلوب", "كفيل", "راتب", "هويه", "هوية", "لا يوجد مستند", "ما في شي ناقص", "ما عليك شي", "لا يوجد شيء مطلوب", "ما في مستند مطلوب"],
     office_location: ["المكتب", "العنوان", "موعد رسمي"],
     delivery: ["الاستلام", "المكتب", "موعد"],
     supplier_delay: ["التوريد", "المورد", "موعد مؤكد"],
@@ -49,7 +66,7 @@ export function validateShadowReply(candidate: string, topics: ShadowTopic[], fa
   if (!facts.requiredDocument && includesAny(reply, ["نحتاج منك الهوية", "نحتاج منك كشف الراتب", "مطلوب منك كفيل", "ارفع الهوية", "ارفع كشف الراتب"])) riskFlags.push("unrequested_document_claim");
   if (!facts.officeAddressCanBeShared && includesAny(reply, ["رانا سنتر", "شارع المدينة المنورة", "مقابل مستشفى العيون"])) riskFlags.push("address_shared_before_allowed_state");
   if (includesAny(reply, ["اكيد بتقدري تسددي كامل", "أكيد بتقدري تسددي كامل", "السداد الكامل متاح دائما"])) riskFlags.push("unsupported_early_settlement_guarantee");
-  if (!facts.isApproved && includesAny(reply, ["موافقه نهائيه", "موافقة نهائية", "تمت الموافقة النهائية"])) riskFlags.push("false_final_approval");
+  if (!facts.isApproved && hasUnsupportedFinalApprovalClaim(reply)) riskFlags.push("false_final_approval");
   if (!facts.refundCompleted && includesAny(reply, ["تم الاسترداد", "رجع المبلغ", "تمت الحوالة"])) riskFlags.push("false_refund_completion");
   if (!facts.refundActive && includesAny(reply, ["تم تسجيل الاسترداد", "طلب الاسترداد مسجل"])) riskFlags.push("false_refund_registration");
   if (includesAny(reply, ["تواصلت مع المورد", "اتصلت بالمورد", "تم تصعيد الطلب"])) riskFlags.push("unexecuted_action_claim");

@@ -90,7 +90,11 @@ ${topicInstructions(topics) || "لا توجد"}
 
 أنشئ جوابًا مستقلًا ولا تنفذ أي إجراء.`;
 
-  const generation = await generateJsonReply({ systemPrompt: buildSystemPrompt(shadowAgentStyle(agent)), userPrompt });
+  const generation = await generateJsonReply({
+    systemPrompt: buildSystemPrompt(shadowAgentStyle(agent)),
+    userPrompt,
+    requestedModel: input.requestedModel || null,
+  });
   const validation = generation.ok
     ? validateShadowReply(generation.candidateReply, topics, facts)
     : { valid: false, score: 0, riskFlags: [generation.errorCode || "generation_failed"], answeredTopics: [], missingTopics: topics };

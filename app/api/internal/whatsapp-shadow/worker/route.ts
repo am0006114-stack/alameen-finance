@@ -23,6 +23,10 @@ type ShadowJob = {
   attempt_count: number;
   max_attempts: number;
   locked_by?: string | null;
+  requested_model?: string | null;
+  variant?: string | null;
+  comparison_group_id?: string | null;
+  experiment_key?: string | null;
 };
 
 function secureEqual(left: string, right: string) {
@@ -90,6 +94,7 @@ async function saveAttempts(job: ShadowJob, attempts: Awaited<ReturnType<typeof 
 async function processJob(job: ShadowJob, workerId: string) {
   try {
     const evaluation = await evaluateShadowReply({
+      requestedModel: job.requested_model || null,
       customerName: job.customer_name || null,
       customerMessage: job.customer_message,
       messageType: job.message_type || "text",
@@ -195,8 +200,7 @@ async function runWorker(request: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   const jobs = (data || []) as ShadowJob[];
-  const results: Array<{ id: string; status: string; error?: string | null }> = [];
-  for (const job of jobs) results.push(await processJob(job, workerId));
+  const results = await Promise.all(jobs.map((job) => processJob(job, workerId)));
 
   return NextResponse.json({ ok: true, workerId, claimed: jobs.length, results });
 }

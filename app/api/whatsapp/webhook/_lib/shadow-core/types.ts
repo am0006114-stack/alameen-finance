@@ -104,6 +104,7 @@ export type ShadowQueueInput = {
 };
 
 export type ShadowEngineInput = {
+  requestedModel?: string | null;
   customerName?: string | null;
   customerMessage: string;
   messageType?: string | null;

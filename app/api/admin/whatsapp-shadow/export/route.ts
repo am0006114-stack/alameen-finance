@@ -29,6 +29,10 @@ type ExportedJob = Record<string, unknown> & {
 const JOB_FIELDS = [
   "id",
   "incoming_message_id",
+  "experiment_key",
+  "comparison_group_id",
+  "variant",
+  "requested_model",
   "wa_id",
   "customer_name",
   "customer_message",
@@ -149,6 +153,9 @@ function sanitizeJob(job: ShadowJob, privacy: PrivacyMode) {
   cleaned.customer_name = "[REDACTED]";
   cleaned.tracking_id = job.tracking_id ? "[TRACKING_REDACTED]" : null;
   cleaned.incoming_message_id = job.id;
+  if (typeof job.comparison_group_id === "string" && job.comparison_group_id) {
+    cleaned.comparison_group_id = `pair-${createHash("sha256").update(job.comparison_group_id).digest("hex").slice(0, 10)}`;
+  }
   return cleaned;
 }
 
@@ -221,6 +228,10 @@ function toCsv(jobs: ExportedJob[]) {
   const headers = [
     "job_id",
     "created_at",
+    "experiment_key",
+    "comparison_group_id",
+    "variant",
+    "requested_model",
     "case_id",
     "status",
     "initial_intent",
@@ -250,6 +261,10 @@ function toCsv(jobs: ExportedJob[]) {
     const row = [
       job.id,
       job.created_at,
+      job.experiment_key,
+      job.comparison_group_id,
+      job.variant,
+      job.requested_model,
       job.wa_id,
       job.status,
       job.initial_intent,
@@ -313,6 +328,34 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    const variantRows = (variant: string) => exportedJobs.filter((job) => job.variant === variant);
+    const modelSummary = (variant: string) => {
+      const rows = variantRows(variant);
+      const scored = rows.filter((job) => job.status === "succeeded" || job.status === "blocked");
+      const averageQuality = scored.length
+        ? Math.round(scored.reduce((sum, job) => sum + Number(job.quality_score || 0), 0) / scored.length)
+        : 0;
+      const timed = rows.map((job) => Number(job.generation_ms)).filter((value) => Number.isFinite(value) && value >= 0);
+      const averageGenerationMs = timed.length
+        ? Math.round(timed.reduce((sum, value) => sum + value, 0) / timed.length)
+        : 0;
+      return {
+        total: rows.length,
+        succeeded: rows.filter((job) => job.status === "succeeded").length,
+        blocked: rows.filter((job) => job.status === "blocked").length,
+        deadLetter: rows.filter((job) => job.status === "dead_letter").length,
+        averageQuality,
+        averageGenerationMs,
+      };
+    };
+
+    const pairIds = new Set(
+      exportedJobs
+        .filter((job) => job.variant === "pro")
+        .map((job) => String(job.comparison_group_id || ""))
+        .filter(Boolean)
+    );
+
     const summary = {
       total: exportedJobs.length,
       succeeded: exportedJobs.filter((job) => job.status === "succeeded").length,
@@ -320,10 +363,14 @@ export async function GET(request: NextRequest) {
       queuedOrProcessing: exportedJobs.filter((job) => job.status === "queued" || job.status === "processing").length,
       retryWait: exportedJobs.filter((job) => job.status === "retry_wait").length,
       deadLetter: exportedJobs.filter((job) => job.status === "dead_letter").length,
+      abPairs: pairIds.size,
+      pro: modelSummary("pro"),
+      flash: modelSummary("flash"),
+      primary: modelSummary("primary"),
     };
 
     const payload = {
-      schemaVersion: "alameen-shadow-export-v1",
+      schemaVersion: "alameen-shadow-export-v2-ab",
       exportedAt: new Date().toISOString(),
       privacy,
       filters: { hours, result, agent, since },
