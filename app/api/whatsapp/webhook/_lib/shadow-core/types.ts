@@ -18,6 +18,10 @@ export type ShadowTopic =
   | "refund"
   | "stop_refund"
   | "human_agent"
+  | "staff_change"
+  | "voice_message"
+  | "media_upload"
+  | "document_upload"
   | "complaint"
   | "trust"
   | "general_question";
@@ -47,39 +51,69 @@ export type ShadowValidation = {
   missingTopics: ShadowTopic[];
 };
 
-export type ShadowCandidatePayload = {
-  version: "multi-agent-v2-shadow";
-  generatedAt: string;
-  actualWaId: string;
-  incomingMessageId: string | null;
-  customerMessage: string;
-  actualReply: string;
+export type ShadowAttemptResult = {
+  providerAttempt: number;
+  model: string;
+  startedAt: string;
+  completedAt: string;
+  latencyMs: number;
+  httpStatus: number | null;
+  outcome: "success" | "http_error" | "network_error" | "timeout" | "parse_error";
+  errorCode: string | null;
+  errorMessage: string | null;
+  rawResponse: string | null;
+};
+
+export type ShadowGenerationResult = {
+  ok: boolean;
+  retryable: boolean;
   candidateReply: string;
-  initialIntent: CustomerIntent;
+  model: string;
+  generationMs: number;
+  parseMode: "json" | "repaired_json" | "failed";
+  providerHttpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+  attempts: ShadowAttemptResult[];
+};
+
+export type ShadowEvaluation = {
+  candidateReply: string;
   agent: ShadowAgentId;
   topics: ShadowTopic[];
   facts: ShadowFacts;
   validation: ShadowValidation;
-  model: string;
-  generationMs: number;
-  parseMode: "json" | "text" | "fallback";
-  generationError?: string | null;
+  generation: ShadowGenerationResult;
 };
 
-export type RunShadowModeInput = {
+export type ShadowQueueInput = {
+  incomingMessageId: string;
   waId: string;
-  incomingMessageId?: string | null;
   customerName?: string | null;
-  customerText: string;
+  customerMessage: string;
   messageType?: string | null;
-  initialIntent: CustomerIntent;
   actualReply: string;
+  initialIntent: CustomerIntent;
+  trackingId?: string | null;
   application?: ApplicationRecord | null;
-  memory?: {
+  conversationSnapshot?: {
     conversationContext?: string;
     lastAssistantReplies?: string[];
     lastCustomerMessages?: string[];
   } | null;
+};
+
+export type ShadowEngineInput = {
+  customerName?: string | null;
+  customerMessage: string;
+  messageType?: string | null;
+  initialIntent: CustomerIntent;
+  actualReply: string;
   trackingId?: string | null;
-  logShadow: (payload: ShadowCandidatePayload) => Promise<void>;
+  application?: ApplicationRecord | null;
+  conversationSnapshot?: {
+    conversationContext?: string;
+    lastAssistantReplies?: string[];
+    lastCustomerMessages?: string[];
+  } | null;
 };

@@ -1,16 +1,43 @@
 import { normalizeArabicText } from "../text";
+import type { CustomerIntent } from "../types";
 import type { ShadowTopic } from "./types";
 
 function containsAny(text: string, values: string[]) {
   return values.some((value) => text.includes(normalizeArabicText(value)));
 }
 
-export function detectShadowTopics(customerText: string): ShadowTopic[] {
+export function detectShadowTopics(
+  customerText: string,
+  messageType: string | null | undefined,
+  initialIntent: CustomerIntent,
+): ShadowTopic[] {
   const text = normalizeArabicText(customerText);
+  const type = String(messageType || "text").toLowerCase();
   const topics: ShadowTopic[] = [];
   const add = (topic: ShadowTopic) => {
     if (!topics.includes(topic)) topics.push(topic);
   };
+
+  if (["audio", "voice"].includes(type)) add("voice_message");
+  if (["image", "video", "sticker"].includes(type)) add("media_upload");
+  if (type === "document") add("document_upload");
+
+  if (containsAny(text, [
+    "بدي التواصل مع احد الاعضاء الاخرين", "بدي التواصل مع أحد الأعضاء الآخرين",
+    "بدي موظف ثاني", "موظف اخر", "موظف آخر", "حدا غيرك", "شخص غيرك",
+    "غير الموظف", "غيري الموظف", "بدي عضو ثاني", "مع حدا ثاني",
+  ])) {
+    add("staff_change");
+    add("human_agent");
+  }
+
+  if (initialIntent === "human_agent") add("human_agent");
+  if (initialIntent === "order_status") add("order_status");
+  if (initialIntent === "review_time" || initialIntent === "payment_review_time") add("review_time");
+  if (["refund", "cancel_refund_request"].includes(initialIntent)) add("refund");
+  if (["cancel_request", "cancel_confirmed"].includes(initialIntent)) add("cancellation");
+  if (["complaint", "legal_threat", "social_media_threat", "device_delay_rage"].includes(initialIntent)) add("complaint");
+  if (["trust_verification", "scam_accusation"].includes(initialIntent)) add("trust");
 
   if (containsAny(text, ["شو صار", "حاله الطلب", "حالة الطلب", "متابعه الطلب", "متابعة الطلب", "وين وصل الطلب", "اخر تحديث", "آخر تحديث"])) add("order_status");
   if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت"])) add("review_time");

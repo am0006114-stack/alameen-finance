@@ -45,6 +45,7 @@ import {
   trackUrl,
 } from "./_lib/links";
 import { getConversationMemory } from "./_lib/conversationMemory";
+import { enqueueShadowJob } from "./_lib/shadow-core";
 
 import {
   findApplicationByPhone,
@@ -8066,78 +8067,14 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Queue Shadow v2 before the expensive reply-generation and human-delay path.
-        // This guarantees a persisted review record even if the webhook reaches its runtime limit
-        // immediately after the real WhatsApp reply is sent. Shadow generation itself is processed
-        // later by the authenticated admin processor and never delays the customer reply.
-        const shadowMessageId = `shadow-v2:${message.id || Date.now()}`;
+        // Capture a stable snapshot for the independent Shadow queue.
+        // The model is never called from the WhatsApp webhook.
         const shadowApplication = await findApplicationForAiMemory(from, processingText, processingIntent);
         const shadowTrackingId =
           extractTracking(processingText) ||
           incomingTracking ||
           shadowApplication?.tracking_id ||
           null;
-        const shadowQueuedPayload = {
-          version: "multi-agent-v2-shadow",
-          generatedAt: new Date().toISOString(),
-          actualWaId: from,
-          incomingMessageId: message.id || null,
-          customerMessage: processingText,
-          actualReply: "",
-          candidateReply: "[بانتظار معالجة الرد التجريبي من لوحة المراجعة]",
-          initialIntent: processingIntent,
-          agent: "followup",
-          topics: [],
-          facts: {
-            hasApplication: Boolean(shadowApplication),
-            status: shadowApplication?.status || null,
-            paymentStatus: shadowApplication?.payment_status || null,
-            trackingId: shadowTrackingId,
-          },
-          validation: {
-            valid: false,
-            score: 0,
-            riskFlags: ["shadow_generation_queued"],
-          },
-          model: process.env.DEEPSEEK_REASONING_MODEL || process.env.DEEPSEEK_MODEL || "deepseek-v4-pro",
-          generationMs: 0,
-          parseMode: "fallback",
-        };
-
-        try {
-          const { error: shadowQueueError } = await supabaseAdmin
-            .from("whatsapp_messages")
-            .insert({
-              wa_id: `shadow_v2:${from}`,
-              direction: "outgoing",
-              customer_name: contactName || null,
-              message_id: shadowMessageId,
-              message_type: "text",
-              body: "[SHADOW_V2_QUEUED]",
-              raw_payload: {
-                ...shadowQueuedPayload,
-                shadowState: "queued",
-              },
-              status: "sent",
-            });
-
-          if (shadowQueueError && (shadowQueueError as any).code !== "23505") {
-            console.error("Shadow v2 pre-queue insert failed", {
-              waId: from,
-              messageId: message.id || null,
-              code: (shadowQueueError as any).code || null,
-              message: (shadowQueueError as any).message || String(shadowQueueError),
-            });
-          } else {
-            console.log("Shadow v2 pre-queued", { waId: from, messageId: message.id || null });
-          }
-        } catch (shadowQueueException) {
-          console.error("Shadow v2 pre-queue exception", {
-            waId: from,
-            messageId: message.id || null,
-            error: shadowQueueException,
-          });
-        }
 
         const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
         const outgoingMemory = await getConversationMemory(from);
@@ -8214,25 +8151,31 @@ export async function POST(request: Request) {
             applicationStatus: aiMemoryApp?.status || null,
           });
 
-          // Enrich the already-persisted queue with the real reply. The dedicated admin
-          // processor will generate and validate the v2 candidate outside the webhook.
+          // Enqueue the comparison only after the real reply is successfully sent and logged.
+          // This insert is idempotent and uses a dedicated table; it never delays on an LLM call.
           try {
-            const { error: shadowActualReplyError } = await supabaseAdmin
-              .from("whatsapp_messages")
-              .update({
-                raw_payload: {
-                  ...shadowQueuedPayload,
-                  actualReply: reply,
-                },
-              })
-              .eq("message_id", shadowMessageId)
-              .eq("message_type", "shadow_v2");
-
-            if (shadowActualReplyError) {
-              console.error("Shadow v2 actual reply update failed", shadowActualReplyError);
-            }
-          } catch (shadowActualReplyException) {
-            console.error("Shadow v2 actual reply update exception", shadowActualReplyException);
+            await enqueueShadowJob({
+              incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+              waId: from,
+              customerName: contactName || null,
+              customerMessage: processingText,
+              messageType: processingMessageType,
+              actualReply: reply,
+              initialIntent: processingIntent,
+              trackingId: shadowTrackingId,
+              application: shadowApplication,
+              conversationSnapshot: {
+                conversationContext: outgoingMemory.conversationContext,
+                lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+                lastCustomerMessages: outgoingMemory.lastCustomerMessages,
+              },
+            });
+          } catch (shadowQueueError) {
+            console.error("Shadow queue insert failed", {
+              waId: from,
+              messageId: message.id || null,
+              error: shadowQueueError,
+            });
           }
         } else {
           console.log("Skipped duplicate outgoing reply", {
