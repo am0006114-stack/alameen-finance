@@ -8,6 +8,7 @@ import {
 import { detectShadowTopics } from "./topicDetector";
 import { routeShadowAgent, shadowAgentStyle } from "./agentRouter";
 import { buildShadowFacts } from "./policyRegistry";
+import { extractConversationEvidence, preferredAgentFromConversation } from "./evidence";
 import { buildDeterministicReply, buildSafeFallbackReply } from "./deterministicReply";
 import { validateShadowReply } from "./validator";
 import { generateJsonReply } from "./provider";
@@ -18,7 +19,7 @@ import type {
   ShadowTopic,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1-evidence-aware";
 
 function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
   return [
@@ -28,7 +29,11 @@ function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
     `حالة الدفع الخام: ${facts.paymentStatus || "غير متوفرة"}`,
     `رقم التتبع: ${facts.trackingId || "غير متوفر"}`,
     `الاسم: ${facts.customerName || "غير متوفر"}`,
-    `الجهاز: ${facts.deviceName || "غير متوفر"}`,
+    `الجهاز الحالي المسجل: ${facts.currentDevice || "غير متوفر"}`,
+    `هل يوجد طلب تعديل جهاز في السجل: ${facts.deviceChangeRequest.requested ? "نعم" : "لا"}`,
+    `الجهاز المطلوب في التعديل: ${facts.deviceChangeRequest.requestedDevice || "غير متوفر"}`,
+    `حالة طلب التعديل: ${facts.deviceChangeRequest.status}`,
+    `مصدر طلب التعديل: ${facts.deviceChangeRequest.source}`,
     `الدفع مطلوب ومسموح حاليًا: ${facts.paymentCurrentlyAllowed ? "نعم" : "لا"}`,
     `الدفع مؤكد: ${facts.paymentConfirmed ? "نعم" : "لا"}`,
     `وصل الدفع بانتظار التأكيد: ${facts.paymentReceiptPending ? "نعم" : "لا"}`,
@@ -39,6 +44,10 @@ function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
     `الطلب ملغي: ${facts.isCancelled ? "نعم" : "لا"}`,
     `المستند المطلوب حاليًا: ${facts.requiredDocument || "لا يوجد مستند محدد"}`,
     `هل يسمح بإظهار عنوان المكتب الآن: ${facts.officeAddressCanBeShared ? "نعم" : "لا"}`,
+    `رقم التواصل الرسمي المحلي: ${facts.officialContact.localNumber}`,
+    `رقم التواصل الرسمي الدولي: ${facts.officialContact.internationalNumber}`,
+    `ساعات الدوام المعتمدة: غير مخزنة، لذلك ممنوع اختراعها`,
+    `الأدلة المتاحة: ${facts.evidence.length ? facts.evidence.map((item) => `${item.id} | ${item.source} | ${item.claim}`).join(" || ") : "لا توجد أدلة إضافية"}`,
   ].join("\n");
 }
 
@@ -59,6 +68,10 @@ ${agentStyle}
 قواعد صارمة:
 - أجب عن سؤال العميل نفسه وبنفس ترتيب النقاط.
 - استخدم الحقائق المرسلة فقط. لا تخمّن حالة أو موعدًا أو مستندًا أو مدة تقسيط.
+- يمكن استخدام دليل من conversation_history لوصف ما طلبه العميل فقط، بشرط عدم تحويله إلى إجراء إداري لم يحدث.
+- فرّق دائمًا بين: طلب العميل تعديل الجهاز، وإرسال الطلب رسميًا للمراجعة، واعتماد التعديل.
+- لا تذكر جهازًا غير موجود في currentDevice أو deviceChangeRequest.requestedDevice.
+- لا تذكر أي رقم اتصال غير الرقم الرسمي المرسل، ولا تخترع ساعات دوام.
 - لا تقل "تم" عن إلغاء أو استرداد أو تصعيد أو اتصال ما لم تؤكد الحقائق ذلك.
 - لا تطلب رسوم فتح الملف إلا إذا كان الدفع مسموحًا حاليًا. الرسوم ${FILE_OPENING_FEE_JOD} دنانير وليست قسطًا.
 - لا تطلب هوية أو كشف راتب أو كفيل إلا إذا ظهر حرفيًا في المستند المطلوب.
@@ -92,7 +105,14 @@ function deterministicGeneration(reply: string): ShadowGenerationResult {
 
 export async function evaluateShadowReply(input: ShadowEngineInput): Promise<ShadowEvaluation> {
   const topics = detectShadowTopics(input.customerMessage, input.messageType, input.initialIntent);
-  const facts = buildShadowFacts(input.application, input.trackingId, input.customerName, input.messageType);
+  const evidenceInput = extractConversationEvidence(input.conversationSnapshot);
+  const facts = buildShadowFacts(
+    input.application,
+    input.trackingId,
+    input.customerName,
+    input.messageType,
+    evidenceInput,
+  );
   const initialRoute = routeShadowAgent({
     topics,
     customerText: input.customerMessage,
@@ -100,6 +120,7 @@ export async function evaluateShadowReply(input: ShadowEngineInput): Promise<Sha
     facts,
     requestedModel: input.requestedModel || null,
     seed: input.waId || input.trackingId || input.customerName || null,
+    preferredAgent: preferredAgentFromConversation(input.conversationSnapshot),
   });
 
   if (initialRoute.mode === "deterministic") {

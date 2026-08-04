@@ -33,7 +33,9 @@ function hasUnsupportedFinalApprovalClaim(value: string) {
   const cleaned = reply
     .replace(/(?:اذا|لو|في حال|بحال)\s+(?:ما|لم)\s+(?:تمت|تصدر|صدرت)?\s*(?:ال)?موافقه (?:ال)?نهاييه/g, " ")
     .replace(/(?:عدم|ما|لم|لا توجد|ما في)\s+(?:تمت|صدرت|صدور)?\s*(?:ال)?موافقه (?:ال)?نهاييه/g, " ")
-    .replace(/(?:ال)?موافقه (?:ال)?نهاييه\s+(?:غير موجوده|غير صادره)/g, " ");
+    .replace(/(?:ال)?موافقه (?:ال)?نهاييه\s+(?:غير موجوده|غير صادره)/g, " ")
+    .replace(/(?:بعد|عند|حال)\s+(?:صدور|اعتماد|الموافقه على)?\s*(?:ال)?موافقه (?:ال)?نهاييه/g, " ")
+    .replace(/بعد ما (?:تطلع|تصدر)\s*(?:ال)?موافقه/g, " ");
   return includesAny(cleaned, [
     "تمت الموافقه النهاييه",
     "صدرت الموافقه النهاييه",
@@ -116,6 +118,100 @@ function paymentExplanationComplete(reply: string) {
   return requirements.every(Boolean);
 }
 
+function normalizeDigits(value: string) {
+  const arabic = "٠١٢٣٤٥٦٧٨٩";
+  const eastern = "۰۱۲۳۴۵۶۷۸۹";
+  return String(value || "")
+    .replace(/[٠-٩]/g, (digit) => String(arabic.indexOf(digit)))
+    .replace(/[۰-۹]/g, (digit) => String(eastern.indexOf(digit)));
+}
+
+function phoneNumbers(value: string) {
+  const withoutTracking = normalizeDigits(value).replace(/AM-\d{8,}/gi, " ");
+  const matches = withoutTracking.match(/(?:\+?\d[\d\s().-]{7,}\d)/g) || [];
+  return matches
+    .map((match) => match.replace(/\D/g, ""))
+    .filter((digits) => digits.length >= 9 && digits.length <= 15);
+}
+
+function hasUnapprovedContactNumber(reply: string, facts: ShadowFacts) {
+  const allowed = new Set([
+    facts.officialContact.localNumber.replace(/\D/g, ""),
+    facts.officialContact.internationalNumber.replace(/\D/g, ""),
+  ]);
+  return phoneNumbers(reply).some((digits) => !allowed.has(digits));
+}
+
+function hasUnsupportedBusinessHours(reply: string, facts: ShadowFacts) {
+  if (facts.officialContact.businessHours) return false;
+  return includesAny(reply, [
+    "ساعات الدوام",
+    "اوقات الدوام",
+    "أوقات الدوام",
+    "من السبت الى",
+    "من السبت إلى",
+    "من الاحد الى",
+    "من الأحد إلى",
+    "الدوام من",
+    "صباحا حتى",
+    "صباحًا حتى",
+    "مساءا",
+    "مساءً",
+  ]) || /(?:^|\s)(?:[1-9]|1[0-2])(?::\d{2})?\s*(?:صباح|مساء)/.test(normalized(reply));
+}
+
+function deviceModelKeys(value: string | null | undefined) {
+  const raw = normalizeDigits(String(value || ""));
+  const matches: string[] = [];
+  const patterns = [
+    /\biphone\s*\d{1,2}(?:\s*(?:pro\s*max|pro|plus|max))?/gi,
+    /(?:ايفون|آيفون)\s*\d{1,2}(?:\s*(?:برو\s*ماكس|برو|بلس|ماكس))?/gi,
+    /\b(?:samsung\s+|galaxy\s+)?[sa]\d{2}(?:\s*(?:ultra|plus|fe))?/gi,
+    /\bhonor\s+[a-z0-9-]+(?:\s*pro)?/gi,
+    /\b(?:xiaomi|redmi|oppo|realme|pixel|poco|oneplus|infinix|tecno|huawei)\s+[a-z0-9-]+(?:\s*(?:pro|plus|ultra|max))?/gi,
+  ];
+  for (const pattern of patterns) {
+    matches.push(...(raw.match(pattern) || []));
+  }
+  return Array.from(new Set(matches.map((item) => normalized(item)
+    .replace(/آيفون|ايفون/g, "iphone")
+    .replace(/برو ماكس/g, "pro max")
+    .replace(/برو/g, "pro")
+    .replace(/بلس/g, "plus")
+    .replace(/\s+/g, " ")
+    .trim())));
+}
+
+function hasUnsupportedDeviceMention(reply: string, facts: ShadowFacts) {
+  const mentioned = deviceModelKeys(reply);
+  if (!mentioned.length) return false;
+  const allowed = new Set([
+    ...deviceModelKeys(facts.currentDevice),
+    ...deviceModelKeys(facts.deviceChangeRequest.requestedDevice),
+  ]);
+  return mentioned.some((model) => !allowed.has(model));
+}
+
+function hasDeviceChangeRequestClaim(reply: string) {
+  return includesAny(reply, [
+    "طلب تعديل الجهاز",
+    "طلبك لتعديل الجهاز",
+    "طلب تغيير الجهاز",
+  ]);
+}
+
+function hasDeviceChangeSubmissionClaim(reply: string) {
+  const value = normalized(reply);
+  return /(?:طلب|تعديل|تغيير)\s+(?:تعديل|تغيير)?\s*الجهاز.{0,120}(?:تم ارساله|تم رفعه|تحت المراجعه|مرفوع للاداره)/.test(value)
+    || /(?:تم ارسال|تم رفع)\s+طلب\s+(?:تعديل|تغيير)\s+الجهاز/.test(value)
+    || /طلب التعديل.{0,80}(?:تحت المراجعه|مرفوع للاداره)/.test(value);
+}
+
+function hasDeviceChangeApprovalClaim(reply: string) {
+  const value = normalized(reply);
+  return /(?:تم اعتماد|تمت الموافقه على|تم تغيير)\s+(?:طلب\s+)?(?:تعديل\s+)?الجهاز/.test(value);
+}
+
 function topicAnswered(topic: ShadowTopic, reply: string) {
   const checks: Partial<Record<ShadowTopic, string[]>> = {
     order_status: ["حاله طلبك", "حالة طلبك", "طلبك", "الملف"],
@@ -125,17 +221,20 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
     payment_method: ["الدفع", "amenpay", "لا يوجد دفع مطلوب"],
     payment_status: ["الدفع", "الوصل", "بانتظار التأكيد", "مؤكد"],
     procedures: ["الخطوه", "الخطوة", "الحالة", "طلبك"],
-    requirements: ["المطلوب", "كفيل", "راتب", "هويه", "هوية", "لا يوجد مستند", "ما في مستند"],
+    post_approval_steps: ["بعد صدور الموافقه", "بعد صدور الموافقة", "موعد حضور رسمي", "القسط الاول", "القسط الأول"],
+    requirements: ["المطلوب", "كفيل", "راتب", "هويه", "هوية", "لا يوجد مستند", "ما في مستند", "رقم التتبع"],
     office_location: ["المكتب", "العنوان", "موعد رسمي"],
     independence: ["جهه مستقله تماما", "جهة مستقلة تمامًا"],
     delivery: ["لا يوجد توصيل", "الاستلام من المكتب"],
     supplier_delay: ["التوريد", "المورد", "موعد توريد"],
-    device_change: ["change-device", "تغيير الجهاز"],
+    device_change: ["change-device", "تغيير الجهاز", "تعديل الجهاز"],
     cancellation: ["الغاء", "إلغاء", "تأكيدك"],
     refund: ["الاسترداد", "المبلغ", "الحواله", "الحوالة"],
     stop_refund: ["ايقاف", "إيقاف", "الاسترداد", "اعاده تفعيل", "إعادة تفعيل"],
+    contact_number: ["0788500337", "+962788500337", "رقم التواصل الرسمي"],
+    phone_not_answered: ["اترك رسالتك", "اترك رساله", "واتساب", "رقم طلبك"],
     human_agent: ["فريق الامين", "فريق الأمين", "تالا", "فدوه", "فدوة", "عبدالله", "عبدالرحمن", "عمران"],
-    staff_change: ["فريق الامين", "فريق الأمين", "عمران", "موظف"],
+    staff_change: ["فريق الامين", "فريق الأمين", "عمران", "موظف", "تالا", "فدوة", "عبدالله", "عبدالرحمن"],
     voice_message: ["الرساله الصوتيه", "الرسالة الصوتية", "اكتب"],
     media_upload: ["المرفق", "الصوره", "الصورة", "وصل"],
     document_upload: ["المستند", "الرابط الرسمي", "الرفع"],
@@ -150,8 +249,10 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
 }
 
 function agentRoleValid(agent: ShadowAgentId, topics: ShadowTopic[]) {
-  const escalation = topics.some((topic) => ["complaint", "trust", "cancellation", "refund", "stop_refund", "human_agent", "staff_change"].includes(topic));
+  const contact = topics.some((topic) => ["contact_number", "phone_not_answered", "human_agent", "staff_change"].includes(topic));
+  const escalation = topics.some((topic) => ["complaint", "trust", "cancellation", "refund", "stop_refund"].includes(topic));
   const study = topics.some((topic) => ["requirements", "procedures", "document_upload"].includes(topic));
+  if (contact) return agent === "tala" || agent === "fadwa";
   if (escalation) return agent === "omran";
   if (study) return agent === "abdullah" || agent === "abdulrahman";
   return agent === "tala" || agent === "fadwa";
@@ -199,13 +300,36 @@ export function validateShadowReply(
     addCheck(checks, "complete_payment_explanation", true, "critical", "لا يلزم شرح دفع كامل في هذه الحالة.");
   }
 
+  addCheck(checks, "official_contact_only", !hasUnapprovedContactNumber(reply, facts), "critical", "لا يُذكر أي رقم اتصال غير الرقم الرسمي المعتمد.");
+  addCheck(checks, "no_invented_business_hours", !hasUnsupportedBusinessHours(reply, facts), "critical", "ساعات الدوام غير مخزنة، لذلك لا يجوز اختراعها.");
+  addCheck(checks, "device_mentions_grounded", !hasUnsupportedDeviceMention(reply, facts), "critical", "أي جهاز مذكور يجب أن يكون الجهاز الحالي أو جهاز تعديل مثبتًا بدليل المحادثة.");
+
+  const deviceRequestClaim = hasDeviceChangeRequestClaim(reply);
+  addCheck(checks, "device_change_request_truth", !deviceRequestClaim || facts.deviceChangeRequest.requested, "critical", "لا يُدّعى وجود طلب تعديل جهاز دون دليل.");
+  const deviceSubmissionClaim = hasDeviceChangeSubmissionClaim(reply);
+  addCheck(checks, "device_change_submission_truth", !deviceSubmissionClaim || facts.deviceChangeRequest.status === "submitted_for_review", "critical", "لا يتحول طلب العميل إلى طلب مرفوع للإدارة دون نموذج رسمي مثبت.");
+  const deviceApprovalClaim = hasDeviceChangeApprovalClaim(reply);
+  addCheck(checks, "device_change_approval_truth", !deviceApprovalClaim || facts.deviceChangeRequest.status === "approved", "critical", "لا يُدّعى اعتماد تعديل الجهاز دون حالة مؤكدة.");
+
+  const linkedApplicationClaim = includesAny(reply, [
+    "طلبك قيد",
+    "طلبك لسا",
+    "حالة طلبك",
+    "الدفع مؤكد على طلبك",
+    "الملف قيد",
+  ]);
+  addCheck(checks, "application_link_truth", facts.hasApplication || !linkedApplicationClaim, "critical", "لا تُذكر حالة طلب شخصية دون طلب مرتبط بالمحادثة.");
+
   addCheck(checks, "address_allowed", facts.officeAddressCanBeShared || !includesAny(reply, ["رانا سنتر", "شارع المدينه المنوره", "شارع المدينة المنورة", "مقابل مستشفى العيون"]), "critical", "لا يُذكر عنوان المكتب قبل الموافقة أو الموعد الرسمي.");
   addCheck(checks, "no_delivery_promise", !includesAny(reply, ["نوصل الجهاز", "التوصيل متاح", "مندوب التوصيل", "بنوصله لعندك"]), "critical", "لا يوجد توصيل.");
   addCheck(checks, "no_early_settlement_guarantee", !includesAny(reply, ["اكيد بتقدر تسدد كامل", "السداد الكامل متاح دائما", "تقدر تسكر الاقساط بأي وقت"]), "critical", "السداد المبكر لا يُضمن مسبقًا.");
   addCheck(checks, "final_approval_truth", facts.isApproved || !hasUnsupportedFinalApprovalClaim(reply), "critical", "لا تُدّعى موافقة نهائية غير موجودة.");
   addCheck(checks, "refund_completion_truth", facts.refundCompleted || !includesAny(reply, ["تم الاسترداد", "رجع المبلغ", "تمت الحواله", "تمت الحوالة"]), "critical", "لا يُدّعى اكتمال الاسترداد دون حالة مؤكدة.");
   addCheck(checks, "refund_registration_truth", facts.refundActive || !includesAny(reply, ["تم تسجيل الاسترداد", "طلب الاسترداد مسجل", "في طلب استرداد نشط"]), "critical", "لا يُدّعى وجود استرداد نشط إذا لم يظهر في الحقائق.");
-  addCheck(checks, "no_unexecuted_action", !includesAny(reply, ["تواصلت مع المورد", "اتصلت بالمورد", "تم تصعيد الطلب", "حولت طلبك للاداره", "رفعت طلبك للاداره"]), "critical", "لا يُدّعى تنفيذ إجراء غير مسجل.");
+
+  const actionClaim = includesAny(reply, ["تواصلت مع المورد", "اتصلت بالمورد", "تم تصعيد الطلب", "حولت طلبك للاداره", "رفعت طلبك للاداره"]);
+  const supportedDeviceSubmission = facts.deviceChangeRequest.status === "submitted_for_review" && includesAny(reply, ["طلب تعديل الجهاز", "طلب التعديل"]);
+  addCheck(checks, "no_unexecuted_action", !actionClaim || supportedDeviceSubmission, "critical", "لا يُدّعى تنفيذ إجراء غير مسجل.");
   addCheck(checks, "no_unsupported_term", !/(?:^|\s)\d{1,3}\s*(?:شهر|اشهر|أشهر)(?:\s|$)/.test(normalized(reply)), "critical", "لا تُخترع مدة تقسيط بالشهور.");
   addCheck(checks, "no_service_promise", !includesAny(reply, ["ما رح نأخرها عنك", "بنضمن ما تتأخر", "رح تخلص اليوم", "أكيد اليوم"]), "critical", "لا يُعطى وعد خدمة أو موعد غير مؤكد.");
 

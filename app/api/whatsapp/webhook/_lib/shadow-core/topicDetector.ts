@@ -58,6 +58,7 @@ export function detectShadowTopics(
   ];
 
   if (initialIntent === "human_agent" || initialIntent === "staff_identity") add("human_agent");
+  if (initialIntent === "contact_info" || initialIntent === "call_request") add("contact_number");
   if (initialIntent === "order_status") add("order_status");
   if (initialIntent === "review_time" || initialIntent === "payment_review_time") add("review_time");
   if (paymentIntents.includes(initialIntent)) add("payment_method");
@@ -81,6 +82,11 @@ export function detectShadowTopics(
   if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات"])) add("payment_method");
   if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "رفعت الوصل", "تأكيد الوصل"])) add("payment_status");
   if (containsAny(text, ["الاجراءات", "الإجراءات", "كيف بتم", "كيف تتم", "شو الخطوات", "ايش ضل خطوات", "ما هي الخطوات", "طريقة التقديم", "طريقه التقديم"])) add("procedures");
+  if (containsAny(text, [
+    "بعد الموافقه شو", "بعد الموافقة شو", "بعد ما تطلع الموافقه", "بعد ما تطلع الموافقة",
+    "بعد الموافقه النهائيه", "بعد الموافقة النهائية", "الخطوات بعد الموافقه", "الخطوات بعد الموافقة",
+    "شو الاجراءات بعد الموافقه", "شو الإجراءات بعد الموافقة", "اذا وافقو شو", "إذا وافقوا شو",
+  ])) add("post_approval_steps");
   if (containsAny(text, ["شو المطلوب", "المتطلبات", "كفيل", "كشف راتب", "شهادة راتب", "شهاده راتب", "هويه", "هوية"])) add("requirements");
   if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "مكانكم", "الفرع", "فروعكم", "فروع"])) {
     add("office_location");
@@ -93,8 +99,32 @@ export function detectShadowTopics(
   if (containsAny(text, ["استرداد", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم", "متى بتم استرداد المصاري"])) add("refund");
   if (containsAny(text, ["الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "وقف الاسترداد", "اوقف الاسترداد", "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة"])) add("stop_refund");
   if (containsAny(text, ["بدي موظف", "احكي مع موظف", "بدي مسؤول", "احكي مع مسؤول", "بدي عمران", "انسان مش بوت", "human", "manager"])) add("human_agent");
+  if (containsAny(text, [
+    "بدي رقم موظف", "بدي رقم موضف", "رقم موظف", "رقم موضف", "رقم اتواصل", "رقم للتواصل",
+    "في رقم نتواصل", "اعطيني رقم", "أعطيني رقم", "رقم تلفون", "رقم الهاتف", "اتصل عليكم", "اتواصل معكم",
+  ])) add("contact_number");
+  if (containsAny(text, [
+    "ما بتردو", "ما بتردوا", "ما حدا رد", "الهاتف لا يرد", "التلفون ما برد", "اتصلت وما رديتو",
+    "اتصلت وما رديتوا", "بحكي وما حدا برد", "الرن ما حدا برد",
+  ])) add("phone_not_answered");
   if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك"])) add("complaint");
   if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق"])) add("trust");
+
+  // Explicit wording in the current message outranks a noisy legacy intent.
+  if (topics.includes("contact_number") || topics.includes("phone_not_answered")) {
+    const paymentIsExplicit = containsAny(text, ["كيف ادفع", "وين ادفع", "رسوم فتح الملف", "amenpay", "payamen", "كليك", "cliq"]);
+    if (!paymentIsExplicit) {
+      const paymentIndex = topics.indexOf("payment_method");
+      if (paymentIndex >= 0) topics.splice(paymentIndex, 1);
+      const paymentStatusIndex = topics.indexOf("payment_status");
+      if (paymentStatusIndex >= 0) topics.splice(paymentStatusIndex, 1);
+    }
+  }
+
+  if (topics.includes("post_approval_steps")) {
+    const proceduresIndex = topics.indexOf("procedures");
+    if (proceduresIndex >= 0) topics.splice(proceduresIndex, 1);
+  }
 
   if (!topics.length) add("general_question");
   return topics;

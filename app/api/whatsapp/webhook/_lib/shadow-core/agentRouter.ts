@@ -16,7 +16,18 @@ function stableIndex(seed: string, modulo: number) {
   return Math.abs(hash) % Math.max(1, modulo);
 }
 
-function pickAgent(role: ShadowAgentRole, seed: string): ShadowAgentId {
+function agentRole(agent: ShadowAgentId): ShadowAgentRole {
+  if (agent === "omran") return "escalation";
+  if (agent === "abdullah" || agent === "abdulrahman") return "study";
+  return "followup";
+}
+
+function pickAgent(
+  role: ShadowAgentRole,
+  seed: string,
+  preferredAgent?: ShadowAgentId | null,
+): ShadowAgentId {
+  if (preferredAgent && agentRole(preferredAgent) === role) return preferredAgent;
   if (role === "escalation") return "omran";
   if (role === "study") return stableIndex(seed, 2) === 0 ? "abdullah" : "abdulrahman";
   return stableIndex(seed, 2) === 0 ? "tala" : "fadwa";
@@ -47,6 +58,7 @@ export function routeShadowAgent(input: {
   facts: ShadowFacts;
   requestedModel?: string | null;
   seed?: string | null;
+  preferredAgent?: ShadowAgentId | null;
 }): ShadowRouteDecision {
   const seed = String(
     input.seed ||
@@ -57,8 +69,6 @@ export function routeShadowAgent(input: {
   );
 
   const escalationTopics: ShadowTopic[] = [
-    "human_agent",
-    "staff_change",
     "complaint",
     "trust",
     "cancellation",
@@ -66,6 +76,12 @@ export function routeShadowAgent(input: {
     "stop_refund",
   ];
   const studyTopics: ShadowTopic[] = ["requirements", "procedures", "document_upload"];
+  const contactTopics: ShadowTopic[] = [
+    "contact_number",
+    "phone_not_answered",
+    "human_agent",
+    "staff_change",
+  ];
   const sensitiveTopics: ShadowTopic[] = [
     "order_status",
     "review_time",
@@ -73,6 +89,7 @@ export function routeShadowAgent(input: {
     "early_settlement",
     "payment_method",
     "payment_status",
+    "post_approval_steps",
     "requirements",
     "office_location",
     "independence",
@@ -82,6 +99,10 @@ export function routeShadowAgent(input: {
     "cancellation",
     "refund",
     "stop_refund",
+    "contact_number",
+    "phone_not_answered",
+    "human_agent",
+    "staff_change",
     "voice_message",
     "media_upload",
     "document_upload",
@@ -89,12 +110,14 @@ export function routeShadowAgent(input: {
     "acknowledgement",
   ];
 
-  const role: ShadowAgentRole = hasAnyTopic(input.topics, escalationTopics)
-    ? "escalation"
-    : hasAnyTopic(input.topics, studyTopics)
-      ? "study"
-      : "followup";
-  const agent = pickAgent(role, seed);
+  const role: ShadowAgentRole = hasAnyTopic(input.topics, contactTopics)
+    ? "followup"
+    : hasAnyTopic(input.topics, escalationTopics)
+      ? "escalation"
+      : hasAnyTopic(input.topics, studyTopics)
+        ? "study"
+        : "followup";
+  const agent = pickAgent(role, seed, input.preferredAgent);
   const forcedMode = modeFromRequestedModel(input.requestedModel);
   const sensitiveRoute = hasAnyTopic(input.topics, sensitiveTopics);
 
@@ -104,7 +127,7 @@ export function routeShadowAgent(input: {
       agentName: shadowAgentName(agent),
       role,
       mode: "deterministic",
-      reason: "مسار حساس يعتمد على حالة الطلب وقواعد ثابتة، لذلك لا يُسمح للنموذج باتخاذ قرار.",
+      reason: "مسار حساس يعتمد على حقائق الطلب أو سياسة اتصال ثابتة، لذلك لا يُسمح للنموذج باتخاذ قرار.",
       sensitiveRoute: true,
       templateId: null,
       requestedModel: null,
@@ -138,18 +161,18 @@ export function routeShadowAgent(input: {
   }
 
   const compact = String(input.customerText || "").trim();
-  const simple = compact.length <= 50 && !/[؟?]/.test(compact);
+  const socialOnly = /^(?:مرحبا|مرحباً|اهلا|أهلا|شكرا|شكرًا|يعطيك العافيه|يعطيك العافية|تمام|اوكي|ok|okay|👍|✅|👌|🙏|🌿|❤️|❤|🙂|😊)[\s.!،,؟?]*$/i.test(compact);
   return {
     agent,
     agentName: shadowAgentName(agent),
     role,
-    mode: simple ? "flash" : "pro",
-    reason: simple
-      ? "رسالة عامة قصيرة وغير حساسة؛ Flash كافٍ للصياغة."
-      : "رسالة عامة تحتاج فهمًا أوسع للسياق؛ Pro هو الأنسب.",
+    mode: socialOnly ? "flash" : "pro",
+    reason: socialOnly
+      ? "رسالة اجتماعية قصيرة وغير حساسة؛ Flash كافٍ للصياغة."
+      : "الرسالة تحتاج فهمًا للسياق؛ Pro هو الأنسب.",
     sensitiveRoute: false,
     templateId: null,
-    requestedModel: simple ? "deepseek-v4-flash" : "deepseek-v4-pro",
+    requestedModel: socialOnly ? "deepseek-v4-flash" : "deepseek-v4-pro",
   };
 }
 

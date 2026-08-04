@@ -153,10 +153,10 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
 
   const { data: statsData } = await supabaseAdmin
     .from("whatsapp_shadow_jobs")
-    .select("status, quality_score, agent, decision_mode, fallback_applied")
+    .select("status, quality_score, agent, decision_mode, fallback_applied, prompt_version")
     .gte("created_at", since)
     .limit(2000);
-  const allRows = (statsData || []) as Array<{ status?: string | null; quality_score?: number | null; agent?: string | null; decision_mode?: string | null; fallback_applied?: boolean | null }>;
+  const allRows = (statsData || []) as Array<{ status?: string | null; quality_score?: number | null; agent?: string | null; decision_mode?: string | null; fallback_applied?: boolean | null; prompt_version?: string | null }>;
 
   const count = (statuses: string[]) => allRows.filter((row) => statuses.includes(String(row.status || ""))).length;
   const scored = allRows.filter((row) => ["succeeded", "blocked"].includes(String(row.status || "")));
@@ -177,10 +177,11 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
   const abKey = settings.get("ab_test_key") || "pro-vs-flash-20260803";
   const multiAgentEnabled = settings.get("multi_agent_enabled") === "true";
   const promptVersion = settings.get("shadow_prompt_version") || "legacy";
-  const deterministicCount = allRows.filter((row) => row.decision_mode === "deterministic").length;
-  const fallbackCount = allRows.filter((row) => row.fallback_applied).length;
+  const architectureRows = allRows.filter((row) => row.prompt_version === promptVersion);
+  const deterministicCount = architectureRows.filter((row) => row.decision_mode === "deterministic").length;
+  const fallbackCount = architectureRows.filter((row) => row.fallback_applied).length;
   const agentCounts = ["tala", "fadwa", "abdullah", "abdulrahman", "omran"]
-    .map((agent) => `${agentLabel(agent)} ${allRows.filter((row) => row.agent === agent).length}`)
+    .map((agent) => `${agentLabel(agent)} ${architectureRows.filter((row) => row.agent === agent).length}`)
     .join(" | ");
 
   const { data: abData } = await supabaseAdmin
@@ -362,6 +363,8 @@ export default async function WhatsAppShadowReviewPage({ searchParams }: PagePro
                     <Info title="مخاطر الرد النهائي" value={row.risk_flags?.length ? row.risk_flags.join("، ") : "لا توجد مخالفات مكتشفة"} />
                     <Info title="سبب التوجيه" value={row.route_reason || "—"} />
                     <Info title="قالب / نتيجة القرار" value={`${row.deterministic_template || "بدون قالب"} | ${row.decision_outcome || "—"}`} />
+                    {facts.deviceChangeRequest ? <Info title="دليل تعديل الجهاز" value={JSON.stringify(facts.deviceChangeRequest)} /> : null}
+                    {Array.isArray(facts.evidence) && facts.evidence.length ? <Info title="الأدلة المستخدمة" value={facts.evidence.map((item) => typeof item === "object" && item ? String((item as Record<string, unknown>).claim || (item as Record<string, unknown>).id || "دليل") : String(item)).join(" | ")} /> : null}
                     {row.draft_risk_flags?.length ? <Info title="مخاطر المسودة الأصلية" value={row.draft_risk_flags.join("، ")} /> : null}
                     {row.policy_checks?.length ? <Info title="فحوصات Policy Judge الفاشلة" value={row.policy_checks.filter((check) => check.passed === false).map((check) => `${check.id}: ${check.message || ""}`).join(" | ") || "كل الفحوصات اجتازت"} /> : null}
                     <div className="text-xs font-bold leading-6 text-[#aeb9af]">

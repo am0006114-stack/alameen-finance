@@ -395,18 +395,27 @@ export async function GET(request: NextRequest) {
         .filter(Boolean)
     );
 
+    const architecturePromptVersion = exportedJobs.find((job) => typeof job.prompt_version === "string")?.prompt_version || null;
+    const architectureRows = architecturePromptVersion
+      ? exportedJobs.filter((job) => job.prompt_version === architecturePromptVersion)
+      : [];
     const architecture = {
-      promptVersion: exportedJobs.find((job) => typeof job.prompt_version === "string")?.prompt_version || null,
-      deterministic: exportedJobs.filter((job) => job.decision_mode === "deterministic").length,
-      pro: exportedJobs.filter((job) => job.decision_mode === "pro").length,
-      flash: exportedJobs.filter((job) => job.decision_mode === "flash").length,
-      safeFallbacks: exportedJobs.filter((job) => job.fallback_applied === true).length,
+      promptVersion: architecturePromptVersion,
+      total: architectureRows.length,
+      deterministic: architectureRows.filter((job) => job.decision_mode === "deterministic").length,
+      pro: architectureRows.filter((job) => job.decision_mode === "pro").length,
+      flash: architectureRows.filter((job) => job.decision_mode === "flash").length,
+      safeFallbacks: architectureRows.filter((job) => job.fallback_applied === true).length,
+      withConversationEvidence: architectureRows.filter((job) => {
+        const facts = job.facts as Record<string, unknown> | null | undefined;
+        return Array.isArray(facts?.evidence) && facts.evidence.length > 0;
+      }).length,
       byAgent: {
-        tala: exportedJobs.filter((job) => job.agent === "tala").length,
-        fadwa: exportedJobs.filter((job) => job.agent === "fadwa").length,
-        abdullah: exportedJobs.filter((job) => job.agent === "abdullah").length,
-        abdulrahman: exportedJobs.filter((job) => job.agent === "abdulrahman").length,
-        omran: exportedJobs.filter((job) => job.agent === "omran").length,
+        tala: architectureRows.filter((job) => job.agent === "tala").length,
+        fadwa: architectureRows.filter((job) => job.agent === "fadwa").length,
+        abdullah: architectureRows.filter((job) => job.agent === "abdullah").length,
+        abdulrahman: architectureRows.filter((job) => job.agent === "abdulrahman").length,
+        omran: architectureRows.filter((job) => job.agent === "omran").length,
       },
     };
 
@@ -424,7 +433,7 @@ export async function GET(request: NextRequest) {
     };
 
     const payload = {
-      schemaVersion: "alameen-shadow-export-v3-solid-multi-agent",
+      schemaVersion: "alameen-shadow-export-v4-evidence-aware",
       exportedAt: new Date().toISOString(),
       privacy,
       filters: { hours, result, agent, since },

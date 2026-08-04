@@ -1,5 +1,14 @@
+import {
+  BUSINESS_PHONE_DISPLAY,
+  BUSINESS_PHONE_E164,
+  BUSINESS_WEBSITE,
+} from "../constants";
 import type { ApplicationRecord } from "../types";
-import type { ShadowFacts } from "./types";
+import type {
+  ShadowDeviceChangeRequest,
+  ShadowEvidence,
+  ShadowFacts,
+} from "./types";
 
 const PAYMENT_ALLOWED_STATUSES = new Set([
   "preliminary_qualified",
@@ -42,11 +51,26 @@ function statusLabel(status: string | null, paymentStatus: string | null) {
   return status || "لا توجد حالة مؤكدة";
 }
 
+function emptyDeviceChange(): ShadowDeviceChangeRequest {
+  return {
+    requested: false,
+    requestedDevice: null,
+    previousDevice: null,
+    status: "none",
+    source: "none",
+    evidenceId: null,
+  };
+}
+
 export function buildShadowFacts(
   app: ApplicationRecord | null | undefined,
   trackingId?: string | null,
   customerName?: string | null,
   messageType?: string | null,
+  evidenceInput?: {
+    evidence?: ShadowEvidence[];
+    deviceChangeRequest?: ShadowDeviceChangeRequest;
+  } | null,
 ): ShadowFacts {
   const meaningfulApp = hasMeaningfulApplication(app) ? app : null;
   const status = meaningfulApp?.status || null;
@@ -77,6 +101,29 @@ export function buildShadowFacts(
   if (status === "needs_salary_slip") requiredDocument = "salary_slip";
   if (status === "needs_identity" || status === "identity_requested") requiredDocument = "identity";
 
+  const currentDevice = meaningfulApp?.device_name || null;
+  const evidence: ShadowEvidence[] = [...(evidenceInput?.evidence || [])];
+  if (currentDevice) {
+    evidence.unshift({
+      id: "structured-current-device",
+      kind: "current_device",
+      source: "structured_facts",
+      claim: `الجهاز الحالي المسجل على الطلب هو ${currentDevice}.`,
+      value: currentDevice,
+      excerpt: null,
+      confidence: "high",
+    });
+  }
+  evidence.push({
+    id: "policy-official-contact",
+    kind: "official_contact",
+    source: "business_policy",
+    claim: `رقم التواصل الرسمي هو ${BUSINESS_PHONE_DISPLAY} (${BUSINESS_PHONE_E164}).`,
+    value: BUSINESS_PHONE_DISPLAY,
+    excerpt: null,
+    confidence: "high",
+  });
+
   return {
     hasApplication: Boolean(meaningfulApp),
     status,
@@ -84,7 +131,16 @@ export function buildShadowFacts(
     paymentStatus,
     trackingId: meaningfulApp?.tracking_id || trackingId || null,
     customerName: meaningfulApp?.full_name || customerName || null,
-    deviceName: meaningfulApp?.device_name || null,
+    deviceName: currentDevice,
+    currentDevice,
+    deviceChangeRequest: evidenceInput?.deviceChangeRequest || emptyDeviceChange(),
+    evidence,
+    officialContact: {
+      localNumber: BUSINESS_PHONE_DISPLAY,
+      internationalNumber: BUSINESS_PHONE_E164,
+      website: BUSINESS_WEBSITE,
+      businessHours: null,
+    },
     messageType: String(messageType || "text").toLowerCase(),
     paymentCurrentlyAllowed,
     paymentAlreadyConfirmed,

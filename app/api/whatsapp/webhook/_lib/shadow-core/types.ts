@@ -13,6 +13,7 @@ export type ShadowTopic =
   | "payment_method"
   | "payment_status"
   | "procedures"
+  | "post_approval_steps"
   | "requirements"
   | "office_location"
   | "independence"
@@ -22,6 +23,8 @@ export type ShadowTopic =
   | "cancellation"
   | "refund"
   | "stop_refund"
+  | "contact_number"
+  | "phone_not_answered"
   | "human_agent"
   | "staff_change"
   | "voice_message"
@@ -33,6 +36,42 @@ export type ShadowTopic =
   | "trust"
   | "general_question";
 
+export type ShadowEvidenceSource =
+  | "structured_facts"
+  | "conversation_history"
+  | "business_policy";
+
+export type ShadowEvidence = {
+  id: string;
+  kind:
+    | "current_device"
+    | "device_change_request"
+    | "device_change_submission"
+    | "official_contact"
+    | "business_policy";
+  source: ShadowEvidenceSource;
+  claim: string;
+  value: string | null;
+  excerpt: string | null;
+  confidence: "high" | "medium";
+};
+
+export type ShadowDeviceChangeStatus =
+  | "none"
+  | "customer_requested"
+  | "submitted_for_review"
+  | "approved"
+  | "rejected";
+
+export type ShadowDeviceChangeRequest = {
+  requested: boolean;
+  requestedDevice: string | null;
+  previousDevice: string | null;
+  status: ShadowDeviceChangeStatus;
+  source: "none" | "conversation_history" | "official_form" | "structured_facts";
+  evidenceId: string | null;
+};
+
 export type ShadowFacts = {
   hasApplication: boolean;
   status: string | null;
@@ -41,6 +80,15 @@ export type ShadowFacts = {
   trackingId: string | null;
   customerName: string | null;
   deviceName: string | null;
+  currentDevice: string | null;
+  deviceChangeRequest: ShadowDeviceChangeRequest;
+  evidence: ShadowEvidence[];
+  officialContact: {
+    localNumber: string;
+    internationalNumber: string;
+    website: string;
+    businessHours: null;
+  };
   messageType: string;
   paymentCurrentlyAllowed: boolean;
   paymentAlreadyConfirmed: boolean;
@@ -128,6 +176,12 @@ export type ShadowEvaluation = {
   promptVersion: string;
 };
 
+export type ShadowConversationSnapshot = {
+  conversationContext?: string;
+  lastAssistantReplies?: string[];
+  lastCustomerMessages?: string[];
+};
+
 export type ShadowQueueInput = {
   incomingMessageId: string;
   waId: string;
@@ -138,11 +192,7 @@ export type ShadowQueueInput = {
   initialIntent: CustomerIntent;
   trackingId?: string | null;
   application?: ApplicationRecord | null;
-  conversationSnapshot?: {
-    conversationContext?: string;
-    lastAssistantReplies?: string[];
-    lastCustomerMessages?: string[];
-  } | null;
+  conversationSnapshot?: ShadowConversationSnapshot | null;
 };
 
 export type ShadowEngineInput = {
@@ -155,9 +205,5 @@ export type ShadowEngineInput = {
   actualReply: string;
   trackingId?: string | null;
   application?: ApplicationRecord | null;
-  conversationSnapshot?: {
-    conversationContext?: string;
-    lastAssistantReplies?: string[];
-    lastCustomerMessages?: string[];
-  } | null;
+  conversationSnapshot?: ShadowConversationSnapshot | null;
 };
