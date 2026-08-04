@@ -109,10 +109,15 @@ export function detectShadowTopics(
   if (containsAny(text, ["بدي الغي", "بدي ألغي", "الغاء الطلب", "إلغاء الطلب", "اكد الغاء", "أكد إلغاء"])) add("cancellation");
   if (containsAny(text, ["استرداد", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم", "متى بتم استرداد المصاري"])) add("refund");
   if (containsAny(text, ["الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "وقف الاسترداد", "اوقف الاسترداد", "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة"])) add("stop_refund");
-  if (containsAny(text, ["بدي موظف", "احكي مع موظف", "بدي مسؤول", "احكي مع مسؤول", "بدي عمران", "انسان مش بوت", "human", "manager"])) add("human_agent");
+  if (containsAny(text, [
+    "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي اتحدث مع موظف", "بدي أتحدث مع موظف",
+    "اريد التحدث مع موظف", "أريد التحدث مع موظف", "بدي مسؤول", "احكي مع مسؤول",
+    "بدي عمران", "انسان مش بوت", "human", "manager",
+  ])) add("human_agent");
   if (containsAny(text, [
     "بدي رقم موظف", "بدي رقم موضف", "رقم موظف", "رقم موضف", "رقم اتواصل", "رقم للتواصل",
-    "في رقم نتواصل", "اعطيني رقم", "أعطيني رقم", "رقم تلفون", "رقم الهاتف", "اتصل عليكم", "اتواصل معكم",
+    "في رقم نتواصل", "اعطيني رقم", "أعطيني رقم", "رقم تلفون للتواصل", "رقم الهاتف للتواصل",
+    "اتصل عليكم", "اتواصل معكم",
   ])) add("contact_number");
   if (containsAny(text, [
     "ما بتردو", "ما بتردوا", "ما حدا رد", "الهاتف لا يرد", "التلفون ما برد", "اتصلت وما رديتو",
@@ -120,6 +125,18 @@ export function detectShadowTopics(
   ])) add("phone_not_answered");
   if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك"])) add("complaint");
   if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق"])) add("trust");
+
+  // A phone number written inside the standard application-follow-up template is an identifier, not a contact request.
+  const explicitContactQuestion = containsAny(text, [
+    "بدي رقم موظف", "بدي رقم موضف", "رقم موظف", "رقم موضف", "رقم اتواصل", "رقم للتواصل",
+    "في رقم نتواصل", "اعطيني رقم", "أعطيني رقم", "رقم تلفون للتواصل", "رقم الهاتف للتواصل",
+    "اتصل عليكم", "اتواصل معكم",
+  ]) || initialIntent === "contact_info" || initialIntent === "call_request";
+  const templatePhoneLabel = /(?:^|\n)\s*رقم\s+(?:الهاتف|التلفون)\s*:/i.test(text);
+  if (topics.includes("contact_number") && templatePhoneLabel && !explicitContactQuestion) {
+    const index = topics.indexOf("contact_number");
+    if (index >= 0) topics.splice(index, 1);
+  }
 
   // Regulatory and identity questions are direct business-policy questions, not threats or complaints by themselves.
   if (topics.includes("regulatory_status") || topics.includes("business_identity")) {

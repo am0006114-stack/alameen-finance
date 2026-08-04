@@ -80,6 +80,15 @@ function hasDirectWhatsAppReceiptRequest(reply: string) {
     "ارسل لنا اشعار التحويل",
     "ابعث الوصل هون",
     "ابعت الوصل هون",
+    "ابعثه هون",
+    "ابعت اثبات الدفع",
+    "ابعث إثبات الدفع",
+    "ارسل اثبات الدفع",
+    "أرسل إثبات الدفع",
+    "معه صورة الوصل",
+    "صورة الوصل ان وجدت",
+    "صورة الوصل إن وجدت",
+    "صورة من الحركة",
   ]);
   const hasOfficialUpload = includesAny(reply, ["الرابط الرسمي", "/receipt", "ارفع الوصل من الرابط"]);
   return asksDirectly && !hasOfficialUpload;
@@ -99,6 +108,18 @@ function hasDirectWhatsAppDocumentRequest(reply: string) {
   ]);
   const hasOfficialUpload = includesAny(reply, ["الرابط الرسمي", "الرابط الامن", "الرفع الرسمي"]);
   return asksDirectly && !hasOfficialUpload;
+}
+
+function hasUnsupportedStaffAvailabilityClaim(reply: string) {
+  return includesAny(reply, [
+    "ما في موظف متاح",
+    "لا يوجد موظف متاح",
+    "الموظف غير متاح",
+    "ما في حدا متاح للمكالمه",
+    "ما في حدا متاح للمكالمة",
+    "لا يوجد احد متاح للمكالمه",
+    "لا يوجد أحد متاح للمكالمة",
+  ]);
 }
 
 function paymentExplanationComplete(reply: string) {
@@ -328,6 +349,7 @@ export function validateShadowReply(
   addCheck(checks, "no_branch_word", !includesAny(reply, ["فرع", "فروع"]), "critical", "لا تُستخدم كلمة فرع أو فروع.");
   addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payameen"]), "critical", "اسم الدفع الصحيح PAYAMEN وليس PAYAMEEN.");
   addCheck(checks, "no_ai_or_bot_discussion", !includesAny(reply, ["بوت", "ذكاء اصطناعي", "نظام تجريبي", "ai assistant"]), "critical", "لا يناقش الرد كونه بوتًا أو نظامًا تجريبيًا.");
+  addCheck(checks, "no_invented_staff_availability", !hasUnsupportedStaffAvailabilityClaim(reply), "critical", "لا يجوز اختراع توفر الموظفين أو عدم توفرهم.");
   addCheck(checks, "no_false_central_bank_claim", !hasFalseCentralBankClaim(reply), "critical", "ممنوع الادعاء بأن الجهة مرخصة أو خاضعة لرقابة البنك المركزي الأردني.");
   addCheck(checks, "approved_business_name_only", !hasForbiddenBusinessName(reply), "critical", "الاسم المعتمد هو الأمين للأقساط فقط.");
   addCheck(checks, "no_finance_or_loan_identity", !hasAffirmativeFinanceOrLoanIdentity(reply), "critical", "الجهة ليست بنكًا أو شركة تمويل أو إقراض ولا تمنح قروضًا.");
@@ -408,7 +430,11 @@ export function validateShadowReply(
   const cancellationLoop = context.initialIntent === "cancel_confirmed" && asksForCancellationConfirmationAgain(reply);
   addCheck(checks, "no_cancel_confirmation_loop", !cancellationLoop, "critical", "بعد تأكيد الإلغاء لا يُطلب التأكيد مرة ثانية.");
 
-  const answeredTopics = topics.filter((topic) => topicAnswered(topic, reply));
+  const refundAnswerPresent = facts.refundActive && topics.includes("refund") && topicAnswered("refund", reply);
+  const answeredTopics = topics.filter((topic) => {
+    if (refundAnswerPresent && ["payment_status", "order_status", "review_time"].includes(topic)) return true;
+    return topicAnswered(topic, reply);
+  });
   const missingTopics = topics.filter((topic) => !answeredTopics.includes(topic));
   addCheck(checks, "all_topics_answered", missingTopics.length === 0, "critical", "تمت الإجابة عن جميع موضوعات رسالة العميل.");
 

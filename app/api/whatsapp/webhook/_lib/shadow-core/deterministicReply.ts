@@ -156,7 +156,7 @@ function refundReply(facts: ShadowFacts) {
   if (!facts.hasApplication) return applicationNotLinkedReply();
   if (facts.refundCompleted) return "الاسترداد مكتمل حسب الحالة الظاهرة على الطلب.";
   if (facts.refundActive) {
-    return "طلب الاسترداد مسجل وقيد المتابعة. لا يوجد موعد ثابت يمكن تأكيده قبل التنفيذ، وأول ما تتم الحوالة أو يظهر تحديث فعلي تصلك رسالة رسمية.";
+    return "طلب الاسترداد مسجل وقيد المتابعة. الظروف التشغيلية الاستثنائية وضغط المراجعات هي سبب التأخير الحالي، وتتم المتابعة حسب الدور. لا يوجد موعد ثابت يمكن تأكيده قبل التنفيذ، وأول ما تتم الحوالة أو يظهر تحديث فعلي تصلك رسالة رسمية.";
   }
   if (facts.refundEligible) {
     return "لا يظهر طلب استرداد نشط حاليًا. بما أن الدفع مؤكد ولا توجد موافقة نهائية، يتم بدء الاسترداد فقط بعد إلغاء الطلب وتثبيت البيانات من الرابط الرسمي.";
@@ -205,9 +205,9 @@ function phoneNotAnsweredReply(facts: ShadowFacts) {
 
 function humanAgentReply(facts: ShadowFacts, route: ShadowRouteDecision) {
   const requestLine = facts.hasApplication
-    ? "اكتب النقطة التي تحتاج مراجعتها، وبجاوبك حسب الحالة الظاهرة على الطلب."
-    : "أرسل رقم التتبع الموجود في الرسالة الرسمية حتى تتم مراجعة الطلب الصحيح.";
-  return `تفضل، معك ${route.agentName} من فريق الأمين. ${requestLine}`;
+    ? `اكتب رسالتك ورقم طلبك ${facts.trackingId || ""}.`.replace(/\s+\./g, ".")
+    : "اكتب رسالتك وأرسل رقم التتبع الموجود في الرسالة الرسمية.";
+  return `تفضل، معك ${route.agentName} من فريق الأمين. التواصل الأساسي للطلبات والمتابعة عبر واتساب. ${requestLine} يتم الرد حسب الدور وضغط المراجعات أو الظروف التشغيلية الاستثنائية.`;
 }
 
 function postApprovalReply() {

@@ -7,6 +7,7 @@ import {
   BUSINESS_WEBSITE,
   FILE_OPENING_FEE_JOD,
 } from "../constants";
+import { normalizeArabicText } from "../text";
 import { detectShadowTopics } from "./topicDetector";
 import { routeShadowAgent, shadowAgentStyle } from "./agentRouter";
 import { buildShadowFacts } from "./policyRegistry";
@@ -21,7 +22,58 @@ import type {
   ShadowTopic,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.1-regulatory-identity-guard";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.2-refund-intent-final-send-guard";
+
+function containsAnyNormalized(text: string, values: string[]) {
+  const normalized = normalizeArabicText(text);
+  return values.some((value) => normalized.includes(normalizeArabicText(value)));
+}
+
+function normalizeTopicsForFacts(input: {
+  topics: ShadowTopic[];
+  facts: ReturnType<typeof buildShadowFacts>;
+  customerText: string;
+  initialIntent: ShadowEngineInput["initialIntent"];
+}) {
+  const topics = [...input.topics];
+  const add = (topic: ShadowTopic) => {
+    if (!topics.includes(topic)) topics.push(topic);
+  };
+  const remove = (topic: ShadowTopic) => {
+    const index = topics.indexOf(topic);
+    if (index >= 0) topics.splice(index, 1);
+  };
+
+  const explicitContactQuestion = containsAnyNormalized(input.customerText, [
+    "بدي رقم موظف", "بدي رقم موضف", "رقم موظف", "رقم موضف", "رقم اتواصل", "رقم للتواصل",
+    "في رقم نتواصل", "اعطيني رقم", "أعطيني رقم", "رقم تلفون للتواصل", "رقم الهاتف للتواصل",
+    "اتصل عليكم", "اتواصل معكم",
+  ]) || input.initialIntent === "contact_info" || input.initialIntent === "call_request";
+  const normalizedText = normalizeArabicText(input.customerText);
+  const templatePhoneLabel = /(?:^|\n)\s*رقم\s+(?:الهاتف|التلفون)\s*:/i.test(normalizedText);
+  if (templatePhoneLabel && !explicitContactQuestion) remove("contact_number");
+
+  const refundState = input.facts.refundActive ||
+    input.facts.status === "refund_requested" ||
+    input.facts.paymentStatus === "refund_requested";
+  const refundTransferFollowup = containsAnyNormalized(input.customerText, [
+    "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "فلوسي", "مصاري",
+    "المبلغ", "الحوالة", "الحواله", "موعد الحوالة", "موعد الحواله", "تنزل الحوالة",
+    "توصل الحوالة", "تكون الحوالة عندي", "متى ترجع", "متى تنزل", "متى توصل",
+  ]);
+
+  if (refundState && (topics.includes("refund") || refundTransferFollowup || input.initialIntent === "payment_dispute")) {
+    add("refund");
+    // A live refund is the canonical order/payment status; duplicate topics caused false blocks.
+    remove("payment_method");
+    remove("payment_status");
+    remove("order_status");
+    remove("review_time");
+    if (!explicitContactQuestion) remove("contact_number");
+  }
+
+  return topics;
+}
 
 function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
   return [
@@ -97,6 +149,7 @@ ${agentStyle}
 - لا تضمن السداد المبكر ولا تخترع مدة بالشهور.
 - لا تقل إنك بوت أو ذكاء اصطناعي أو نظام تجريبي، ولا تنفِ ذلك بصيغة "مش بوت".
 - لا تعد العميل بأن الطلب سينتهي اليوم أو أن الاسترداد لن يتأخر.
+- مسموح شرح التأخير بعبارات: حسب الدور، ضغط المراجعات، أو الظروف التشغيلية الاستثنائية، بدون تحديد موعد غير مؤكد.
 - رقم الشركة: ${BUSINESS_PHONE_DISPLAY} / ${BUSINESS_PHONE_E164}. الموقع الرسمي: ${BUSINESS_WEBSITE}.
 - النبرة بشرية أردنية واضحة، من سطرين إلى 6 أسطر غالبًا.
 
@@ -119,7 +172,7 @@ function deterministicGeneration(reply: string): ShadowGenerationResult {
 }
 
 export async function evaluateShadowReply(input: ShadowEngineInput): Promise<ShadowEvaluation> {
-  const topics = detectShadowTopics(input.customerMessage, input.messageType, input.initialIntent);
+  const detectedTopics = detectShadowTopics(input.customerMessage, input.messageType, input.initialIntent);
   const evidenceInput = extractConversationEvidence(input.conversationSnapshot);
   const facts = buildShadowFacts(
     input.application,
@@ -128,6 +181,12 @@ export async function evaluateShadowReply(input: ShadowEngineInput): Promise<Sha
     input.messageType,
     evidenceInput,
   );
+  const topics = normalizeTopicsForFacts({
+    topics: detectedTopics,
+    facts,
+    customerText: input.customerMessage,
+    initialIntent: input.initialIntent,
+  });
   const initialRoute = routeShadowAgent({
     topics,
     customerText: input.customerMessage,

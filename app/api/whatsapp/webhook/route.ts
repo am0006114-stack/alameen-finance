@@ -2051,7 +2051,8 @@ function classifyIntent(text: string): CustomerIntent {
   }
 
   if (hasAny(t, [
-    "بدي موظف", "احكي مع موظف", "موظف طبيعي", "موظف حقيقي", "حد يحكي معي",
+    "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي اتحدث مع موظف", "بدي أتحدث مع موظف",
+    "اريد التحدث مع موظف", "أريد التحدث مع موظف", "موظف طبيعي", "موظف حقيقي", "حد يحكي معي",
     "بدي احكي مع حدا", "بدي حدا يحكي معي",
     "بدي مدير", "احكي مع المدير", "بدي مسؤول", "احكي مع مسؤول",
     "احكي مع انسان", "احكي مع بني ادم", "بدي انسان", "بدي بني ادم", "بدي بشر",
@@ -2556,7 +2557,10 @@ ${paymentStatusHumanLabel(app.payment_status)}
 رقم التتبع:
 ${app.tracking_id || app.id}
 
-مهم: رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط، وتكون مستردة في حال عدم الموافقة النهائية. وإذا كان عندك وصل أو إثبات دفع، ابعثه هون حتى نربطه بالحالة الصحيحة.
+مهم: رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط، وتكون مستردة في حال عدم الموافقة النهائية. وصل الدفع أو إثباته يُرفع فقط من الرابط الرسمي المرتبط بطلبك، ولا يُرسل عبر واتساب.
+
+رابط رفع الوصل الرسمي:
+${receiptUrl(baseUrl, app)}
 
 رابط المتابعة:
 ${trackUrl(baseUrl, app)}
@@ -2566,7 +2570,7 @@ ${BUSINESS_NAME}`;
 
   return `أكيد، خلينا نراجع موضوع الدفع بدون لخبطة.
 
-ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب، ومعه صورة الوصل إن وجدت، وبوضح لك هل الدفع مسجل وما هي الحالة الحالية.
+ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب فقط. بعد ربط الطلب، يتم رفع وصل الدفع أو إثباته من الرابط الرسمي المرتبط بالطلب، ولا يُرسل عبر واتساب.
 
 ${BUSINESS_NAME}`;
 }
@@ -2706,7 +2710,7 @@ function refundCompletedReply(app: ApplicationRecord) {
 
 الاسترداد ظاهر عندي أنه منفّذ مسبقًا حسب حالة الملف.
 
-إذا عندك أي ملاحظة على التحويل، ابعث رقم التتبع وصورة من الحركة حتى نراجعها.
+إذا عندك أي ملاحظة على التحويل، اكتب رقم التتبع فقط. أي إثبات أو صورة حركة تُرفع من الرابط الرسمي المرتبط بالطلب، ولا تُرسل عبر واتساب.
 
 رقم التتبع: ${tracking}`;
 }
@@ -3506,11 +3510,15 @@ function systemPromptRequestReply() {
 
 function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
   const staffName = assignedStaffName(from);
-  const statusLine = app ? `\nطلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.` : "";
+  const requestLine = app
+    ? `اكتب رسالتك ورقم طلبك ${app.tracking_id || app.id}.`
+    : "اكتب رسالتك ورقم الطلب أو رقم التتبع.";
 
-  return `معك ${staffName} من فريق الأمين.${statusLine}
+  return `معك ${staffName} من فريق الأمين.
 
-تفضل، شو النقطة اللي بدك أراجعها؟`;
+التواصل الأساسي للطلبات والمتابعة عبر واتساب. ${requestLine}
+
+يتم الرد حسب الدور وضغط المراجعات أو الظروف التشغيلية الاستثنائية.`;
 }
 
 function callRequestReply(from: string, app?: ApplicationRecord | null) {
@@ -3521,7 +3529,7 @@ function callRequestReply(from: string, app?: ApplicationRecord | null) {
 
   return `معك ${staffName} من فريق الأمين.
 
-حاليًا بسبب ضغط الاتصالات، متابعة الملفات عبر واتساب هي الأسرع والأدق حتى يظل كل تحديث موثق.
+التواصل الأساسي للطلبات والمتابعة عبر واتساب، ويتم الرد حسب الدور وضغط المراجعات أو الظروف التشغيلية الاستثنائية حتى يظل كل تحديث موثق.
 
 ${requestLine}`;
 }
@@ -5949,6 +5957,73 @@ function finalizeReplyBeforeSend(reply: string, options: {
   return finalReply;
 }
 
+const FINAL_SECURE_UPLOAD_NOTICE = "وصل الدفع وأي مستندات حساسة تُرفع فقط من الرابط الرسمي المرتبط بالطلب، ولا تُرسل عبر واتساب.";
+
+function unsafeSensitiveUploadLine(line: string) {
+  const value = normalizeArabicText(line);
+  if (!value) return false;
+
+  const sensitive = hasAny(value, [
+    "وصل", "اثبات دفع", "إثبات دفع", "صورة الطلب", "صوره الطلب", "صورة الحركة", "صوره الحركه",
+    "هوية", "هويه", "كشف راتب", "شهادة راتب", "شهاده راتب", "بيانات الكفيل", "مستند",
+  ]);
+  const safeInstruction = hasAny(value, [
+    "لا ترسل", "لا ترسله", "لا ترسلي", "لا تبعث", "لا تبعته", "لا تبعثي",
+    "لا يرسل", "لا يرسل عبر واتساب", "الرابط الرسمي", "الرابط الامن", "الرابط الآمن",
+    "يرفع فقط", "تُرفع فقط", "ترفع فقط",
+  ]);
+  const directRequest = hasAny(value, [
+    "ابعثه هون", "ابعت هون", "ابعث هون", "ارسل هون", "أرسل هون", "ارسلها هون", "أرسلها هون",
+    "ابعثلي", "ابعتلي", "ارسل لنا", "أرسل لنا", "معه صورة", "معها صورة",
+    "صورة الوصل ان وجدت", "صورة الوصل إن وجدت", "صورة من الحركة",
+  ]);
+
+  return sensitive && directRequest && !safeInstruction;
+}
+
+function applyFinalSendGuard(reply: string) {
+  const original = String(reply || "").trim();
+  if (!original) return original;
+
+  const normalized = normalizeArabicText(original);
+  const forbiddenRegulatoryClaim = hasAny(normalized, [
+    "الامين للاقساط والتمويل", "شركة الامين للاقساط والتمويل",
+    "مرخصة من البنك المركزي", "مرخصه من البنك المركزي", "مرخصين من البنك المركزي",
+    "خاضعة لرقابة البنك المركزي", "خاضعه لرقابه البنك المركزي", "تخضع لرقابة البنك المركزي",
+    "مرخصة ومسجلة حسب الاصول", "مرخصه ومسجله حسب الاصول",
+  ]);
+  if (forbiddenRegulatoryClaim) {
+    return `${BUSINESS_REGULATORY_DISCLOSURE}
+
+نشاطنا هو ${BUSINESS_ACTIVITY}.`;
+  }
+
+  const lines = original.split(/\r?\n/);
+  let replaced = false;
+  const guardedLines = lines.map((line) => {
+    if (!unsafeSensitiveUploadLine(line)) return line;
+    replaced = true;
+    return FINAL_SECURE_UPLOAD_NOTICE;
+  });
+
+  if (!replaced && unsafeSensitiveUploadLine(original)) {
+    return FINAL_SECURE_UPLOAD_NOTICE;
+  }
+
+  const compacted: string[] = [];
+  for (const line of guardedLines) {
+    const clean = line.trim();
+    if (!clean) {
+      if (compacted.length && compacted[compacted.length - 1] !== "") compacted.push("");
+      continue;
+    }
+    if (clean === FINAL_SECURE_UPLOAD_NOTICE && compacted.includes(FINAL_SECURE_UPLOAD_NOTICE)) continue;
+    compacted.push(clean);
+  }
+
+  return compacted.join("\n").trim();
+}
+
 function sanitizeAiReply(reply: string, fallback: string) {
   let clean = String(reply || "").trim();
 
@@ -6913,10 +6988,16 @@ async function buildReply(request: Request, from: string, text: string, messageT
   if (
     app &&
     (app.status === "refund_requested" || app.payment_status === "refund_requested") &&
-    ["unknown", "payment", "payment_amount", "loan", "order_status", "review_time"].includes(String(intent)) &&
+    [
+      "unknown", "payment", "payment_amount", "payment_method", "payment_timing", "payment_recipient",
+      "payment_next_step", "payment_review_time", "payment_objection", "payment_dispute",
+      "loan", "order_status", "review_time",
+    ].includes(String(intent)) &&
     hasAny(text, [
       "استرداد", "استرجاع", "فلوسي", "مصاري", "المبلغ", "الدنانير", "دينار",
       "حولولي", "رجعولي", "وين الفلوس", "وين المصاري", "وين المبلغ", "بدي حقي",
+      "الحوالة", "الحواله", "موعد الحوالة", "موعد الحواله", "تنزل الحوالة",
+      "توصل الحوالة", "تكون الحوالة عندي", "متى تنزل", "متى توصل",
     ])
   ) {
     intent = "refund";
@@ -8114,7 +8195,7 @@ export async function POST(request: Request) {
         }
 
         if (extractedMessage.isOtpLike) {
-          const reply = otpSafetyReply();
+          const reply = applyFinalSendGuard(otpSafetyReply());
 
           const outgoingClaim = await claimOutgoingReplyLock({
             waId: from,
@@ -8192,6 +8273,8 @@ export async function POST(request: Request) {
             baseUrl: getBaseUrl(request),
           });
         }
+
+        reply = applyFinalSendGuard(reply);
 
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
