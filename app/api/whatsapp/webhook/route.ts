@@ -8,8 +8,10 @@ import type {
   WhatsAppWebhookBody,
 } from "./_lib/types";
 import {
+  BUSINESS_ACTIVITY,
   BUSINESS_ADDRESS,
   BUSINESS_NAME,
+  BUSINESS_REGULATORY_DISCLOSURE,
   BUSINESS_PHONE_DISPLAY,
   BUSINESS_PHONE_E164,
   BUSINESS_WEBSITE,
@@ -135,6 +137,41 @@ function isTrustVerificationText(text: string) {
   ]);
 
   return verificationQuestion || (asksInsteadOfAccuses && trustContext);
+}
+
+function isRegulatoryStatusQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "البنك المركزي",
+    "مرخصين من البنك المركزي",
+    "مرخصه من البنك المركزي",
+    "مرخصة من البنك المركزي",
+    "خاضعين للبنك المركزي",
+    "خاضعه للبنك المركزي",
+    "خاضعة للبنك المركزي",
+    "رقابه البنك المركزي",
+    "رقابة البنك المركزي",
+  ]);
+}
+
+function isBusinessIdentityQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "اسم الشركه القانوني",
+    "اسم الشركة القانوني",
+    "الاسم القانوني",
+    "شو اسم الشركه",
+    "شو اسم الشركة",
+    "اسمكم القانوني",
+    "الاسم الرسمي للشركه",
+    "الاسم الرسمي للشركة",
+    "اسم الجهه",
+    "اسم الجهة",
+  ]);
 }
 
 function isInternalInstructionRequestText(text: string) {
@@ -1892,6 +1929,10 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (!t) return "unknown";
 
+  // أسئلة هوية النشاط والوضع التنظيمي تُحسم قبل أي قالب متابعة أو تصعيد قانوني.
+  if (isRegulatoryStatusQuestionText(t)) return "regulatory_status";
+  if (isBusinessIdentityQuestionText(t)) return "business_identity";
+
   // رسائل المتابعة الرسمية من صفحة التتبع ليست ضغطًا عاطفيًا حتى لو احتوت كلمة "الأمين".
   if (isStandardApplicationFollowupText(t)) return "order_status";
   if (hasAny(t, [
@@ -2332,7 +2373,7 @@ ${statusHumanLabel(status)}
 رقم التتبع:
 ${tracking}
 
-خلينا نمشي على الموجود رسميًا: إذا عندك وصل دفع أو صورة من الطلب أو أي ملاحظة محددة، ابعثها هون وبوضح لك الخطوة المناسبة حسب حالة الطلب.
+خلينا نمشي على الموجود رسميًا: اكتب الملاحظة المحددة أو رقم الطلب هنا، وبوضح لك الخطوة المناسبة حسب الحالة. وصل الدفع وأي مستندات حساسة تُرفع فقط من الرابط الرسمي المرتبط بالطلب، ولا تُرسل عبر واتساب.
 
 ${trackUrl(baseUrl, app)}
 
@@ -2341,7 +2382,7 @@ ${BUSINESS_NAME}`;
 
   return `حقك تطلب توضيح، وبنعتذر إذا صار أي تأخير أو عدم وضوح.
 
-حتى أقدر أراجع الموضوع بدقة، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب، وإذا عندك وصل دفع أو صورة طلب ابعثها هون.
+حتى أقدر أراجع الموضوع بدقة، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب. وصل الدفع وأي مستندات حساسة تُرفع فقط من الرابط الرسمي المرتبط بالطلب، ولا تُرسل عبر واتساب.
 
 بعدها بعطيك الحالة والخطوة القادمة بدون كلام عام.
 
@@ -2415,6 +2456,18 @@ function bankCliqPaymentExplanation() {
 الجهة المستلمة محفظة Orange Money.`;
 }
 
+function regulatoryStatusReply() {
+  return `${BUSINESS_REGULATORY_DISCLOSURE}
+
+نشاطنا هو ${BUSINESS_ACTIVITY}.`;
+}
+
+function businessIdentityReply() {
+  return `الاسم المعتمد في التعامل والقنوات الرسمية هو ${BUSINESS_NAME}.
+
+نشاطنا هو ${BUSINESS_ACTIVITY}، والجهة ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا.`;
+}
+
 function trustVerificationReply(baseUrl: string, app?: ApplicationRecord | null) {
   const requestLines = app
     ? `
@@ -2425,12 +2478,15 @@ ${app.tracking_id || app.id}
 ${statusHumanLabel(app.status || "")}`
     : "";
 
+  const addressLine = app && (app.status === "approved" || app.status === "customer_accepts_delivery_delay")
+    ? `\n- عنوان المكتب: ${BUSINESS_ADDRESS}`
+    : "";
+
   return `من حقك تتأكد قبل أي دفع، وما بنطلب منك تعتمد على الكلام وحده.
 
 بيانات الأمين الرسمية:
 - الموقع: ${BUSINESS_WEBSITE}
-- واتساب الشركة: ${BUSINESS_PHONE_E164}
-- العنوان: ${BUSINESS_ADDRESS}
+- واتساب الشركة: ${BUSINESS_PHONE_E164}${addressLine}
 
 الدفع الرسمي لرسوم فتح الملف يكون فقط بعد التأهيل المبدئي.
 
@@ -3676,6 +3732,8 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
   // نخلي الرد الحرفي فقط للمسارات التي تنفذ إجراءً فعليًا أو تحتوي بيانات يجب ألا يعيد النموذج صياغتها.
   // باقي الأسئلة تمر على DeepSeek ليصيغها كحوار طبيعي مع إبقاء الرد الآمن مصدر الحقيقة.
   return [
+    "regulatory_status",
+    "business_identity",
     "payment_method",
     "payment_recipient",
     "payment_link_issue",
@@ -3729,6 +3787,9 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   const status = app.status || "";
   const paymentStatus = app.payment_status || "";
   const url = trackUrl(baseUrl, app);
+
+  if (String(intent) === "regulatory_status") return regulatoryStatusReply();
+  if (String(intent) === "business_identity") return businessIdentityReply();
 
   const conversational = conversationalDirectReply(app, baseUrl, customerText, intent);
   if (conversational) return conversational;
@@ -5899,6 +5960,21 @@ function sanitizeAiReply(reply: string, fallback: string) {
     .trim();
 
   const forbidden = [
+    "الأمين للأقساط والتمويل",
+    "شركة الأمين للأقساط والتمويل",
+    "مرخصة من البنك المركزي",
+    "مرخصه من البنك المركزي",
+    "مرخصين من البنك المركزي",
+    "خاضعة لرقابة البنك المركزي",
+    "خاضعه لرقابه البنك المركزي",
+    "تخضع لرقابة البنك المركزي",
+    "تخضع لرقابه البنك المركزي",
+    "تحت رقابة البنك المركزي",
+    "تحت رقابه البنك المركزي",
+    "البنك المركزي يشرف علينا",
+    "البنك المركزي يراقبنا",
+    "مرخصة ومسجلة حسب الأصول",
+    "مرخصه ومسجله حسب الاصول",
     "قرض نقدي",
     "قروض نقدية",
     "قروضنا",
@@ -6252,10 +6328,14 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تذكر أي وصف تقني للنظام، ولا تنفِه بكذبة. استخدم اسم الموظف الثابت وصفة "من فريق الأمين" فقط.
 - لا تكتب JSON ولا شرح داخلي.
 
-قواعد النشاط:
-- الاسم الصحيح: "الأمين للأقساط".
+قواعد النشاط والهوية التنظيمية:
+- الاسم المعتمد في التعامل: "الأمين للأقساط" فقط.
+- ممنوع استخدام اسم "الأمين للأقساط والتمويل" أو الادعاء بأنه الاسم القانوني.
 - النشاط فقط تقسيط أجهزة إلكترونية وهواتف.
-- لا نقدم قروضًا نقدية، ولا تمويلًا شخصيًا، ولا كاش.
+- الجهة ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا.
+- ممنوع الادعاء بأنها مرخصة من البنك المركزي الأردني أو خاضعة لرقابته أو أن البنك المركزي يشرف عليها.
+- إذا سأل عن البنك المركزي: قل بوضوح إنها ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا، ولا ندعي الخضوع لرقابة البنك المركزي.
+- إذا سأل عن الاسم القانوني: استخدم فقط الاسم المعتمد "الأمين للأقساط" ولا تخترع اسمًا قانونيًا غير موثق.
 - إذا سأل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
 
 قاعدة عدم فتح موضوع الدفع بلا سبب:
@@ -7377,7 +7457,11 @@ ${BUSINESS_NAME}`;
     });
   }
 
-  if (String(intent) === "abuse") {
+  if (String(intent) === "regulatory_status") {
+    deterministicReply = regulatoryStatusReply();
+  } else if (String(intent) === "business_identity") {
+    deterministicReply = businessIdentityReply();
+  } else if (String(intent) === "abuse") {
     deterministicReply = abuseReply(baseUrl, from, null, text);
   } else if (String(intent) === "legal_threat") {
     deterministicReply = legalThreatReply(baseUrl, from, null, text);
@@ -7458,6 +7542,8 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
   }
 
   const factualIntentNeedsExactReply = [
+    "regulatory_status",
+    "business_identity",
     "contact_info",
     "website",
     "location",

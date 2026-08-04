@@ -3,6 +3,9 @@ export const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني -
 export const BUSINESS_PHONE_DISPLAY = "0788500337";
 export const BUSINESS_PHONE_E164 = "+962788500337";
 export const BUSINESS_WEBSITE = "https://www.ameenfinance.co";
+export const BUSINESS_ACTIVITY = "تقسيط الأجهزة الإلكترونية والهواتف";
+export const BUSINESS_REGULATORY_DISCLOSURE =
+  "الأمين للأقساط ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا، ولا تدّعي أنها مرخصة أو خاضعة لرقابة البنك المركزي الأردني.";
 export const FILE_OPENING_FEE_JOD = 5;
 export const POST_EID_DELIVERY_TEXT = "سيتم التواصل مع أصحاب الطلبات المؤكدة فور وصول الأجهزة من المورد/الوكلاء المعتمدين واعتماد جدول الاستلام من المكتب من الإدارة";
 export const POST_EID_DELIVERY_STRICT_TEXT =

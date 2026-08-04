@@ -128,6 +128,8 @@ export type CustomerIntent =
   | "social_media_threat"
   | "scam_accusation"
   | "trust_verification"
+  | "regulatory_status"
+  | "business_identity"
   | "payment_dispute"
   | "device_delay_rage"
   | "emotional_pressure"

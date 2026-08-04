@@ -212,11 +212,66 @@ function hasDeviceChangeApprovalClaim(reply: string) {
   return /(?:تم اعتماد|تمت الموافقه على|تم تغيير)\s+(?:طلب\s+)?(?:تعديل\s+)?الجهاز/.test(value);
 }
 
+function hasFalseCentralBankClaim(reply: string) {
+  const value = normalized(reply)
+    .replace(/(?:لا|لم)\s+(?:ندعي|تدعي).{0,120}البنك المركزي/g, " ")
+    .replace(/(?:ليست|لسنا|غير)\s+(?:مرخصه|خاضعه).{0,120}البنك المركزي/g, " ")
+    .replace(/(?:لا|لم)\s+تخضع.{0,120}البنك المركزي/g, " ");
+  return [
+    /(?:نحن|احنا|الامين|الشركه|الجهه).{0,80}(?:مرخصه|مرخصين|خاضعه|تخضع|تحت رقابه).{0,80}البنك المركزي/,
+    /(?:مرخصه|مرخصين)\s+(?:ومسجله\s+)?(?:من|لدى)\s+البنك المركزي/,
+    /(?:خاضعه|تخضع|تحت رقابه)\s+(?:ل)?(?:رقابه\s+)?البنك المركزي/,
+    /البنك المركزي.{0,80}(?:يراقبنا|يشرف علينا|مرخصنا|رخصنا)/,
+  ].some((pattern) => pattern.test(value));
+}
+
+function hasForbiddenBusinessName(reply: string) {
+  return includesAny(reply, [
+    "الامين للاقساط والتمويل",
+    "شركة الامين للاقساط والتمويل",
+  ]);
+}
+
+function hasAffirmativeFinanceOrLoanIdentity(reply: string) {
+  const value = normalized(reply);
+  return [
+    /(?:نحن|احنا|الامين|الشركه|الجهه)\s+(?:عباره عن\s+)?(?:بنك|شركة تمويل|جهه تمويل|شركة اقراض|جهه اقراض)/,
+    /(?:نقدم|نعطي|نمنح)\s+(?:قروض|قرض|تمويل شخصي|تمويل نقدي)/,
+  ].some((pattern) => pattern.test(value));
+}
+
+function hasUnsupportedLegalNameClaim(reply: string, facts: ShadowFacts) {
+  if (facts.businessIdentity.legalName) return false;
+  return includesAny(reply, [
+    "الاسم القانوني هو",
+    "الاسم القانوني للشركه هو",
+    "الاسم القانوني للشركة هو",
+    "الاسم الرسمي المسجل هو",
+    "مسجله باسم",
+    "مسجلة باسم",
+  ]);
+}
+
+function regulatoryDisclosureComplete(reply: string) {
+  return includesAny(reply, ["ليست بنكا", "ليست بنك", "لسنا بنكا", "لسنا بنك", "مش بنك"])
+    && includesAny(reply, ["ليست شركة تمويل", "ولا شركة تمويل", "لسنا شركة تمويل", "مش شركة تمويل"])
+    && includesAny(reply, ["لا تمنح قروضا", "لا تمنح قروض", "لا نقدم قروضا", "لا نقدم قروض", "ما بنقدم قروض"])
+    && includesAny(reply, ["لا ندعي", "لا تدعي", "ليست خاضعه", "لا تخضع"])
+    && includesAny(reply, ["البنك المركزي"]);
+}
+
+function businessIdentityComplete(reply: string, facts: ShadowFacts) {
+  return includesAny(reply, [facts.businessIdentity.brandName])
+    && includesAny(reply, ["تقسيط الاجهزه", "تقسيط الأجهزة", "تقسيط الهواتف", "تقسيط اجهزه"]);
+}
+
 function topicAnswered(topic: ShadowTopic, reply: string) {
   const checks: Partial<Record<ShadowTopic, string[]>> = {
     order_status: ["حاله طلبك", "حالة طلبك", "طلبك", "الملف"],
     review_time: ["يومين", "3 ايام", "ثلاث ايام", "موعدا غير مؤكد", "موعد غير مؤكد"],
     bank_requirement: ["لا يوجد بنك محدد", "مش مطلوب بنك", "اي بنك يدعم"],
+    regulatory_status: ["ليست بنك", "لسنا بنك", "البنك المركزي"],
+    business_identity: ["الامين للاقساط", "تقسيط الاجهزه", "تقسيط الأجهزة"],
     early_settlement: ["الاتفاق", "الجدول النهائي", "لا نقدر نضمن"],
     payment_method: ["الدفع", "amenpay", "لا يوجد دفع مطلوب"],
     payment_status: ["الدفع", "الوصل", "بانتظار التأكيد", "مؤكد"],
@@ -249,7 +304,7 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
 }
 
 function agentRoleValid(agent: ShadowAgentId, topics: ShadowTopic[]) {
-  const contact = topics.some((topic) => ["contact_number", "phone_not_answered", "human_agent", "staff_change"].includes(topic));
+  const contact = topics.some((topic) => ["contact_number", "phone_not_answered", "human_agent", "staff_change", "regulatory_status", "business_identity"].includes(topic));
   const escalation = topics.some((topic) => ["complaint", "trust", "cancellation", "refund", "stop_refund"].includes(topic));
   const study = topics.some((topic) => ["requirements", "procedures", "document_upload"].includes(topic));
   if (contact) return agent === "tala" || agent === "fadwa";
@@ -273,6 +328,20 @@ export function validateShadowReply(
   addCheck(checks, "no_branch_word", !includesAny(reply, ["فرع", "فروع"]), "critical", "لا تُستخدم كلمة فرع أو فروع.");
   addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payameen"]), "critical", "اسم الدفع الصحيح PAYAMEN وليس PAYAMEEN.");
   addCheck(checks, "no_ai_or_bot_discussion", !includesAny(reply, ["بوت", "ذكاء اصطناعي", "نظام تجريبي", "ai assistant"]), "critical", "لا يناقش الرد كونه بوتًا أو نظامًا تجريبيًا.");
+  addCheck(checks, "no_false_central_bank_claim", !hasFalseCentralBankClaim(reply), "critical", "ممنوع الادعاء بأن الجهة مرخصة أو خاضعة لرقابة البنك المركزي الأردني.");
+  addCheck(checks, "approved_business_name_only", !hasForbiddenBusinessName(reply), "critical", "الاسم المعتمد هو الأمين للأقساط فقط.");
+  addCheck(checks, "no_finance_or_loan_identity", !hasAffirmativeFinanceOrLoanIdentity(reply), "critical", "الجهة ليست بنكًا أو شركة تمويل أو إقراض ولا تمنح قروضًا.");
+  addCheck(checks, "no_unverified_legal_name", !hasUnsupportedLegalNameClaim(reply, facts), "critical", "لا يُدّعى اسم قانوني غير موجود ضمن الحقائق الموثقة.");
+  if (topics.includes("regulatory_status")) {
+    addCheck(checks, "complete_regulatory_disclosure", regulatoryDisclosureComplete(reply), "critical", "سؤال البنك المركزي يحتاج توضيحًا كاملًا لطبيعة النشاط وعدم الادعاء التنظيمي.");
+  } else {
+    addCheck(checks, "complete_regulatory_disclosure", true, "critical", "لا يلزم إفصاح تنظيمي كامل في هذه الحالة.");
+  }
+  if (topics.includes("business_identity")) {
+    addCheck(checks, "business_identity_complete", businessIdentityComplete(reply, facts), "critical", "سؤال اسم الجهة يحتاج الاسم المعتمد ونوع النشاط.");
+  } else {
+    addCheck(checks, "business_identity_complete", true, "critical", "لا يلزم شرح هوية النشاط في هذه الحالة.");
+  }
   addCheck(checks, "agent_role_match", agentRoleValid(context.agent, topics), "critical", "الموظف المختار يطابق نوع الحالة.");
 
   const paymentInstructions = hasPaymentInstructions(reply);

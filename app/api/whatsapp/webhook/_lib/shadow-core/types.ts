@@ -9,6 +9,8 @@ export type ShadowTopic =
   | "order_status"
   | "review_time"
   | "bank_requirement"
+  | "regulatory_status"
+  | "business_identity"
   | "early_settlement"
   | "payment_method"
   | "payment_status"
@@ -48,7 +50,9 @@ export type ShadowEvidence = {
     | "device_change_request"
     | "device_change_submission"
     | "official_contact"
-    | "business_policy";
+    | "business_policy"
+    | "business_identity"
+    | "regulatory_status";
   source: ShadowEvidenceSource;
   claim: string;
   value: string | null;
@@ -88,6 +92,16 @@ export type ShadowFacts = {
     internationalNumber: string;
     website: string;
     businessHours: null;
+  };
+  businessIdentity: {
+    brandName: string;
+    legalName: null;
+    activity: string;
+    isBank: false;
+    isFinanceCompany: false;
+    isLender: false;
+    offersLoans: false;
+    centralBankSupervised: false;
   };
   messageType: string;
   paymentCurrentlyAllowed: boolean;

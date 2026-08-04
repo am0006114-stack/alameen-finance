@@ -1,4 +1,6 @@
 import {
+  BUSINESS_ACTIVITY,
+  BUSINESS_NAME,
   BUSINESS_PHONE_DISPLAY,
   BUSINESS_PHONE_E164,
   BUSINESS_WEBSITE,
@@ -123,6 +125,24 @@ export function buildShadowFacts(
     excerpt: null,
     confidence: "high",
   });
+  evidence.push({
+    id: "policy-business-identity",
+    kind: "business_identity",
+    source: "business_policy",
+    claim: `الاسم المعتمد في التعامل هو ${BUSINESS_NAME}، والنشاط هو ${BUSINESS_ACTIVITY}.`,
+    value: BUSINESS_NAME,
+    excerpt: null,
+    confidence: "high",
+  });
+  evidence.push({
+    id: "policy-regulatory-status",
+    kind: "regulatory_status",
+    source: "business_policy",
+    claim: `${BUSINESS_NAME} ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا، ولا تدّعي الخضوع لرقابة البنك المركزي الأردني.`,
+    value: "not-bank-not-finance-not-lender-not-central-bank-supervised",
+    excerpt: null,
+    confidence: "high",
+  });
 
   return {
     hasApplication: Boolean(meaningfulApp),
@@ -140,6 +160,16 @@ export function buildShadowFacts(
       internationalNumber: BUSINESS_PHONE_E164,
       website: BUSINESS_WEBSITE,
       businessHours: null,
+    },
+    businessIdentity: {
+      brandName: BUSINESS_NAME,
+      legalName: null,
+      activity: BUSINESS_ACTIVITY,
+      isBank: false,
+      isFinanceCompany: false,
+      isLender: false,
+      offersLoans: false,
+      centralBankSupervised: false,
     },
     messageType: String(messageType || "text").toLowerCase(),
     paymentCurrentlyAllowed,

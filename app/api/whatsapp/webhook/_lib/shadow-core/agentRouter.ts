@@ -86,6 +86,8 @@ export function routeShadowAgent(input: {
     "order_status",
     "review_time",
     "bank_requirement",
+    "regulatory_status",
+    "business_identity",
     "early_settlement",
     "payment_method",
     "payment_status",

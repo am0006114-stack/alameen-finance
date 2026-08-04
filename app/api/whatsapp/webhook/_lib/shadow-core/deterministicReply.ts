@@ -1,5 +1,7 @@
 import {
+  BUSINESS_ACTIVITY,
   BUSINESS_ADDRESS,
+  BUSINESS_NAME,
   BUSINESS_PHONE_DISPLAY,
   BUSINESS_PHONE_E164,
   BUSINESS_WEBSITE,
@@ -238,6 +240,14 @@ function trustReply() {
   return `حقك تتأكد قبل أي خطوة. المتابعة والدفع ورفع الوصل أو المستندات تتم فقط من خلال الموقع الرسمي ${BUSINESS_WEBSITE} والروابط المرتبطة بطلبك، ولا تُرسل المستندات الحساسة عبر واتساب.`;
 }
 
+function regulatoryStatusReply() {
+  return `${BUSINESS_NAME} ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا، ولا ندّعي أنها مرخصة أو خاضعة لرقابة البنك المركزي الأردني. نشاطنا هو ${BUSINESS_ACTIVITY}.`;
+}
+
+function businessIdentityReply() {
+  return `الاسم المعتمد في التعامل والقنوات الرسمية هو ${BUSINESS_NAME}. نشاطنا هو ${BUSINESS_ACTIVITY}، والجهة ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا.`;
+}
+
 export function buildDeterministicReply(input: {
   facts: ShadowFacts;
   topics: ShadowTopic[];
@@ -269,6 +279,9 @@ export function buildDeterministicReply(input: {
 
   const parts: ReplyPart[] = [];
   const add = (id: string, reason: string, text: string) => parts.push({ id, reason, text });
+
+  if (hasTopic(topics, "regulatory_status")) add("regulatory-status-v1", "الوضع التنظيمي للنشاط سياسة ثابتة ولا يُسمح للنموذج باختراعه.", regulatoryStatusReply());
+  if (hasTopic(topics, "business_identity")) add("business-identity-v1", "اسم الجهة ونوع النشاط يؤخذان من سياسة العمل المعتمدة فقط.", businessIdentityReply());
 
   if (hasTopic(topics, "phone_not_answered")) add("phone-unanswered-v1", "الهاتف غير المجاب له سياسة تواصل ثابتة.", phoneNotAnsweredReply(facts));
   else if (hasTopic(topics, "contact_number")) add("official-contact-v1", "رقم التواصل يؤخذ من الثابت الرسمي فقط.", contactReply(facts));

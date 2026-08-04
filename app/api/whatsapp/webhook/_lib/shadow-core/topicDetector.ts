@@ -59,6 +59,8 @@ export function detectShadowTopics(
 
   if (initialIntent === "human_agent" || initialIntent === "staff_identity") add("human_agent");
   if (initialIntent === "contact_info" || initialIntent === "call_request") add("contact_number");
+  if (initialIntent === "regulatory_status") add("regulatory_status");
+  if (initialIntent === "business_identity") add("business_identity");
   if (initialIntent === "order_status") add("order_status");
   if (initialIntent === "review_time" || initialIntent === "payment_review_time") add("review_time");
   if (paymentIntents.includes(initialIntent)) add("payment_method");
@@ -74,6 +76,15 @@ export function detectShadowTopics(
   if (["media_upload"].includes(initialIntent)) add("media_upload");
   if (["document_upload", "document_followup"].includes(initialIntent)) add("document_upload");
   if (["apply", "products", "installment_info", "loan"].includes(initialIntent)) add("procedures");
+
+  if (containsAny(text, [
+    "البنك المركزي", "مرخصين من البنك المركزي", "مرخصه من البنك المركزي", "مرخصة من البنك المركزي",
+    "خاضعين للبنك المركزي", "خاضعه للبنك المركزي", "خاضعة للبنك المركزي", "رقابه البنك المركزي", "رقابة البنك المركزي",
+  ])) add("regulatory_status");
+  if (containsAny(text, [
+    "اسم الشركه القانوني", "اسم الشركة القانوني", "الاسم القانوني", "شو اسم الشركه", "شو اسم الشركة",
+    "اسمكم القانوني", "الاسم الرسمي للشركه", "الاسم الرسمي للشركة", "اسم الجهه", "اسم الجهة",
+  ])) add("business_identity");
 
   if (containsAny(text, ["شو صار", "حاله الطلب", "حالة الطلب", "متابعه الطلب", "متابعة الطلب", "وين وصل الطلب", "اخر تحديث", "آخر تحديث", "شو صار بالطلب"])) add("order_status");
   if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام"])) add("review_time");
@@ -109,6 +120,14 @@ export function detectShadowTopics(
   ])) add("phone_not_answered");
   if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك"])) add("complaint");
   if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق"])) add("trust");
+
+  // Regulatory and identity questions are direct business-policy questions, not threats or complaints by themselves.
+  if (topics.includes("regulatory_status") || topics.includes("business_identity")) {
+    for (const noisyTopic of ["complaint", "trust", "general_question"] as ShadowTopic[]) {
+      const index = topics.indexOf(noisyTopic);
+      if (index >= 0) topics.splice(index, 1);
+    }
+  }
 
   // Explicit wording in the current message outranks a noisy legacy intent.
   if (topics.includes("contact_number") || topics.includes("phone_not_answered")) {

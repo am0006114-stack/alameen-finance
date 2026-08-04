@@ -1,5 +1,7 @@
 import {
+  BUSINESS_ACTIVITY,
   BUSINESS_ADDRESS,
+  BUSINESS_NAME,
   BUSINESS_PHONE_DISPLAY,
   BUSINESS_PHONE_E164,
   BUSINESS_WEBSITE,
@@ -19,7 +21,7 @@ import type {
   ShadowTopic,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1-evidence-aware";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.1-regulatory-identity-guard";
 
 function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
   return [
@@ -47,6 +49,14 @@ function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
     `رقم التواصل الرسمي المحلي: ${facts.officialContact.localNumber}`,
     `رقم التواصل الرسمي الدولي: ${facts.officialContact.internationalNumber}`,
     `ساعات الدوام المعتمدة: غير مخزنة، لذلك ممنوع اختراعها`,
+    `الاسم المعتمد في التعامل: ${facts.businessIdentity.brandName}`,
+    `الاسم القانوني المسجل: غير متوفر ضمن الحقائق، لذلك ممنوع اختراعه`,
+    `النشاط: ${facts.businessIdentity.activity}`,
+    `هل الجهة بنك: لا`,
+    `هل الجهة شركة تمويل: لا`,
+    `هل الجهة جهة إقراض: لا`,
+    `هل تقدم قروضًا: لا`,
+    `هل تدّعي الخضوع لرقابة البنك المركزي الأردني: لا`,
     `الأدلة المتاحة: ${facts.evidence.length ? facts.evidence.map((item) => `${item.id} | ${item.source} | ${item.claim}`).join(" || ") : "لا توجد أدلة إضافية"}`,
   ].join("\n");
 }
@@ -55,6 +65,8 @@ function topicInstructions(topics: ShadowTopic[]) {
   const lines: string[] = [];
   if (topics.includes("complaint")) lines.push("- اعترف بانزعاج العميل دون وعد بموعد أو تنفيذ إجراء.");
   if (topics.includes("trust")) lines.push("- حق العميل أن يتأكد. لا تضغط عليه ولا تستخدم ضمانات أو ادعاءات غير موجودة.");
+  if (topics.includes("regulatory_status")) lines.push("- أجب حتميًا بأن الجهة ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا، ولا تدّعي الخضوع لرقابة البنك المركزي الأردني.");
+  if (topics.includes("business_identity")) lines.push("- استخدم الاسم المعتمد الأمين للأقساط فقط، ولا تدّعِ اسمًا قانونيًا غير موجود في الحقائق.");
   if (topics.includes("human_agent") || topics.includes("staff_change")) lines.push("- تحدث باسم الموظف المختار دون الدخول في نقاش عن البوت أو الذكاء الاصطناعي.");
   if (topics.includes("general_question")) lines.push("- لا تحوّل السؤال العام تلقائيًا إلى دفع أو مستندات أو إلغاء.");
   return lines.join("\n");
@@ -68,6 +80,9 @@ ${agentStyle}
 قواعد صارمة:
 - أجب عن سؤال العميل نفسه وبنفس ترتيب النقاط.
 - استخدم الحقائق المرسلة فقط. لا تخمّن حالة أو موعدًا أو مستندًا أو مدة تقسيط.
+- الاسم المعتمد هو ${BUSINESS_NAME} فقط. ممنوع استخدام «الأمين للأقساط والتمويل» أو الادعاء بأنه الاسم القانوني.
+- النشاط هو ${BUSINESS_ACTIVITY}. الجهة ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا.
+- ممنوع الادعاء بأنها مرخصة من البنك المركزي الأردني أو خاضعة لرقابته أو أن البنك المركزي يشرف عليها.
 - يمكن استخدام دليل من conversation_history لوصف ما طلبه العميل فقط، بشرط عدم تحويله إلى إجراء إداري لم يحدث.
 - فرّق دائمًا بين: طلب العميل تعديل الجهاز، وإرسال الطلب رسميًا للمراجعة، واعتماد التعديل.
 - لا تذكر جهازًا غير موجود في currentDevice أو deviceChangeRequest.requestedDevice.
