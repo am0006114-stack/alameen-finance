@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import SiteHeader from "@/components/site/SiteHeader";
+import SiteFooter from "@/components/site/SiteFooter";
+import MobileBottomNav from "@/components/site/MobileBottomNav";
 
 export const dynamic = "force-dynamic";
 
@@ -258,28 +261,28 @@ function getStatusView(app: Application): StatusView {
 
     if (review.isOverdue) {
       return {
-        title: "ملفك يحتاج متابعة إضافية",
-        eyebrow: "تجاوز وقت المراجعة المتوقع",
+        title: "ملفك ما زال قيد الدراسة",
+        eyebrow: "يحتاج وقت مراجعة إضافيًا",
         message:
-          "تم تأكيد رسوم فتح الملف، والملف لا يزال ضمن الدراسة النهائية. بعض الملفات تحتاج وقتًا إضافيًا للتحقق من البيانات، ويمكنك طلب تحديث عبر واتساب.",
+          "تم تأكيد رسوم فتح الملف، والملف ما زال قيد الدراسة. بعض الملفات تحتاج وقتًا إضافيًا للتحقق من البيانات، ويمكنك طلب تحديث عبر واتساب دون اعتبار ذلك وعدًا بموعد محدد.",
         tone: "warning",
         currentStep: 4,
         actionTitle: "المطلوب منك الآن",
         actionDescription:
-          "لا يوجد إجراء إلزامي حاليًا. يمكنك فقط طلب تحديث إذا تجاوز الملف مدة المراجعة المتوقعة.",
+          "لا يوجد إجراء إلزامي حاليًا. يمكنك طلب تحديث إذا تجاوز الملف مدة المراجعة المتوقعة.",
       };
     }
 
     return {
-      title: "ملفك قيد الدراسة النهائية",
+      title: "ملفك قيد الدراسة",
       eyebrow: "تم فتح الملف بنجاح",
       message:
-        "تم تأكيد رسوم فتح الملف، وملفك الآن لدى فريق الدراسة النهائية. لا يوجد أي إجراء مطلوب منك حاليًا، وسيتم التواصل معك إذا احتجنا أي مستند إضافي.",
+        "تم تأكيد رسوم فتح الملف، وملفك الآن قيد الدراسة. لا يوجد إجراء مطلوب منك حاليًا، وسيتم التواصل معك إذا ظهر متطلب فعلي.",
       tone: "success",
       currentStep: 4,
       actionTitle: "المطلوب منك الآن",
       actionDescription:
-        "لا يوجد أي إجراء مطلوب منك الآن. يرجى إبقاء واتساب متاحًا لأي تحديث من فريق المراجعة.",
+        "لا يوجد إجراء مطلوب منك الآن. يرجى إبقاء واتساب متاحًا لأي تحديث من فريق المراجعة.",
     };
   }
 
@@ -287,26 +290,39 @@ function getStatusView(app: Application): StatusView {
     case "preliminary_application":
     case "submitted":
       return {
-        title: "تم استلام طلبك",
-        eyebrow: "مراجعة مبدئية",
+        title: "تم استلام طلبك وتسجيله",
+        eyebrow: "بانتظار بدء المراجعة",
         message:
-          "وصل طلبك إلى الإدارة وسيتم مراجعته مبدئيًا. لا يوجد دفع مطلوب في هذه المرحلة، وسيتم التواصل معك عبر واتساب عند وجود تحديث.",
+          "طلبك مسجل وهو بانتظار دوره لبدء المراجعة المبدئية. لا يوجد دفع مطلوب في هذه المرحلة، وسيتم التواصل معك عند انتقاله للمرحلة التالية أو ظهور متطلب فعلي.",
         tone: "info",
         currentStep: 1,
         actionTitle: "المطلوب منك الآن",
-        actionDescription: "لا يوجد إجراء مطلوب. انتظر نتيجة المراجعة المبدئية عبر واتساب.",
+        actionDescription: "لا يوجد إجراء مطلوب حاليًا. تابع التحديث عبر واتساب أو صفحة التتبع.",
       };
 
     case "preliminary_qualified":
+    case "prequalified":
       return {
-        title: "طلبك مؤهل مبدئيًا",
-        eyebrow: "مرحلة قبل فتح الملف",
+        title: "تم تأهيل طلبك مبدئيًا",
+        eyebrow: "بانتظار بدء دراسة الملف",
         message:
-          "تم تأهيل الطلب مبدئيًا للانتقال إلى الدراسة النهائية. تابع واتساب لأن الإدارة سترسل لك التعليمات الرسمية لاستكمال فتح الملف.",
+          "اجتاز الطلب مرحلة التأهيل المبدئي، وهو الآن بانتظار دوره لبدء دراسة الملف. التأهيل المبدئي لا يعني أن الدراسة النهائية بدأت ولا يعني الموافقة النهائية.",
         tone: "success",
         currentStep: 2,
         actionTitle: "المطلوب منك الآن",
-        actionDescription: "تابع واتساب لاستلام تعليمات فتح الملف الرسمية من الإدارة.",
+        actionDescription: "لا توجد خطوة إضافية مؤكدة حاليًا. سيتم التواصل معك عند انتقال الطلب للمرحلة التالية.",
+      };
+
+    case "final_review":
+      return {
+        title: "ملفك في المرحلة النهائية من الدراسة",
+        eyebrow: "مراجعة نهائية قبل القرار",
+        message:
+          "الملف وصل إلى المرحلة النهائية من الدراسة. هذه المرحلة لا تعني صدور الموافقة النهائية، وسيتم تحديث الحالة عند صدور القرار الفعلي.",
+        tone: "success",
+        currentStep: 4,
+        actionTitle: "المطلوب منك الآن",
+        actionDescription: "لا يوجد إجراء مطلوب حاليًا ما لم يظهر متطلب جديد داخل الطلب.",
       };
 
     case "customer_confirmed_continue":
@@ -659,8 +675,8 @@ export default async function TrackPage({
       text: "فتح الملف أو مستندات داعمة",
     },
     {
-      title: "الدراسة النهائية",
-      text: "مراجعة قبل القرار",
+      title: "دراسة الملف",
+      text: "مراجعة البيانات قبل القرار",
     },
     {
       title: "القرار",
@@ -669,7 +685,9 @@ export default async function TrackPage({
   ];
 
   return (
-    <main
+    <>
+      <SiteHeader active="track" />
+      <main
       dir="rtl"
       className="relative min-h-screen overflow-x-hidden bg-[#f6efe3] px-4 py-6 text-[#123725] sm:py-10"
     >
@@ -689,7 +707,7 @@ export default async function TrackPage({
             </Link>
 
             <div className="text-right md:text-left">
-              <p className="text-xs font-black text-[#9a782d]">Customer Status Center</p>
+              <p className="text-xs font-black text-[#9a782d]">مركز متابعة الطلبات</p>
               <h1 className="mt-1 text-2xl font-black text-[#123725]">
                 متابعة طلبك لدى {BUSINESS_NAME}
               </h1>
@@ -945,7 +963,7 @@ export default async function TrackPage({
                 <div className="rounded-3xl border border-white/10 bg-white/7 p-5">
                   <p className="font-black">هل دفع رسوم فتح الملف يعني موافقة نهائية؟</p>
                   <p className="mt-2 text-sm font-bold leading-7 text-white/75">
-                    لا. الرسوم تعني فتح ملف الدراسة النهائية فقط، والقرار يصدر بعد مراجعة البيانات.
+                    لا. الرسوم تعني فتح الملف لاستكمال الدراسة فقط، والقرار يصدر بعد مراجعة البيانات.
                   </p>
                 </div>
 
@@ -959,7 +977,7 @@ export default async function TrackPage({
                 <div className="rounded-3xl border border-white/10 bg-white/7 p-5">
                   <p className="font-black">متى أحتاج كفيل أو كشف راتب؟</p>
                   <p className="mt-2 text-sm font-bold leading-7 text-white/75">
-                    فقط إذا طلبت الإدارة ذلك حسب متطلبات الدراسة النهائية، وسيظهر لك الرابط الرسمي عند الحاجة.
+                    فقط إذا طلبت الإدارة ذلك حسب متطلبات دراسة الملف، وسيظهر لك الرابط الرسمي عند الحاجة.
                   </p>
                 </div>
 
@@ -974,6 +992,9 @@ export default async function TrackPage({
           </div>
         )}
       </div>
-    </main>
+      </main>
+      <SiteFooter />
+      <MobileBottomNav active="track" />
+    </>
   );
 }

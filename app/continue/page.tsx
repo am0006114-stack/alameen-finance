@@ -143,7 +143,7 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
             لم يتم العثور على الطلب
           </h1>
           <p className="mt-4 text-sm font-bold leading-7 text-[#5f6b63]">
-            يرجى التأكد من فتح الرابط الصحيح المرسل من فريق الأمين للأقساط والتمويل، أو التواصل معنا عبر واتساب للمساعدة.
+            يرجى التأكد من فتح الرابط الصحيح المرسل من فريق الأمين للأقساط، أو التواصل معنا عبر واتساب للمساعدة.
           </p>
           <Link
             href="/"

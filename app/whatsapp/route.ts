@@ -10,7 +10,7 @@ export async function GET() {
   const phone = rawPhone.replace(/\D/g, "");
 
   const message =
-    "أهلًا، أريد الاستفسار عن خدمة تقسيط الهواتف لدى الأمين للأقساط والتمويل. أود معرفة الشروط وطريقة التقديم.";
+    "أهلًا، أريد الاستفسار عن خدمة تقسيط الهواتف لدى الأمين للأقساط. أود معرفة الشروط وطريقة التقديم.";
 
   redirect(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`);
 }

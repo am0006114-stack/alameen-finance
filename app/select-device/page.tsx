@@ -59,7 +59,7 @@ export default async function SelectDevicePage({ searchParams }: PageProps) {
 
   if (!application) {
     return (
-      <main dir="rtl" className="min-h-screen bg-[#03120e] px-4 py-10 text-white">
+      <main dir="rtl" className="v2-application min-h-screen px-4 py-10">
         <section className="glass-panel gold-outline mx-auto max-w-xl rounded-[32px] p-7 text-center">
           <h1 className="text-2xl font-black text-red-300">لم يتم العثور على الطلب</h1>
           <p className="mt-4 text-sm font-bold leading-7 text-[#cbd6cb]">
@@ -72,7 +72,7 @@ export default async function SelectDevicePage({ searchParams }: PageProps) {
 
   if (submitted) {
     return (
-      <main dir="rtl" className="page-enter min-h-screen bg-[#03120e] px-4 py-10 text-white">
+      <main dir="rtl" className="v2-application page-enter min-h-screen px-4 py-10">
         <section className="glass-panel gold-outline mx-auto max-w-2xl rounded-[32px] p-8 text-center">
           <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full border border-[#69d97b]/30 bg-[#69d97b]/10 text-4xl text-[#b8f3c0]">✓</div>
           <h1 className="mt-5 text-3xl font-black text-[#b8f3c0]">تم اختيار الجهاز وربطه بطلبك</h1>
@@ -91,7 +91,7 @@ export default async function SelectDevicePage({ searchParams }: PageProps) {
     const changeHref = `/change-device?tracking=${encodeURIComponent(application.tracking_id || application.id)}&phone=${encodeURIComponent(application.phone || phone)}`;
 
     return (
-      <main dir="rtl" className="page-enter min-h-screen bg-[#03120e] px-4 py-10 text-white">
+      <main dir="rtl" className="v2-application page-enter min-h-screen px-4 py-10">
         <section className="glass-panel gold-outline mx-auto max-w-2xl rounded-[32px] p-7 text-center">
           <p className="gold-chip mx-auto inline-flex rounded-full px-4 py-2 text-xs font-black">الأمين للأقساط</p>
           <h1 className="mt-5 text-3xl font-black">الجهاز مسجل على طلبك</h1>
@@ -108,7 +108,7 @@ export default async function SelectDevicePage({ searchParams }: PageProps) {
 
 
   return (
-    <main dir="rtl" className="page-enter relative min-h-screen overflow-x-hidden px-4 py-8 text-white">
+    <main dir="rtl" className="v2-application page-enter relative min-h-screen overflow-x-hidden px-4 py-8">
       <div className="pointer-events-none fixed inset-0 overflow-hidden">
         <div className="ambient-orb absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
         <div className="ambient-orb ambient-orb-delay absolute bottom-[-100px] left-[-100px] h-[300px] w-[300px] rounded-full bg-[#69d97b]/10 blur-3xl" />

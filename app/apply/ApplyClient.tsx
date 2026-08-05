@@ -163,7 +163,7 @@ function getDeviceColorOptions(productName: string, brand: string): DeviceColorO
 }
 
 const legalRegistrationText =
-  "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
+  "الاسم المعتمد في التعامل هو الأمين للأقساط، ونشاطنا تقسيط الأجهزة الإلكترونية والهواتف. الأمين للأقساط ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا.";
 
 const uploadTypes: { key: UploadKey; type: string; label: string }[] = [
   {
@@ -303,62 +303,7 @@ export default function ApplyPage() {
     applicantIdBack: 0,
   });
 
-  // ---- 🚀 إضافة تكتيكات الضغط ----
-  const [offerTimeLeft, setOfferTimeLeft] = useState({ hours: 0, minutes: 0, seconds: 0 });
-  const [visitorCount, setVisitorCount] = useState(9); // عدد وهمي للمتقدمين الآن
-  const [sessionExpiresIn, setSessionExpiresIn] = useState(15 * 60); // 15 دقيقة بالثواني
 
-  // تحديث مؤقت العرض كل ثانية
-  useEffect(() => {
-    const calcTimeLeft = () => {
-      const now = new Date();
-      const end = new Date();
-      end.setHours(23, 59, 59, 999); // ينتهي العرض بنهاية اليوم
-      const diff = end.getTime() - now.getTime();
-
-      if (diff <= 0) {
-        setOfferTimeLeft({ hours: 0, minutes: 0, seconds: 0 });
-        return;
-      }
-
-      const hours = Math.floor(diff / (1000 * 60 * 60));
-      const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
-      const seconds = Math.floor((diff % (1000 * 60)) / 1000);
-      setOfferTimeLeft({ hours, minutes, seconds });
-    };
-
-    calcTimeLeft();
-    const interval = setInterval(calcTimeLeft, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // تحديث عدد الزوار الوهمي كل 30 ثانية
-  useEffect(() => {
-    const updateVisitor = () => {
-      const newVal = Math.floor(Math.random() * 10) + 5; // بين 5 و 14
-      setVisitorCount(newVal);
-    };
-    updateVisitor();
-    const interval = setInterval(updateVisitor, 30000);
-    return () => clearInterval(interval);
-  }, []);
-
-  // مؤقت انتهاء الجلسة في خطوة المراجعة
-  useEffect(() => {
-    if (currentStep !== 4 || isSubmitting) return;
-    const interval = setInterval(() => {
-      setSessionExpiresIn((prev) => (prev > 0 ? prev - 1 : 0));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [currentStep, isSubmitting]);
-
-  const formatTime = (totalSeconds: number) => {
-    const m = Math.floor(totalSeconds / 60);
-    const s = totalSeconds % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
-
-  // ------------------------------------
 
   useEffect(() => {
     setSelectedDeviceColor("");
@@ -953,7 +898,7 @@ ${cleanDigits(phone)}
     return (
       <main
         dir="rtl"
-        className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
+        className="v2-application v2-application-success relative min-h-screen overflow-x-hidden px-4 py-10 [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
       >
         {showPaymentTransition && (
           <SubmittingOverlay
@@ -1080,7 +1025,7 @@ ${cleanDigits(phone)}
   return (
     <main
       dir="rtl"
-      className="relative min-h-screen overflow-x-hidden bg-[#03120e] px-4 py-10 text-white [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
+      className="v2-application relative min-h-screen overflow-x-hidden px-4 py-10 [padding-top:calc(2.5rem+env(safe-area-inset-top))]"
     >
       {isSubmitting && (
         <SubmittingOverlay
@@ -1089,52 +1034,16 @@ ${cleanDigits(phone)}
         />
       )}
 
-      {/* 🚀 بانر الضغط العلوي مع عد تنازلي */}
-      <div className="mx-auto max-w-5xl mb-6">
-        <div className="rounded-2xl border border-[rgba(214,181,107,0.5)] bg-gradient-to-l from-[#d6b56b]/20 via-[#69d97b]/10 to-[#03120e] p-4 text-center shadow-2xl">
-          <p className="text-lg font-black text-[#f3dfac] flex items-center justify-center gap-2">
-            ⚡ العرض محدود – بادر الآن!
-            <span className="inline-flex items-center gap-1 rounded-full bg-black/30 px-3 py-1 text-sm">
-              ينتهي خلال {String(offerTimeLeft.hours).padStart(2, '0')}:
-              {String(offerTimeLeft.minutes).padStart(2, '0')}:
-              {String(offerTimeLeft.seconds).padStart(2, '0')}
-            </span>
-          </p>
-          <p className="mt-2 text-sm font-bold text-[#d7ddd5]">
-            🟢 {visitorCount} أشخاص يتصفحون هذه الصفحة الآن – لا تفوّت فرصتك!
-          </p>
-        </div>
-      </div>
-
       <div className="mx-auto max-w-5xl">
-        <div className="site-shell pattern-lines mb-8 rounded-[2rem] p-8 shadow-2xl">
-          <div className="gold-chip mb-4 inline-flex rounded-full px-4 py-2 text-sm font-black">
-            الأمين للأقساط والتمويل — تجربة تقسيط فاخرة وآمنة
-          </div>
-
-          <h1 className="text-4xl font-black leading-tight md:text-6xl">
-            احصل على موافقة مبدئية خلال دقائق
-          </h1>
-
-          <p className="mt-4 max-w-2xl text-[#d7ddd5]">
-            طلب موافقة مبدئية فقط: بدون دفع أثناء التقديم، بدون كفيل بالبداية، والهوية مطلوبة للجدية وحماية الطرفين.
-          </p>
-
+        <div className="v2-apply-intro">
+          <small>تقديم طلب جديد</small>
+          <h1>أكمل طلبك بخطوات واضحة</h1>
+          <p>الجهاز محدد مسبقًا من صفحة الأجهزة. أكمل البيانات المطلوبة، وارفع الهوية من هذا النموذج الرسمي فقط، ثم احتفظ برقم التتبع.</p>
           <div className="mt-6 grid gap-3 md:grid-cols-3">
-            <TrustCard
-              title="جهة مسجلة"
-              text="Al Ameen for Financial Services"
-            />
-            <TrustCard
-              title="بياناتك للمراجعة فقط"
-              text="لا نستخدم صور الهوية لأي غرض تسويقي."
-            />
-            <TrustCard
-              title="تقديم أونلاين"
-              text="الاستلام من مكاتبنا بعد الموافقة وتوقيع العقد."
-            />
+            <TrustCard title="الجهاز محدد" text="لا يتم إنشاء طلب جديد دون جهاز ومدة تقسيط." />
+            <TrustCard title="المستندات آمنة" text="الهوية والمستندات الحساسة تُرفع من الرابط الرسمي فقط." />
+            <TrustCard title="متابعة واضحة" text="تتابع حالة الطلب برقم التتبع وعبر واتساب." />
           </div>
-
         </div>
 
         {selectedProduct && selectedInstallment ? (
@@ -1145,10 +1054,6 @@ ${cleanDigits(phone)}
                   <p className="text-sm font-bold text-[#f3dfac]">
                     الجهاز المختار
                   </p>
-                  {/* 🚀 شارة المخزون المحدود */}
-                  <span className="inline-flex items-center rounded-full bg-red-600/20 px-2 py-0.5 text-xs font-black text-red-300 border border-red-500/30">
-                    ⚠️ مخزون محدود
-                  </span>
                 </div>
 
                 <h2 className="mt-2 text-2xl font-black text-white">
@@ -1814,16 +1719,6 @@ ${cleanDigits(phone)}
                 <h2 className="mb-4 text-2xl font-bold">4. المراجعة والإقرار النهائي</h2>
 
                 {/* 🚀 تنبيه انتهاء الجلسة مع مؤقت */}
-                {sessionExpiresIn > 0 && (
-                  <div className="mb-5 rounded-2xl border border-red-400/30 bg-red-950/20 p-4 flex items-center justify-between">
-                    <span className="text-sm font-black text-red-200">
-                      ⏳ سارع! سيتم حذف الطلب غير المكتمل بعد {formatTime(sessionExpiresIn)} دقيقة
-                    </span>
-                    <span className="text-lg font-black text-red-300">
-                      {formatTime(sessionExpiresIn)}
-                    </span>
-                  </div>
-                )}
 
                 <div className="mb-5 grid gap-3 md:grid-cols-2">
                   <InfoBox label="الاسم" value={fullName || "—"} />
@@ -1868,10 +1763,10 @@ ${cleanDigits(phone)}
                     <li>خيار الضمان الاجتماعي موجود كمعلومة إضافية تساعد في دراسة الطلب، لكنه غير إلزامي.</li>
                     <li>لا يسمح بوجود أكثر من طلب فعّال لنفس مقدم الطلب.</li>
                     <li>يجب تقديم هوية شخصية سارية لمقدم الطلب، وجه أمامي وخلفي.</li>
-                    <li>صور الهويات والوثائق تستخدم فقط لدراسة طلب التمويل والتحقق من البيانات.</li>
+                    <li>صور الهويات والوثائق تستخدم فقط لدراسة طلب التقسيط والتحقق من البيانات.</li>
                     <li>البيانات الخاطئة أو الناقصة تؤدي لرفض الطلب.</li>
                     <li>تقديم الطلب لا يعني الموافقة النهائية على طلب التقسيط.</li>
-                    <li>الموافقة النهائية تتم بعد مراجعة الإدارة وتوقيع العقد في مكاتبنا.</li>
+                    <li>الموافقة النهائية تصدر بعد اكتمال مراجعة الإدارة، ويُرسل موعد الحضور الرسمي عند الجاهزية.</li>
                   </ul>
                 </div>
 
@@ -1887,18 +1782,18 @@ ${cleanDigits(phone)}
                   />
 
                   <span>
-                    أقرّ بأنني قرأت الشروط والأحكام بعناية وأوافق عليها، وأوافق على استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التمويل فقط.
+                    أقرّ بأنني قرأت الشروط والأحكام بعناية وأوافق عليها، وأوافق على استخدام بياناتي والوثائق المرفوعة لغرض دراسة طلب التقسيط فقط.
                   </span>
                 </label>
               </section>
 
               <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-                <h2 className="mb-4 text-2xl font-bold">معلومات الشركة والتسجيل</h2>
+                <h2 className="mb-4 text-2xl font-bold">هوية النشاط والخصوصية</h2>
 
                 <div className="rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(255,255,255,0.035)] p-5 text-sm font-bold leading-8 text-[#d7ddd5]">
                   <p>{legalRegistrationText}</p>
                   <p className="mt-3">
-                    يتم استخدام البيانات والوثائق المرفوعة فقط لغرض مراجعة طلب التمويل والتحقق من البيانات، ولا يتم استخدامها لأي غرض تسويقي أو عرض عام.
+                    يتم استخدام البيانات والوثائق المرفوعة فقط لغرض مراجعة طلب التقسيط والتحقق من البيانات، ولا يتم استخدامها لأي غرض تسويقي أو عرض عام.
                   </p>
                 </div>
               </section>

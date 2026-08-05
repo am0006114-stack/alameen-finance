@@ -419,7 +419,7 @@ export default function GuarantorClient() {
       <div className="mx-auto max-w-4xl">
         <section className="site-shell pattern-lines mb-8 rounded-[2rem] p-8 shadow-2xl">
           <div className="gold-chip mb-4 inline-flex rounded-full px-4 py-2 text-sm font-black">
-            الأمين للأقساط والتمويل
+            الأمين للأقساط
           </div>
 
           <h1 className="text-4xl font-black leading-tight md:text-5xl">
@@ -435,7 +435,7 @@ export default function GuarantorClient() {
           </p>
 
           <div className="mt-5 rounded-2xl border border-[rgba(105,217,123,0.24)] bg-[rgba(105,217,123,0.08)] p-4 text-sm font-bold leading-7 text-[#b8f3c0]">
-            بيانات الكفيل تستخدم فقط لاستكمال دراسة طلب التمويل ولا تُستخدم لأي
+            بيانات الكفيل تستخدم فقط لاستكمال دراسة طلب التقسيط ولا تُستخدم لأي
             غرض تسويقي أو إعلان عام.
           </div>
         </section>
@@ -605,7 +605,7 @@ export default function GuarantorClient() {
 
               <span>
                 أقرّ بأن بيانات الكفيل والوثائق المرفوعة صحيحة، وأوافق على
-                استخدامها فقط لغرض دراسة طلب التمويل واستكمال ملف العميل.
+                استخدامها فقط لغرض دراسة طلب التقسيط واستكمال ملف العميل.
               </span>
             </label>
           </section>

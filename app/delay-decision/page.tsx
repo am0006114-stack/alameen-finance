@@ -103,7 +103,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
             لم يتم العثور على الطلب
           </h1>
           <p className="mt-4 text-sm font-bold leading-7 text-[#5f6b63]">
-            يرجى فتح الرابط الصحيح المرسل من فريق الأمين للأقساط والتمويل أو التواصل معنا للمساعدة.
+            يرجى فتح الرابط الصحيح المرسل من فريق الأمين للأقساط أو التواصل معنا للمساعدة.
           </p>
         </section>
       </main>
@@ -132,7 +132,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
         <div className="rounded-[36px] border border-[#e0c27a] bg-white/92 p-[1px] shadow-[0_30px_100px_rgba(59,43,18,0.18)] backdrop-blur">
           <div className="rounded-[35px] bg-[linear-gradient(180deg,#ffffff_0%,#fffdf8_55%,#fbf5eb_100%)] p-6 text-center sm:p-9">
             <p className="mx-auto mb-4 inline-flex rounded-full border border-[#d8bd7a] bg-[#fff8e8] px-5 py-2 text-xs font-black text-[#876420]">
-              الأمين للأقساط والتمويل
+              الأمين للأقساط
             </p>
 
             <h1 className="text-3xl font-black leading-[1.7] text-[#123725] sm:text-4xl">
