@@ -24,6 +24,10 @@ export function detectShadowTopics(
   const add = (topic: ShadowTopic) => {
     if (!topics.includes(topic)) topics.push(topic);
   };
+  const remove = (topic: ShadowTopic) => {
+    const index = topics.indexOf(topic);
+    if (index >= 0) topics.splice(index, 1);
+  };
 
   if (type === "unsupported") add("unsupported_message");
   if (["audio", "voice"].includes(type)) add("voice_message");
@@ -107,7 +111,17 @@ export function detectShadowTopics(
   if (containsAny(text, ["المورد", "التوريد", "متى يوصل الجهاز", "متى بتوفر الجهاز"])) add("supplier_delay");
   if (containsAny(text, ["بدي اغير الجهاز", "تغيير الجهاز", "غير الجهاز", "أغير الجهاز"])) add("device_change");
   if (containsAny(text, ["بدي الغي", "بدي ألغي", "الغاء الطلب", "إلغاء الطلب", "اكد الغاء", "أكد إلغاء"])) add("cancellation");
-  if (containsAny(text, ["استرداد", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم", "متى بتم استرداد المصاري"])) add("refund");
+  const explicitRefundRequest = containsAny(text, [
+    "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم",
+    "متى بتم استرداد المصاري", "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي",
+    "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
+    "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
+  ]);
+  if (explicitRefundRequest) {
+    add("refund");
+    remove("payment_method");
+    remove("payment_status");
+  }
   if (containsAny(text, ["الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "وقف الاسترداد", "اوقف الاسترداد", "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة"])) add("stop_refund");
   if (containsAny(text, [
     "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي اتحدث مع موظف", "بدي أتحدث مع موظف",
@@ -117,7 +131,9 @@ export function detectShadowTopics(
   if (containsAny(text, [
     "بدي رقم موظف", "بدي رقم موضف", "رقم موظف", "رقم موضف", "رقم اتواصل", "رقم للتواصل",
     "في رقم نتواصل", "اعطيني رقم", "أعطيني رقم", "رقم تلفون للتواصل", "رقم الهاتف للتواصل",
-    "اتصل عليكم", "اتواصل معكم",
+    "اتصل عليكم", "اتواصل معكم", "بدي رقم تليفون احكي معه", "بدي رقم تلفون احكي معه",
+    "بدي رقم اتواصل معكم", "تبعتولي رقم اتواصل معكم", "ابعثولي رقم اتواصل معكم",
+    "معلش تبعتولي رقم اتواصل معكم",
   ])) add("contact_number");
   if (containsAny(text, [
     "ما بتردو", "ما بتردوا", "ما حدا رد", "الهاتف لا يرد", "التلفون ما برد", "اتصلت وما رديتو",

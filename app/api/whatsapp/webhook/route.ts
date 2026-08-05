@@ -243,6 +243,12 @@ function isCallRequestText(text: string) {
     "برن عليكم",
     "ما حدا برد عالرقم",
     "ما حدا برد على الرقم",
+    "بدي رقم تليفون احكي معه",
+    "بدي رقم تلفون احكي معه",
+    "بدي رقم اتواصل معكم",
+    "تبعتولي رقم اتواصل معكم",
+    "ابعثولي رقم اتواصل معكم",
+    "معلش تبعتولي رقم اتواصل معكم",
   ]);
 }
 
@@ -534,7 +540,7 @@ function resolveConversationInput(
 ) {
   let effectiveText = String(customerText || "").trim();
 
-  if (isContextOnlyFollowupText(effectiveText)) {
+  if (isContextOnlyFollowupText(effectiveText) || isContextualShortRequestText(effectiveText)) {
     const previousQuestion =
       memory.lastQuestionLikeCustomerMessage ||
       memory.lastMeaningfulCustomerMessage ||
@@ -1026,6 +1032,8 @@ function isContactInfoText(text: string) {
     "ممكن رقم احكي معو", "ممكن رقم احكي معه", "ممكن رقم اتواصل معو", "ممكن رقم اتواصل معه",
     "رقم احكي معو", "رقم احكي معه",
     "بدي رقم احكي معو", "بدي رقم احكي معه", "رقم احكي مع حدا", "رقم شخص احكي معه",
+    "بدي رقم تليفون احكي معه", "بدي رقم تلفون احكي معه", "بدي رقم اتواصل معكم",
+    "تبعتولي رقم اتواصل معكم", "ابعثولي رقم اتواصل معكم", "معلش تبعتولي رقم اتواصل معكم",
     "contact number", "phone number", "whatsapp number", "how can i contact",
   ]);
 
@@ -1596,7 +1604,8 @@ function officialUploadInstructionReply(input: {
   const label = officialDocumentLabel(kind);
   const url = officialUploadUrlForKind(baseUrl, app, kind);
   const sentUrls = memory?.sentUrls || [];
-  const alreadySent = Boolean(url && sentUrls.includes(url));
+  const forceResend = isExplicitOperationalLinkRequestText(text);
+  const alreadySent = Boolean(url && sentUrls.includes(url) && !forceResend);
 
   if (!url || kind === "unknown") {
     return `وصلت الرسالة يا ${name} 🌿
@@ -1738,6 +1747,52 @@ function isTrackingLinkRequestText(text: string) {
   const hasRequestWord = hasAny(t, ["ممكن", "ابعث", "ابعت", "ارسل", "هات", "اعطيني", "وين", "بدي"]);
 
   return asksForLink || (hasLinkWord && hasRequestWord);
+}
+
+
+function isExplicitOperationalLinkRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const asksForLink = hasAny(t, [
+    "بدي الرابط", "ابعث الرابط", "ابعت الرابط", "ارسل الرابط", "أرسل الرابط",
+    "رجع ابعث الرابط", "رجع ابعت الرابط", "الرابط راح", "ضاع الرابط", "مش لاقي الرابط",
+    "وين الرابط", "هات الرابط", "اعطيني الرابط", "أعطيني الرابط", "لينك لو سمحت",
+  ]);
+  const operationalContext = hasAny(t, [
+    "وصل", "ايصال", "إيصال", "هوية", "هويه", "كشف راتب", "شهادة راتب", "شهاده راتب",
+    "كفيل", "المستند", "التتبع", "متابعة", "استرداد", "اختيار الجهاز", "تغيير الجهاز",
+  ]);
+  const linkAndRequest = hasAny(t, ["رابط", "لينك", "link"]) && hasAny(t, [
+    "بدي", "ابعث", "ابعت", "ارسل", "أرسل", "هات", "اعطيني", "أعطيني", "وين", "راح", "ضاع", "مفقود",
+  ]);
+
+  return (asksForLink && operationalContext) || (linkAndRequest && operationalContext);
+}
+
+function isExplicitRefundRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  if (isExplicitOperationalLinkRequestText(t)) return false;
+  if (hasAny(t, [
+    "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "وقف الاسترداد", "اوقف الاسترداد",
+    "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة",
+  ])) return false;
+
+  return hasAny(t, [
+    "استرداد", "استرجاع", "بدي استرد", "بدي استرجع", "رجعولي", "رجعوا فلوسي",
+    "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي", "بدي فلوسي", "مصاريي رجعوها",
+    "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
+    "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
+  ]);
+}
+
+function isContextualShortRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return [
+    "متى", "امتى", "إمتى", "لحد متى", "طيب متى", "وبعدين", "هسا شو", "هسه شو",
+  ].includes(t);
 }
 
 function isCancelRefundRequestText(text: string) {
@@ -1978,6 +2033,9 @@ function classifyIntent(text: string): CustomerIntent {
   // التراجع عن إلغاء طلب سابق مسار مستقل، ولا يُعامل كطلب استمرار عادي.
   if (isReopenCancelledConfirmedText(t)) return "reopen_cancelled_confirmed";
   if (isReopenCancelledRequestText(t)) return "reopen_cancelled_request";
+
+  // طلب استرداد صريح يسبق أي تصنيف عام للدفع أو الرسوم.
+  if (isExplicitRefundRequestText(t)) return "refund";
 
   // أسئلة الدفع التفصيلية يجب أن تُفهم قبل كلمات المكتب/التوصيل أو الحالة العامة.
   if (isPaymentLinkIssueText(t)) return "payment_link_issue";
@@ -5668,7 +5726,7 @@ function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
   let clean = shortenTrackingLinks(String(reply || "").trim());
   if (!clean) return clean;
 
-  if (String(input.intent) === "tracking_link_request") {
+  if (String(input.intent) === "tracking_link_request" || isExplicitOperationalLinkRequestText(input.customerText)) {
     return clean;
   }
 
@@ -5914,7 +5972,10 @@ function containsUnverifiedActionClaim(reply: string, input: AiReplyInput) {
 
   if (allowedIntents.includes(String(input.intent))) return false;
 
-  return /(?:تم|جرى)\s+(?:تسجيل|تحديث|تعديل|تثبيت|اعتماد|تأكيد)\s+(?:موافقتك|رغبتك|بياناتك|الراتب|الطلب|الجهاز|اللون|السعه|السعة)/i.test(String(reply || ""));
+  const clean = String(reply || "");
+  const actionClaim = /(?:تم|جرى)\s+(?:تسجيل|تحديث|تعديل|تثبيت|اعتماد|تأكيد)\s+(?:موافقتك|رغبتك|بياناتك|الراتب|الطلب|الجهاز|اللون|السعه|السعة)/i.test(clean);
+  const personalFollowupPromise = /(?:انا|أنا)\s+شخصي(?:ا|ًا)?\s+(?:رح|راح)\s+اتابع|(?:رح|راح)\s+اتابع(?:لك)?\s+(?:ملفك|طلبك)\s+(?:اول\s+باول|أول\s+بأول)|بضل\s+اتابع(?:لك)?|بتابعلك\s+(?:ملفك|طلبك)/i.test(clean);
+  return actionClaim || personalFollowupPromise;
 }
 
 function containsIncorrectPaymentSourceClaim(reply: string) {
@@ -5951,10 +6012,23 @@ function removeEmptyReplyLinkLabels(value: string) {
   return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
 
+
+function enforceAssignedAgentIdentity(reply: string, input: AiReplyInput) {
+  const assigned = String(input.assignedAgentName || "").trim();
+  const approved = new Set(["تالا", "فدوة", "عبدالله", "عبدالرحمن", "عمران"]);
+  if (!approved.has(assigned)) return String(reply || "");
+
+  return String(reply || "").replace(
+    /((?:انا\s+معك|أنا\s+معك|معك|معكِ)\s+)(تالا|فدوة|عبدالله|عبدالرحمن|عمران)(?=[،,.]|\s|$)/gi,
+    (_match, prefix) => `${prefix}${assigned}`,
+  );
+}
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
   clean = removeOverusedManagerName(clean, input);
+  clean = enforceAssignedAgentIdentity(clean, input);
   clean = stripRepeatedStaffIntro(clean, input);
   clean = limitAndSuppressLinks(clean, input);
   clean = removeEmptyReplyLinkLabels(clean);

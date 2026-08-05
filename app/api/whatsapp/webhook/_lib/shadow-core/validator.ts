@@ -370,6 +370,90 @@ function agentRoleValid(agent: ShadowAgentId, topics: ShadowTopic[]) {
   return agent === "tala" || agent === "fadwa";
 }
 
+
+function explicitOperationalLinkRequest(customerText: string) {
+  const text = normalized(customerText);
+  const hasLink = includesAny(text, ["رابط", "لينك", "link"]);
+  const asks = includesAny(text, [
+    "بدي", "ابعث", "ابعت", "ارسل", "أرسل", "هات", "اعطيني", "أعطيني", "وين", "راح", "ضاع", "مفقود",
+  ]);
+  const operational = includesAny(text, [
+    "وصل", "ايصال", "إيصال", "هوية", "هويه", "كشف راتب", "شهادة راتب", "شهاده راتب",
+    "كفيل", "مستند", "التتبع", "متابعة", "استرداد", "اختيار الجهاز", "تغيير الجهاز",
+  ]);
+  return hasLink && asks && operational;
+}
+
+function replyHasAnyUrl(reply: string) {
+  return /https?:\/\/[^\s]+/i.test(String(reply || ""));
+}
+
+function finalAgentIdentityMatches(reply: string, agentName: string) {
+  const match = String(reply || "").match(/(?:انا\s+معك|أنا\s+معك|معك|معكِ)\s+(تالا|فدوة|عبدالله|عبدالرحمن|عمران)(?=[،,.]|\s|$)/i);
+  if (!match) return true;
+  return normalized(match[1]) === normalized(agentName);
+}
+
+function hasPersonalFollowupPromise(reply: string) {
+  return /(?:انا|أنا)\s+شخصي(?:ا|ًا)?\s+(?:رح|راح)\s+اتابع|(?:رح|راح)\s+اتابع(?:لك)?\s+(?:ملفك|طلبك)\s+(?:اول\s+باول|أول\s+بأول)|بضل\s+اتابع(?:لك)?|بتابعلك\s+(?:ملفك|طلبك)/i.test(String(reply || ""));
+}
+
+function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string) {
+  const clearRequest = includesAny(customerText, [
+    "بدي رقم", "رقم تليفون", "رقم تلفون", "اتواصل معكم", "صارلي اسبوع", "صارلي أسبوع",
+    "من زمان", "ما في مصداقية", "حماية المستهلك", "بدي فلوسي", "رجعهم", "رجعولي",
+    "بدي الرابط", "وين الرابط", "الرابط راح",
+  ]);
+  const unknownFallback = includesAny(reply, [
+    "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
+  ]);
+  return clearRequest && unknownFallback;
+}
+
+export function validateFinalActualReply(
+  reply: string,
+  _topics: ShadowTopic[],
+  facts: ShadowFacts,
+  context: {
+    initialIntent: CustomerIntent;
+    agent: ShadowAgentId;
+    agentName: string;
+    customerText: string;
+  },
+): ShadowPolicyCheck[] {
+  const checks: ShadowPolicyCheck[] = [];
+  const explicitLink = explicitOperationalLinkRequest(context.customerText);
+  addCheck(
+    checks,
+    "explicit_link_request_must_include_link",
+    !explicitLink || !facts.hasApplication || replyHasAnyUrl(reply),
+    "critical",
+    "عند طلب الرابط صراحةً لطلب مرتبط يجب أن يحتوي الرد النهائي على الرابط الفعلي.",
+  );
+  addCheck(
+    checks,
+    "final_reply_agent_identity_matches_selected_agent",
+    finalAgentIdentityMatches(reply, context.agentName),
+    "critical",
+    "اسم الموظف في الرد النهائي يجب أن يطابق الموظف المختار للمحادثة.",
+  );
+  addCheck(
+    checks,
+    "no_unexecuted_personal_followup_promise",
+    !hasPersonalFollowupPromise(reply),
+    "critical",
+    "لا يجوز وعد العميل بمتابعة شخصية غير مسجلة أو غير منفذة.",
+  );
+  addCheck(
+    checks,
+    "clear_customer_request_not_treated_as_unknown",
+    !clearRequestWasAnsweredWithUnknown(context.customerText, reply),
+    "critical",
+    "الطلبات الواضحة مثل الرقم أو الرابط أو الاسترداد أو التأخير لا تُعامل كرسالة غير مفهومة.",
+  );
+  return checks;
+}
+
 export function validateShadowReply(
   candidate: string,
   topics: ShadowTopic[],

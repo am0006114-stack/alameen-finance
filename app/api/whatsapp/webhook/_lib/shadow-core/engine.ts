@@ -13,16 +13,18 @@ import { routeShadowAgent, shadowAgentStyle } from "./agentRouter";
 import { buildShadowFacts } from "./policyRegistry";
 import { extractConversationEvidence, preferredAgentFromConversation } from "./evidence";
 import { buildDeterministicReply, buildSafeFallbackReply } from "./deterministicReply";
-import { validateShadowReply } from "./validator";
+import { validateFinalActualReply, validateShadowReply } from "./validator";
 import { generateJsonReply } from "./provider";
 import type {
   ShadowEngineInput,
   ShadowEvaluation,
   ShadowGenerationResult,
+  ShadowPolicyCheck,
   ShadowTopic,
+  ShadowValidation,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.5-mandatory-device-selection";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.6-context-explicit-link-final-guard";
 
 function containsAnyNormalized(text: string, values: string[]) {
   const normalized = normalizeArabicText(text);
@@ -62,6 +64,21 @@ function normalizeTopicsForFacts(input: {
     "توصل الحوالة", "تكون الحوالة عندي", "متى ترجع", "متى تنزل", "متى توصل",
   ]);
 
+  const explicitRefundRequest = containsAnyNormalized(input.customerText, [
+    "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "مصاريي رجعوها",
+    "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي", "رجعوا الخمسه", "رجعوا الخمسة",
+    "رجعولي الخمسه", "رجعولي الخمسة", "الخمس دنانير رجعهم",
+  ]);
+
+  if (explicitRefundRequest) {
+    add("refund");
+    remove("payment_method");
+    remove("payment_status");
+    remove("order_status");
+    remove("review_time");
+    if (!explicitContactQuestion) remove("contact_number");
+  }
+
   if (refundState && (topics.includes("refund") || refundTransferFollowup || input.initialIntent === "payment_dispute")) {
     add("refund");
     // A live refund is the canonical order/payment status; duplicate topics caused false blocks.
@@ -73,6 +90,53 @@ function normalizeTopicsForFacts(input: {
   }
 
   return topics;
+}
+
+
+function mergeFinalActualChecks(
+  validation: ShadowValidation,
+  checks: ShadowPolicyCheck[],
+): ShadowValidation {
+  const failedCritical = checks.filter((check) => !check.passed && check.severity === "critical");
+  const failedWarning = checks.filter((check) => !check.passed && check.severity === "warning");
+  const actualRiskFlags = [...failedCritical, ...failedWarning].map((check) => `actual_reply:${check.id}`);
+  const actualScore = Math.max(0, 100 - failedCritical.length * 30 - failedWarning.length * 5);
+
+  return {
+    ...validation,
+    valid: validation.valid && failedCritical.length === 0,
+    score: Math.min(validation.score, actualScore),
+    riskFlags: [...new Set([...validation.riskFlags, ...actualRiskFlags])],
+    policyChecks: [...validation.policyChecks, ...checks],
+    criticalRiskCount: validation.criticalRiskCount + failedCritical.length,
+  };
+}
+
+function validateCandidateAndActual(input: {
+  candidateReply: string;
+  actualReply: string;
+  topics: ShadowTopic[];
+  facts: ReturnType<typeof buildShadowFacts>;
+  initialIntent: ShadowEngineInput["initialIntent"];
+  agent: Parameters<typeof validateShadowReply>[3]["agent"];
+  agentName: string;
+  customerText: string;
+}) {
+  const candidateValidation = validateShadowReply(input.candidateReply, input.topics, input.facts, {
+    initialIntent: input.initialIntent,
+    agent: input.agent,
+  });
+  const actualChecks = validateFinalActualReply(input.actualReply, input.topics, input.facts, {
+    initialIntent: input.initialIntent,
+    agent: input.agent,
+    agentName: input.agentName,
+    customerText: input.customerText,
+  });
+
+  return {
+    candidateValidation,
+    validation: mergeFinalActualChecks(candidateValidation, actualChecks),
+  };
 }
 
 function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
@@ -212,9 +276,15 @@ export async function evaluateShadowReply(input: ShadowEngineInput): Promise<Sha
     });
     const route = { ...initialRoute, templateId: plan.templateId, reason: plan.reason };
     const generation = deterministicGeneration(plan.reply);
-    const validation = validateShadowReply(plan.reply, topics, facts, {
+    const { candidateValidation, validation } = validateCandidateAndActual({
+      candidateReply: plan.reply,
+      actualReply: input.actualReply,
+      topics,
+      facts,
       initialIntent: input.initialIntent,
       agent: route.agent,
+      agentName: route.agentName,
+      customerText: input.customerMessage,
     });
 
     return {
@@ -226,7 +296,7 @@ export async function evaluateShadowReply(input: ShadowEngineInput): Promise<Sha
       facts,
       route,
       validation,
-      draftValidation: validation,
+      draftValidation: candidateValidation,
       generation,
       fallbackApplied: false,
       deliveryReady: validation.valid,
@@ -277,6 +347,13 @@ ${topicInstructions(topics) || "لا توجد"}
     : null;
 
   if (generation.ok && draftValidation?.valid) {
+    const actualChecks = validateFinalActualReply(input.actualReply, topics, facts, {
+      initialIntent: input.initialIntent,
+      agent: initialRoute.agent,
+      agentName: initialRoute.agentName,
+      customerText: input.customerMessage,
+    });
+    const validation = mergeFinalActualChecks(draftValidation, actualChecks);
     return {
       candidateReply: draftReply,
       draftReply,
@@ -285,13 +362,13 @@ ${topicInstructions(topics) || "لا توجد"}
       topics,
       facts,
       route: initialRoute,
-      validation: draftValidation,
+      validation,
       draftValidation,
       generation,
       fallbackApplied: false,
-      deliveryReady: true,
+      deliveryReady: validation.valid,
       finalModel: generation.model,
-      decisionOutcome: "model_approved",
+      decisionOutcome: validation.valid ? "model_approved" : "blocked",
       promptVersion: SHADOW_PROMPT_VERSION,
     };
   }
@@ -309,9 +386,15 @@ ${topicInstructions(topics) || "لا توجد"}
     templateId: fallback.templateId,
     reason: `${initialRoute.reason} ${fallback.reason}`,
   };
-  const validation = validateShadowReply(fallback.reply, topics, facts, {
+  const { validation } = validateCandidateAndActual({
+    candidateReply: fallback.reply,
+    actualReply: input.actualReply,
+    topics,
+    facts,
     initialIntent: input.initialIntent,
     agent: fallbackRoute.agent,
+    agentName: fallbackRoute.agentName,
+    customerText: input.customerMessage,
   });
 
   return {
@@ -328,7 +411,9 @@ ${topicInstructions(topics) || "لا توجد"}
     fallbackApplied: true,
     deliveryReady: validation.valid,
     finalModel: "deterministic",
-    decisionOutcome: generation.ok ? "policy_fallback" : "technical_fallback",
+    decisionOutcome: validation.valid
+      ? (generation.ok ? "policy_fallback" : "technical_fallback")
+      : "blocked",
     promptVersion: SHADOW_PROMPT_VERSION,
   };
 }
