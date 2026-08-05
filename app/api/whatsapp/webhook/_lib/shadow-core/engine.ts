@@ -22,7 +22,7 @@ import type {
   ShadowTopic,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.4-device-selection-link-guard";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.5-mandatory-device-selection";
 
 function containsAnyNormalized(text: string, values: string[]) {
   const normalized = normalizeArabicText(text);

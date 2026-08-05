@@ -7,10 +7,11 @@ export type Product = {
   image: string;
   imageLabel: string;
   badge?: string;
+  originalPrice?: number;
   warranty: string;
 };
 
-export const products: Product[] = [
+const baseProducts: Product[] = [
   {
     id: "iphone-17-pro-max",
     brand: "Apple",
@@ -332,6 +333,17 @@ export const products: Product[] = [
     warranty: "كفالة Reach / الشروق",
   },
 ];
+
+export const products: Product[] = baseProducts.map((product) => {
+  if (product.brand !== "Apple") return product;
+
+  return {
+    ...product,
+    originalPrice: product.price,
+    price: Number((product.price * 0.95).toFixed(2)),
+    badge: product.badge ? `${product.badge} • خصم 5%` : "خصم 5%",
+  };
+});
 
 export function getProductById(id: string | null | undefined) {
   if (!id) return null;

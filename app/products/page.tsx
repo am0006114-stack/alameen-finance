@@ -4,7 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { products, type Product } from "@/lib/products";
-import { calculateInstallment } from "@/lib/installments";
+import { calculateInstallment, formatJod } from "@/lib/installments";
 
 const MONTH_OPTIONS = [12, 24, 36];
 
@@ -39,7 +39,7 @@ function ProductCard({ product }: { product: Product }) {
   )}`;
 
   return (
-    <article className="glass-panel gold-outline overflow-hidden rounded-[24px] transition hover:-translate-y-1 hover:shadow-2xl sm:rounded-[30px]">
+    <article className="glass-panel gold-outline interactive-lift card-reveal overflow-hidden rounded-[24px] transition hover:-translate-y-1 hover:shadow-2xl sm:rounded-[30px]">
       <div className="relative h-48 overflow-hidden bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.015))] sm:h-64">
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_20%,rgba(214,181,107,0.12),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(93,210,122,0.08),transparent_28%)]" />
 
@@ -54,7 +54,7 @@ function ProductCard({ product }: { product: Product }) {
           alt={product.name}
           fill
           sizes="(max-width: 768px) 50vw, (max-width: 1280px) 33vw, 25vw"
-          className="object-contain p-4"
+          className="product-float object-contain p-4"
         />
       </div>
 
@@ -79,9 +79,23 @@ function ProductCard({ product }: { product: Product }) {
 
         <p className="mt-3 text-xs font-bold text-[#aeb9af]">السعر النقدي</p>
 
-        <p className="text-xl font-black text-[#69d97b] sm:text-2xl">
-          JOD {product.price}
-        </p>
+        {product.originalPrice ? (
+          <div className="mt-1 flex flex-wrap items-end gap-2">
+            <p className="text-xl font-black text-[#69d97b] sm:text-2xl">
+              {formatJod(product.price)}
+            </p>
+            <p className="pb-0.5 text-xs font-black text-[#8f9c90] line-through sm:text-sm">
+              {formatJod(product.originalPrice)}
+            </p>
+            <span className="rounded-full border border-[#69d97b]/25 bg-[#69d97b]/10 px-2 py-1 text-[10px] font-black text-[#b8f3c0]">
+              وفر 5%
+            </span>
+          </div>
+        ) : (
+          <p className="text-xl font-black text-[#69d97b] sm:text-2xl">
+            {formatJod(product.price)}
+          </p>
+        )}
 
         <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.15)] bg-[rgba(255,255,255,0.035)] p-3">
           <p className="mb-2 text-xs font-black text-[#d7ddd5]">مدة التقسيط</p>
@@ -142,7 +156,7 @@ function ProductCard({ product }: { product: Product }) {
         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Link
             href={applyHref}
-            className="green-button rounded-2xl px-3 py-3 text-center text-xs font-black transition sm:text-sm"
+            className="green-button button-shimmer rounded-2xl px-3 py-3 text-center text-xs font-black transition sm:text-sm"
           >
             قدّم على هذا الجهاز
           </Link>
@@ -177,11 +191,11 @@ export default function ProductsPage() {
   });
 
   return (
-    <main dir="rtl" className="relative min-h-screen overflow-x-hidden text-[#f7f3e8]">
+    <main dir="rtl" className="page-enter relative min-h-screen overflow-x-hidden text-[#f7f3e8]">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
-        <div className="absolute left-[-110px] top-[280px] h-[300px] w-[300px] rounded-full bg-[#3fae65]/10 blur-3xl" />
-        <div className="absolute bottom-[-100px] right-[25%] h-[280px] w-[280px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] ambient-orb rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-110px] top-[280px] h-[300px] w-[300px] ambient-orb ambient-orb-delay rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[25%] h-[280px] w-[280px] ambient-orb rounded-full bg-[#d6b56b]/10 blur-3xl" />
       </div>
 
       <header className="sticky top-0 z-40 border-b border-[rgba(214,181,107,0.18)] bg-[rgba(2,18,14,0.72)] backdrop-blur-xl">
@@ -222,10 +236,10 @@ export default function ProductsPage() {
           </nav>
 
           <Link
-            href="/apply"
+            href="/products#devices"
             className="green-button rounded-2xl px-4 py-3 text-xs font-black shadow-xl transition sm:px-5 sm:text-sm"
           >
-            طلب عام
+            اختر جهازك
           </Link>
         </div>
       </header>
@@ -275,10 +289,10 @@ export default function ProductsPage() {
                 <div className="section-divider my-6" />
 
                 <Link
-                  href="/apply"
-                  className="gold-button block rounded-2xl px-6 py-4 text-center text-sm font-black transition"
+                  href="/products#devices"
+                  className="gold-button button-shimmer block rounded-2xl px-6 py-4 text-center text-sm font-black transition"
                 >
-                  تقديم طلب بدون جهاز محدد
+                  اختر جهازك وابدأ الطلب
                 </Link>
               </div>
             </div>
@@ -311,7 +325,7 @@ export default function ProductsPage() {
         </div>
       </section>
 
-      <section className="mx-auto max-w-7xl px-4 py-6">
+      <section id="devices" className="mx-auto max-w-7xl scroll-mt-28 px-4 py-6">
         <div className="mb-4 flex items-center justify-between gap-3">
           <div>
             <h2 className="text-2xl font-black text-white">الأجهزة المتاحة</h2>
@@ -333,7 +347,7 @@ export default function ProductsPage() {
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="stagger-grid grid grid-cols-2 gap-3 sm:gap-5 lg:grid-cols-3 xl:grid-cols-4">
             {filteredProducts.map((product) => (
               <ProductCard key={product.id} product={product} />
             ))}
@@ -353,10 +367,10 @@ export default function ProductsPage() {
             </div>
 
             <Link
-              href="/apply"
-              className="gold-button rounded-2xl px-6 py-4 text-center text-sm font-black transition"
+              href="/products#devices"
+              className="gold-button button-shimmer rounded-2xl px-6 py-4 text-center text-sm font-black transition"
             >
-              تقديم طلب بدون جهاز محدد
+              اختر جهازك وابدأ الطلب
             </Link>
           </div>
         </div>

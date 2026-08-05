@@ -433,11 +433,14 @@ export function validateShadowReply(
   const deviceSelectionRequested = topics.includes("device_selection");
   const hasProductsLink = reply.includes("/products");
   const hasChangeDeviceLink = reply.includes("/change-device");
+  const hasSelectDeviceLink = reply.includes("/select-device");
   const hasExpectedDeviceSelectionLink = Boolean(facts.deviceSelectionUrl && reply.includes(facts.deviceSelectionUrl));
   const deviceSelectionLinkMatches = !deviceSelectionRequested || (
     facts.hasApplication
-      ? hasExpectedDeviceSelectionLink && hasChangeDeviceLink && !hasProductsLink
-      : hasExpectedDeviceSelectionLink && hasProductsLink && !hasChangeDeviceLink
+      ? facts.hasSpecificDevice
+        ? hasExpectedDeviceSelectionLink && hasChangeDeviceLink && !hasProductsLink && !hasSelectDeviceLink
+        : hasExpectedDeviceSelectionLink && hasSelectDeviceLink && !hasProductsLink && !hasChangeDeviceLink
+      : hasExpectedDeviceSelectionLink && hasProductsLink && !hasChangeDeviceLink && !hasSelectDeviceLink
   );
   addCheck(checks, "device_selection_link_matches_context", deviceSelectionLinkMatches, "critical", "رابط اختيار الجهاز يجب أن يكون شخصيًا للطلب القائم، أو رابط الأجهزة للعميل دون طلب مرتبط.");
   // V1.1.4 DEVICE SELECTION VALIDATOR END

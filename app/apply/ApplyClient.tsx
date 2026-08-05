@@ -725,7 +725,12 @@ export default function ApplyPage() {
     }
 
     if (step === 3) {
-      if (selectedProduct && !cleanSelectedDeviceColor) {
+      if (!selectedProduct || !selectedInstallment) {
+        focusAndScrollTo(stepContentRef.current, "لا يمكن تقديم طلب بدون اختيار جهاز. ارجع إلى صفحة الأجهزة واختر الجهاز أولًا.");
+        return false;
+      }
+
+      if (!cleanSelectedDeviceColor) {
         focusAndScrollTo(colorSectionRef.current, "يرجى اختيار لون الجهاز المطلوب قبل المتابعة.");
         return false;
       }
@@ -790,6 +795,12 @@ export default function ApplyPage() {
       }
     }
 
+    if (!selectedProduct || !selectedInstallment) {
+      setCurrentStep(3);
+      focusAndScrollTo(stepContentRef.current, "اختيار الجهاز إلزامي قبل إنشاء الطلب.");
+      return;
+    }
+
     setFormError("");
     setIsSubmitting(true);
     updateSubmissionStatus("جاري فحص البيانات والتأكد من عدم وجود طلب مكرر...", 8);
@@ -816,17 +827,9 @@ export default function ApplyPage() {
       updateSubmissionStatus("جاري إنشاء طلب الموافقة المبدئية وحفظ البيانات...", 28);
 
       const trackingId = "AM-" + Date.now();
-      const deviceName = selectedProduct
-        ? `${selectedProduct.name} - ${selectedProduct.model}${
-            cleanSelectedDeviceColor
-              ? ` - اللون المطلوب: ${cleanSelectedDeviceColor}`
-              : ""
-          }${
-            cleanDeviceColorNote
-              ? ` - ملاحظة اللون: ${cleanDeviceColorNote}`
-              : ""
-          }`
-        : null;
+      const deviceName = `${selectedProduct.name} - ${selectedProduct.model} - اللون المطلوب: ${cleanSelectedDeviceColor}${
+        cleanDeviceColorNote ? ` - ملاحظة اللون: ${cleanDeviceColorNote}` : ""
+      }`;
 
       const { data: application, error: appError } = await supabase
         .from("applications")
@@ -854,22 +857,14 @@ export default function ApplyPage() {
           guarantor_national_id: null,
           eligibility_path: eligibilityPath,
 
-          device_id: selectedProduct?.id || null,
+          device_id: selectedProduct.id,
           device_name: deviceName,
-          device_price: selectedProduct?.price || null,
-          installment_months: selectedProduct ? selectedMonths : null,
-          down_payment: selectedProduct
-            ? selectedInstallment?.downPayment || 0
-            : null,
-          interest_rate: selectedProduct
-            ? selectedInstallment?.interestRate || null
-            : null,
-          monthly_payment: selectedProduct
-            ? selectedInstallment?.monthly || null
-            : null,
-          total_with_interest: selectedProduct
-            ? selectedInstallment?.totalWithInterest || null
-            : null,
+          device_price: selectedProduct.price,
+          installment_months: selectedMonths,
+          down_payment: selectedInstallment.downPayment,
+          interest_rate: selectedInstallment.interestRate,
+          monthly_payment: selectedInstallment.monthly,
+          total_with_interest: selectedInstallment.totalWithInterest,
 
           guarantor_name: null,
           guarantor_phone: null,
@@ -943,7 +938,7 @@ export default function ApplyPage() {
       cleanDigits(phone)
     )}&tracking=${encodeURIComponent(successTrackingId)}`;
 
-    const whatsappMessage = `مرحباً، قدمت طلب موافقة مبدئية لدى الأمين للأقساط والتمويل.
+    const whatsappMessage = `مرحباً، قدمت طلب موافقة مبدئية لدى الأمين للأقساط.
 
 رقم التتبع:
 ${successTrackingId}
@@ -1255,7 +1250,7 @@ ${cleanDigits(phone)}
           </section>
         ) : (
           <section className="glass-panel gold-outline mb-6 rounded-3xl p-5 shadow-2xl">
-            <h2 className="text-xl font-black">طلب عام بدون جهاز محدد</h2>
+            <h2 className="text-xl font-black">اختيار الجهاز مطلوب</h2>
 
             <p className="mt-2 text-sm leading-7 text-[#d7ddd5]">
               لم يتم اختيار جهاز من صفحة المنتجات. يمكنك متابعة الطلب العام، أو
@@ -1693,10 +1688,10 @@ ${cleanDigits(phone)}
                 </section>
               ) : (
                 <section className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-                  <h2 className="text-xl font-black">طلب عام بدون جهاز محدد</h2>
+                  <h2 className="text-xl font-black">اختيار الجهاز مطلوب</h2>
 
                   <p className="mt-2 text-sm leading-7 text-[#d7ddd5]">
-                    لم يتم اختيار جهاز من صفحة المنتجات. يمكنك متابعة الطلب العام، أو الرجوع لاختيار جهاز محدد.
+                    لا يمكن متابعة الطلب قبل اختيار جهاز محدد من صفحة الأجهزة.
                   </p>
 
                   <Link

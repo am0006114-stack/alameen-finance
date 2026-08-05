@@ -41,6 +41,12 @@ export function identityUrl(baseUrl: string, app: ApplicationRecord) {
   return `${baseUrl}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
 }
 
+export function selectDeviceUrl(baseUrl: string, app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  const phone = app.phone || "";
+  return `${baseUrl}/select-device?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+}
+
 export function changeDeviceUrl(baseUrl: string, app: ApplicationRecord) {
   const tracking = app.tracking_id || app.id;
   const phone = app.phone || "";

@@ -40,6 +40,7 @@ import {
   delayUrl,
   refundUrl,
   changeDeviceUrl,
+  selectDeviceUrl,
   guarantorUrl,
   identityUrl,
   receiptUrl,
@@ -2842,9 +2843,9 @@ function existingApplicationDeviceSelectionReply(baseUrl: string, app: Applicati
     ? `\nالجهاز المسجل حاليًا: ${customerFacingDeviceName(app.device_name)}`
     : "";
   return `لاختيار الجهاز والسعة واللون على نفس الطلب، استخدم رابط اختيار الجهاز الرسمي المرتبط بملفك:
-${changeDeviceUrl(baseUrl, app)}
+${hasSpecificSelectedDevice(app.device_name) ? changeDeviceUrl(baseUrl, app) : selectDeviceUrl(baseUrl, app)}
 
-لا تقدم طلبًا جديدًا من صفحة الأجهزة؛ هذا الرابط يحافظ على نفس رقم الطلب، ويظل الجهاز الحالي كما هو إلى أن تتم مراجعة الاختيار واعتماده.${current}`;
+لا تقدم طلبًا جديدًا من صفحة الأجهزة؛ هذا الرابط يحافظ على نفس رقم الطلب.${current}`;
 }
 // V1.1.4 EXISTING APPLICATION DEVICE LINK END
 
@@ -3734,7 +3735,9 @@ async function handleDeviceChange(input: {
   }
 
   const currentDevice = customerFacingDeviceName(input.app.device_name) || "غير محدد";
-  const url = changeDeviceUrl(input.baseUrl, input.app);
+  const url = hasSpecificSelectedDevice(input.app.device_name)
+    ? changeDeviceUrl(input.baseUrl, input.app)
+    : selectDeviceUrl(input.baseUrl, input.app);
 
   return `أكيد، تغيير الجهاز ما بيلغي طلبك.
 

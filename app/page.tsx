@@ -1,5 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
+import { getProductById } from "@/lib/products";
+import { formatJod } from "@/lib/installments";
 
 const legalRegistrationText =
   "الجهة المالكة والمشغلة للموقع هي Al Ameen for Financial Services، سجل تجاري رقم 728394، والرقم الوطني للمنشأة / الضريبي 102348761، بتاريخ تسجيل 15/03/2025.";
@@ -38,24 +40,34 @@ const faqItems = [
   "متى يتم شراء الجهاز؟ بعد الموافقة على طلب التمويل واستكمال الإجراءات.",
 ];
 
+function requiredProduct(id: string) {
+  const product = getProductById(id);
+  if (!product) throw new Error(`Product not found: ${id}`);
+  return product;
+}
+
+const iphone16Pro = requiredProduct("iphone-16-pro");
+const iphone16ProMax = requiredProduct("iphone-16-pro-max");
+const s26Ultra = requiredProduct("s26-ultra-5g");
+
 const featuredPhones = [
   {
     name: "iPhone 16 Pro",
-    price: "839 د.أ",
+    price: formatJod(iphone16Pro.price),
     image: "/assets/iphone16pro.jpg",
     href: "/products",
     badge: "iSYSTEMS",
   },
   {
     name: "iPhone 16 Pro Max",
-    price: "999 د.أ",
+    price: formatJod(iphone16ProMax.price),
     image: "/assets/iphone16promax.jpg",
     href: "/products",
     badge: "iSYSTEMS",
   },
   {
     name: "S26 Ultra 5G",
-    price: "969 د.أ",
+    price: formatJod(s26Ultra.price),
     image: "/assets/s26ultra.jpg",
     href: "/products",
     badge: "BMS Samsung",
@@ -64,11 +76,11 @@ const featuredPhones = [
 
 export default function HomePage() {
   return (
-    <main dir="rtl" className="relative min-h-screen overflow-x-hidden text-[#f7f3e8]">
+    <main dir="rtl" className="page-enter relative min-h-screen overflow-x-hidden text-[#f7f3e8]">
       <div className="pointer-events-none absolute inset-0 overflow-hidden">
-        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
-        <div className="absolute left-[-100px] top-[220px] h-[260px] w-[260px] rounded-full bg-[#3fae65]/10 blur-3xl" />
-        <div className="absolute bottom-[-100px] right-[18%] h-[260px] w-[260px] rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute right-[-120px] top-[-120px] h-[320px] w-[320px] ambient-orb rounded-full bg-[#d6b56b]/10 blur-3xl" />
+        <div className="absolute left-[-100px] top-[220px] h-[260px] w-[260px] ambient-orb ambient-orb-delay rounded-full bg-[#3fae65]/10 blur-3xl" />
+        <div className="absolute bottom-[-100px] right-[18%] h-[260px] w-[260px] ambient-orb rounded-full bg-[#d6b56b]/10 blur-3xl" />
       </div>
 
       <header className="sticky top-0 z-50 border-b border-[rgba(214,181,107,0.18)] bg-[rgba(2,18,14,0.72)] backdrop-blur-xl">
@@ -135,7 +147,7 @@ export default function HomePage() {
       </header>
 
       <section className="mx-auto max-w-7xl px-4 pt-6 sm:pt-8 lg:pt-10">
-        <div className="site-shell pattern-lines overflow-hidden rounded-[32px] p-1 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:rounded-[42px]">
+        <div className="site-shell pattern-lines animate-fade-up overflow-hidden rounded-[32px] p-1 shadow-[0_30px_90px_rgba(0,0,0,0.35)] sm:rounded-[42px]">
           <div className="relative overflow-hidden rounded-[30px] border border-[rgba(214,181,107,0.14)] px-5 py-6 sm:px-8 sm:py-10 lg:px-12 lg:py-14">
             <div className="absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(214,181,107,0.08),transparent_24%),radial-gradient(circle_at_85%_12%,rgba(84,199,116,0.08),transparent_24%),linear-gradient(135deg,transparent,rgba(214,181,107,0.04),transparent)]" />
 
@@ -166,8 +178,8 @@ export default function HomePage() {
                   </Link>
 
                   <Link
-                    href="/apply"
-                    className="gold-button rounded-2xl px-7 py-4 text-center text-base font-black transition"
+                    href="/products"
+                    className="gold-button button-shimmer rounded-2xl px-7 py-4 text-center text-base font-black transition"
                   >
                     قدّم الآن
                   </Link>
@@ -189,8 +201,8 @@ export default function HomePage() {
               </div>
 
               <div className="relative hidden lg:block">
-                <div className="absolute right-10 top-8 h-40 w-40 rounded-full bg-[#d6b56b]/10 blur-3xl" />
-                <div className="absolute left-8 bottom-10 h-40 w-40 rounded-full bg-[#58c07f]/10 blur-3xl" />
+                <div className="absolute right-10 top-8 h-40 w-40 ambient-orb rounded-full bg-[#d6b56b]/10 blur-3xl" />
+                <div className="absolute left-8 bottom-10 h-40 w-40 ambient-orb ambient-orb-delay rounded-full bg-[#58c07f]/10 blur-3xl" />
 
                 <div className="grid gap-4">
                   <div className="glass-panel rounded-[34px] p-4">
@@ -199,7 +211,7 @@ export default function HomePage() {
                         image="/assets/iphone16promax.jpg"
                         title="iPhone 16 Pro Max"
                         subtitle="Premium"
-                        price="999 د.أ"
+                        price={formatJod(iphone16ProMax.price)}
                       />
 
                       <div className="flex flex-col gap-3">
@@ -229,7 +241,7 @@ export default function HomePage() {
                             كفالة iSYSTEMS
                           </p>
                           <p className="mt-2 text-xl font-black text-[#69d97b]">
-                            839 د.أ
+                            {formatJod(iphone16Pro.price)}
                           </p>
                         </div>
                       </div>
@@ -263,18 +275,18 @@ export default function HomePage() {
 
           <Link
             href="/products"
-            className="gold-button hidden rounded-2xl px-5 py-3 text-sm font-black shadow-lg transition sm:inline-flex"
+            className="gold-button button-shimmer hidden rounded-2xl px-5 py-3 text-sm font-black shadow-lg transition sm:inline-flex"
           >
             عرض كل الأجهزة
           </Link>
         </div>
 
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <div className="stagger-grid grid grid-cols-2 gap-3 md:grid-cols-3">
           {featuredPhones.map((phone) => (
             <Link
               key={phone.name}
               href={phone.href}
-              className="glass-panel gold-outline overflow-hidden rounded-[24px] transition hover:-translate-y-1 hover:shadow-2xl sm:rounded-[28px]"
+              className="glass-panel gold-outline interactive-lift card-reveal overflow-hidden rounded-[24px] transition hover:-translate-y-1 hover:shadow-2xl sm:rounded-[28px]"
             >
               <div className="relative h-44 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),rgba(255,255,255,0.01))] sm:h-64">
                 <Image
@@ -282,7 +294,7 @@ export default function HomePage() {
                   alt={phone.name}
                   fill
                   sizes="(max-width: 768px) 50vw, 33vw"
-                  className="object-contain p-3 sm:p-4"
+                  className="product-float object-contain p-3 sm:p-4"
                 />
               </div>
 
@@ -305,7 +317,7 @@ export default function HomePage() {
         <div className="mt-5 sm:hidden">
           <Link
             href="/products"
-            className="gold-button block rounded-2xl px-5 py-4 text-center text-sm font-black shadow-lg"
+            className="gold-button button-shimmer block rounded-2xl px-5 py-4 text-center text-sm font-black shadow-lg"
           >
             عرض كل الأجهزة
           </Link>

@@ -229,11 +229,18 @@ function postApprovalReply() {
 // V1.1.4 DEVICE SELECTION REPLY START
 function deviceSelectionReply(facts: ShadowFacts) {
   if (facts.hasApplication) {
-    const current = facts.hasSpecificDevice && facts.deviceName ? `\nالجهاز المسجل حاليًا: ${facts.deviceName}` : "";
-    return `لاختيار الجهاز والسعة واللون على نفس الطلب، استخدم رابط اختيار الجهاز الرسمي المرتبط بملفك:
+    if (!facts.hasSpecificDevice) {
+      return `طلبك مسجل، لكن لم يتم اختيار جهاز له حتى الآن. اختر الجهاز والسعة واللون على نفس الطلب من الرابط الرسمي:
 ${facts.deviceSelectionUrl}
 
-لا تقدم طلبًا جديدًا من صفحة الأجهزة؛ هذا الرابط يحافظ على نفس رقم الطلب، ويظل الجهاز الحالي كما هو إلى أن تتم مراجعة الاختيار واعتماده.${current}`;
+لا تقدم طلبًا جديدًا؛ الرابط يحدث نفس رقم الطلب.`;
+    }
+
+    const current = facts.deviceName ? `\nالجهاز المسجل حاليًا: ${facts.deviceName}` : "";
+    return `لتغيير الجهاز على نفس الطلب، استخدم رابط التعديل الرسمي:
+${facts.deviceSelectionUrl}
+
+الجهاز الحالي يبقى كما هو إلى أن تتم مراجعة التعديل واعتماده.${current}`;
   }
   return `تقدر تشوف الأجهزة المتاحة وتختار الجهاز والسعة واللون من الرابط الرسمي:
 ${facts.deviceSelectionUrl || `${BUSINESS_WEBSITE}/products`}

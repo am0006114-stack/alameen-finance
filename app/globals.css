@@ -78,7 +78,7 @@ body::after {
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: -1;
+  z-index: 1;
   background:
     radial-gradient(circle at 0% 100%, rgba(214, 181, 107, 0.09), transparent 22%),
     radial-gradient(circle at 100% 0%, rgba(214, 181, 107, 0.08), transparent 22%),
@@ -215,4 +215,77 @@ textarea,
 select,
 button {
   font: inherit;
+}
+
+/* V1.1.5 — lightweight visual motion */
+@keyframes alameen-fade-up {
+  from { opacity: 0; transform: translate3d(0, 18px, 0); }
+  to { opacity: 1; transform: translate3d(0, 0, 0); }
+}
+
+@keyframes alameen-float {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(0, -8px, 0) scale(1.015); }
+}
+
+@keyframes alameen-orb {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); opacity: 0.72; }
+  50% { transform: translate3d(18px, -12px, 0) scale(1.08); opacity: 1; }
+}
+
+@keyframes alameen-shimmer {
+  0% { transform: translateX(130%) skewX(-18deg); }
+  100% { transform: translateX(-180%) skewX(-18deg); }
+}
+
+.page-enter { animation: alameen-fade-up 520ms cubic-bezier(.22,.9,.28,1) both; }
+.animate-fade-up { animation: alameen-fade-up 620ms cubic-bezier(.22,.9,.28,1) both; }
+.card-reveal { animation: alameen-fade-up 520ms cubic-bezier(.22,.9,.28,1) both; }
+.stagger-grid > *:nth-child(2) { animation-delay: 60ms; }
+.stagger-grid > *:nth-child(3) { animation-delay: 120ms; }
+.stagger-grid > *:nth-child(4) { animation-delay: 180ms; }
+.stagger-grid > *:nth-child(5) { animation-delay: 240ms; }
+.stagger-grid > *:nth-child(6) { animation-delay: 300ms; }
+
+.product-float { transition: transform 260ms ease; will-change: transform; }
+.interactive-lift:hover .product-float { transform: translate3d(0, -6px, 0) scale(1.025); }
+.ambient-orb { animation: alameen-orb 11s ease-in-out infinite; will-change: transform, opacity; }
+.ambient-orb-delay { animation-delay: -4.5s; }
+
+.interactive-lift {
+  transform: translateZ(0);
+  transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+}
+.interactive-lift:hover {
+  transform: translate3d(0, -5px, 0);
+  border-color: rgba(214, 181, 107, 0.42);
+}
+
+.button-shimmer { position: relative; overflow: hidden; isolation: isolate; }
+.button-shimmer::after {
+  content: "";
+  position: absolute;
+  inset: -30% auto -30% -35%;
+  width: 28%;
+  pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.42), transparent);
+  animation: alameen-shimmer 3.8s ease-in-out infinite;
+  z-index: -1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter,
+  .animate-fade-up,
+  .card-reveal,
+  .product-float,
+  .ambient-orb,
+  .button-shimmer::after {
+    animation: none !important;
+  }
+
+  .interactive-lift,
+  .interactive-lift:hover {
+    transform: none !important;
+    transition: none !important;
+  }
 }
