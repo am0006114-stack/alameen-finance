@@ -162,6 +162,17 @@ export function detectShadowTopics(
     if (proceduresIndex >= 0) topics.splice(proceduresIndex, 1);
   }
 
+  // V1.1.4 DEVICE SELECTION TOPIC START
+  if (initialIntent === "apply") add("device_selection");
+  if (containsAny(text, [
+    "ما اخترت جهاز", "ما اخترت الجهاز", "ما اخترت تلفون", "ما اخترت موبايل",
+    "لم اختر جهاز", "ما حددت جهاز", "بدون جهاز",
+    "كيف اختار جهاز", "كيف أختار جهاز", "وين اختار جهاز", "وين أختار جهاز",
+    "رابط اختيار الجهاز", "اختيار الجهاز", "اختيار جهاز",
+    "بدي اختار جهاز", "بدي أختار جهاز", "احدد الجهاز", "أحدد الجهاز",
+  ])) add("device_selection");
+  // V1.1.4 DEVICE SELECTION TOPIC END
+
   if (!topics.length) add("general_question");
   return topics;
 }

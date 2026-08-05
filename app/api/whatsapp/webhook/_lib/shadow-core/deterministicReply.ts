@@ -226,6 +226,22 @@ function postApprovalReply() {
   return `بعد صدور الموافقة النهائية واعتماد جدول الاستلام، يصلك موعد حضور رسمي. الاستلام يكون من المكتب فقط وبموعد مسبق، ولا يوجد توصيل. القسط الأول يكون بعد استلام الجهاز حسب الاتفاق.`;
 }
 
+// V1.1.4 DEVICE SELECTION REPLY START
+function deviceSelectionReply(facts: ShadowFacts) {
+  if (facts.hasApplication) {
+    const current = facts.hasSpecificDevice && facts.deviceName ? `\nالجهاز المسجل حاليًا: ${facts.deviceName}` : "";
+    return `لاختيار الجهاز والسعة واللون على نفس الطلب، استخدم رابط اختيار الجهاز الرسمي المرتبط بملفك:
+${facts.deviceSelectionUrl}
+
+لا تقدم طلبًا جديدًا من صفحة الأجهزة؛ هذا الرابط يحافظ على نفس رقم الطلب، ويظل الجهاز الحالي كما هو إلى أن تتم مراجعة الاختيار واعتماده.${current}`;
+  }
+  return `تقدر تشوف الأجهزة المتاحة وتختار الجهاز والسعة واللون من الرابط الرسمي:
+${facts.deviceSelectionUrl || `${BUSINESS_WEBSITE}/products`}
+
+بعد اختيار الجهاز أكمل طلب التقديم من نفس الصفحة.`;
+}
+// V1.1.4 DEVICE SELECTION REPLY END
+
 function deviceChangeReply(facts: ShadowFacts) {
   if (!facts.hasApplication) return applicationNotLinkedReply();
   const change = facts.deviceChangeRequest;
@@ -304,6 +320,7 @@ export function buildDeterministicReply(input: {
   if (hasTopic(topics, "office_location") || hasTopic(topics, "independence")) add("office-policy-v1", "العنوان والاستقلال عن الجهات المشابهة سياسة ثابتة.", officeReply(facts, hasTopic(topics, "independence")));
   if (hasTopic(topics, "delivery")) add("pickup-only-v1", "لا يوجد توصيل والاستلام مرتبط بالموافقة والموعد.", "لا يوجد توصيل نهائيًا. الاستلام من المكتب فقط وبموعد مسبق بعد الموافقة النهائية واعتماد جدول الاستلام.");
   if (hasTopic(topics, "supplier_delay")) add("supplier-delay-v1", "لا يجوز اختراع موعد توريد.", "لا يوجد موعد توريد مؤكد ظاهر حاليًا. يتم التواصل مع أصحاب الطلبات المؤكدة بعد وصول الأجهزة واعتماد جدول الاستلام من المكتب.");
+  if (hasTopic(topics, "device_selection")) add("device-selection-link-v1", "اختيار الجهاز يحتاج رابطًا مطابقًا لسياق وجود الطلب.", deviceSelectionReply(facts));
   if (hasTopic(topics, "device_change")) add("device-change-evidence-v2", "حالة تعديل الجهاز تُبنى من دليل المحادثة أو النموذج الرسمي.", deviceChangeReply(facts));
   if (hasTopic(topics, "bank_requirement")) add("bank-requirement-v1", "لا يوجد بنك محدد مطلوب للتقديم.", "لا يوجد بنك محدد مطلوب لتقديم الطلب. عند استحقاق رسوم فتح الملف يمكن التحويل من أي بنك يدعم CliQ أو من محفظة إلكترونية حسب التعليمات الرسمية.");
   if (hasTopic(topics, "early_settlement")) add("early-settlement-v1", "السداد المبكر لا يُضمن قبل الاتفاق النهائي.", "إمكانية تسديد كامل الرصيد تعتمد على الاتفاق والجدول النهائي، لذلك ما بنقدر نضمنها مسبقًا قبل اعتماد الطلب.");

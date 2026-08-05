@@ -36,6 +36,7 @@ export type ShadowTopic =
   | "acknowledgement"
   | "complaint"
   | "trust"
+  | "device_selection"
   | "general_question";
 
 export type ShadowEvidenceSource =
@@ -87,6 +88,8 @@ export type ShadowFacts = {
   trackingId: string | null;
   customerName: string | null;
   deviceName: string | null;
+  deviceSelectionUrl: string;
+  hasSpecificDevice: boolean;
   currentDevice: string | null;
   deviceChangeRequest: ShadowDeviceChangeRequest;
   evidence: ShadowEvidence[];

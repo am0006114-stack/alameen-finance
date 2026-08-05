@@ -276,6 +276,19 @@ function isDeviceChangeText(text: string) {
   return changeContext && deviceContext;
 }
 
+// V1.1.4 DEVICE SELECTION DETECTOR START
+function isDeviceSelectionText(text: string) {
+  const t = normalizeArabicText(text);
+  return hasAny(t, [
+    "ما اخترت جهاز", "ما اخترت الجهاز", "ما اخترت تلفون", "ما اخترت موبايل",
+    "لم اختر جهاز", "ما حددت جهاز", "بدون جهاز",
+    "كيف اختار جهاز", "كيف أختار جهاز", "وين اختار جهاز", "وين أختار جهاز",
+    "رابط اختيار الجهاز", "اختيار الجهاز", "اختيار جهاز",
+    "بدي اختار جهاز", "بدي أختار جهاز", "احدد الجهاز", "أحدد الجهاز",
+  ]);
+}
+// V1.1.4 DEVICE SELECTION DETECTOR END
+
 function isCancelDeviceChangeText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -1955,6 +1968,9 @@ function classifyIntent(text: string): CustomerIntent {
   // إلغاء طلب تغيير الجهاز لا يعني إلغاء طلب التقسيط نفسه.
   if (isCancelDeviceChangeText(t)) return "device_change_cancelled";
 
+  // V1.1.4 DEVICE SELECTION INTENT
+  if (isDeviceSelectionText(t)) return "products";
+
   // تغيير الجهاز ليس إلغاءً. يجب حسمه قبل أي منطق إلغاء.
   if (isDeviceChangeText(t)) return "device_change";
 
@@ -2812,6 +2828,25 @@ ${baseUrl}/products
 
 والقسط الأول لا يُدفع الآن، يكون بعد الاستلام حسب الاتفاق.`;
 }
+
+// V1.1.4 EXISTING APPLICATION DEVICE LINK START
+function hasSpecificSelectedDevice(value: string | null | undefined) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return !["الجهاز المطلوب", "غير محدد", "غير متوفر", "لم يتم اختيار جهاز", "بدون جهاز", "device"]
+    .some((generic) => clean === generic.toLowerCase());
+}
+
+function existingApplicationDeviceSelectionReply(baseUrl: string, app: ApplicationRecord) {
+  const current = hasSpecificSelectedDevice(app.device_name)
+    ? `\nالجهاز المسجل حاليًا: ${customerFacingDeviceName(app.device_name)}`
+    : "";
+  return `لاختيار الجهاز والسعة واللون على نفس الطلب، استخدم رابط اختيار الجهاز الرسمي المرتبط بملفك:
+${changeDeviceUrl(baseUrl, app)}
+
+لا تقدم طلبًا جديدًا من صفحة الأجهزة؛ هذا الرابط يحافظ على نفس رقم الطلب، ويظل الجهاز الحالي كما هو إلى أن تتم مراجعة الاختيار واعتماده.${current}`;
+}
+// V1.1.4 EXISTING APPLICATION DEVICE LINK END
 
 function productsReply(baseUrl: string, from: string) {
   const opening = humanOpening(`${from}:products`);
@@ -3755,6 +3790,7 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
     "media_upload",
     "document_upload",
     "document_followup",
+    "products",
     "reaction",
   ].includes(String(intent));
 }
@@ -3797,6 +3833,9 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
+    if (isDeviceSelectionText(customerText) || !hasSpecificSelectedDevice(app.device_name)) {
+      return existingApplicationDeviceSelectionReply(baseUrl, app);
+    }
     return `الجهاز المسجل على طلبك حاليًا: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.
 
 أما الألوان أو الأجهزة المتوفرة فعليًا فتتأكد حسب توريد المورد وقت اعتماد الطلب، وما بدي أعطيك توفر غير مؤكد.`;

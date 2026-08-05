@@ -1,10 +1,3 @@
-import {
-  BUSINESS_ACTIVITY,
-  BUSINESS_NAME,
-  BUSINESS_PHONE_DISPLAY,
-  BUSINESS_PHONE_E164,
-  BUSINESS_WEBSITE,
-} from "../constants";
 import type { ApplicationRecord } from "../types";
 import type {
   ShadowDeviceChangeRequest,
@@ -15,6 +8,25 @@ import type {
 import { customerAskedAboutFinalApproval, resolveApplicationStage, statusHumanLabelV113 } from "../applicationStage";
 
 import { detectCustomerGender } from "../customerGender";
+
+import { BUSINESS_ACTIVITY, BUSINESS_NAME, BUSINESS_PHONE_DISPLAY, BUSINESS_PHONE_E164, BUSINESS_WEBSITE } from "../constants";
+
+import { changeDeviceUrl } from "../links";
+
+// V1.1.4 DEVICE SELECTION FACTS START
+function hasSpecificDeviceSelection(value: string | null | undefined) {
+  const clean = String(value || "").trim().toLowerCase();
+  if (!clean) return false;
+  return ![
+    "الجهاز المطلوب",
+    "غير محدد",
+    "غير متوفر",
+    "لم يتم اختيار جهاز",
+    "بدون جهاز",
+    "device",
+  ].some((generic) => clean === generic.toLowerCase());
+}
+// V1.1.4 DEVICE SELECTION FACTS END
 
 const PAYMENT_ALLOWED_STATUSES = new Set([
   "preliminary_qualified",
@@ -162,6 +174,8 @@ export function buildShadowFacts(
     trackingId: meaningfulApp?.tracking_id || trackingId || null,
     customerName: resolvedCustomerName,
     deviceName: currentDevice,
+    deviceSelectionUrl: app ? changeDeviceUrl(BUSINESS_WEBSITE, app) : `${BUSINESS_WEBSITE}/products`,
+    hasSpecificDevice: hasSpecificDeviceSelection(app?.device_name),
     currentDevice,
     deviceChangeRequest: evidenceInput?.deviceChangeRequest || emptyDeviceChange(),
     evidence,

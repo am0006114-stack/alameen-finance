@@ -338,6 +338,7 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
     independence: ["جهه مستقله تماما", "جهة مستقلة تمامًا"],
     delivery: ["لا يوجد توصيل", "الاستلام من المكتب"],
     supplier_delay: ["التوريد", "المورد", "موعد توريد"],
+    device_selection: ["اختيار الجهاز", "/products", "/change-device"],
     device_change: ["change-device", "تغيير الجهاز", "تعديل الجهاز"],
     cancellation: ["الغاء", "إلغاء", "تأكيدك"],
     refund: ["الاسترداد", "المبلغ", "الحواله", "الحوالة"],
@@ -428,6 +429,19 @@ export function validateShadowReply(
 
   addCheck(checks, "official_contact_only", !hasUnapprovedContactNumber(reply, facts), "critical", "لا يُذكر أي رقم اتصال غير الرقم الرسمي المعتمد.");
   addCheck(checks, "no_invented_business_hours", !hasUnsupportedBusinessHours(reply, facts), "critical", "ساعات الدوام غير مخزنة، لذلك لا يجوز اختراعها.");
+  // V1.1.4 DEVICE SELECTION VALIDATOR START
+  const deviceSelectionRequested = topics.includes("device_selection");
+  const hasProductsLink = reply.includes("/products");
+  const hasChangeDeviceLink = reply.includes("/change-device");
+  const hasExpectedDeviceSelectionLink = Boolean(facts.deviceSelectionUrl && reply.includes(facts.deviceSelectionUrl));
+  const deviceSelectionLinkMatches = !deviceSelectionRequested || (
+    facts.hasApplication
+      ? hasExpectedDeviceSelectionLink && hasChangeDeviceLink && !hasProductsLink
+      : hasExpectedDeviceSelectionLink && hasProductsLink && !hasChangeDeviceLink
+  );
+  addCheck(checks, "device_selection_link_matches_context", deviceSelectionLinkMatches, "critical", "رابط اختيار الجهاز يجب أن يكون شخصيًا للطلب القائم، أو رابط الأجهزة للعميل دون طلب مرتبط.");
+  // V1.1.4 DEVICE SELECTION VALIDATOR END
+
   addCheck(checks, "device_mentions_grounded", !hasUnsupportedDeviceMention(reply, facts), "critical", "أي جهاز مذكور يجب أن يكون الجهاز الحالي أو جهاز تعديل مثبتًا بدليل المحادثة.");
 
   const deviceRequestClaim = hasDeviceChangeRequestClaim(reply);
