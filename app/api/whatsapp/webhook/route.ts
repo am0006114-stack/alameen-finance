@@ -48,6 +48,18 @@ import {
 } from "./_lib/links";
 import { getConversationMemory } from "./_lib/conversationMemory";
 import { enqueueShadowJob } from "./_lib/shadow-core";
+import {
+  customerAskedAboutFinalApproval,
+  resolveApplicationStage,
+  stageCustomerStatusLine,
+  statusHumanLabelV113,
+} from "./_lib/applicationStage";
+import {
+  detectCustomerGender,
+  enforceCustomerGenderLanguage,
+  nextStageContactLine,
+  noAdditionalActionLine,
+} from "./_lib/customerGender";
 
 import {
   findApplicationByPhone,
@@ -874,7 +886,7 @@ function currentCustomerActionLine(app: ApplicationRecord) {
     return "الوصل واصل وبانتظار تأكيده، فلا تعيد الدفع.";
   }
 
-  return "حاليًا ما عليك أي خطوة إضافية.";
+  return "حاليًا لا توجد أي خطوة إضافية مطلوبة.";
 }
 
 function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string, customerText = "") {
@@ -2261,7 +2273,7 @@ function postPaymentRequirementsReply(app: ApplicationRecord, baseUrl: string) {
   if (salary !== null && salary < 350) {
     return `أهلًا ${name} 🌿
 
-تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+تم تأكيد رسوم فتح الملف، ولإكمال دراسة الملف نحتاج استكمال المتطلبات المحددة.
 
 ${paidDevicesReassuranceParagraph(app, "requirements")}
 
@@ -2283,7 +2295,7 @@ ${BUSINESS_NAME}`;
 
   return `أهلًا ${name} 🌿
 
-تم تأكيد رسوم فتح الملف، وطلبكم الآن قيد الدراسة النهائية.
+تم تأكيد رسوم فتح الملف، ولإكمال دراسة الملف نحتاج استكمال المتطلبات المحددة.
 
 ${paidDevicesReassuranceParagraph(app, "requirements")}
 
@@ -2298,29 +2310,8 @@ ${tracking}
 ${BUSINESS_NAME}`;
 }
 
-function statusHumanLabel(status: string) {
-  switch (status) {
-    case "preliminary_qualified": return "مؤهل مبدئيًا";
-    case "customer_confirmed_continue": return "تم تأكيد رغبتكم بالاستمرار";
-    case "customer_declined_continue": return "العميل لا يرغب بالاستمرار";
-    case "under_review": return "قيد الدراسة النهائية";
-    case "approved": return "موافقة نهائية";
-    case "rejected": return "غير موافق عليه حاليًا";
-    case "needs_identity": return "بانتظار صورة الهوية";
-    case "identity_requested": return "بانتظار صورة الهوية";
-    case "identity_uploaded": return "تم استلام صور الهوية";
-    case "needs_salary_slip": return "بانتظار كشف راتب / شهادة راتب";
-    case "salary_slip_uploaded": return "تم استلام كشف الراتب";
-    case "first_installment_requested": return "بانتظار دفع القسط الأول";
-    case "needs_guarantor": return "بانتظار بيانات كفيل";
-    case "guarantor_submitted": return "تم استلام بيانات الكفيل";
-    case "customer_accepts_delivery_delay": return "تم اختيار الانتظار لحين وصول الأجهزة واعتماد جدول الاستلام من المكتب";
-    case "delivery_delay_notice_sent": return "بانتظار اختيار التمديد أو الاسترداد";
-    case "refund_requested": return "طلب استرداد مسجل";
-    case "refund_completed": return "تم تنفيذ الاسترداد";
-    case "cancelled": return "طلب ملغي";
-    default: return "قيد المتابعة";
-  }
+function statusHumanLabel(status: string, paymentStatus?: string | null) {
+  return statusHumanLabelV113(status, paymentStatus);
 }
 
 function apologyLine(seed = "0") {
@@ -3574,50 +3565,51 @@ function paymentAmountReply(app: ApplicationRecord | null, customerText: string)
 }
 
 function conciseOrderStatusReply(app: ApplicationRecord, customerText = "") {
-  const status = app.status || "";
+  const status = String(app.status || "");
   const tracking = app.tracking_id || app.id;
-  const approvalFollowup = isApprovalStatusQuestionText(customerText) || hasAny(normalizeArabicText(customerText), [
+  const stage = resolveApplicationStage(status, app.payment_status);
+  const gender = detectCustomerGender(app.full_name);
+  const approvalFollowup = customerAskedAboutFinalApproval(customerText) || isApprovalStatusQuestionText(customerText) || hasAny(normalizeArabicText(customerText), [
     "يعني تم ولا شو", "تم ولا لا", "يعني تم", "خلص تم", "وافقوا ولا لا",
   ]);
 
   if (approvalFollowup) {
-    if (status === "approved" || status === "customer_accepts_delivery_delay") {
+    if (stage === "approved") {
       return `نعم، صدرت الموافقة النهائية على طلبك ✅
 
 حاليًا بانتظار توفر الجهاز واعتماد جدول الاستلام من المكتب.
 رقم الطلب: ${tracking}`;
     }
 
-    if (status === "preliminary_qualified") {
-      return `تمت الموافقة المبدئية فقط، أما الموافقة النهائية لسا ما صدرت.
-
-إذا حاب تكمل، اكتب: أود الاستمرار.
-رقم الطلب: ${tracking}`;
-    }
-
-    if (status === "customer_confirmed_continue" || ["pending", "pending_payment", "payment_info_sent"].includes(app.payment_status || "")) {
-      return `الموافقة المبدئية تمت، لكن الموافقة النهائية لسا ما صدرت.
-
-المطلوب حاليًا دفع رسوم فتح الملف بقيمة ${FILE_OPENING_FEE_JOD} دنانير ورفع الوصل، وبعد تأكيده تبدأ الدراسة النهائية.
-رقم الطلب: ${tracking}`;
-    }
-
-    if (status === "under_review") {
-      return `لا، لسا ما صدرت الموافقة النهائية. طلبك حاليًا قيد الدراسة والمتابعة.
+    if (stage === "final_review") {
+      return `الملف في المرحلة النهائية من الدراسة، لكن القرار النهائي لم يصدر بعد.
 
 أول ما يصدر القرار رح يوصلك تحديث مباشرة.
 رقم الطلب: ${tracking}`;
     }
 
-    return `لسا ما صدرت الموافقة النهائية. حالة طلبك الحالية: ${statusHumanLabel(status)}.
+    return `لا، لسا ما صدرت الموافقة النهائية. ${stageCustomerStatusLine(app)}
 
-${currentCustomerActionLine(app)}
+${noAdditionalActionLine(gender)}
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "preliminary_qualified") {
-    return `طلبك مؤهل مبدئيًا. إذا بدك تكمل، اكتب: أود الاستمرار.
+  if (status === "preliminary_application") {
+    return `تم تسجيل طلبك وتأهيله مبدئيًا، وهو حاليًا بانتظار دوره لبدء دراسة الملف.
 
+${noAdditionalActionLine(gender)} ${nextStageContactLine(gender)} 🌿
+رقم الطلب: ${tracking}`;
+  }
+
+  if (status === "preliminary_qualified" || status === "prequalified") {
+    const continueInstruction = gender === "female"
+      ? "إذا حابة تكمّلي، اكتبي: أود الاستمرار."
+      : gender === "male"
+        ? "إذا حاب تكمل، اكتب: أود الاستمرار."
+        : "للاستمرار، يمكن إرسال العبارة التالية: أود الاستمرار.";
+    return `تم تأهيل طلبك مبدئيًا، وهو بانتظار بدء دراسة الملف.
+
+${continueInstruction}
 رقم الطلب: ${tracking}`;
   }
 
@@ -3636,55 +3628,51 @@ ${currentCustomerActionLine(app)}
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "needs_guarantor") {
-    return `طلبك حاليًا بحاجة استكمال بيانات الكفيل حتى تكمل الدراسة.
+  if (stage === "requirements_pending") {
+    return `${stageCustomerStatusLine(app)}
 
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "needs_salary_slip") {
-    return `طلبك حاليًا بحاجة كشف راتب أو شهادة راتب لاستكمال الدراسة.
+  if (stage === "under_review") {
+    return `الملف قيد الدراسة، وما في تحديث جديد ظاهر حاليًا.
+
+${noAdditionalActionLine(gender)} ${nextStageContactLine(gender)}
+رقم الطلب: ${tracking}`;
+  }
+
+  if (stage === "final_review") {
+    return `الملف في المرحلة النهائية من الدراسة، وما صدر القرار النهائي حتى الآن.
+
+${noAdditionalActionLine(gender)} ${nextStageContactLine(gender)}
+رقم الطلب: ${tracking}`;
+  }
+
+  if (stage === "approved") {
+    return `صدرت الموافقة النهائية على طلبك، وحاليًا بانتظار توفر الجهاز واعتماد جدول الاستلام من المكتب.
 
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "salary_slip_uploaded") {
-    return `تم استلام كشف الراتب، والملف الآن بانتظار الخطوة التالية من الدراسة.
+  if (stage === "rejected") {
+    return `انتهت دراسة الطلب ولم تتم الموافقة.
 
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "guarantor_submitted") {
-    return `تم استلام بيانات الكفيل، والملف الآن قيد المتابعة والدراسة.
+  if (stage === "refund_requested") {
+    return `طلب الاسترداد مسجل وقيد المتابعة.
 
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "approved") {
-    return `طلبك عليه موافقة نهائية، وحاليًا بانتظار توفر الجهاز واعتماد جدول الاستلام من المكتب.
-
-رقم الطلب: ${tracking}`;
-  }
-
-  if (status === "under_review") {
-    return `طلبك ما زال قيد الدراسة والمتابعة، وما في تحديث جديد ظاهر على الملف حاليًا.
-
-رقم الطلب: ${tracking}`;
-  }
-
-  if (status === "refund_requested" || app.payment_status === "refund_requested") {
-    return `طلب الاسترداد مسجل وقيد المراجعة.
-
-رقم الطلب: ${tracking}`;
-  }
-
-  if (status === "cancelled") {
+  if (stage === "cancelled") {
     return `الطلب ظاهر لدينا كطلب ملغي.
 
 رقم الطلب: ${tracking}`;
   }
 
-  return `طلبك ظاهر عندي، وحالته الحالية: ${statusHumanLabel(status)}.
+  return `طلبك ظاهر عندي، وحالته الحالية: ${statusHumanLabel(status, app.payment_status)}.
 
 رقم الطلب: ${tracking}`;
 }
@@ -4734,7 +4722,7 @@ async function postPaymentRequirementsReplyOnce(app: ApplicationRecord, baseUrl:
   const lines: string[] = [
     `أهلًا ${name} 🌿`,
     "",
-    "رسوم فتح الملف مؤكدة، والملف الآن قيد الدراسة النهائية.",
+    "رسوم فتح الملف مؤكدة، ولإكمال دراسة الملف نحتاج استكمال المتطلبات المحددة.",
     "",
     "لاستكمال إجراءات الملف حسب متطلبات الدراسة، نحتاج:",
   ];
@@ -5810,6 +5798,19 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
     return input.deterministicReply;
   }
 
+  const applicationStage = resolveApplicationStage(status, paymentStatus);
+  if (applicationStage !== "final_review" && /قيد الدراسة النهائية|الدراسة النهائية|المرحلة النهائية من الدراسة/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
+  if (["submitted", "queued_for_review", "prequalified"].includes(applicationStage) && /(?:بدأت|قيد) الدراسة(?! المبدئية)|الملف قيد الدراسة/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
+  if (applicationStage === "under_review" && /قيد الدراسة النهائية|المرحلة النهائية/i.test(clean)) {
+    return input.deterministicReply;
+  }
+
   if (!paymentIsActionable && /(المطلوب.*دفع رسوم فتح الملف|ارسل لك تعليمات الدفع|أرسل لك تعليمات الدفع|ادفع رسوم فتح الملف)/i.test(clean)) {
     return input.deterministicReply;
   }
@@ -5884,12 +5885,38 @@ function containsIncorrectPaymentSourceClaim(reply: string) {
   ]);
 }
 
+function removeEmptyReplyLinkLabels(value: string) {
+  const lines = String(value || "").split("\n");
+  const output: string[] = [];
+  const labelPattern = /^(?:رابط رفع الوصل الرسمي|رابط رفع الوصل|رابط المتابعة|رابط الطلب|رابط الاسترداد)\s*:\s*$/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!labelPattern.test(line.trim())) {
+      output.push(line);
+      continue;
+    }
+
+    let nextIndex = index + 1;
+    while (nextIndex < lines.length && !lines[nextIndex].trim()) nextIndex += 1;
+    const nextLine = lines[nextIndex]?.trim() || "";
+    if (/^https?:\/\//i.test(nextLine)) {
+      output.push(line);
+      continue;
+    }
+  }
+
+  return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
   clean = removeOverusedManagerName(clean, input);
   clean = stripRepeatedStaffIntro(clean, input);
   clean = limitAndSuppressLinks(clean, input);
+  clean = removeEmptyReplyLinkLabels(clean);
+  clean = enforceCustomerGenderLanguage(clean, detectCustomerGender(input.customerName));
   clean = oneFaithPhraseOnly(clean);
   clean = replaceColdClarificationForEmotionalPressure(clean, input);
   clean = trimOverFormalEmotionalReply(clean, input);
@@ -6443,7 +6470,12 @@ async function generateAiReply(input: AiReplyInput) {
 
 قواعد الحالات:
 - approved فقط تعني موافقة نهائية.
-- under_review ليست موافقة.
+- submitted تعني أن الطلب استُلم وتَسجّل فقط، ولا تعني بدء الدراسة.
+- queued_for_review تعني أن الطلب بانتظار دوره لبدء المراجعة.
+- preliminary_application تعني أن الطلب مسجل ومؤهل مبدئيًا لكنه لم يدخل دراسة الملف الكاملة بعد.
+- preliminary_qualified أو prequalified تعني تأهيلًا مبدئيًا وبانتظار بدء الدراسة، وليست موافقة نهائية.
+- under_review تعني أن الملف قيد الدراسة فقط، وممنوع وصفها بالدراسة النهائية.
+- final_review وحدها تسمح بعبارة المرحلة النهائية من الدراسة.
 - needs_guarantor يعني بحاجة كفيل لاستكمال الدراسة وليس رفضًا.
 - needs_identity أو identity_requested يعني بحاجة صورة الهوية الأمامية والخلفية لاستكمال الدراسة.
 - needs_salary_slip يعني بحاجة كشف راتب أو شهادة راتب.
@@ -6502,8 +6534,11 @@ ${input.isSensitive ? "نعم" : "لا"}
 بيانات مختصرة:
 الاسم: ${input.customerName || "غير متوفر"}
 رقم التتبع: ${input.trackingId || "غير متوفر"}
-الحالة: ${input.status || "غير متوفرة"}
+الحالة الخام: ${input.status || "غير متوفرة"}
+مرحلة الطلب الدقيقة: ${resolveApplicationStage(input.status, input.paymentStatus)}
+الوصف المسموح للحالة: ${statusHumanLabelV113(input.status, input.paymentStatus)}
 حالة الدفع: ${input.paymentStatus || "غير متوفرة"}
+الجنس اللغوي المرجح للعميل: ${detectCustomerGender(input.customerName)}
 الجهاز: ${input.deviceName || "غير متوفر"}
 
 آخر سياق مختصر من نفس محادثة واتساب:
@@ -6534,7 +6569,11 @@ ${input.assignedAgentName || "غير محدد"}
 - لا تخاطب العميل بأي اسم غير الاسم الموجود في خانة "الاسم" أعلاه.
 - لا تغيّر اسم الموظف الثابت ولا تستخدم اسم موظف آخر.
 - إذا لم يكن الاسم متوفرًا، لا تخترع اسمًا.
-- إذا كان اسم الموظف فدوة أو تالا استخدم صياغة مؤنثة عند الحاجة، وإذا كان عبدالله أو عبدالرحمن استخدم صياغة مذكرة.
+- إذا كان اسم الموظف فدوة أو تالا استخدم صياغة مؤنثة عن الموظفة نفسها، وإذا كان عبدالله أو عبدالرحمن استخدم صياغة مذكرة عن الموظف نفسه.
+- جنس الموظف لا يحدد صيغة مخاطبة العميل. استخدم الجنس اللغوي المرجح للعميل من البيانات أعلاه.
+- إذا كان جنس العميل female استخدم: عليكِ، معكِ، اكتبي، ارفعي، ادفعي، حابة، جاهزة.
+- إذا كان جنس العميل male استخدم: عليك، معك، اكتب، ارفع، ادفع، حاب، جاهز.
+- إذا كان جنس العميل unknown استخدم صياغة محايدة بلا تخمين، مثل: لا توجد خطوة مطلوبة، سيتم التواصل، يمكن إرسال العبارة التالية.
 
 هل سبق تعريف العميل باسم الموظف في رد سابق؟
 ${input.hasRecentStaffIntro ? "نعم" : "لا"}

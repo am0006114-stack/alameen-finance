@@ -79,7 +79,10 @@ export type ShadowDeviceChangeRequest = {
 export type ShadowFacts = {
   hasApplication: boolean;
   status: string | null;
+  stage: string;
   statusLabel: string;
+  customerGender: "male" | "female" | "unknown";
+  customerAskedFinalApproval: boolean;
   paymentStatus: string | null;
   trackingId: string | null;
   customerName: string | null;

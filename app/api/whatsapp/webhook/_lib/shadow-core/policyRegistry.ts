@@ -12,6 +12,10 @@ import type {
   ShadowFacts,
 } from "./types";
 
+import { customerAskedAboutFinalApproval, resolveApplicationStage, statusHumanLabelV113 } from "../applicationStage";
+
+import { detectCustomerGender } from "../customerGender";
+
 const PAYMENT_ALLOWED_STATUSES = new Set([
   "preliminary_qualified",
   "customer_confirmed_continue",
@@ -73,10 +77,13 @@ export function buildShadowFacts(
     evidence?: ShadowEvidence[];
     deviceChangeRequest?: ShadowDeviceChangeRequest;
   } | null,
+  customerMessage?: string | null,
 ): ShadowFacts {
   const meaningfulApp = hasMeaningfulApplication(app) ? app : null;
   const status = meaningfulApp?.status || null;
   const paymentStatus = meaningfulApp?.payment_status || null;
+  const resolvedCustomerName = app?.full_name || customerName || null;
+  const stage = resolveApplicationStage(status, paymentStatus);
   const isApproved = status === "approved" || status === "customer_accepts_delivery_delay";
   const isCancelled = status === "cancelled";
   const refundActive = status === "refund_requested" || paymentStatus === "refund_requested";
@@ -147,10 +154,13 @@ export function buildShadowFacts(
   return {
     hasApplication: Boolean(meaningfulApp),
     status,
-    statusLabel: statusLabel(status, paymentStatus),
+    stage,
+    statusLabel: statusHumanLabelV113(status, paymentStatus),
+    customerGender: detectCustomerGender(resolvedCustomerName, customerName),
+    customerAskedFinalApproval: customerAskedAboutFinalApproval(customerMessage),
     paymentStatus,
     trackingId: meaningfulApp?.tracking_id || trackingId || null,
-    customerName: meaningfulApp?.full_name || customerName || null,
+    customerName: resolvedCustomerName,
     deviceName: currentDevice,
     currentDevice,
     deviceChangeRequest: evidenceInput?.deviceChangeRequest || emptyDeviceChange(),

@@ -1,4 +1,5 @@
 import { normalizeArabicText } from "../text";
+import { hasGenderLanguageMismatch } from "../customerGender";
 import type { CustomerIntent } from "../types";
 import type {
   ShadowAgentId,
@@ -286,6 +287,40 @@ function businessIdentityComplete(reply: string, facts: ShadowFacts) {
     && includesAny(reply, ["تقسيط الاجهزه", "تقسيط الأجهزة", "تقسيط الهواتف", "تقسيط اجهزه"]);
 }
 
+
+function hasEmptyLabeledLink(value: string) {
+  const lines = String(value || "").split("\n");
+  const labelPattern = /^(?:رابط رفع الوصل الرسمي|رابط رفع الوصل|رابط المتابعة|رابط الطلب|رابط الاسترداد)\s*:\s*$/i;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!labelPattern.test(lines[index].trim())) continue;
+    let nextIndex = index + 1;
+    while (nextIndex < lines.length && !lines[nextIndex].trim()) nextIndex += 1;
+    if (!/^https?:\/\//i.test(lines[nextIndex]?.trim() || "")) return true;
+  }
+
+  return false;
+}
+
+function stageLanguageMismatch(reply: string, facts: ShadowFacts) {
+  const text = normalizeArabicText(reply);
+  const hasFinalReview = includesAny(text, ["قيد الدراسه النهائيه", "الدراسه النهائيه", "المرحله النهائيه من الدراسه"]);
+  const hasUnderReview = includesAny(text, ["قيد الدراسه", "الملف قيد الدراسه", "بدأت الدراسه"]);
+  const hasPrequalified = includesAny(text, ["مؤهل مبدئيا", "تأهيله مبدئيا", "تم التأهيل مبدئيا"]);
+  const hasSubmitted = includesAny(text, ["تم استلام الطلب", "تم تسجيل الطلب", "استلمنا طلبك"]);
+
+  if (facts.stage !== "final_review" && hasFinalReview) return true;
+  if (["submitted", "queued_for_review", "prequalified"].includes(facts.stage) && hasUnderReview && !hasPrequalified) return true;
+  if (facts.stage === "submitted" && hasPrequalified) return true;
+  if (facts.stage === "queued_for_review" && (hasPrequalified || hasUnderReview)) return true;
+  if (facts.stage === "prequalified" && facts.status !== "preliminary_application" && hasSubmitted && !hasPrequalified) return true;
+  if (facts.stage === "under_review" && hasFinalReview) return true;
+  if (facts.stage === "approved" && !includesAny(text, ["الموافقه النهائيه", "صدرت الموافقه", "تمت الموافقه النهائيه"])) return true;
+  if (facts.stage === "rejected" && !includesAny(text, ["لم تتم الموافقه", "غير موافق", "انتهت الدراسه"])) return true;
+  if (!facts.customerAskedFinalApproval && ["submitted", "queued_for_review", "prequalified"].includes(facts.stage) && includesAny(text, ["الموافقه النهائيه لم تصدر", "لسا ما صدرت الموافقه النهائيه", "لم تصدر الموافقه النهائيه"])) return true;
+  return false;
+}
+
 function topicAnswered(topic: ShadowTopic, reply: string) {
   const checks: Partial<Record<ShadowTopic, string[]>> = {
     order_status: ["حاله طلبك", "حالة طلبك", "طلبك", "الملف"],
@@ -423,6 +458,10 @@ export function validateShadowReply(
   addCheck(checks, "no_unexecuted_action", !actionClaim || supportedDeviceSubmission, "critical", "لا يُدّعى تنفيذ إجراء غير مسجل.");
   addCheck(checks, "no_unsupported_term", !/(?:^|\s)\d{1,3}\s*(?:شهر|اشهر|أشهر)(?:\s|$)/.test(normalized(reply)), "critical", "لا تُخترع مدة تقسيط بالشهور.");
   addCheck(checks, "no_service_promise", !includesAny(reply, ["ما رح نأخرها عنك", "بنضمن ما تتأخر", "رح تخلص اليوم", "أكيد اليوم"]), "critical", "لا يُعطى وعد خدمة أو موعد غير مؤكد.");
+
+  addCheck(checks, "stage_language_matches_application_status", !stageLanguageMismatch(reply, facts), "critical", "صياغة المرحلة تطابق حالة الطلب الفعلية.");
+  addCheck(checks, "gender_language_matches_customer", !hasGenderLanguageMismatch(reply, facts.customerGender), "critical", "صيغة مخاطبة العميل تطابق الجنس اللغوي المؤكد أو تستخدم صياغة محايدة.");
+  addCheck(checks, "empty_receipt_link_not_rendered", !hasEmptyLabeledLink(reply), "critical", "لا يظهر عنوان رابط دون رابط فعلي تحته.");
 
   const reviewTimeWrong = topics.includes("review_time") && includesAny(reply, ["من يوم الى 3", "من يوم إلى 3", "يوم لثلاث", "1 الى 3", "1-3"]);
   addCheck(checks, "review_duration_exact", !reviewTimeWrong, "critical", "المدة المعتمدة من يومين إلى 3 أيام عمل.");

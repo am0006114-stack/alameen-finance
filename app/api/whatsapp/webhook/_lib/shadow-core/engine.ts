@@ -22,7 +22,7 @@ import type {
   ShadowTopic,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.2-refund-intent-final-send-guard";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.3-stage-gender-guard";
 
 function containsAnyNormalized(text: string, values: string[]) {
   const normalized = normalizeArabicText(text);
@@ -79,7 +79,10 @@ function factsForPrompt(facts: ReturnType<typeof buildShadowFacts>) {
   return [
     `هل يوجد طلب مرتبط: ${facts.hasApplication ? "نعم" : "لا"}`,
     `الحالة الخام: ${facts.status || "غير متوفرة"}`,
-    `وصف الحالة المؤكد: ${facts.statusLabel}`,
+    `مرحلة الطلب الدقيقة: ${facts.stage}`,
+    `الوصف المسموح للحالة: ${facts.statusLabel}`,
+    `الجنس اللغوي المرجح للعميل: ${facts.customerGender}`,
+    `هل سأل العميل صراحة عن الموافقة النهائية: ${facts.customerAskedFinalApproval ? "نعم" : "لا"}`,
     `حالة الدفع الخام: ${facts.paymentStatus || "غير متوفرة"}`,
     `رقم التتبع: ${facts.trackingId || "غير متوفر"}`,
     `الاسم: ${facts.customerName || "غير متوفر"}`,
@@ -180,6 +183,7 @@ export async function evaluateShadowReply(input: ShadowEngineInput): Promise<Sha
     input.customerName,
     input.messageType,
     evidenceInput,
+    input.customerMessage,
   );
   const topics = normalizeTopicsForFacts({
     topics: detectedTopics,
