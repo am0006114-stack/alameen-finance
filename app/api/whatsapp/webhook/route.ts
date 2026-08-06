@@ -810,6 +810,125 @@ function isPaymentObjectionText(text: string) {
   ]);
 }
 
+function isVoluntaryOptOutText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  // الإلغاء والاسترداد مساران رسميان مستقلان ولا يتحولان إلى مجرد تجاهل.
+  if (hasAny(t, [
+    "الغاء", "إلغاء", "الغي الطلب", "ألغي الطلب", "ما بدي الطلب",
+    "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي",
+  ])) return false;
+
+  // V1.1.7.1: هذا المسار لرفض الدفع نفسه فقط. رفض الحضور للمكتب ليس مقصودًا هنا.
+  return hasAny(t, [
+    "لا ارغب بدفع اي شي", "لا أرغب بدفع أي شيء", "لا اريد دفع اي شي", "لا أريد دفع أي شيء",
+    "ما بدي ادفع", "ما بدي أدفع", "مش حاب ادفع", "مش حاب أدفع", "مش حابه ادفع", "مش حابة أدفع",
+    "ما رح ادفع", "ما رح أدفع", "ما راح ادفع", "ما راح أدفع", "مش دافع", "مش دافعه", "مش دافعة",
+    "ما بدي ادفع الرسوم", "ما بدي أدفع الرسوم", "مش رح ادفع الرسوم", "مش رح أدفع الرسوم",
+  ]);
+}
+
+function isOfficeFeePaymentRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const direct = hasAny(t, [
+    "ادفع بالمكتب", "أدفع بالمكتب", "الدفع بالمكتب", "دفع بالمكتب",
+    "اجي ادفع بالمكتب", "أجي أدفع بالمكتب", "اجي ع المكتب ادفع", "أجي ع المكتب أدفع",
+    "اجي عالمكتب ادفع", "أجي عالمكتب أدفع", "احضر عالمكتب ادفع", "أحضر عالمكتب أدفع",
+    "ادفع عندكم بالمكتب", "أدفع عندكم بالمكتب", "ادفع عندكم", "أدفع عندكم",
+    "اعطيكم الرسوم بالمكتب", "أعطيكم الرسوم بالمكتب", "اعطيكم الخمسه بالمكتب", "أعطيكم الخمسة بالمكتب",
+    "وين المكتب بدي ادفع", "وين المكتب بدي أدفع", "اعطيني الموقع وبدفع", "أعطيني الموقع وبدفع",
+    "بدي اجي ادفع الرسوم", "بدي أجي أدفع الرسوم", "بدي ادفع الرسوم عندكم", "بدي أدفع الرسوم عندكم",
+    "بقدر ادفع بالمكتب", "بقدر أدفع بالمكتب", "ممكن ادفع بالمكتب", "ممكن أدفع بالمكتب",
+    "ما بدفع الا بالمكتب", "ما بدفع إلا بالمكتب", "ما بدي ادفع اونلاين بدي اجي المكتب",
+    "ما بدي أدفع أونلاين بدي أجي المكتب", "مش رح ادفع اونلاين", "مش رح أدفع أونلاين",
+  ]);
+
+  const officeContext = hasAny(t, ["المكتب", "عالمكتب", "ع المكتب", "عندكم", "الموقع", "العنوان"]);
+  const feeContext = hasAny(t, ["رسوم", "فتح الملف", "الخمسه", "الخمسة", "5 دنانير", "٥ دنانير"]);
+  const paymentContext = hasAny(t, ["ادفع", "أدفع", "دفع", "احول", "أحول", "تحويل"]);
+  const deliveryOnly = hasAny(t, ["استلام الجهاز", "استلم الجهاز", "توصيل", "مندوب"])
+    && !feeContext;
+
+  return !deliveryOnly && (direct || (officeContext && feeContext && paymentContext));
+}
+
+function isOfficeFeePaymentInsistenceText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "ما بدفع الا بالمكتب", "ما بدفع إلا بالمكتب", "مش دافع الا بالمكتب", "مش دافع إلا بالمكتب",
+    "لازم ادفع بالمكتب", "لازم أدفع بالمكتب", "بدي ادفع بالمكتب وبس", "بدي أدفع بالمكتب وبس",
+    "فقط بالمكتب", "بس بالمكتب", "ما بدي ادفع اونلاين", "ما بدي أدفع أونلاين",
+    "مش رح ادفع اونلاين", "مش رح أدفع أونلاين", "اذا ما في دفع بالمكتب ما بدي", "إذا ما في دفع بالمكتب ما بدي",
+    "اذا ما بقدر ادفع بالمكتب ما بدي", "إذا ما بقدر أدفع بالمكتب ما بدي",
+    "اعطيني الموقع وبدفع عندكم", "أعطيني الموقع وبدفع عندكم",
+  ]);
+}
+
+function officeFeePaymentCanBeIgnored(app: ApplicationRecord | null) {
+  if (!app) return true;
+  const status = app.status || "";
+  const paymentStatus = app.payment_status || "";
+  const paid = paymentStatus === "confirmed" || paymentStatus === "customer_claimed_paid" || Boolean(app.payment_confirmed_at);
+  const refundActive = status === "refund_requested" || paymentStatus === "refund_requested" || status === "refund_completed";
+  const approved = status === "approved" || status === "customer_accepts_delivery_delay";
+  return !paid && !refundActive && !approved;
+}
+
+function officeFeePaymentPolicyWasExplained(replies: string[]) {
+  return replies.some((reply) => /دفع رسوم فتح الملف غير متاح في المكتب|الدفع في المكتب غير متاح|عنوان المكتب لا يرسل لهذه الغايه|عنوان المكتب لا يُرسل لهذه الغاية/i.test(normalizeArabicText(String(reply || ""))));
+}
+
+function officeFeePaymentFinalReplyWasSent(replies: string[]) {
+  return replies.some((reply) => /الدفع في المكتب غير متاح.*ما في عليك اي التزام|الدفع في المكتب غير متاح.*ما في عليك أي التزام/i.test(normalizeArabicText(String(reply || ""))));
+}
+
+function officeFeePaymentReply(app: ApplicationRecord | null, finalClosure: boolean) {
+  const trackingLine = app ? `
+رقم الطلب: ${app.tracking_id || app.id}` : "";
+
+  if (!officeFeePaymentCanBeIgnored(app)) {
+    const paymentStatus = app?.payment_status || "";
+    const paymentConfirmed = paymentStatus === "confirmed" || paymentStatus === "customer_claimed_paid" || Boolean(app?.payment_confirmed_at);
+    if (paymentConfirmed) {
+      return `الدفع مسجل ومؤكد على طلبك، وما في أي دفع إضافي مطلوب أو حاجة للحضور إلى المكتب للدفع.${trackingLine}`;
+    }
+
+    return `دفع رسوم فتح الملف غير متاح في المكتب، والحضور لا يتم لهذه الغاية. بما أن الطلب عليه إجراء مالي أو مرحلة متقدمة، ما بنتركه للتجاهل أو نغلقه تلقائيًا. إذا قرارك النهائي عدم الاستمرار، اكتب: أكد إلغاء الطلب، وبعدها تظهر خطوات الاسترداد الرسمية إن كانت مستحقة.${trackingLine}`;
+  }
+
+  if (finalClosure) {
+    return `مفهوم، وبنحترم قرارك. الدفع في المكتب غير متاح، وما في عليك أي التزام بالدفع أو باستكمال الطلب. إذا قررت لاحقًا الاستمرار من خلال الطريقة الرسمية، تواصل معنا من نفس الرقم.${trackingLine} 🌿`;
+  }
+
+  return `أهلًا، دفع رسوم فتح الملف غير متاح في المكتب، ويتم فقط من خلال وسيلة الدفع الرسمية المرتبطة بطلبك.
+
+الإجراء اختياري بالكامل، وإذا ما بناسبك الدفع بهذه الطريقة فمش مطلوب منك تكمل الطلب، وبنحترم قرارك بدون أي ضغط. عنوان المكتب لا يُرسل لهذه الغاية، والحضور يكون فقط بموعد رسمي بعد الموافقة النهائية.${trackingLine} 🌿`;
+}
+
+function voluntaryOptOutCanBeIgnored(app: ApplicationRecord | null) {
+  return officeFeePaymentCanBeIgnored(app);
+}
+
+function voluntaryOptOutReply(app: ApplicationRecord | null) {
+  const trackingLine = app ? `
+رقم الطلب: ${app.tracking_id || app.id}` : "";
+
+  if (!voluntaryOptOutCanBeIgnored(app)) {
+    return `أكيد، القرار راجع إلك بالكامل وما في أي ضغط عليك للاستمرار. لكن بما أن على الطلب إجراء مالي أو مرحلة متقدمة، ما رح نعتبره متروكًا أو نغلقه تلقائيًا.
+
+إذا قرارك نهائي، اكتب: أكد إلغاء الطلب، وبعدها تظهر خطوات الاسترداد الرسمية إن كانت مستحقة.${trackingLine}`;
+  }
+
+  return `أكيد، الخدمة اختيارية بالكامل والقرار راجع إلك. ما في عليك أي التزام بالدفع أو باستكمال الطلب، وإذا الإجراء ما بناسبك بنحترم قرارك وما رح نضغط عليك أو نكرر طلب الدفع.
+
+طلبك يبقى دون استكمال، وإذا قررت ترجع لاحقًا تواصل معنا من نفس الرقم.${trackingLine} 🌿`;
+}
+
 function isPaymentLinkIssueText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -2036,6 +2155,12 @@ function classifyIntent(text: string): CustomerIntent {
 
   // طلب استرداد صريح يسبق أي تصنيف عام للدفع أو الرسوم.
   if (isExplicitRefundRequestText(t)) return "refund";
+
+  // طلب دفع رسوم فتح الملف في المكتب له سياسة مستقلة، ويُحسم قبل الرفض العام للدفع.
+  if (isOfficeFeePaymentRequestText(t)) return "office_payment_request";
+
+  // الرفض الصريح للدفع مسار اختياري مستقل، وليس اعتراض دفع ولا إلغاء تلقائيًا.
+  if (isVoluntaryOptOutText(t)) return "voluntary_opt_out";
 
   // أسئلة الدفع التفصيلية يجب أن تُفهم قبل كلمات المكتب/التوصيل أو الحالة العامة.
   if (isPaymentLinkIssueText(t)) return "payment_link_issue";
@@ -7051,6 +7176,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "payment_review_time" ||
     String(intent) === "payment_objection" ||
     String(intent) === "payment_link_issue" ||
+    String(intent) === "voluntary_opt_out" || String(intent) === "office_payment_request" ||
     String(intent) === "reopen_cancelled_request" ||
     String(intent) === "reopen_cancelled_confirmed" ||
     String(intent) === "device_change" ||
@@ -7106,7 +7232,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     intent = "order_status";
   }
 
-  if (paymentContextActive) {
+  if (paymentContextActive && !["voluntary_opt_out", "office_payment_request"].includes(String(intent))) {
     if (isDeliveryCorrectionText(text) || isPaymentMethodText(text)) {
       intent = "payment_method";
     } else if (isPaymentTimingText(text)) {
@@ -7191,6 +7317,62 @@ async function buildReply(request: Request, from: string, text: string, messageT
 
   if (String(intent) === "call_request") {
     return callRequestReply(from, app);
+  }
+
+  if (String(intent) === "office_payment_request") {
+    const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
+    const policyAlreadyExplained = officeFeePaymentPolicyWasExplained(recentAssistantReplies);
+    const explicitInsistence = isOfficeFeePaymentInsistenceText(text);
+    const finalClosure = policyAlreadyExplained || explicitInsistence;
+    const readyToIgnore = officeFeePaymentCanBeIgnored(app);
+
+    deterministicReply = officeFeePaymentReply(app, finalClosure);
+
+    if (finalClosure && !officeFeePaymentFinalReplyWasSent(recentAssistantReplies)) {
+      await sendDiscordNotification({
+        title: readyToIgnore
+          ? "🟣 العميل يصر على الدفع في المكتب — جاهز للتجاهل"
+          : "🟠 العميل يصر على الدفع في المكتب — يحتاج إنهاء رسمي",
+        description: readyToIgnore
+          ? "تم توضيح أن دفع رسوم فتح الملف غير متاح في المكتب وأن الخدمة اختيارية، ثم كرر العميل الإصرار أو رفض وسيلة الدفع الرسمية. لم يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا. لا حاجة لمتابعته أو تكرار تعليمات الدفع ما لم يعود من نفسه."
+          : "العميل يصر على الدفع في المكتب، لكن الطلب عليه دفع مؤكد أو استرداد نشط أو موافقة نهائية؛ لذلك لا تُترك الحالة للتجاهل قبل إنهائها رسميًا.",
+        color: readyToIgnore ? 0x9b59b6 : 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+    }
+
+    return deterministicReply;
+  }
+
+  if (String(intent) === "voluntary_opt_out") {
+    deterministicReply = voluntaryOptOutReply(app);
+    const readyToIgnore = voluntaryOptOutCanBeIgnored(app);
+    const alreadyAcknowledged = (conversationMemory.lastAssistantReplies || []).some((reply) =>
+      /الخدمة اختيارية بالكامل|ما رح نضغط عليك|بدون ضغط أو متابعة إضافية/i.test(String(reply || ""))
+    );
+
+    if (!alreadyAcknowledged) {
+      await sendDiscordNotification({
+        title: readyToIgnore
+          ? "🟣 العميل اختار عدم الاستمرار — جاهز للتجاهل"
+          : "🟠 العميل لا يريد الاستمرار — يحتاج إنهاء رسمي",
+        description: readyToIgnore
+          ? "العميل رفض الدفع أو استكمال الطلب صراحةً. لم يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا. لا حاجة لمتابعته أو تكرار الروابط؛ يترك دون إجراء ما لم يعود من نفسه."
+          : "يوجد دفع مؤكد أو استرداد نشط أو موافقة نهائية، لذلك لا تُترك الحالة للتجاهل قبل إتمام الإلغاء أو الاسترداد رسميًا.",
+        color: readyToIgnore ? 0x9b59b6 : 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+    }
+
+    return deterministicReply;
   }
 
   if (
@@ -7723,6 +7905,41 @@ ${BUSINESS_NAME}`;
     deterministicReply = temporaryOrderLookupIssueReply(from, tracking || undefined);
   } else if (String(intent) === "site_issue") {
     deterministicReply = siteIssueReply(from, null, tracking);
+  } else if (String(intent) === "office_payment_request") {
+    const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
+    const policyAlreadyExplained = officeFeePaymentPolicyWasExplained(recentAssistantReplies);
+    const explicitInsistence = isOfficeFeePaymentInsistenceText(text);
+    const finalClosure = policyAlreadyExplained || explicitInsistence;
+
+    deterministicReply = officeFeePaymentReply(null, finalClosure);
+
+    if (finalClosure && !officeFeePaymentFinalReplyWasSent(recentAssistantReplies)) {
+      await sendDiscordNotification({
+        title: "🟣 العميل يصر على الدفع في المكتب — جاهز للتجاهل",
+        description: "لا يوجد طلب مرتبط بالمحادثة. تم توضيح أن الدفع في المكتب غير متاح وأن الخدمة اختيارية، ثم كرر العميل الإصرار أو رفض وسيلة الدفع الرسمية. لا حاجة لمتابعته ما لم يعود من نفسه.",
+        color: 0x9b59b6,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+    }
+  } else if (String(intent) === "voluntary_opt_out") {
+    deterministicReply = voluntaryOptOutReply(null);
+    const alreadyAcknowledged = (conversationMemory.lastAssistantReplies || []).some((reply) =>
+      /الخدمة اختيارية بالكامل|ما رح نضغط عليك|بدون ضغط أو متابعة إضافية/i.test(String(reply || ""))
+    );
+    if (!alreadyAcknowledged) {
+      await sendDiscordNotification({
+        title: "🟣 العميل اختار عدم الاستمرار — جاهز للتجاهل",
+        description: "لا يوجد طلب مرتبط بالمحادثة، والعميل رفض الدفع أو الاستمرار صراحةً. لا حاجة لمتابعته أو تكرار الروابط ما لم يعود من نفسه.",
+        color: 0x9b59b6,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+    }
   } else if (String(intent) === "office_pickup_policy") {
     deterministicReply = officePickupPolicyReply(from, null, baseUrl);
   } else if (String(intent) === "supplier_delay_question") {
@@ -7786,6 +8003,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     "self_employed",
     "system_prompt_request",
     "office_pickup_policy",
+    "voluntary_opt_out",
     "loan",
     "greeting",
     "media_upload",

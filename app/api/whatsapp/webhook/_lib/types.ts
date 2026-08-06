@@ -166,6 +166,8 @@ export type CustomerIntent =
   | "payment_review_time"
   | "payment_objection"
   | "payment_link_issue"
+  | "voluntary_opt_out"
+  | "office_payment_request"
   | "reopen_cancelled_request"
   | "reopen_cancelled_confirmed"
   | "loan"

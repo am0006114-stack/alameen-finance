@@ -74,6 +74,8 @@ export function detectShadowTopics(
   if (deviceChangeIntents.includes(initialIntent)) add("device_change");
   if (initialIntent === "requirements" || initialIntent === "self_employed") add("requirements");
   if (initialIntent === "office_pickup_policy" || initialIntent === "location") add("office_location");
+  if (initialIntent === "voluntary_opt_out") add("voluntary_opt_out");
+  if (initialIntent === "office_payment_request") add("office_payment_request");
   if (initialIntent === "delivery" || initialIntent === "supplier_delay_question") add("delivery");
   if (["complaint", "legal_threat", "social_media_threat", "device_delay_rage", "emotional_pressure"].includes(initialIntent)) add("complaint");
   if (["trust_verification", "scam_accusation"].includes(initialIntent)) add("trust");
@@ -94,7 +96,30 @@ export function detectShadowTopics(
   if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام"])) add("review_time");
   if (containsAny(text, ["يحتاج بنك", "بدها بنك", "لازم بنك", "بنك معين", "بنك محدد", "التقسيط بنك"])) add("bank_requirement");
   if (containsAny(text, ["اسدد كامل", "سداد كامل", "ادفع كامل", "دفعة واحدة", "اغلق الاقساط", "اسكر الاقساط", "السداد المبكر"])) add("early_settlement");
+  const explicitOfficePaymentRequest = containsAny(text, [
+    "ادفع بالمكتب", "أدفع بالمكتب", "الدفع بالمكتب", "دفع بالمكتب",
+    "اجي ادفع بالمكتب", "أجي أدفع بالمكتب", "اجي عالمكتب ادفع", "أجي عالمكتب أدفع",
+    "ادفع عندكم بالمكتب", "أدفع عندكم بالمكتب", "اعطيكم الرسوم بالمكتب", "أعطيكم الرسوم بالمكتب",
+    "وين المكتب بدي ادفع", "وين المكتب بدي أدفع", "اعطيني الموقع وبدفع", "أعطيني الموقع وبدفع",
+    "بقدر ادفع بالمكتب", "بقدر أدفع بالمكتب", "ممكن ادفع بالمكتب", "ممكن أدفع بالمكتب",
+    "ما بدفع الا بالمكتب", "ما بدفع إلا بالمكتب", "ما بدي ادفع اونلاين", "ما بدي أدفع أونلاين",
+  ]) || (
+    containsAny(text, ["المكتب", "عالمكتب", "ع المكتب", "عندكم", "الموقع", "العنوان"]) &&
+    containsAny(text, ["رسوم", "فتح الملف", "الخمسه", "الخمسة", "5 دنانير", "٥ دنانير"]) &&
+    containsAny(text, ["ادفع", "أدفع", "دفع", "احول", "أحول", "تحويل"])
+  );
+  if (explicitOfficePaymentRequest) add("office_payment_request");
+
+  const explicitVoluntaryOptOut = containsAny(text, [
+    "لا ارغب بدفع اي شي", "لا أريد دفع أي شيء", "ما بدي ادفع", "ما بدي أدفع",
+    "مش حاب ادفع", "مش حاب أدفع", "ما رح ادفع", "ما رح أدفع", "مش دافع", "مش دافعة",
+  ]) && !containsAny(text, ["الغاء", "إلغاء", "استرداد", "استرجاع", "رجعولي", "بدي فلوسي"])
+    && !explicitOfficePaymentRequest;
+  if (explicitVoluntaryOptOut) add("voluntary_opt_out");
+
   if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات"])) add("payment_method");
+  if (explicitVoluntaryOptOut || explicitOfficePaymentRequest) remove("payment_method");
+  if (explicitOfficePaymentRequest) remove("office_location");
   if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "رفعت الوصل", "تأكيد الوصل"])) add("payment_status");
   if (containsAny(text, ["الاجراءات", "الإجراءات", "كيف بتم", "كيف تتم", "شو الخطوات", "ايش ضل خطوات", "ما هي الخطوات", "طريقة التقديم", "طريقه التقديم"])) add("procedures");
   if (containsAny(text, [
@@ -104,7 +129,7 @@ export function detectShadowTopics(
   ])) add("post_approval_steps");
   if (containsAny(text, ["شو المطلوب", "المتطلبات", "كفيل", "كشف راتب", "شهادة راتب", "شهاده راتب", "هويه", "هوية"])) add("requirements");
   if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "مكانكم", "الفرع", "فروعكم", "فروع"])) {
-    add("office_location");
+    if (!explicitOfficePaymentRequest) add("office_location");
     if (containsAny(text, ["الفرع", "فروعكم", "فروع"])) add("independence");
   }
   if (containsAny(text, ["توصيل", "شحن", "مندوب", "استلام الجهاز", "وين استلم", "كيف استلم"])) add("delivery");

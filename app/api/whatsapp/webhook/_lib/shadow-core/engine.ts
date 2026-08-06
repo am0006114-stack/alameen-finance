@@ -24,7 +24,7 @@ import type {
   ShadowValidation,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.6-context-explicit-link-final-guard";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.7.1-office-payment-ready-ignore";
 
 function containsAnyNormalized(text: string, values: string[]) {
   const normalized = normalizeArabicText(text);
@@ -69,6 +69,19 @@ function normalizeTopicsForFacts(input: {
     "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي", "رجعوا الخمسه", "رجعوا الخمسة",
     "رجعولي الخمسه", "رجعولي الخمسة", "الخمس دنانير رجعهم",
   ]);
+
+  if (topics.includes("voluntary_opt_out")) {
+    remove("payment_method");
+    remove("payment_status");
+    remove("procedures");
+  }
+
+  if (topics.includes("office_payment_request")) {
+    remove("payment_method");
+    remove("payment_status");
+    remove("office_location");
+    remove("delivery");
+  }
 
   if (explicitRefundRequest) {
     add("refund");

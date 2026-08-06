@@ -339,6 +339,8 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
     delivery: ["لا يوجد توصيل", "الاستلام من المكتب"],
     supplier_delay: ["التوريد", "المورد", "موعد توريد"],
     device_selection: ["اختيار الجهاز", "/products", "/change-device"],
+    voluntary_opt_out: ["الخدمه اختياريه", "الخدمة اختيارية", "القرار راجع", "ما في عليك اي التزام", "ما في عليك أي التزام"],
+    office_payment_request: ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب", "الخدمة اختيارية", "الاجراء اختياري"],
     device_change: ["change-device", "تغيير الجهاز", "تعديل الجهاز"],
     cancellation: ["الغاء", "إلغاء", "تأكيدك"],
     refund: ["الاسترداد", "المبلغ", "الحواله", "الحوالة"],
@@ -382,6 +384,21 @@ function explicitOperationalLinkRequest(customerText: string) {
     "كفيل", "مستند", "التتبع", "متابعة", "استرداد", "اختيار الجهاز", "تغيير الجهاز",
   ]);
   return hasLink && asks && operational;
+}
+
+function hasOptOutCoercion(reply: string) {
+  return includesAny(reply, [
+    "لازم تدفع", "لازم تدفعي", "ضروري تدفع", "ضروري تدفعي", "لازم تحضر", "لازم تحضري",
+    "هذه الخطوه الوحيده", "هذه الخطوة الوحيدة", "بس للاستمرار", "حتى نكمل لازم",
+    "راح نخسر طلبك", "رح نخسر طلبك", "لازم تكمل", "لازم تكملي",
+  ]);
+}
+
+function hasVoluntaryChoiceLanguage(reply: string) {
+  return includesAny(reply, [
+    "الخدمه اختياريه بالكامل", "الخدمة اختيارية بالكامل", "القرار راجع الك", "القرار راجع إلك",
+    "ما في عليك اي التزام", "ما في عليك أي التزام", "بدون ضغط", "ما رح نضغط عليك",
+  ]);
 }
 
 function replyHasAnyUrl(reply: string) {
@@ -487,6 +504,15 @@ export function validateShadowReply(
   addCheck(checks, "agent_role_match", agentRoleValid(context.agent, topics), "critical", "الموظف المختار يطابق نوع الحالة.");
 
   const paymentInstructions = hasPaymentInstructions(reply);
+  const voluntaryOptOut = topics.includes("voluntary_opt_out");
+  const officePaymentRequest = topics.includes("office_payment_request");
+  addCheck(checks, "voluntary_opt_out_reply_is_non_coercive", !voluntaryOptOut || (!hasOptOutCoercion(reply) && hasVoluntaryChoiceLanguage(reply)), "critical", "الرفض الصريح للدفع يُجاب عنه باحترام الاختيار دون ضغط أو محاولة إقناع.");
+  addCheck(checks, "voluntary_opt_out_has_no_payment_instructions", !voluntaryOptOut || !paymentInstructions, "critical", "بعد رفض العميل الصريح لا تُرسل معلومات تحويل أو طلب دفع.");
+  addCheck(checks, "office_payment_policy_is_clear", !officePaymentRequest || includesAny(reply, ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب"]), "critical", "طلب الدفع في المكتب يجب أن يُجاب عنه بأن هذه الوسيلة غير متاحة.");
+  addCheck(checks, "office_payment_reply_is_non_coercive", !officePaymentRequest || (!hasOptOutCoercion(reply) && hasVoluntaryChoiceLanguage(reply)), "critical", "رد الدفع في المكتب يوضح أن الاستمرار اختياري دون ضغط.");
+  addCheck(checks, "office_payment_reply_has_no_address", !officePaymentRequest || !includesAny(reply, ["شارع", "مجمع", "الطابق", "موقعنا هو", "عنواننا هو"]), "critical", "لا يُرسل عنوان المكتب لغرض دفع الرسوم.");
+  addCheck(checks, "office_payment_reply_has_no_payment_instructions", !officePaymentRequest || !paymentInstructions, "critical", "بعد توضيح رفض الدفع في المكتب لا تُكرر تعليمات التحويل أو روابط الدفع في نفس الرد.");
+  addCheck(checks, "internal_ready_to_ignore_not_exposed", !includesAny(reply, ["جاهز للتجاهل", "تجاهل العميل", "جاهز للتطنيش"]), "critical", "وسم التجاهل داخلي ولا يظهر للعميل.");
   addCheck(checks, "payment_allowed", facts.paymentCurrentlyAllowed || !paymentInstructions, "critical", "لا تُرسل تعليمات دفع عندما لا يكون الدفع مسموحًا.");
   addCheck(checks, "no_duplicate_payment", !facts.paymentAlreadyConfirmed || !includesAny(reply, ["ادفع الرسوم", "ادفعي الرسوم", "حول الرسوم", "حولي الرسوم", "الخطوه الجايه هي دفع"]), "critical", "لا يُطلب الدفع مرة ثانية بعد التأكيد أو رفع الوصل.");
   addCheck(checks, "confirmed_not_pending", !facts.paymentConfirmed || !includesAny(reply, ["الوصل بانتظار التأكيد", "الدفع قيد التأكيد", "ننتظر تأكيد الوصل", "خلينا نأكد الوصل"]), "critical", "لا يوصف الدفع المؤكد بأنه بانتظار التأكيد.");

@@ -37,6 +37,8 @@ export type ShadowTopic =
   | "complaint"
   | "trust"
   | "device_selection"
+  | "voluntary_opt_out"
+  | "office_payment_request"
   | "general_question";
 
 export type ShadowEvidenceSource =

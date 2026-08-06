@@ -74,6 +74,28 @@ function paymentExplanation(facts: ShadowFacts) {
 بعد تأكيد الوصل تستكمل الدراسة، والنتيجة عادةً من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات، والجمعة والسبت لا تُحسبان.`;
 }
 
+function voluntaryOptOutReply(facts: ShadowFacts) {
+  const safeToIgnore = !facts.paymentConfirmed && !facts.refundActive && !facts.isApproved;
+
+  if (!safeToIgnore) {
+    return "أكيد، القرار راجع إلك بالكامل وما في أي ضغط عليك للاستمرار. لكن على الطلب إجراء مالي أو مرحلة متقدمة، لذلك ما بنعتبره متروكًا أو مغلقًا تلقائيًا. إذا القرار نهائي، يتم تأكيد الإلغاء رسميًا أولًا ثم تظهر خطوات الاسترداد إن كانت مستحقة.";
+  }
+
+  return "أكيد، الخدمة اختيارية بالكامل والقرار راجع إلك. ما في عليك أي التزام بالدفع أو باستكمال الطلب، وإذا الإجراء ما بناسبك بنحترم قرارك وما رح نضغط عليك أو نكرر طلب الدفع. طلبك يبقى دون استكمال، وإذا قررت ترجع لاحقًا تواصل معنا من نفس الرقم.";
+}
+
+function officePaymentRequestReply(facts: ShadowFacts) {
+  if (facts.paymentConfirmed) {
+    return "الدفع مسجل ومؤكد على طلبك، وما في أي دفع إضافي مطلوب أو حاجة للحضور إلى المكتب للدفع.";
+  }
+
+  if (facts.refundActive || facts.isApproved) {
+    return "دفع رسوم فتح الملف غير متاح في المكتب، والحضور لا يتم لهذه الغاية. بما أن الطلب في مرحلة متقدمة أو عليه إجراء مالي، إذا القرار النهائي عدم الاستمرار فيتم إنهاء الطلب رسميًا أولًا.";
+  }
+
+  return "دفع رسوم فتح الملف غير متاح في المكتب، ويتم فقط من خلال وسيلة الدفع الرسمية المرتبطة بالطلب. الإجراء اختياري بالكامل، وإذا ما بناسبك الدفع بهذه الطريقة فمش مطلوب منك تكمل الطلب، وبنحترم قرارك بدون أي ضغط. عنوان المكتب لا يُرسل لهذه الغاية، والحضور يكون فقط بموعد رسمي بعد الموافقة النهائية.";
+}
+
 function applicationNotLinkedReply() {
   return "ما ظهر عندي طلب مرتبط بهذه المحادثة حاليًا، لذلك ما بقدر أحدد الحالة أو المطلوب منك بدقة. أرسل رقم التتبع الموجود في الرسالة الرسمية حتى تتم مراجعة الطلب الصحيح.";
 }
@@ -300,6 +322,14 @@ export function buildDeterministicReply(input: {
 
   if (hasTopic(topics, "voice_message") || hasTopic(topics, "document_upload") || hasTopic(topics, "media_upload")) {
     return composeParts([{ id: "secure-media-v1", reason: "المرفقات والمستندات تخضع لمسار آمن ثابت.", text: mediaReply(facts, type, hasTopic(topics, "order_status")) }], facts);
+  }
+
+  if (hasTopic(topics, "office_payment_request")) {
+    return composeParts([{ id: "office-payment-policy-v1", reason: "طلب دفع رسوم فتح الملف في المكتب يخضع لسياسة ثابتة بلا عنوان أو محاولة إقناع.", text: officePaymentRequestReply(facts) }], facts);
+  }
+
+  if (hasTopic(topics, "voluntary_opt_out")) {
+    return composeParts([{ id: "voluntary-opt-out-v1", reason: "الرفض الصريح للدفع يحتاج ردًا اختياريًا بلا ضغط ولا تعليمات دفع.", text: voluntaryOptOutReply(facts) }], facts);
   }
 
   if (hasTopic(topics, "cancellation")) {

@@ -110,6 +110,8 @@ export function routeShadowAgent(input: {
     "document_upload",
     "unsupported_message",
     "acknowledgement",
+    "voluntary_opt_out",
+    "office_payment_request",
   ];
 
   const role: ShadowAgentRole = hasAnyTopic(input.topics, contactTopics)
