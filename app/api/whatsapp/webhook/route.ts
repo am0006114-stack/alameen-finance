@@ -749,6 +749,8 @@ function isPaymentTimingText(text: string) {
   return hasAny(t, [
     "لو للمسا عادي", "للمسا عادي", "للمساء عادي", "بقدر ادفع للمسا", "بقدر أدفع للمسا",
     "بقدر ادفع بالليل", "بقدر أدفع بالليل", "بقدر ادفع بكرا", "بقدر أدفع بكرا",
+    "بقدر احول بكرا", "بقدر أحول بكرا", "احول بكرا", "أحول بكرا",
+    "بقدر احول الاحد", "بقدر أحول الأحد", "احول الاحد", "أحول الأحد",
     "ادفع هسا", "أدفع هسا", "متى ادفع", "متى أدفع", "لازم ادفع هسا", "لازم أدفع هسا",
     "في وقت محدد للدفع", "الدفع متاح متى", "اخر وقت للدفع", "آخر وقت للدفع",
   ]);
@@ -1498,6 +1500,7 @@ function isCancelRequestText(text: string) {
 
   const explicitCancelPhrases = [
     "بدي الغي", "بدي ألغي", "الغي الطلب", "ألغي الطلب", "الغوا الطلب", "لغوا الطلب",
+    "بدي القي طلب", "بدي القي الطلب", "بدي القيه", "خلص بدي القيه",
     "لغي الطلب", "كنسل الطلب", "cancel application", "cancel order",
     "ما بدي اكمل الطلب", "ما بدي أكمل الطلب", "مش حاب اكمل الطلب", "مش حاب أكمل الطلب",
     "مش حابه اكمل الطلب", "مش حابة أكمل الطلب", "وقف الطلب", "وقفو الطلب",
@@ -1911,7 +1914,8 @@ function isContextualShortRequestText(text: string) {
   if (!t) return false;
   return [
     "متى", "امتى", "إمتى", "لحد متى", "طيب متى", "وبعدين", "هسا شو", "هسه شو",
-  ].includes(t);
+    "نفس مشكله", "نفس مشكلة", "نفس المشكله", "نفس المشكلة",
+  ].includes(t) || (t.length <= 90 && hasAny(t, ["جربت ع جهاز ثاني", "جربت على جهاز ثاني", "جربت من جهاز ثاني"]) && hasAny(t, ["نفس مشكله", "نفس مشكلة", "نفس المشكله", "نفس المشكلة"]));
 }
 
 function isCancelRefundRequestText(text: string) {
@@ -2191,9 +2195,20 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isPaymentAmountText(t)) return "payment_amount";
 
+  if (
+    hasAny(t, ["دينار شهري", "بالشهر", "شهريا", "شهريًا", "قسط شهري", "القسط الشهري"]) &&
+    hasAny(t, ["جهاز", "تلفون", "موبايل", "اقسط", "أقسط", "تقسيط"])
+  ) return "installment_info";
+
   if (isSelfEmployedText(t) || isEmploymentEligibilityQuestionText(t)) return "self_employed";
 
   if (isMinorEligibilityQuestionText(t)) return "requirements";
+
+  // V1.1.8: الإلغاء الصريح يسبق كلمات الموقع/المكتب حتى لا تتحول رسالة مثل
+  // "بدي ألغي الطلب، ليش راجع فرع" إلى طلب عنوان مكتب.
+  if (isCancelRefundRequestText(t)) return "cancel_refund_request";
+  if (isCancelConfirmedText(t)) return "cancel_confirmed";
+  if (isCancelRequestText(t)) return "cancel_request";
 
   if (isOfficeLocationText(t)) return "location";
 
@@ -2201,17 +2216,6 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isReceiptUploadConfirmationText(t)) return "receipt_upload_confirmation";
   if (isTrustVerificationText(t)) return "trust_verification";
-
-  // قرارات الإلغاء والاسترداد تشغيلية ويجب أن تُحسم قبل أي تصنيف حساس آخر.
-  if (isCancelRefundRequestText(t)) return "cancel_refund_request";
-
-  if (isCancelConfirmedText(t)) {
-    return "cancel_confirmed";
-  }
-
-  if (isCancelRequestText(t)) {
-    return "cancel_request";
-  }
 
   // حدود الاحترام والرسائل الحساسة يجب أن تُصنّف قبل التحيات أو الأسئلة العامة
   if (isAbuseText(t)) return "abuse";
@@ -2954,19 +2958,34 @@ ${baseUrl}
 تنويه سريع: ${BUSINESS_NAME} مختص بتقسيط الأجهزة الإلكترونية والهواتف فقط، وما بنقدم قروض نقدية أو تمويل شخصي.`;
 }
 
-function locationReply(from: string) {
+function canShareOfficeAddress(app?: ApplicationRecord | null) {
+  const status = String(app?.status || "");
+  return status === "approved" || status === "customer_accepts_delivery_delay";
+}
+
+function locationReply(from: string, app?: ApplicationRecord | null) {
   const opening = humanOpening(`${from}:location`);
+
+  if (!canShareOfficeAddress(app)) {
+    const requestLine = app?.tracking_id || app?.id
+      ? `\nرقم الطلب: ${app.tracking_id || app.id}`
+      : "\nإذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبراجع الحالة مباشرة.";
+
+    return `${opening}
+
+عنوان المكتب لا يتم إرساله قبل الموافقة النهائية أو إرسال موعد حضور رسمي.
+الاستلام من المكتب فقط وبموعد مسبق، ولا يوجد توصيل.${requestLine}`;
+  }
+
   return `${opening}
 
-عنواننا الرسمي:
+عنوان المكتب:
 ${BUSINESS_ADDRESS}
 
 للتواصل عبر واتساب:
 ${BUSINESS_PHONE_DISPLAY}
 
-ملاحظة مهمة: زيارة المكتب لا تتم إلا إذا وصلتك رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
-
-إذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبراجع الحالة مباشرة.`;
+الحضور يكون فقط وفق الموعد الرسمي المحدد للطلب.`;
 }
 
 function loanReply(from: string) {
@@ -4015,7 +4034,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "system_prompt_request") return systemPromptRequestReply();
   if (String(intent) === "contact_info") return contactInfoReply(baseUrl, app.phone || tracking);
   if (String(intent) === "website") return websiteReply(baseUrl, app.phone || tracking);
-  if (String(intent) === "location") return locationReply(app.phone || tracking);
+  if (String(intent) === "location") return locationReply(app.phone || tracking, app);
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
@@ -6197,12 +6216,18 @@ function finalizeReplyBeforeSend(reply: string, options: {
   text: string;
   intent: CustomerIntent;
   memory: Awaited<ReturnType<typeof getConversationMemory>>;
+  application?: ApplicationRecord | null;
 }) {
   const finalReply = finalizeHumanReply(reply, {
     customerText: options.text,
     deterministicReply: reply,
+    customerName: options.application?.full_name ? firstTwoNames(options.application.full_name) : undefined,
+    trackingId: options.application?.tracking_id || options.application?.id || undefined,
+    status: options.application?.status || null,
+    paymentStatus: options.application?.payment_status || null,
+    deviceName: options.application?.device_name || null,
     isSensitive: looksSensitive(options.text),
-    hasApplication: false,
+    hasApplication: Boolean(options.application),
     intent: options.intent,
     conversationContext: options.memory.conversationContext,
     lastAssistantReplies: options.memory.lastAssistantReplies,
@@ -6249,9 +6274,34 @@ function unsafeSensitiveUploadLine(line: string) {
   return sensitive && directRequest && !safeInstruction;
 }
 
-function applyFinalSendGuard(reply: string) {
-  const original = String(reply || "").trim();
+function applyFinalSendGuard(reply: string, app?: ApplicationRecord | null) {
+  let original = String(reply || "").trim();
   if (!original) return original;
+
+  // V1.1.8 FINAL ADDRESS GUARD: حتى لو خرج عنوان المكتب من أي مسار قديم،
+  // يمنع قبل الموافقة النهائية. هذا الفحص يقع مباشرة قبل sendWhatsAppText.
+  if (!canShareOfficeAddress(app)) {
+    const addressMarkers = [
+      BUSINESS_ADDRESS,
+      "رانا سنتر",
+      "شارع المدينة المنورة",
+      "مقابل مستشفى العيون",
+    ];
+    if (addressMarkers.some((marker) => marker && normalizeArabicText(original).includes(normalizeArabicText(marker)))) {
+      const safeLines = original.split(/\r?\n/).filter((line) => {
+        const value = normalizeArabicText(line);
+        if (!value) return true;
+        if (addressMarkers.some((marker) => marker && value.includes(normalizeArabicText(marker)))) return false;
+        if (hasAny(value, ["عنواننا الرسمي", "عنوان المكتب:", "العنوان الرسمي:"])) return false;
+        return true;
+      });
+      original = safeLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+      const notice = "عنوان المكتب لا يتم إرساله قبل الموافقة النهائية أو إرسال موعد حضور رسمي.";
+      if (!normalizeArabicText(original).includes(normalizeArabicText(notice))) {
+        original = `${original}${original ? "\n\n" : ""}${notice}`;
+      }
+    }
+  }
 
   const normalized = normalizeArabicText(original);
   const forbiddenRegulatoryClaim = hasAny(normalized, [
@@ -7959,7 +8009,7 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "website") {
     deterministicReply = websiteReply(baseUrl, from);
   } else if (String(intent) === "location") {
-    deterministicReply = locationReply(from);
+    deterministicReply = locationReply(from, null);
   } else if (String(intent) === "installment_info") {
     deterministicReply = installmentInfoReply(baseUrl, from);
   } else if (String(intent) === "self_employed") {
@@ -8568,7 +8618,7 @@ export async function POST(request: Request) {
         }
 
         if (extractedMessage.isOtpLike) {
-          const reply = applyFinalSendGuard(otpSafetyReply());
+          const reply = applyFinalSendGuard(otpSafetyReply(), null);
 
           const outgoingClaim = await claimOutgoingReplyLock({
             waId: from,
@@ -8623,6 +8673,7 @@ export async function POST(request: Request) {
           text: replyInputText,
           intent: processingIntent,
           memory: outgoingMemory,
+          application: shadowApplication,
         });
 
         if (isNearDuplicateAssistantReply(reply, outgoingMemory, processingIntent)) {
@@ -8647,7 +8698,7 @@ export async function POST(request: Request) {
           });
         }
 
-        reply = applyFinalSendGuard(reply);
+        reply = applyFinalSendGuard(reply, shadowApplication);
 
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,

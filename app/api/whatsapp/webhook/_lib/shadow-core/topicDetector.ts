@@ -66,6 +66,14 @@ export function detectShadowTopics(
   if (initialIntent === "regulatory_status") add("regulatory_status");
   if (initialIntent === "business_identity") add("business_identity");
   if (initialIntent === "order_status") add("order_status");
+  const trackingNumberDefinition = containsAny(text, [
+    "شو يعني رقم التتبع", "ما هو رقم التتبع", "شو رقم التتبع", "ايش رقم التتبع", "ما معنى رقم التتبع",
+  ]);
+  if (trackingNumberDefinition) {
+    add("general_question");
+    remove("order_status");
+  }
+
   if (initialIntent === "review_time" || initialIntent === "payment_review_time") add("review_time");
   if (paymentIntents.includes(initialIntent)) add("payment_method");
   if (paymentStatusIntents.includes(initialIntent)) add("payment_status");
@@ -132,7 +140,7 @@ export function detectShadowTopics(
     if (!explicitOfficePaymentRequest) add("office_location");
     if (containsAny(text, ["الفرع", "فروعكم", "فروع"])) add("independence");
   }
-  if (containsAny(text, ["توصيل", "شحن", "مندوب", "استلام الجهاز", "وين استلم", "كيف استلم"])) add("delivery");
+  if (containsAny(text, ["توصيل", "شحن", "مندوب", "استلام الجهاز", "وين استلم", "كيف استلم", "يوصلني الجهاز", "يوصل الجهاز", "استلم الجهاز فعلا", "أستلم الجهاز فعلا"])) add("delivery");
   if (containsAny(text, ["المورد", "التوريد", "متى يوصل الجهاز", "متى بتوفر الجهاز"])) add("supplier_delay");
   if (containsAny(text, ["بدي اغير الجهاز", "تغيير الجهاز", "غير الجهاز", "أغير الجهاز"])) add("device_change");
   if (containsAny(text, ["بدي الغي", "بدي ألغي", "الغاء الطلب", "إلغاء الطلب", "اكد الغاء", "أكد إلغاء"])) add("cancellation");
@@ -213,6 +221,12 @@ export function detectShadowTopics(
     "بدي اختار جهاز", "بدي أختار جهاز", "احدد الجهاز", "أحدد الجهاز",
   ])) add("device_selection");
   // V1.1.4 DEVICE SELECTION TOPIC END
+
+  if (trackingNumberDefinition) {
+    remove("order_status");
+    remove("review_time");
+    add("general_question");
+  }
 
   if (!topics.length) add("general_question");
   return topics;

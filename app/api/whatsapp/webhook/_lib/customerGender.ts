@@ -93,6 +93,8 @@ export function enforceCustomerGenderLanguage(value: string, gender: CustomerGen
 
   if (gender === "female") {
     reply = reply
+      .replace(/(?:^|\s)تقدر\s+تحول(?=\s|[،,.؟!:]|$)/g, (match) => `${match.startsWith(" ") ? " " : ""}بتقدري تحولي`)
+      .replace(/(?:^|\s)بتقدر\s+تحول(?=\s|[،,.؟!:]|$)/g, (match) => `${match.startsWith(" ") ? " " : ""}بتقدري تحولي`)
       .replace(/إذا حاب(?=\s|[،,.؟!:]|$)/g, "إذا حابة")
       .replace(/اذا حاب(?=\s|[،,.؟!:]|$)/g, "إذا حابة")
       .replace(/إذا كنت جاهز(?=\s|[،,.؟!:]|$)/g, "إذا كنتِ جاهزة")
@@ -107,6 +109,7 @@ export function enforceCustomerGenderLanguage(value: string, gender: CustomerGen
       .replace(/نتواصل معك(?!ِ)/g, "نتواصل معكِ");
   } else if (gender === "male") {
     reply = reply
+      .replace(/(?:^|\s)بتقدري\s+تحولي(?=\s|[،,.؟!:]|$)/g, (match) => `${match.startsWith(" ") ? " " : ""}بتقدر تحول`)
       .replace(/إذا حابة(?=\s|[،,.؟!:]|$)/g, "إذا حاب")
       .replace(/اذا حابة(?=\s|[،,.؟!:]|$)/g, "إذا حاب")
       .replace(/إذا كنتِ جاهزة(?=\s|[،,.؟!:]|$)/g, "إذا كنت جاهز")
@@ -120,6 +123,7 @@ export function enforceCustomerGenderLanguage(value: string, gender: CustomerGen
       .replace(/نتواصل معكِ/g, "نتواصل معك");
   } else {
     reply = reply
+      .replace(/(?:^|\s)(?:تقدر\s+تحول|بتقدر\s+تحول|بتقدري\s+تحولي)(?=\s|[،,.؟!:]|$)/g, (match) => `${match.startsWith(" ") ? " " : ""}التحويل متاح`)
       .replace(/إذا حاب(?:ة)?(?=\s|[،,.؟!:]|$)/g, "للاستمرار")
       .replace(/اذا حاب(?:ة)?(?=\s|[،,.؟!:]|$)/g, "للاستمرار")
       .replace(/إذا كنتِ? جاهز(?:ة)?(?=\s|[،,.؟!:]|$)/g, "عند الجاهزية")
@@ -133,8 +137,8 @@ export function enforceCustomerGenderLanguage(value: string, gender: CustomerGen
 
 export function hasGenderLanguageMismatch(value: string, gender: CustomerGender): boolean {
   const reply = String(value || "");
-  const masculine = /(?:إذا|اذا) حاب(?=\s|[،,.؟!:]|$)|(?:إذا|اذا) كنت جاهز(?=\s|[،,.؟!:]|$)|(?:^|\s)اكتب:|(?:^|\s)ارفع(?=\s|[،,.؟!:]|$)|(?:^|\s)ادفع(?=\s|[،,.؟!:]|$)|(?:^|\s)ابعث(?=\s|[،,.؟!:]|$)|ما عليك أي خطوة/;
-  const feminine = /(?:إذا|اذا) حابة(?=\s|[،,.؟!:]|$)|(?:إذا|اذا) كنتِ جاهزة(?=\s|[،,.؟!:]|$)|(?:^|\s)اكتبي:|(?:^|\s)ارفعي(?=\s|[،,.؟!:]|$)|(?:^|\s)ادفعي(?=\s|[،,.؟!:]|$)|(?:^|\s)ابعثي(?=\s|[،,.؟!:]|$)|ما عليكِ أي خطوة/;
+  const masculine = /(?:إذا|اذا) حاب(?=\s|[،,.؟!:]|$)|(?:إذا|اذا) كنت جاهز(?=\s|[،,.؟!:]|$)|(?:^|\s)(?:تقدر|بتقدر)\s+تحول(?=\s|[،,.؟!:]|$)|(?:^|\s)اكتب:|(?:^|\s)ارفع(?=\s|[،,.؟!:]|$)|(?:^|\s)ادفع(?=\s|[،,.؟!:]|$)|(?:^|\s)ابعث(?=\s|[،,.؟!:]|$)|ما عليك أي خطوة/;
+  const feminine = /(?:إذا|اذا) حابة(?=\s|[،,.؟!:]|$)|(?:إذا|اذا) كنتِ جاهزة(?=\s|[،,.؟!:]|$)|(?:^|\s)بتقدري\s+تحولي(?=\s|[،,.؟!:]|$)|(?:^|\s)اكتبي:|(?:^|\s)ارفعي(?=\s|[،,.؟!:]|$)|(?:^|\s)ادفعي(?=\s|[،,.؟!:]|$)|(?:^|\s)ابعثي(?=\s|[،,.؟!:]|$)|ما عليكِ أي خطوة/;
   if (gender === "female") return masculine.test(reply);
   if (gender === "male") return feminine.test(reply);
   return masculine.test(reply) || feminine.test(reply);

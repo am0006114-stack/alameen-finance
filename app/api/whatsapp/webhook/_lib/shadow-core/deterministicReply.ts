@@ -70,7 +70,7 @@ function paymentExplanation(facts: ShadowFacts) {
 الجهة المستلمة: Orange Money
 التحويل إلى: AMENPAY أو PAYAMEN
 اسم المستفيد الظاهر: ABDUL RAHMAN ALHARAHSHEH
-بعد التحويل ارفع الوصل فقط من الرابط الرسمي: ${BUSINESS_WEBSITE}/receipt
+بعد التحويل يتم رفع الوصل فقط من الرابط الرسمي: ${BUSINESS_WEBSITE}/receipt
 بعد تأكيد الوصل تستكمل الدراسة، والنتيجة عادةً من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات، والجمعة والسبت لا تُحسبان.`;
 }
 
@@ -147,7 +147,9 @@ function reviewTimeReply(facts: ShadowFacts) {
 }
 
 function requirementsReply(facts: ShadowFacts) {
-  if (!facts.hasApplication) return applicationNotLinkedReply();
+  if (!facts.hasApplication) {
+    return `للتقديم، اختر الجهاز أولًا من ${BUSINESS_WEBSITE}/products ثم أكمل الطلب. المتطلبات الدقيقة تُحدد حسب حالة الطلب بعد المراجعة، وإذا طُلبت هوية أو كشف راتب أو بيانات كفيل يصلك رابط رسمي آمن مرتبط بالطلب. لا ترسل مستندات حساسة عبر واتساب.`;
+  }
   if (facts.requiredDocument === "guarantor") {
     return "المطلوب حاليًا هو تعبئة بيانات الكفيل من الرابط الرسمي المرتبط بطلبك. لا ترسل بيانات الكفيل عبر واتساب.";
   }
@@ -305,6 +307,20 @@ function businessIdentityReply() {
   return `الاسم المعتمد في التعامل والقنوات الرسمية هو ${BUSINESS_NAME}. نشاطنا هو ${BUSINESS_ACTIVITY}، والجهة ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا.`;
 }
 
+function isTrackingNumberExplanation(text: string) {
+  const value = normalizeArabicText(text);
+  return ["شو يعني رقم التتبع", "ما هو رقم التتبع", "شو رقم التتبع", "ايش رقم التتبع", "ما معنى رقم التتبع"].some((phrase) => value.includes(normalizeArabicText(phrase)));
+}
+
+function trackingNumberExplanation() {
+  return `رقم التتبع هو الرقم الخاص بطلبك ويبدأ عادةً بـ AM-. يظهر لك بعد تسجيل الطلب، وتستخدمه مع رقم الهاتف لمتابعة الحالة من القناة الرسمية. إذا لم تقدم طلبًا بعد، فلن يكون لديك رقم تتبع بعد.`;
+}
+
+function generalProceduresReply(facts: ShadowFacts) {
+  if (facts.hasApplication) return statusReply(facts);
+  return `الخطوات باختصار: تختار الجهاز من ${BUSINESS_WEBSITE}/products، تقدم الطلب، وبعدها تصلك الخطوة المطلوبة حسب نتيجة المراجعة. لا ترسل مستندات حساسة عبر واتساب؛ أي مستند مطلوب يكون له رابط رسمي آمن مرتبط بالطلب.`;
+}
+
 export function buildDeterministicReply(input: {
   facts: ShadowFacts;
   topics: ShadowTopic[];
@@ -315,6 +331,10 @@ export function buildDeterministicReply(input: {
 }): DeterministicReplyPlan {
   const { facts, topics, initialIntent, customerText, route } = input;
   const type = String(input.messageType || facts.messageType || "text").toLowerCase();
+
+  if (isTrackingNumberExplanation(customerText)) {
+    return composeParts([{ id: "tracking-number-explanation-v1", reason: "سؤال معنى رقم التتبع يحتاج تعريفًا مباشرًا ولا يحتاج طلبًا مرتبطًا.", text: trackingNumberExplanation() }], facts);
+  }
 
   if (hasTopic(topics, "unsupported_message")) {
     return composeParts([{ id: "unsupported-message-v1", reason: "نوع الرسالة غير مدعوم ولا يجوز افتراض محتواها.", text: "وصلت رسالة غير مدعومة، وما بقدر أحدد محتواها. اكتب طلبك نصيًا بجملة قصيرة حتى يتم الرد على النقطة نفسها." }], facts);
@@ -364,7 +384,7 @@ export function buildDeterministicReply(input: {
   if (hasTopic(topics, "post_approval_steps")) add("post-approval-steps-v1", "إجراءات ما بعد الموافقة سياسة ثابتة ولا تعني أن الموافقة صدرت.", postApprovalReply());
   if (hasTopic(topics, "review_time")) add("review-time-v1", "مدة المراجعة ثابتة ضمن السياسة.", reviewTimeReply(facts));
   if (hasTopic(topics, "order_status")) add("order-status-v2", "حالة الطلب تُبنى من facts فقط.", statusReply(facts));
-  if (hasTopic(topics, "procedures") && !hasTopic(topics, "post_approval_steps")) add("procedures-v2", "الخطوة التالية تتحدد من حالة الطلب.", statusReply(facts));
+  if (hasTopic(topics, "procedures") && !hasTopic(topics, "post_approval_steps")) add("procedures-v3", "الخطوة التالية تتحدد من وجود طلب وحالته دون طلب رقم تتبع من عميل لم يقدم بعد.", generalProceduresReply(facts));
   if (hasTopic(topics, "complaint")) add("complaint-context-v1", "تمت إضافة تهدئة دون وعد أو إجراء غير مؤكد.", complaintAcknowledgement(facts));
   if (hasTopic(topics, "trust")) add("trust-policy-v1", "التحقق يتم من القنوات الرسمية دون ضغط.", trustReply());
   if (hasTopic(topics, "acknowledgement")) add("acknowledgement-v1", "الرمز أو الشكر لا يغيّر حالة الطلب.", "وصلت 🌿");

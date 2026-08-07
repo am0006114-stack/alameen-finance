@@ -405,10 +405,11 @@ function replyHasAnyUrl(reply: string) {
   return /https?:\/\/[^\s]+/i.test(String(reply || ""));
 }
 
-function finalAgentIdentityMatches(reply: string, agentName: string) {
-  const match = String(reply || "").match(/(?:انا\s+معك|أنا\s+معك|معك|معكِ)\s+(تالا|فدوة|عبدالله|عبدالرحمن|عمران)(?=[،,.]|\s|$)/i);
-  if (!match) return true;
-  return normalized(match[1]) === normalized(agentName);
+function finalReplyHasSingleStaffIdentity(reply: string) {
+  const names = [...String(reply || "").matchAll(/(?:انا\s+معك|أنا\s+معك|معك|معكِ)\s+(تالا|فدوة|عبدالله|عبدالرحمن|عمران)(?=[،,.]|\s|$)/gi)]
+    .map((match) => normalized(match[1] || ""))
+    .filter(Boolean);
+  return new Set(names).size <= 1;
 }
 
 function hasPersonalFollowupPromise(reply: string) {
@@ -420,6 +421,8 @@ function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string)
     "بدي رقم", "رقم تليفون", "رقم تلفون", "اتواصل معكم", "صارلي اسبوع", "صارلي أسبوع",
     "من زمان", "ما في مصداقية", "حماية المستهلك", "بدي فلوسي", "رجعهم", "رجعولي",
     "بدي الرابط", "وين الرابط", "الرابط راح",
+    "بقدر احول بكرا", "بقدر أحول بكرا", "اريد جهاز اقسطه", "أريد جهاز أقسطه",
+    "نفس مشكله", "نفس مشكلة",
   ]);
   const unknownFallback = includesAny(reply, [
     "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
@@ -449,10 +452,10 @@ export function validateFinalActualReply(
   );
   addCheck(
     checks,
-    "final_reply_agent_identity_matches_selected_agent",
-    finalAgentIdentityMatches(reply, context.agentName),
+    "final_reply_has_single_staff_identity",
+    finalReplyHasSingleStaffIdentity(reply),
     "critical",
-    "اسم الموظف في الرد النهائي يجب أن يطابق الموظف المختار للمحادثة.",
+    "الرد النهائي لا يجوز أن يحتوي أكثر من هوية موظف واحدة.",
   );
   addCheck(
     checks,
@@ -467,6 +470,20 @@ export function validateFinalActualReply(
     !clearRequestWasAnsweredWithUnknown(context.customerText, reply),
     "critical",
     "الطلبات الواضحة مثل الرقم أو الرابط أو الاسترداد أو التأخير لا تُعامل كرسالة غير مفهومة.",
+  );
+  addCheck(
+    checks,
+    "final_actual_address_allowed",
+    facts.officeAddressCanBeShared || !includesAny(reply, ["رانا سنتر", "شارع المدينه المنوره", "شارع المدينة المنورة", "مقابل مستشفى العيون"]),
+    "critical",
+    "الرد الفعلي النهائي لا يحتوي عنوان المكتب قبل الموافقة أو الموعد الرسمي.",
+  );
+  addCheck(
+    checks,
+    "final_actual_gender_matches_customer",
+    !hasGenderLanguageMismatch(reply, facts.customerGender),
+    "critical",
+    "صيغة الجنس في الرد الفعلي النهائي تطابق الاسم المؤكد أو تكون محايدة.",
   );
   return checks;
 }
@@ -599,6 +616,7 @@ export function validateShadowReply(
   const refundAnswerPresent = facts.refundActive && topics.includes("refund") && topicAnswered("refund", reply);
   const answeredTopics = topics.filter((topic) => {
     if (refundAnswerPresent && ["payment_status", "order_status", "review_time"].includes(topic)) return true;
+    if (!facts.hasApplication && topic === "order_status" && includesAny(reply, ["ما ظهر عندي طلب مرتبط", "أرسل رقم التتبع", "ارسل رقم التتبع"])) return true;
     return topicAnswered(topic, reply);
   });
   const missingTopics = topics.filter((topic) => !answeredTopics.includes(topic));
