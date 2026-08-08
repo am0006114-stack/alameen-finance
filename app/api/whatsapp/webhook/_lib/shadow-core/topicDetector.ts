@@ -101,7 +101,7 @@ export function detectShadowTopics(
   ])) add("business_identity");
 
   if (containsAny(text, ["شو صار", "حاله الطلب", "حالة الطلب", "متابعه الطلب", "متابعة الطلب", "وين وصل الطلب", "اخر تحديث", "آخر تحديث", "شو صار بالطلب"])) add("order_status");
-  if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام"])) add("review_time");
+  if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام", "الرد بدو وقت", "الرد بده وقت", "الرد مطول", "طيب يعني لمتى"])) add("review_time");
   if (containsAny(text, ["يحتاج بنك", "بدها بنك", "لازم بنك", "بنك معين", "بنك محدد", "التقسيط بنك"])) add("bank_requirement");
   if (containsAny(text, ["اسدد كامل", "سداد كامل", "ادفع كامل", "دفعة واحدة", "اغلق الاقساط", "اسكر الاقساط", "السداد المبكر"])) add("early_settlement");
   const explicitOfficePaymentRequest = containsAny(text, [
@@ -125,10 +125,11 @@ export function detectShadowTopics(
     && !explicitOfficePaymentRequest;
   if (explicitVoluntaryOptOut) add("voluntary_opt_out");
 
-  if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات"])) add("payment_method");
+  if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات", "كيف الدفع الشهري", "اقتطاع من البنك", "اقتطاع مباشر", "ازور المكتب كل شهر"])) add("payment_method");
   if (explicitVoluntaryOptOut || explicitOfficePaymentRequest) remove("payment_method");
   if (explicitOfficePaymentRequest) remove("office_location");
   if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "رفعت الوصل", "تأكيد الوصل"])) add("payment_status");
+  if (containsAny(text, ["ارفع قيمة القسط", "أرفع قيمة القسط", "بقدر لحد", "ميزانيتي", "اخليها ٥٠", "أخليها ٥٠", "اخليها 50", "أخليها 50"])) add("procedures");
   if (containsAny(text, ["الاجراءات", "الإجراءات", "كيف بتم", "كيف تتم", "شو الخطوات", "ايش ضل خطوات", "ما هي الخطوات", "طريقة التقديم", "طريقه التقديم"])) add("procedures");
   if (containsAny(text, [
     "بعد الموافقه شو", "بعد الموافقة شو", "بعد ما تطلع الموافقه", "بعد ما تطلع الموافقة",
@@ -147,6 +148,7 @@ export function detectShadowTopics(
   const explicitRefundRequest = containsAny(text, [
     "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم",
     "متى بتم استرداد المصاري", "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي",
+    "رجعتو", "رجعتوا", "ترجعو", "ترجعوا", "راح ترجعو", "رح ترجعو",
     "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
     "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
   ]);
@@ -172,7 +174,7 @@ export function detectShadowTopics(
     "ما بتردو", "ما بتردوا", "ما حدا رد", "الهاتف لا يرد", "التلفون ما برد", "اتصلت وما رديتو",
     "اتصلت وما رديتوا", "بحكي وما حدا برد", "الرن ما حدا برد",
   ])) add("phone_not_answered");
-  if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك"])) add("complaint");
+  if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك", "اقدم شكوى", "اقدم شكوه", "قدما شكوه", "قدما شكوى"])) add("complaint");
   if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق"])) add("trust");
 
   // A phone number written inside the standard application-follow-up template is an identifier, not a contact request.

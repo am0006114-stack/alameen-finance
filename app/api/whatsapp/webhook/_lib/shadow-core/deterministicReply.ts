@@ -225,7 +225,11 @@ function mediaReply(facts: ShadowFacts, type: string, includeStatus: boolean) {
   const kind = type === "document" ? "المستند" : type === "audio" || type === "voice" ? "الرسالة الصوتية" : "المرفق";
   const base = type === "audio" || type === "voice"
     ? `وصلت ${kind}، لكن محتواها غير متاح للتحليل النصي هنا. اكتب النقطة بجملة قصيرة.`
-    : `وصل ${kind}. أي هوية أو كشف راتب أو بيانات كفيل أو وصل دفع لا يُعتمد عبر واتساب؛ استخدم الرابط الرسمي المرتبط بالطلب.`;
+    : type === "text"
+      ? facts.hasApplication
+        ? "رفع الهوية أو كشف الراتب أو بيانات الكفيل أو وصل الدفع يتم فقط من الرابط الرسمي الآمن المرتبط بالطلب، وليس عبر واتساب. إذا ضاع الرابط، اطلب رابط المستند المطلوب صراحةً ليُعاد إرساله."
+        : "رفع المستندات الحساسة لا يتم عبر واتساب. إذا عندك طلب قائم، أرسل رقم التتبع حتى يتم تحديد رابط الرفع الرسمي المرتبط بطلبك."
+      : `وصل ${kind}. أي هوية أو كشف راتب أو بيانات كفيل أو وصل دفع لا يُعتمد عبر واتساب؛ استخدم الرابط الرسمي المرتبط بالطلب.`;
   return includeStatus ? `${base}\n${statusReply(facts)}` : base;
 }
 
@@ -316,6 +320,30 @@ function trackingNumberExplanation() {
   return `رقم التتبع هو الرقم الخاص بطلبك ويبدأ عادةً بـ AM-. يظهر لك بعد تسجيل الطلب، وتستخدمه مع رقم الهاتف لمتابعة الحالة من القناة الرسمية. إذا لم تقدم طلبًا بعد، فلن يكون لديك رقم تتبع بعد.`;
 }
 
+function isGeneralMonthlyPaymentQuestion(text: string) {
+  const value = normalizeArabicText(text);
+  return [
+    "كيف الدفع الشهري", "طريقة الدفع الشهري", "طريقه الدفع الشهري", "كيف ادفع القسط", "كيف بدفع القسط",
+    "اقتطاع من البنك", "اقتطاع مباشر", "ينخصم من البنك", "ادفع كل شهر", "ازور المكتب كل شهر",
+  ].some((phrase) => value.includes(normalizeArabicText(phrase)));
+}
+
+function generalMonthlyPaymentReply() {
+  return `طريقة سداد الأقساط الشهرية تُحدد ضمن الاتفاق والجدول النهائي بعد الموافقة والاستلام، لذلك ما بنأكد اقتطاعًا بنكيًا تلقائيًا أو زيارة شهرية للمكتب بدون اتفاق معتمد.
+أما رسوم فتح الملف فهي ${FILE_OPENING_FEE_JOD} دنانير مرة واحدة فقط عند التأهيل المبدئي إذا قرر العميل الاستمرار، وليست قسطًا شهريًا.`;
+}
+
+function isInstallmentBudgetQuestion(text: string) {
+  const value = normalizeArabicText(text);
+  return ["ارفع قيمة القسط", "ارفع قيمه القسط", "بقدر لحد", "ميزانيتي", "اخليها 50", "اخليها ٥٠"].some((phrase) =>
+    value.includes(normalizeArabicText(phrase)),
+  );
+}
+
+function installmentBudgetReply() {
+  return `قيمة القسط الشهري ومدة التقسيط ما بنثبتها أو نعدلها من واتساب قبل اعتماد الجدول النهائي. إذا عندك سقف شهري محدد، يتم الاعتماد فقط على الخيارات الظاهرة للجهاز والجدول النهائي؛ وما بنوعد بمبلغ أو مدة غير مثبتة.`;
+}
+
 function generalProceduresReply(facts: ShadowFacts) {
   if (facts.hasApplication) return statusReply(facts);
   return `الخطوات باختصار: تختار الجهاز من ${BUSINESS_WEBSITE}/products، تقدم الطلب، وبعدها تصلك الخطوة المطلوبة حسب نتيجة المراجعة. لا ترسل مستندات حساسة عبر واتساب؛ أي مستند مطلوب يكون له رابط رسمي آمن مرتبط بالطلب.`;
@@ -334,6 +362,14 @@ export function buildDeterministicReply(input: {
 
   if (isTrackingNumberExplanation(customerText)) {
     return composeParts([{ id: "tracking-number-explanation-v1", reason: "سؤال معنى رقم التتبع يحتاج تعريفًا مباشرًا ولا يحتاج طلبًا مرتبطًا.", text: trackingNumberExplanation() }], facts);
+  }
+
+  if (initialIntent === "payment_method" && !facts.hasApplication && isGeneralMonthlyPaymentQuestion(customerText)) {
+    return composeParts([{ id: "monthly-payment-policy-v1", reason: "سؤال طريقة سداد الأقساط العام يُجاب عليه دون اختراع آلية اقتطاع أو طلب رقم تتبع.", text: generalMonthlyPaymentReply() }], facts);
+  }
+
+  if (initialIntent === "installment_info" && isInstallmentBudgetQuestion(customerText)) {
+    return composeParts([{ id: "installment-budget-v1", reason: "ميزانية القسط لا تتحول لوعد بتعديل مبلغ أو مدة غير معتمدة.", text: installmentBudgetReply() }], facts);
   }
 
   if (hasTopic(topics, "unsupported_message")) {

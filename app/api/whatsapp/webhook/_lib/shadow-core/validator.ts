@@ -413,7 +413,7 @@ function finalReplyHasSingleStaffIdentity(reply: string) {
 }
 
 function hasPersonalFollowupPromise(reply: string) {
-  return /(?:انا|أنا)\s+شخصي(?:ا|ًا)?\s+(?:رح|راح)\s+اتابع|(?:رح|راح)\s+اتابع(?:لك)?\s+(?:ملفك|طلبك)\s+(?:اول\s+باول|أول\s+بأول)|بضل\s+اتابع(?:لك)?|بتابعلك\s+(?:ملفك|طلبك)/i.test(String(reply || ""));
+  return /(?:انا|أنا)\s+شخصي(?:ا|ًا)?\s+(?:رح|راح)\s+اتابع|(?:رح|راح)\s+أ?تابع(?:لك)?\s+(?:(?:الموضوع|ملفك|طلبك)(?:\s+شخصي(?:ا|ًا)?)?|(?:ملفك|طلبك)\s+(?:اول\s+باول|أول\s+بأول))|بضل\s+اتابع(?:لك)?|بتابعلك\s+(?:ملفك|طلبك)|(?:انا|أنا)\s+مسجل(?:ة)?[^.\n]{0,120}(?:رح|راح)\s+أ?تابع/i.test(String(reply || ""));
 }
 
 function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string) {
@@ -422,7 +422,9 @@ function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string)
     "من زمان", "ما في مصداقية", "حماية المستهلك", "بدي فلوسي", "رجعهم", "رجعولي",
     "بدي الرابط", "وين الرابط", "الرابط راح",
     "بقدر احول بكرا", "بقدر أحول بكرا", "اريد جهاز اقسطه", "أريد جهاز أقسطه",
-    "نفس مشكله", "نفس مشكلة",
+    "نفس مشكله", "نفس مشكلة", "كيف ارفق الملف", "كيف أرفق الملف",
+    "الرد بدو وقت", "الرد بده وقت", "بقدر ارفع قيمة القسط", "بقدر لحد", "كيف الدفع الشهري",
+    "اقتطاع من البنك", "ما بقدر اطلع اخذو", "اطلع استلمو", "اقدم شكوى عليكم", "قدما شكوه عليكم",
   ]);
   const unknownFallback = includesAny(reply, [
     "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
@@ -463,6 +465,27 @@ export function validateFinalActualReply(
     !hasPersonalFollowupPromise(reply),
     "critical",
     "لا يجوز وعد العميل بمتابعة شخصية غير مسجلة أو غير منفذة.",
+  );
+  addCheck(
+    checks,
+    "no_unverified_technical_team_action",
+    !/(?:الفريق\s+(?:الفني|التقني)|الدعم\s+الفني)\s+(?:شغال|يعمل)\s+(?:عليه|على\s+معالجته|على\s+حل)/i.test(String(reply || "")),
+    "critical",
+    "لا يُدّعى أن فريقًا فنيًا يعمل على الخلل دون إجراء مثبت.",
+  );
+  addCheck(
+    checks,
+    "no_unverified_refund_mechanics",
+    !/(?:بيوصل|يوصل)\s+لحسابك\s+مباشره?\s+من\s+النظام|ما\s+حدا\s+(?:بيقدر|يقدر)\s+يسرع(?:ها|ه)\s+يدوي/i.test(normalized(reply)),
+    "critical",
+    "لا تُخترع آلية تنفيذ الاسترداد أو استحالة تسريعه دون حقيقة تشغيلية مثبتة.",
+  );
+  addCheck(
+    checks,
+    "no_unverified_installment_adjustment_promise",
+    !/ممكن\s+تعديل\s+قيمة\s+القسط\s+حسب\s+المدة|طلب\s+تعديل\s+القسط[^.\n]{0,80}(?:مسجل|مرفوع)/i.test(String(reply || "")),
+    "critical",
+    "لا يُوعد بتعديل القسط أو تسجيل طلب تعديل دون جدول أو إجراء مثبت.",
   );
   addCheck(
     checks,
