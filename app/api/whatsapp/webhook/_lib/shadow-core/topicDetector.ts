@@ -145,13 +145,20 @@ export function detectShadowTopics(
   if (containsAny(text, ["المورد", "التوريد", "متى يوصل الجهاز", "متى بتوفر الجهاز"])) add("supplier_delay");
   if (containsAny(text, ["بدي اغير الجهاز", "تغيير الجهاز", "غير الجهاز", "أغير الجهاز"])) add("device_change");
   if (containsAny(text, ["بدي الغي", "بدي ألغي", "الغاء الطلب", "إلغاء الطلب", "اكد الغاء", "أكد إلغاء"])) add("cancellation");
-  const explicitRefundRequest = containsAny(text, [
-    "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "استرجاع الرسوم",
-    "متى بتم استرداد المصاري", "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي",
-    "رجعتو", "رجعتوا", "ترجعو", "ترجعوا", "راح ترجعو", "رح ترجعو",
-    "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
-    "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
+  const strongRefundRequest = containsAny(text, [
+    "استرداد", "استرجاع", "رجعوا فلوسي", "رجعولي فلوسي", "بدي فلوسي", "استرجاع الرسوم",
+    "متى بتم استرداد المصاري", "رجعوا الخمسه", "رجعوا الخمسة",
+    "رجعولي الخمسه", "رجعولي الخمسة", "الخمس دنانير رجعهم",
+    "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
   ]);
+  const ambiguousRefundVerb = containsAny(text, [
+    "رجعولي", "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي",
+  ]);
+  const refundFinancialAnchor = containsAny(text, [
+    "فلوس", "مصاري", "رسوم", "المبلغ", "مبلغ", "دينار", "دنانير",
+    "الخمسه", "الخمسة", "حواله", "حوالة", "دفعت", "دفعته", "دفع",
+  ]);
+  const explicitRefundRequest = strongRefundRequest || (ambiguousRefundVerb && refundFinancialAnchor);
   if (explicitRefundRequest) {
     add("refund");
     remove("payment_method");

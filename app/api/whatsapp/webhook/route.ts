@@ -1908,12 +1908,46 @@ function isExplicitRefundRequestText(text: string) {
     "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة",
   ])) return false;
 
-  return hasAny(t, [
-    "استرداد", "استرجاع", "بدي استرد", "بدي استرجع", "رجعولي", "رجعوا فلوسي",
-    "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي", "بدي فلوسي", "مصاريي رجعوها",
+  const strongRefundLanguage = hasAny(t, [
+    "استرداد", "استرجاع", "بدي استرد", "بدي استرجع", "رجعوا فلوسي",
+    "رجعولي فلوسي", "بدي فلوسي", "مصاريي رجعوها", "استرجاع الرسوم",
     "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
     "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
   ]);
+  if (strongRefundLanguage) return true;
+
+  // V1.1.9.1: bare verbs like "ردولي" are ambiguous. For example
+  // "كم تاخذوا وقت لبين ما تردولي خبر؟" asks when we will reply, not for a refund.
+  const ambiguousReturnVerb = hasAny(t, [
+    "رجعولي", "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي",
+  ]);
+  const financialAnchor = hasAny(t, [
+    "فلوس", "مصاري", "رسوم", "المبلغ", "مبلغ", "دينار", "دنانير",
+    "الخمسه", "الخمسة", "حواله", "حوالة", "دفعت", "دفعته", "دفع",
+  ]);
+
+  return ambiguousReturnVerb && financialAnchor;
+}
+
+function hasConfirmedRefundPayment(app: ApplicationRecord | null | undefined) {
+  if (!app) return false;
+  return app.payment_status === "confirmed" || Boolean(app.payment_confirmed_at);
+}
+
+function hasValidActiveRefund(app: ApplicationRecord | null | undefined) {
+  if (!app) return false;
+  const refundState =
+    app.status === "refund_requested" ||
+    app.payment_status === "refund_requested" ||
+    app.status === "refund_completed";
+  return refundState && hasConfirmedRefundPayment(app);
+}
+
+function unpaidRefundGuardReply(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  return `ما في دفع مؤكد مسجل على هذا الطلب، لذلك ما تم تسجيل أي استرداد وما في مبلغ ظاهر قابل للاسترداد حاليًا.
+إذا كنت دفعت فعلًا، لازم يتم أولًا التحقق من وصل الدفع من خلال المسار الرسمي المرتبط بطلبك.
+رقم الطلب: ${tracking}`;
 }
 
 function isContextualShortRequestText(text: string) {
@@ -2970,12 +3004,22 @@ function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | nu
   const opening = humanOpening(`${from}:refund`);
 
   if (app) {
+    const paymentEvidence = hasConfirmedRefundPayment(app);
+
+    if ((app.status === "refund_completed" || app.status === "refund_requested" || app.payment_status === "refund_requested") && !paymentEvidence) {
+      return unpaidRefundGuardReply(app);
+    }
+
     if (app.status === "refund_completed") {
       return refundCompletedReply(app);
     }
 
     if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
       return refundAlreadyRequestedReply(app, customerText);
+    }
+
+    if (!paymentEvidence) {
+      return unpaidRefundGuardReply(app);
     }
 
     return refundFirstRequestReply(app, baseUrl);
@@ -2987,7 +3031,7 @@ function refundReply(baseUrl: string, from: string, app?: ApplicationRecord | nu
 
 حتى أربطه بالطلب الصحيح، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب.
 
-بعد ما أطلع الطلب، بعطيك رابط الاسترداد الصحيح مرة واحدة وبسجّل الحالة قيد الاسترداد.`;
+بعد ما أطلع الطلب، أول خطوة هي التحقق من وجود دفع مؤكد. رابط الاسترداد لا يُرسل ولا تُسجل حالة استرداد إلا إذا كان هناك مبلغ مدفوع ومؤكد على الطلب.`;
 }
 
 function contactInfoReply(_baseUrl: string, _from: string) {
@@ -4776,6 +4820,18 @@ async function sendDiscordNotification(input: {
 
 async function markRefundRequested(app: ApplicationRecord) {
   if (app.status === "refund_requested" || app.payment_status === "refund_requested" || app.status === "refund_completed") {
+    return app;
+  }
+
+  // V1.1.9.1 HARD REFUND GUARD:
+  // Never create a refund state unless there is server-side evidence that payment was confirmed.
+  if (!hasConfirmedRefundPayment(app)) {
+    console.error("REFUND_GUARD_BLOCKED_UNPAID", {
+      applicationId: app.id,
+      trackingId: app.tracking_id || null,
+      status: app.status || null,
+      paymentStatus: app.payment_status || null,
+    });
     return app;
   }
 
@@ -7885,18 +7941,60 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   if (app && String(intent) === "refund") {
     const alreadyRequested = app.status === "refund_requested" || app.payment_status === "refund_requested";
     const alreadyCompleted = app.status === "refund_completed";
+    const paymentEvidence = hasConfirmedRefundPayment(app);
+
+    // V1.1.9.1: a refund state without confirmed-payment evidence is inconsistent.
+    // Never continue or reinforce that state automatically.
+    if ((alreadyRequested || alreadyCompleted) && !paymentEvidence) {
+      deterministicReply = unpaidRefundGuardReply(app);
+
+      await sendDiscordNotification({
+        title: "🚨 REFUND INTEGRITY GUARD — حالة استرداد بدون دفع مؤكد",
+        description: "تم منع متابعة حالة استرداد غير متسقة لأن الطلب لا يحتوي دليل دفع مؤكد. يلزم فحص الطلب يدويًا وتصحيح حالته إذا كان متأثرًا بخطأ سابق.",
+        color: 0xed4245,
+        app,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+
+      return deterministicReply;
+    }
 
     if (alreadyCompleted) {
       deterministicReply = refundCompletedReply(app);
     } else if (alreadyRequested) {
       deterministicReply = refundAlreadyRequestedReply(app, text);
+    } else if (!paymentEvidence) {
+      deterministicReply = unpaidRefundGuardReply(app);
+
+      await sendDiscordNotification({
+        title: "🛡️ تم منع استرداد لطلب غير مدفوع",
+        description: "وصلت رسالة صُنفت كاسترداد، لكن لا يوجد دفع مؤكد على الطلب. لم يتم تغيير حالة الطلب ولم يتم إرسال رابط الاسترداد.",
+        color: 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: text,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+
+      return deterministicReply;
     } else {
       const updatedApp = await markRefundRequested(app);
+
+      // Defense in depth: do not claim registration unless the state actually changed or was already valid.
+      if (!hasValidActiveRefund(updatedApp)) {
+        deterministicReply = unpaidRefundGuardReply(app);
+        return deterministicReply;
+      }
+
       deterministicReply = refundFirstRequestReply(updatedApp, baseUrl);
 
       await sendDiscordNotification({
         title: "💸 طلب استرداد من واتساب — تم تسجيل الحالة قيد الاسترداد",
-        description: "تم إرسال رابط الاسترداد مرة واحدة فقط وتحديث حالة الطلب تلقائيًا إلى refund_requested.",
+        description: "تم إرسال رابط الاسترداد مرة واحدة فقط بعد التحقق من وجود دفع مؤكد، وتحديث حالة الطلب إلى refund_requested.",
         color: 0xfee75c,
         app: updatedApp,
         customerPhone: from,

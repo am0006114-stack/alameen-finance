@@ -19,6 +19,7 @@ type ApplicationRecord = {
   device_name?: string | null;
   status?: string | null;
   payment_status?: string | null;
+  payment_confirmed_at?: string | null;
   delivery_delay_started_at?: string | null;
   delivery_delay_until?: string | null;
 };
@@ -89,7 +90,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
   const { data: application } = await supabaseAdmin
     .from("applications")
     .select(
-      "id, tracking_id, full_name, phone, device_name, status, payment_status, delivery_delay_started_at, delivery_delay_until"
+      "id, tracking_id, full_name, phone, device_name, status, payment_status, payment_confirmed_at, delivery_delay_started_at, delivery_delay_until"
     )
     .eq("tracking_id", tracking)
     .eq("phone", phone)
@@ -112,10 +113,18 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
 
   const app = application as ApplicationRecord;
   const customerName = firstTwoNames(app.full_name);
+  const refundPaymentConfirmed =
+    app.payment_status === "confirmed" || Boolean(app.payment_confirmed_at);
   const acceptedDelay =
     result === "wait" || app.status === "customer_accepts_delivery_delay";
-  const refundRequested =
-    result === "refund" || app.status === "refund_requested";
+  const rawRefundState =
+    result === "refund" ||
+    app.status === "refund_requested" ||
+    app.payment_status === "refund_requested";
+  const refundRequested = rawRefundState && refundPaymentConfirmed;
+  const refundNotEligible =
+    result === "refund-not-eligible" ||
+    ((directRefundMode || rawRefundState) && !refundPaymentConfirmed);
 
   const fallbackDeadline = addHours(new Date(), 72).toISOString();
   const countdownDeadline = app.delivery_delay_until || fallbackDeadline;
@@ -136,13 +145,15 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
             </p>
 
             <h1 className="text-3xl font-black leading-[1.7] text-[#123725] sm:text-4xl">
-              {directRefundMode ? "تثبيت بيانات الاسترداد" : "تحديث مهم على موعد التسليم"}
+              {refundNotEligible ? "مراجعة حالة الاسترداد" : directRefundMode ? "تثبيت بيانات الاسترداد" : "تحديث مهم على موعد التسليم"}
             </h1>
 
             <p className="mx-auto mt-3 max-w-2xl text-base font-bold leading-8 text-[#5e6b62]">
-              {directRefundMode
-                ? `أهلًا ${customerName}، تم إلغاء الطلب أو تسجيل طلب الاسترداد. يرجى تعبئة بيانات التحويل بدقة حتى تتم مراجعة ومعالجة الاسترداد.`
-                : `أهلًا ${customerName}، نعتذر منكم على التأخير، تم تحديث موعد استكمال بعض الطلبات بسبب مراجعة داخلية طارئة على الإجراءات وتنسيق التزويد مع المورد، وذلك لضمان دقة الطلبات وعدالة الموافقات لجميع العملاء.`}
+              {refundNotEligible
+                ? `أهلًا ${customerName}، لا يظهر دفع مؤكد على هذا الطلب، لذلك لا يمكن تسجيل استرداد أو إدخال بيانات تحويل قبل تأكيد الدفع.`
+                : directRefundMode
+                  ? `أهلًا ${customerName}، تم إلغاء الطلب أو تسجيل طلب الاسترداد. يرجى تعبئة بيانات التحويل بدقة حتى تتم مراجعة ومعالجة الاسترداد.`
+                  : `أهلًا ${customerName}، نعتذر منكم على التأخير، تم تحديث موعد استكمال بعض الطلبات بسبب مراجعة داخلية طارئة على الإجراءات وتنسيق التزويد مع المورد، وذلك لضمان دقة الطلبات وعدالة الموافقات لجميع العملاء.`}
             </p>
           </div>
         </div>
@@ -170,7 +181,17 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
           </div>
         </div>
 
-        {acceptedDelay ? (
+        {refundNotEligible ? (
+          <section className="mt-5 rounded-[34px] border border-red-200 bg-white/94 p-6 text-center shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
+            <h2 className="text-2xl font-black text-red-700">
+              لا يوجد مبلغ مدفوع مؤكد للاسترداد
+            </h2>
+            <p className="mx-auto mt-3 max-w-2xl text-sm font-bold leading-8 text-[#594c2c]">
+              لم يظهر على هذا الطلب دفع مؤكد لرسوم فتح الملف، لذلك لم يتم تسجيل استرداد ولم يتم تغيير حالة الطلب من خلال هذه الصفحة.
+              إذا كنت قد دفعت فعلًا، يجب أولًا مراجعة وتأكيد وصل الدفع من خلال المسار الرسمي المرتبط بطلبك.
+            </p>
+          </section>
+        ) : acceptedDelay ? (
           <section className="mt-5 rounded-[34px] border border-[#b8ddc4] bg-white/94 p-6 text-center shadow-[0_24px_70px_rgba(60,45,20,0.14)] sm:p-8">
             <h2 className="text-2xl font-black text-[#14723a]">
               تم تسجيل اختياركم بالانتظار ✅
@@ -215,7 +236,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                 </p>
               </div>
 
-              <div className={`grid gap-5 ${directRefundMode ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
+              <div className={`grid gap-5 ${directRefundMode || !refundPaymentConfirmed ? "lg:grid-cols-1" : "lg:grid-cols-2"}`}>
                 {!directRefundMode ? (
                 <form action="/api/delay-decision" method="POST" className="rounded-[30px] border border-[#b8ddc4] bg-[#edf9f0] p-5">
                   <input type="hidden" name="applicationId" value={app.id} />
@@ -248,6 +269,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                 </form>
                 ) : null}
 
+                {refundPaymentConfirmed ? (
                 <form action="/api/delay-decision" method="POST" className="rounded-[30px] border border-[#e2c984] bg-[#fff8e8] p-5">
                   <input type="hidden" name="applicationId" value={app.id} />
                   <input type="hidden" name="tracking" value={app.tracking_id || app.id} />
@@ -312,6 +334,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
                     مدة المعالجة: حتى 3 أيام عمل بعد إدخال البيانات الصحيحة.
                   </p>
                 </form>
+                ) : null}
               </div>
             </section>
 

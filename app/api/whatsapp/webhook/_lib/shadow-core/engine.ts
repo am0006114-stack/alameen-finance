@@ -64,11 +64,19 @@ function normalizeTopicsForFacts(input: {
     "توصل الحوالة", "تكون الحوالة عندي", "متى ترجع", "متى تنزل", "متى توصل",
   ]);
 
-  const explicitRefundRequest = containsAnyNormalized(input.customerText, [
-    "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي", "مصاريي رجعوها",
-    "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي", "رجعوا الخمسه", "رجعوا الخمسة",
-    "رجعولي الخمسه", "رجعولي الخمسة", "الخمس دنانير رجعهم",
+  const strongRefundRequest = containsAnyNormalized(input.customerText, [
+    "استرداد", "استرجاع", "رجعوا فلوسي", "رجعولي فلوسي", "بدي فلوسي", "مصاريي رجعوها",
+    "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
+    "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
   ]);
+  const ambiguousRefundVerb = containsAnyNormalized(input.customerText, [
+    "رجعولي", "رجعهم", "رجعلي", "رجعوهم", "ردهم", "ردولي",
+  ]);
+  const refundFinancialAnchor = containsAnyNormalized(input.customerText, [
+    "فلوس", "مصاري", "رسوم", "المبلغ", "مبلغ", "دينار", "دنانير",
+    "الخمسه", "الخمسة", "حواله", "حوالة", "دفعت", "دفعته", "دفع",
+  ]);
+  const explicitRefundRequest = strongRefundRequest || (ambiguousRefundVerb && refundFinancialAnchor);
 
   if (topics.includes("voluntary_opt_out")) {
     remove("payment_method");

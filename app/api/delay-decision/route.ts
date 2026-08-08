@@ -61,8 +61,10 @@ export async function POST(request: Request) {
 
   const { data: application, error } = await supabaseAdmin
     .from("applications")
-    .select("id, tracking_id, full_name, phone, device_name, delivery_delay_until")
+    .select("id, tracking_id, full_name, phone, device_name, status, payment_status, payment_confirmed_at, delivery_delay_until")
     .eq("id", applicationId)
+    .eq("tracking_id", tracking)
+    .eq("phone", phone)
     .maybeSingle();
 
   if (error || !application) {
@@ -71,6 +73,9 @@ export async function POST(request: Request) {
 
   const customerName = firstTwoNames(application.full_name);
   const appTracking = application.tracking_id || tracking || "—";
+  const refundPaymentConfirmed =
+    application.payment_status === "confirmed" ||
+    Boolean(application.payment_confirmed_at);
 
   if (decision === "wait") {
     const startedAt = new Date();
@@ -112,6 +117,25 @@ export async function POST(request: Request) {
   }
 
   if (decision === "refund") {
+    if (!refundPaymentConfirmed) {
+      await sendDiscordNotification({
+        title: "🚨 تم منع استرداد لطلب بدون دفع مؤكد",
+        description: "محاولة استرداد من صفحة delay-decision تم منعها لأن الطلب لا يحتوي دفعًا مؤكدًا. لم يتم تعديل حالة الطلب.",
+        color: 0xed4245,
+        fields: [
+          { name: "الاسم", value: customerName, inline: true },
+          { name: "الهاتف", value: application.phone || phone || "—", inline: true },
+          { name: "رقم التتبع", value: appTracking, inline: true },
+          { name: "حالة الطلب", value: application.status || "—", inline: true },
+          { name: "حالة الدفع", value: application.payment_status || "—", inline: true },
+        ],
+      });
+
+      return NextResponse.redirect(
+        `${baseUrl}/delay-decision?tracking=${safeTracking}&phone=${safePhone}&result=refund-not-eligible`
+      );
+    }
+
     if (!refundAccount || !refundBank || !refundOwner) {
       return NextResponse.redirect(
         `${baseUrl}/delay-decision?tracking=${safeTracking}&phone=${safePhone}`

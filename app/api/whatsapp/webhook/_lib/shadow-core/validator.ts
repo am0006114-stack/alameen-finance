@@ -480,6 +480,20 @@ export function validateFinalActualReply(
     "critical",
     "لا تُخترع آلية تنفيذ الاسترداد أو استحالة تسريعه دون حقيقة تشغيلية مثبتة.",
   );
+  const actualRefundRegistrationClaim = includesAny(reply, [
+    "سجلت حالة الملف الآن: قيد الاسترداد",
+    "تم تسجيل الاسترداد",
+    "طلب الاسترداد مسجل",
+    "طلب الاسترداد قيد المتابعة",
+    "حالة طلبك: طلب الاسترداد",
+  ]);
+  addCheck(
+    checks,
+    "final_actual_refund_requires_confirmed_payment",
+    facts.paymentConfirmed || !actualRefundRegistrationClaim,
+    "critical",
+    "ممنوع تسجيل أو وصف استرداد نشط دون وجود دفع مؤكد على الطلب.",
+  );
   addCheck(
     checks,
     "no_unverified_installment_adjustment_promise",
@@ -619,6 +633,14 @@ export function validateShadowReply(
   addCheck(checks, "final_approval_truth", facts.isApproved || !hasUnsupportedFinalApprovalClaim(reply), "critical", "لا تُدّعى موافقة نهائية غير موجودة.");
   addCheck(checks, "refund_completion_truth", facts.refundCompleted || !includesAny(reply, ["تم الاسترداد", "رجع المبلغ", "تمت الحواله", "تمت الحوالة"]), "critical", "لا يُدّعى اكتمال الاسترداد دون حالة مؤكدة.");
   addCheck(checks, "refund_registration_truth", facts.refundActive || !includesAny(reply, ["تم تسجيل الاسترداد", "طلب الاسترداد مسجل", "في طلب استرداد نشط"]), "critical", "لا يُدّعى وجود استرداد نشط إذا لم يظهر في الحقائق.");
+  const refundRegistrationClaim = includesAny(reply, [
+    "سجلت حالة الملف الآن: قيد الاسترداد",
+    "تم تسجيل الاسترداد",
+    "طلب الاسترداد مسجل",
+    "في طلب استرداد نشط",
+    "طلب الاسترداد قيد المتابعة",
+  ]);
+  addCheck(checks, "refund_requires_confirmed_payment", facts.paymentConfirmed || !refundRegistrationClaim, "critical", "لا يجوز إنشاء أو وصف استرداد نشط دون دفع مؤكد.");
 
   const actionClaim = includesAny(reply, ["تواصلت مع المورد", "اتصلت بالمورد", "تم تصعيد الطلب", "حولت طلبك للاداره", "رفعت طلبك للاداره"]);
   const supportedDeviceSubmission = facts.deviceChangeRequest.status === "submitted_for_review" && includesAny(reply, ["طلب تعديل الجهاز", "طلب التعديل"]);
