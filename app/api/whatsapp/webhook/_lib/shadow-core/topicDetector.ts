@@ -129,7 +129,7 @@ export function detectShadowTopics(
     && !explicitOfficePaymentRequest;
   if (explicitVoluntaryOptOut) add("voluntary_opt_out");
 
-  if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات", "كيف الدفع الشهري", "اقتطاع من البنك", "اقتطاع مباشر", "ازور المكتب كل شهر"])) add("payment_method");
+  if (containsAny(text, ["كيف ادفع", "وين ادفع", "كليك", "cliq", "محفظه", "محفظة", "تحويل بنكي", "الدفع", "٥ دنانير", "5 دنانير", "٥ ليرات", "5 ليرات", "كيف الدفع الشهري", "اقتطاع من البنك", "اقتطاع مباشر", "ازور المكتب كل شهر", "كمبيالات", "كيف رح يصير دفع", "بعد الاستلام كيف ادفع"])) add("payment_method");
   if (explicitVoluntaryOptOut || explicitOfficePaymentRequest) remove("payment_method");
   if (explicitOfficePaymentRequest) remove("office_location");
   if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "رفعت الوصل", "تأكيد الوصل"])) add("payment_status");
@@ -140,7 +140,7 @@ export function detectShadowTopics(
     "بعد الموافقه النهائيه", "بعد الموافقة النهائية", "الخطوات بعد الموافقه", "الخطوات بعد الموافقة",
     "شو الاجراءات بعد الموافقه", "شو الإجراءات بعد الموافقة", "اذا وافقو شو", "إذا وافقوا شو",
   ])) add("post_approval_steps");
-  if (containsAny(text, ["شو المطلوب", "المتطلبات", "كفيل", "كشف راتب", "شهادة راتب", "شهاده راتب", "هويه", "هوية"])) add("requirements");
+  if (containsAny(text, ["شو المطلوب", "المتطلبات", "كفيل", "كشف راتب", "شهادة راتب", "شهاده راتب", "هويه", "هوية", "اثبات دخل", "إثبات دخل", "شو الاوراق", "شو الأوراق", "شو اجهز", "شو أجهز"])) add("requirements");
   if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "مكانكم", "الفرع", "فروعكم", "فروع"])) {
     if (!explicitOfficePaymentRequest) add("office_location");
     if (containsAny(text, ["الفرع", "فروعكم", "فروع"])) add("independence");
@@ -168,12 +168,16 @@ export function detectShadowTopics(
     remove("payment_method");
     remove("payment_status");
   }
-  if (containsAny(text, [
-    "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "الغي الاسترداد", "ألغي الاسترداد", "الغوا الاسترداد",
-    "وقف الاسترداد", "اوقف الاسترداد", "أوقف الاسترداد", "ما بدي استرداد", "تراجعت عن الاسترداد",
-    "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعوا طلب التلفون", "بدي ارجع للطلب بدل الاسترداد",
-    "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة",
-  ])) {
+  const stopRefundAnchor = containsAny(text, ["استرداد", "الاسترداد", "استرجاع", "الاسترجاع", "refund"]);
+  const stopRefundVerb = containsAny(text, [
+    "الغاء", "إلغاء", "الغي", "ألغي", "الغوا", "وقف", "اوقف", "أوقف", "ايقاف", "إيقاف",
+    "تراجع", "تراجعت", "ما بدي", "لا اريد", "لا أريد",
+  ]);
+  const returnToOrder = containsAny(text, [
+    "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعوا طلب التلفون", "رجعولي الطلب", "رجعوا الطلب",
+    "بدي ارجع للطلب بدل الاسترداد", "بدي أرجع للطلب بدل الاسترداد", "الرجوع الى طلبي", "الرجوع إلى طلبي",
+  ]);
+  if ((stopRefundAnchor && stopRefundVerb) || returnToOrder) {
     add("stop_refund");
     remove("refund");
   }
@@ -194,7 +198,7 @@ export function detectShadowTopics(
     "اتصلت وما رديتوا", "بحكي وما حدا برد", "الرن ما حدا برد",
   ])) add("phone_not_answered");
   if (containsAny(text, ["تأخير", "تاخير", "مماطله", "مماطلة", "ما بتردو", "ما حدا رد", "مش معقول", "صارلي", "طولتوا", "كذب", "مستحيل هيك", "اقدم شكوى", "اقدم شكوه", "قدما شكوه", "قدما شكوى"])) add("complaint");
-  if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق"])) add("trust");
+  if (containsAny(text, ["نصب", "نصاب", "احتيال", "حراميه", "حرامية", "شركة جد", "شركه جد", "كيف اثق", "كيف أضمن", "صادقين", "اتأكد انكم", "موثوقين", "مش واثق", "بس عشان اتاكد", "عشان اتاكد", "قدمت اكثر من مكان", "بعدين ببطل يرد", "بضيع الوقت وانا استنى"])) add("trust");
 
   // A phone number written inside the standard application-follow-up template is an identifier, not a contact request.
   const explicitContactQuestion = containsAny(text, [

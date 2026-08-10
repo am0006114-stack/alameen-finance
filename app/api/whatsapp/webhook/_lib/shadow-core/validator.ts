@@ -428,6 +428,8 @@ function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string)
     "كم سعة الرامات", "وبخصوص الرام", "مواصفات هاتف", "مواصفات الجهاز", "اتاكديلي من مواصفات",
     "متى رح يبين", "هل الرد يوخذ وقت طويل", "اليوم بتردولي خبر", "متى بتحكولي اه ولا لا",
     "كم نسبة الموافقة", "نسبة قبولي", "اعطيني انسان اتواصل معه",
+    "جهاز ثاني", "جهاز تاني", "كمان جهاز", "reply me in english", "in english pls",
+    "قصدي السؤال الي قبل", "قصدي السؤال اللي قبل", "في مكان ممكن اراجع",
   ]);
   const unknownFallback = includesAny(reply, [
     "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
@@ -475,10 +477,33 @@ function customerCancellationIsConditional(text: string) {
 }
 
 function customerRequestsStopRefund(text: string) {
+  const refundAnchor = includesAny(text, ["استرداد", "الاسترداد", "استرجاع", "الاسترجاع", "refund"]);
+  const stopAnchor = includesAny(text, [
+    "الغاء", "إلغاء", "الغي", "ألغي", "الغوا", "وقف", "اوقف", "أوقف", "ايقاف", "إيقاف",
+    "تراجع", "تراجعت", "ما بدي", "لا اريد", "لا أريد",
+  ]);
+  const returnToOrder = includesAny(text, [
+    "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعولي الطلب", "رجعوا الطلب",
+    "بدي ارجع للطلب بدل الاسترداد", "بدي أرجع للطلب بدل الاسترداد", "الرجوع الى طلبي", "الرجوع إلى طلبي",
+  ]);
+  return (refundAnchor && stopAnchor) || returnToOrder;
+}
+
+function finalReplyLooksTruncated(reply: string) {
+  const clean = normalized(reply).replace(/[،,.؟!;:]+$/g, "").trim();
+  if (!clean) return true;
+  const words = clean.split(/\s+/).filter(Boolean);
+  const last = words[words.length - 1] || "";
+  if (["من", "الى", "إلى", "على", "عن", "في", "اذا", "إذا", "لو", "عشان", "حتى", "لكن", "بس", "او", "أو", "انه", "إنه", "انو", "إنو"].includes(last)) return true;
+  if (/[:،,\-–]$/.test(String(reply || "").trim())) return true;
+  return false;
+}
+
+function customerAsksMonthlyInstallmentMethod(text: string) {
   return includesAny(text, [
-    "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "الغي الاسترداد", "ألغي الاسترداد", "الغوا الاسترداد",
-    "وقف الاسترداد", "اوقف الاسترداد", "أوقف الاسترداد", "ما بدي استرداد", "تراجعت عن الاسترداد",
-    "رجع طلب التلفون", "رجعولي طلب التلفون", "بدي ارجع للطلب بدل الاسترداد",
+    "كيف الدفع الشهري", "كيف ادفع القسط", "كيف أدفع القسط", "اقتطاع من البنك", "اقتطاع مباشر",
+    "كمبيالات", "كمبياله", "كمبيالة", "بعد الاستلام كيف ادفع", "بعد الاستلام كيف أدفع",
+    "كيف رح يصير دفع", "مع شو رح اتعامل", "مع شو رح أتعامل",
   ]);
 }
 
@@ -596,6 +621,28 @@ export function validateFinalActualReply(
     !customerRequestsStopRefund(context.customerText) || !includesAny(reply, ["طلب الاسترداد محفوظ وقيد المتابعة", "طلب الاسترداد مسجل وقيد المتابعة", "أول ما يتم تنفيذ الحوالة", "اول ما يتم تنفيذ الحوالة"]),
     "critical",
     "طلب إيقاف الاسترداد لا يجوز الرد عليه وكأنه طلب متابعة للاسترداد.",
+  );
+  addCheck(
+    checks,
+    "final_actual_reply_not_truncated",
+    !finalReplyLooksTruncated(reply),
+    "critical",
+    "الرد الفعلي النهائي لا يجوز أن ينتهي بجملة مقطوعة أو أداة ربط معلقة.",
+  );
+  addCheck(
+    checks,
+    "monthly_installment_method_not_confused_with_file_fee",
+    !customerAsksMonthlyInstallmentMethod(context.customerText) ||
+      (!includesAny(reply, ["amenpay", "payamen"]) && includesAny(reply, ["الاتفاق", "الجدول النهائي", "طريقة السداد", "وسيلة السداد"])),
+    "critical",
+    "سؤال طريقة الأقساط بعد الاستلام يجب ألا يُجاب بمعلومات رسوم فتح الملف أو تحويلها.",
+  );
+  addCheck(
+    checks,
+    "no_unverified_weekly_installment_claim",
+    !includesAny(reply, ["شهري أو أسبوعي", "شهري او اسبوعي", "قسط أسبوعي", "قسط اسبوعي"]),
+    "critical",
+    "لا يجوز اختراع خيار أقساط أسبوعية دون جدول معتمد.",
   );
   return checks;
 }

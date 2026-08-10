@@ -153,6 +153,9 @@ function isTrustVerificationText(text: string) {
     "كيف اثق", "كيف أوثق", "كيف اتطمن", "كيف أطمئن",
     "كيف اعرف انكم", "كيف أعرف أنكم", "اثبات رسمي", "إثبات رسمي",
     "كيف اتأكد انه مش نصب", "كيف اتأكد انو مش نصب", "الموضوع ما فيه نصب",
+    "بس عشان اتاكد", "بس عشان أتأكد", "عشان اتاكد", "عشان أتأكد",
+    "قدمت اكثر من مكان", "قدمت أكثر من مكان", "بضيع الوقت وانا استنى", "بضيع الوقت وأنا أستنى",
+    "بعدين ببطل يرد", "وبعدين ببطل يرد",
   ]);
 
   const asksInsteadOfAccuses = hasAny(t, [
@@ -163,6 +166,14 @@ function isTrustVerificationText(text: string) {
   ]);
 
   return verificationQuestion || (asksInsteadOfAccuses && trustContext);
+}
+
+function isEnglishReplyPreferenceText(text: string) {
+  const t = String(text || "").trim().toLowerCase();
+  if (!t) return false;
+  return /\b(?:reply|respond|answer|talk|speak)\b[^\n]{0,30}\benglish\b/i.test(t) ||
+    /\benglish\b[^\n]{0,30}\b(?:please|pls|plz)\b/i.test(t) ||
+    ["english please", "english pls", "in english", "reply in english"].includes(t);
 }
 
 function isRegulatoryStatusQuestionText(text: string) {
@@ -355,6 +366,8 @@ function isOfficeLocationText(text: string) {
     "location",
     "وين الفرع",
     "عنوان الفرع",
+    "في مكان ممكن اراجع", "في مكان ممكن أراجع", "مكان ممكن اراجع", "مكان ممكن أراجع",
+    "عندكم مكان", "مكان او موسسه", "مكان أو مؤسسة", "مكان او مؤسسة", "وين اقدر اراجع", "وين أقدر أراجع",
   ]);
 }
 
@@ -519,6 +532,8 @@ function isContextOnlyFollowupText(text: string) {
   return [
     "مافهمت", "ما فهمت", "مش فاهم", "مش فاهمه", "كيف يعني", "شو يعني",
     "وضح", "وضحي", "يعني؟", "طيب؟", "؟", "?",
+    "قصدي هاي", "قصدي هاد", "قصدي هذا", "قصدي السؤال الي قبل", "قصدي السؤال اللي قبل",
+    "لا قصدي السؤال الي قبل", "لا قصدي السؤال اللي قبل", "السؤال الي قبل", "السؤال اللي قبل",
   ].includes(t);
 }
 
@@ -772,6 +787,9 @@ function isPaymentTimingText(text: string) {
     "بقدر احول الاحد", "بقدر أحول الأحد", "احول الاحد", "أحول الأحد",
     "ادفع هسا", "أدفع هسا", "متى ادفع", "متى أدفع", "لازم ادفع هسا", "لازم أدفع هسا",
     "في وقت محدد للدفع", "الدفع متاح متى", "اخر وقت للدفع", "آخر وقت للدفع",
+    "بسير الايداع بعد الموافقه", "بسير الايداع بعد الموافقة", "بصير الايداع بعد الموافقه", "بصير الإيداع بعد الموافقة",
+    "ادفع بعد الموافقه", "أدفع بعد الموافقة", "احول بعد الموافقه", "أحول بعد الموافقة",
+    "ما معي حاليا", "ما معي حاليًا", "مش معي حاليا", "مش معي حاليًا",
   ]);
 }
 
@@ -1552,6 +1570,15 @@ function isReceiptUploadConfirmationText(text: string) {
   return uploadContext && receiptContext;
 }
 
+function isShortDocumentCompletionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return [
+    "عبيته", "عبيتها", "عبيت", "عبّيته", "عبّيتها", "عبّيت",
+    "خلصته", "خلصتها", "عملته", "عملتها", "رفعته", "رفعتها", "تم", "خلص",
+  ].includes(t);
+}
+
 function isDocumentFollowupText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -2066,7 +2093,23 @@ function isGeneralMonthlyPaymentQuestionText(text: string) {
     "كيف الدفع الشهري", "طريقة الدفع الشهري", "طريقه الدفع الشهري", "كيف ادفع القسط", "كيف أدفع القسط",
     "كيف بدفع القسط", "وين بدفع القسط", "اقتطاع من البنك", "اقتطاع مباشر", "ينخصم من البنك",
     "خصم مباشر من البنك", "ادفع كل شهر", "أدفع كل شهر", "ازور المكتب كل شهر", "أزور المكتب كل شهر",
+    "كيف رح يصير دفع", "كيف رح يصير الدفع", "كيف بصير دفع", "كيف بصير الدفع",
+    "بعد الاستلام كيف ادفع", "بعد الاستلام كيف أدفع", "دفع الاقساط", "دفع الأقساط",
+    "كمبيالات", "كمبياله", "كمبيالة", "مع شو رح اتعامل", "مع شو رح أتعامل",
   ]);
+}
+
+function isAdditionalDeviceQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  const secondDevice = hasAny(t, [
+    "جهاز ثاني", "جهاز تاني", "تلفون ثاني", "تلفون تاني", "موبايل ثاني", "موبايل تاني",
+    "كمان جهاز", "اضيف جهاز", "أضيف جهاز", "انزل جهاز", "أنزل جهاز",
+  ]);
+  const questionOrAdd = hasAny(t, [
+    "بقدر", "ممكن", "بنفع", "بزبط", "اضيف", "أضيف", "انزل", "أنزل", "اخذ", "آخذ", "؟",
+  ]);
+  return secondDevice && questionOrAdd;
 }
 
 function isExplicitNewApplicationText(text: string) {
@@ -2083,9 +2126,6 @@ function isExplicitNewApplicationText(text: string) {
     "أعمل طلب جديد",
     "افتح طلب جديد",
     "فتح طلب جديد",
-    "جهاز ثاني",
-    "تلفون ثاني",
-    "موبايل ثاني",
     "طلب ثاني",
     "ابدا طلب",
     "ابدأ طلب",
@@ -2221,6 +2261,7 @@ function classifyIntent(text: string): CustomerIntent {
 
   // تغيير الجهاز ليس إلغاءً. يجب حسمه قبل أي منطق إلغاء.
   if (isDeviceChangeText(t)) return "device_change";
+  if (isAdditionalDeviceQuestionText(t)) return "products";
 
   // التراجع عن إلغاء طلب سابق مسار مستقل، ولا يُعامل كطلب استمرار عادي.
   if (isReopenCancelledConfirmedText(t)) return "reopen_cancelled_confirmed";
@@ -2247,6 +2288,7 @@ function classifyIntent(text: string): CustomerIntent {
   // أسئلة الدفع التفصيلية يجب أن تُفهم قبل كلمات المكتب/التوصيل أو الحالة العامة.
   if (isPaymentLinkIssueText(t)) return "payment_link_issue";
   if (isFirstInstallmentQuestionText(t)) return "payment_amount";
+  if (isGeneralMonthlyPaymentQuestionText(t)) return "installment_info";
   if (isPaymentMethodText(t)) return "payment_method";
   if (isPaymentTimingText(t)) return "payment_timing";
   if (isPaymentRecipientText(t)) return "payment_recipient";
@@ -2256,6 +2298,7 @@ function classifyIntent(text: string): CustomerIntent {
   if (isPaymentObjectionText(t)) return "payment_objection";
   if (isApplicationDataCorrectionConfirmationText(t)) return "application_data_correction_confirmed";
   if (isApplicationDataCorrectionText(t)) return "application_data_correction";
+  if (isAfterApprovalRequirementQuestionText(t) || isGeneralDocumentsQuestionText(t)) return "requirements";
   if (isApprovalTimingQuestionText(t)) return "review_time";
   if (isReviewTimeText(t)) return "review_time";
   if (isApprovalStatusQuestionText(t)) return "order_status";
@@ -2398,7 +2441,7 @@ function classifyIntent(text: string): CustomerIntent {
   if (
     hasAny(t, [
       "الشروط", "شروط", "المتطلبات", "شو المطلوب", "شو بدكم", "اوراق", "الاوراق", "الأوراق", "وثائق", "كفيل",
-      "كشف راتب", "راتب", "ضمان", "ضمان اجتماعي", "هويه", "هوية", "هل بحتاج كفيل",
+      "كشف راتب", "راتب", "اثبات دخل", "إثبات دخل", "ضمان", "ضمان اجتماعي", "هويه", "هوية", "هل بحتاج كفيل",
     ])
   ) {
     return "requirements";
@@ -3090,6 +3133,14 @@ function loanReply(from: string) {
 }
 
 function installmentInfoReply(baseUrl: string, from: string, customerText = "", app?: ApplicationRecord | null) {
+  if (isGeneralMonthlyPaymentQuestionText(customerText)) {
+    return `إذا قصدك طريقة سداد الأقساط بعد استلام الجهاز: وسيلة السداد وأي تفاصيل مثل الكمبيالات أو الاقتطاع البنكي لا بنثبتها من واتساب بدون اتفاق وجدول نهائي معتمد.
+
+قبل الاستلام بتكون تفاصيل الجدول وطريقة السداد واضحة ضمن الاتفاق الخاص بطلبك.
+
+ورسوم فتح الملف 5 دنانير منفصلة تمامًا عن الأقساط الشهرية؛ هي ليست قسطًا على الجهاز.`;
+  }
+
   if (isInstallmentBudgetQuestionText(customerText)) {
     const deviceLine = app?.device_name
       ? `الجهاز المسجل حاليًا على طلبك: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.\n\n`
@@ -3607,11 +3658,22 @@ function isAfterApprovalRequirementQuestionText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  return hasAny(t, [
+  const direct = hasAny(t, [
     "بعد الموافقه شو المطلوب", "بعد الموافقة شو المطلوب",
     "بعد الموافقه ماذا يلزم", "بعد الموافقة ماذا يلزم",
     "بعد القبول شو المطلوب", "بعد الاعتماد شو المطلوب",
   ]);
+  if (direct) return true;
+
+  const approvalAnchor = hasAny(t, [
+    "بعد الموافقه", "بعد الموافقة", "بس تطلع الموافقه", "بس تطلع الموافقة",
+    "اذا طلعت الموافقه", "إذا طلعت الموافقة", "بعد القبول", "بعد الاعتماد",
+  ]);
+  const requirementAnchor = hasAny(t, [
+    "شو الاوراق", "شو الأوراق", "اثبات دخل", "إثبات دخل", "كشف راتب", "شهادة راتب",
+    "كفيل", "وثائق", "مستند", "شو اجهز", "شو أجهز", "جيبلي", "تطلب مني", "المطلوب",
+  ]);
+  return approvalAnchor && requirementAnchor;
 }
 
 function isProcedureQuestionText(text: string) {
@@ -3691,10 +3753,12 @@ function rejectedStatusClarificationReply(app: ApplicationRecord) {
 
 function afterApprovalRequirementsReply(app: ApplicationRecord) {
   if (app.status === "approved") {
-    return `بعد الموافقة النهائية ما عليك ترفع أوراق جديدة من نفسك. عند اعتماد موعد الاستلام بتحضر للمكتب بالهوية الأصلية، ويتم توقيع العقد واستكمال القسط الأول حسب الاتفاق.`;
+    return `طلبك عليه موافقة نهائية. لا ترفع أو تجهز مستندات إضافية من نفسك؛ اتبع فقط تعليمات موعد الحضور الرسمية المرتبطة بطلبك، وإذا كان في متطلب محدد رح يوصلك باسمه وطريقة استكماله.`;
   }
 
-  return `طلبك حاليًا لم يصل للموافقة النهائية بعد. إذا تمت الموافقة، بنرسل لك موعد الاستلام والتعليمات المحددة، وعادةً يكون المطلوب الحضور بالهوية الأصلية لتوقيع العقد واستكمال القسط الأول حسب الاتفاق.`;
+  return `قبل الموافقة النهائية، أي مستند إضافي يحتاجه الملف مثل إثبات دخل أو بيانات كفيل رح يوصلك طلبه بشكل واضح مع الرابط الرسمي المخصص له.
+
+ما في داعي تجهز أو ترسل مستندات من نفسك، ووجود طلب مستند إضافي لاحقًا يعتمد على دراسة الملف وليس شرطًا ثابتًا على كل الطلبات.`;
 }
 
 function reviewAndProcedureReply(app: ApplicationRecord) {
@@ -4188,6 +4252,11 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking, customerText, app);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
+    if (isAdditionalDeviceQuestionText(customerText)) {
+      return `طلبك الحالي مرتبط بالجهاز المسجل عليه. ما عندي إجراء معتمد أقدر أوعدك من خلاله بإضافة جهاز ثاني على نفس الطلب وهو قيد الدراسة.
+
+ما رح أغيّر جهازك الحالي ولا أسجل جهازًا إضافيًا من واتساب بدون إجراء رسمي واضح. إذا بدك جهازًا ثانيًا، خليه كسؤال منفصل وما تدفع أي مبلغ إضافي بسببه قبل ما توصلك تعليمات معتمدة.`;
+    }
     if (isProductSpecificationQuestionText(customerText) || isShortProductSpecificationFollowupText(customerText)) {
       return productSpecificationReply(baseUrl, app);
     }
@@ -6309,6 +6378,7 @@ function isLikelyIncompleteReply(reply: string) {
   const danglingWords = [
     "من", "الى", "إلى", "على", "عن", "في", "اذا", "إذا", "لو",
     "عشان", "حتى", "لكن", "بس", "و", "او", "أو",
+    "انه", "إنه", "انو", "إنو", "بأنه", "بانّه",
   ];
 
   if (danglingWords.includes(lastWord)) return true;
@@ -7370,6 +7440,27 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const resolvedInput = resolveConversationInput(text, messageType, conversationMemory);
   text = resolvedInput.effectiveText;
   let intent = resolvedInput.intent;
+
+  // V1.2.1 CURRENT-MESSAGE ACTION OVERRIDE: destructive/reversal decisions are derived
+  // from the customer's raw current message before historical context can invert them.
+  if (isExplicitStopRefundText(rawCustomerText)) {
+    intent = "stop_refund";
+  } else if (isExactCancelConfirmationText(rawCustomerText)) {
+    intent = "cancel_confirmed";
+  } else if (isCancelRequestText(rawCustomerText)) {
+    intent = "cancel_request";
+  } else if (isExplicitNonContinuationText(rawCustomerText)) {
+    intent = "voluntary_opt_out";
+  } else if (isPositiveContinueDecisionText(rawCustomerText)) {
+    intent = "continue_decision";
+  } else if (isExplicitRefundMutationText(rawCustomerText)) {
+    intent = "refund";
+  }
+
+  if (isEnglishReplyPreferenceText(rawCustomerText)) {
+    return `Of course. I can reply in English. Please send your question or your application tracking number, and I will answer based on the actual status of your application.`;
+  }
+
   const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
 
@@ -7530,6 +7621,23 @@ async function buildReply(request: Request, from: string, text: string, messageT
     }
 
     return integrityReply;
+  }
+
+  if (app && isShortDocumentCompletionText(rawCustomerText)) {
+    const recentDocumentInstruction = (conversationMemory.lastAssistantReplies || []).find((reply) =>
+      /(?:بيانات الكفيل|كشف راتب|شهادة راتب|الهوية|الهويه)[^\n]{0,180}(?:الرابط|تعبئ|رفع)|(?:الرابط|تعبئ|رفع)[^\n]{0,180}(?:بيانات الكفيل|كشف راتب|شهادة راتب|الهوية|الهويه)/i.test(String(reply || ""))
+    );
+
+    if (recentDocumentInstruction) {
+      const docName = /كفيل/i.test(recentDocumentInstruction)
+        ? "بيانات الكفيل"
+        : /راتب/i.test(recentDocumentInstruction)
+          ? "مستند الراتب"
+          : "المستند المطلوب";
+      return `تمام. إذا قصدك ${docName} اللي طلبناه قبل شوي، وما دام استكملته من الرابط الرسمي فما في داعي تعيده أو ترسله عبر واتساب.
+
+رح نعتمد فقط التحديث الظاهر على الطلب، وإذا احتاج الملف أي خطوة إضافية رح توصلك رسالة واضحة بالمطلوب.`;
+    }
   }
 
   const paymentContextActive = paymentAssistanceStateActive(app, conversationMemory);

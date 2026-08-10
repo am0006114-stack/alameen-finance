@@ -65,13 +65,25 @@ export function isConditionalCancellationText(text: string) {
 export function isExplicitStopRefundText(text: string) {
   const t = cleanDecisionText(text);
   if (!t) return false;
-  return containsAny(t, [
-    "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "الغي الاسترداد", "ألغي الاسترداد",
-    "الغوا الاسترداد", "وقف الاسترداد", "اوقف الاسترداد", "أوقف الاسترداد",
-    "ما بدي استرداد", "تراجعت عن الاسترداد", "بدي اوقف الاسترداد", "بدي أوقف الاسترداد",
-    "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعوا طلب التلفون", "رجع الطلب وكملوه",
-    "بدي ارجع للطلب بدل الاسترداد", "بدي أرجع للطلب بدل الاسترداد",
+
+  // V1.2.1: semantic structure beats exact phrase lists.
+  // Any clear stop/cancel/reverse verb attached to an explicit refund noun means STOP REFUND,
+  // even when the customer writes variants such as "اريد الغاء الاسترداد".
+  const refundAnchor = containsAny(t, [
+    "استرداد", "الاسترداد", "استرجاع", "الاسترجاع", "refund",
   ]);
+  const stopAnchor = containsAny(t, [
+    "الغاء", "إلغاء", "الغي", "ألغي", "الغوا", "لغي", "وقف", "اوقف", "أوقف",
+    "ايقاف", "إيقاف", "تراجع", "تراجعت", "ما بدي", "لا اريد", "لا أريد",
+  ]);
+  const returnToOrder = containsAny(t, [
+    "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعوا طلب التلفون", "رجع الطلب وكملوه",
+    "رجعولي الطلب", "رجعوا الطلب", "ارجع للطلب", "أرجع للطلب",
+    "بدي ارجع للطلب بدل الاسترداد", "بدي أرجع للطلب بدل الاسترداد",
+    "الرجوع الى طلبي", "الرجوع إلى طلبي",
+  ]);
+
+  return (refundAnchor && stopAnchor) || returnToOrder;
 }
 
 export function isExplicitRefundMutationText(text: string) {
