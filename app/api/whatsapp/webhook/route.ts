@@ -48,6 +48,17 @@ import {
   trackUrl,
 } from "./_lib/links";
 import { getConversationMemory } from "./_lib/conversationMemory";
+import {
+  hasConfirmedPaymentEvidence,
+  hasInvalidRefundState,
+  isConditionalCancellationText,
+  isExactCancelConfirmationText,
+  isExactReopenConfirmationText,
+  isExplicitNonContinuationText,
+  isExplicitRefundMutationText,
+  isExplicitStopRefundText,
+  isPositiveContinueDecisionText,
+} from "./_lib/stateIntegrity";
 import { enqueueShadowJob } from "./_lib/shadow-core";
 import {
   customerAskedAboutFinalApproval,
@@ -74,7 +85,9 @@ export const dynamic = "force-dynamic";
 
 function isGreeting(text: string) {
   const t = normalizeArabicText(text);
-  return ["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t);
+  if (!t) return false;
+  if (["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t)) return true;
+  return /^(?:مرحبا|هلا|السلام عليكم|مساء الخير|صباح الخير|اهلا|أهلا)(?:\s+|$)/i.test(t);
 }
 
 function isCasualWellbeingText(text: string) {
@@ -511,7 +524,7 @@ function isContextOnlyFollowupText(text: string) {
 
 function isSimpleContinueConfirmationText(text: string) {
   const t = normalizeArabicText(text);
-  if (!t) return false;
+  if (!t || isExplicitNonContinuationText(text)) return false;
 
   if (["نعم", "موافق", "موافقه", "اوافق", "تمام موافق", "اكيد موافق"].includes(t)) return true;
   if (hasAny(t, ["مش موافق", "غير موافق", "لا اوافق", "لا أوافق"])) return false;
@@ -646,6 +659,8 @@ function isReviewTimeText(text: string) {
     "قديش بتاخذ الدراسه", "قديش بتاخذ الدراسة", "كم يوم المعامله", "كم يوم المعاملة",
     "المعامله كم يوم", "المعاملة كم يوم", "كم بضل على الطلب", "قديش بضل على الطلب",
     "متى تخلص المعامله", "متى تخلص المعاملة", "متى يخلص الطلب", "متى بتطلع النتيجه", "متى بتطلع النتيجة",
+    "طيب متى رح يبين", "متى رح يبين", "هل الرد يوخذ وقت طويل", "هل الرد ياخذ وقت طويل",
+    "يعني اليوم بتردولي خبر", "ولا كمان استنا", "متى بتحكولي اه ولا لا",
   ]);
 
   if (directPhrases) return true;
@@ -699,7 +714,10 @@ function isLongDelayComplaintText(text: string) {
     "شهر", "اشهر", "أشهر",
   ]);
 
-  return durationPattern.test(t) || (elapsedPhrase && hasDurationUnit);
+  const sinceMonthComplaint = /(?:من\s+شهر\s*[0-9٠-٩]+|من\s+شهر)\b/i.test(t) &&
+    hasAny(t, ["لسا", "لحد هسا", "لحد هسه", "ما اجت", "ما إجت", "ما طلعت", "الموافقه", "الموافقة", "النتيجه", "النتيجة"]);
+
+  return durationPattern.test(t) || (elapsedPhrase && hasDurationUnit) || sinceMonthComplaint;
 }
 
 function isPaymentGuaranteeText(text: string) {
@@ -816,6 +834,8 @@ function isPaymentObjectionText(text: string) {
 function isVoluntaryOptOutText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
+
+  if (isExplicitNonContinuationText(t)) return true;
 
   // الإلغاء والاسترداد مساران رسميان مستقلان ولا يتحولان إلى مجرد تجاهل.
   if (hasAny(t, [
@@ -953,14 +973,7 @@ function isDeliveryCorrectionText(text: string) {
 }
 
 function isReopenCancelledConfirmedText(text: string) {
-  const t = normalizeArabicText(text);
-  if (!t) return false;
-
-  return hasAny(t, [
-    "اكد اعاده تفعيل الطلب", "أكد إعادة تفعيل الطلب", "اكد إعادة تفعيل الطلب",
-    "اكد اعاده فتح الطلب", "أكد إعادة فتح الطلب", "نعم رجع الطلب", "نعم ارجع الطلب",
-    "نعم أرجع الطلب", "موافق رجع الطلب", "confirm reopen", "reopen confirmed",
-  ]);
+  return isExactReopenConfirmationText(text);
 }
 
 function isReopenCancelledRequestText(text: string) {
@@ -1454,23 +1467,10 @@ function isExplicitKeepRequestText(text: string) {
 
 function isContinueDecisionText(text: string) {
   const t = normalizeArabicText(text);
-  if (!t) return false;
+  if (!t || isExplicitNonContinuationText(text)) return false;
 
   if (isExplicitKeepRequestText(t)) return true;
-
-  // لا تعتبر "تمام" أو "أوك" أو "نعم" قرار استمرار بمفردها.
-  return hasAny(t, [
-    "اود الاستمرار", "أود الاستمرار", "ارغب بالاستمرار", "أرغب بالاستمرار",
-    "اريد الاستمرار", "أريد الاستمرار",
-    "بدي استمر", "بدي اكمل", "بدي أكمل", "تمام كمل", "تمام اكمل",
-    "خلينا نكمل", "نكمل بالطلب", "كمل بالطلب", "اكمل بالطلب", "استمر بالطلب",
-    "افتح الملف", "افتحو الملف", "افتحولي الملف", "بدي افتح الملف",
-    "بدي ادفع رسوم فتح الملف", "ابعث تعليمات الدفع", "ابعت تعليمات الدفع",
-    "ارسل تعليمات الدفع", "جاهز ادفع رسوم فتح الملف",
-    "موافق على الجهاز", "موافق عالجهاز", "تمام موافق على الجهاز", "تمام موافق عالجهاز",
-    "موافق 100%", "موافق ميه بالميه", "موافق مية بالمية",
-    "confirm continue", "continue application", "yes continue",
-  ]);
+  return isPositiveContinueDecisionText(t);
 }
 
 function isDeclineDecisionText(text: string) {
@@ -1478,22 +1478,7 @@ function isDeclineDecisionText(text: string) {
 }
 
 function isCancelConfirmedText(text: string) {
-  const t = normalizeArabicText(text);
-  if (!t) return false;
-
-  const confirmationPhrases = [
-    "اكد الغاء الطلب", "اكد الغاء", "اكد الالغاء", "اكد الإلغاء", "أكد إلغاء الطلب", "أكد الإلغاء",
-    "نعم اكد الغاء", "نعم الغي نهائيا", "نعم ألغي نهائيًا", "الغيه نهائيا", "الغيه نهائيًا",
-    "الغوا نهائيا", "الغوا نهائيًا", "الغاء نهائي", "إلغاء نهائي", "متاكد بدي الغي", "متأكد بدي ألغي",
-    "متاكد الغي", "متأكد ألغي", "خلص الغي نهائي", "خلص ألغي نهائي", "cancel confirmed",
-    "confirm cancel", "yes cancel", "cancel it permanently",
-  ];
-
-  const hasConfirmation = hasAny(t, confirmationPhrases);
-  const hasCancelContext = hasAny(t, ["الغاء", "الغي", "الغيه", "الغوا", "cancel", "كنسل"]);
-  const hasFinalContext = hasAny(t, ["اكد", "أكد", "نعم", "نهائي", "نهائيا", "متاكد", "متأكد", "confirm", "yes"]);
-
-  return hasConfirmation || (hasCancelContext && hasFinalContext);
+  return isExactCancelConfirmationText(text);
 }
 
 function isCancelRequestText(text: string) {
@@ -1930,8 +1915,7 @@ function isExplicitRefundRequestText(text: string) {
 }
 
 function hasConfirmedRefundPayment(app: ApplicationRecord | null | undefined) {
-  if (!app) return false;
-  return app.payment_status === "confirmed" || Boolean(app.payment_confirmed_at);
+  return hasConfirmedPaymentEvidence(app);
 }
 
 function hasValidActiveRefund(app: ApplicationRecord | null | undefined) {
@@ -2242,8 +2226,14 @@ function classifyIntent(text: string): CustomerIntent {
   if (isReopenCancelledConfirmedText(t)) return "reopen_cancelled_confirmed";
   if (isReopenCancelledRequestText(t)) return "reopen_cancelled_request";
 
+  // إيقاف الاسترداد عكس طلب الاسترداد تمامًا، لذلك يُحسم أولًا.
+  if (isExplicitStopRefundText(t)) return "stop_refund";
+
   // طلب استرداد صريح يسبق أي تصنيف عام للدفع أو الرسوم.
   if (isExplicitRefundRequestText(t)) return "refund";
+
+  if (isProductSpecificationQuestionText(t)) return "products";
+  if (isApprovalProbabilityQuestionText(t)) return "order_status";
 
   // سؤال واضح عن طريقة إرفاق/رفع مستند يجب ألا يسقط في unknown.
   if (isDocumentFollowupText(t)) return "document_followup";
@@ -2359,7 +2349,7 @@ function classifyIntent(text: string): CustomerIntent {
   if (hasAny(t, [
     "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي اتحدث مع موظف", "بدي أتحدث مع موظف",
     "اريد التحدث مع موظف", "أريد التحدث مع موظف", "موظف طبيعي", "موظف حقيقي", "حد يحكي معي",
-    "بدي احكي مع حدا", "بدي حدا يحكي معي",
+    "بدي احكي مع حدا", "بدي حدا يحكي معي", "بدي اتواصل مع حدا", "بدي أتواصل مع حدا", "لازم اتواصل مع حدا",
     "بدي مدير", "احكي مع المدير", "بدي مسؤول", "احكي مع مسؤول",
     "احكي مع انسان", "احكي مع بني ادم", "بدي انسان", "بدي بني ادم", "بدي بشر",
     "bring me a human", "get me a human", "human please", "live agent", "real person",
@@ -3163,6 +3153,53 @@ ${hasSpecificSelectedDevice(app.device_name) ? changeDeviceUrl(baseUrl, app) : s
 }
 // V1.1.4 EXISTING APPLICATION DEVICE LINK END
 
+function isProductSpecificationQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  const spec = hasAny(t, [
+    "مواصفات", "المواصفات", "رام", "رامات", "سعة الرام", "سعه الرام", "ذاكره", "ذاكرة",
+    "جيجا رام", "gb ram", "مواصفات الجهاز", "تفاصيل الجهاز",
+  ]);
+  const device = hasAny(t, [
+    "جهاز", "هاتف", "تلفون", "موبايل", "ايفون", "iphone", "honor", "هونر", "سامسونج",
+  ]);
+  return spec && device;
+}
+
+function isShortProductSpecificationFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, [
+    "وبخصوص الرام", "كم سعة الرامات", "كم سعه الرامات", "كم سعة الرام", "كم سعه الرام",
+    "الرام", "الرامات", "سعة الرام", "سعه الرام", "مواصفاته", "المواصفات التفصيليه", "المواصفات التفصيلية",
+  ]);
+}
+
+function productSpecificationReply(baseUrl: string, app?: ApplicationRecord | null) {
+  const deviceLine = app?.device_name
+    ? `الجهاز المسجل على طلبك: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.\n\n`
+    : "";
+
+  return `${deviceLine}المواصفات المؤكدة هي فقط التفاصيل الظاهرة على صفحة المنتج الرسمية عندنا. إذا تفصيل مثل سعة RAM غير ظاهر هناك، ما عندي مصدر داخلي مؤكد يسمح لي أعطي رقم من عندي أو أوعدك أني أتحقق منه لاحقًا.
+
+رابط الأجهزة:
+${baseUrl}/products`;
+}
+
+function isApprovalProbabilityQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, [
+    "كم نسبة الموافقة", "كم نسبه الموافقه", "نسبة قبول", "نسبه قبول", "احتمال الموافقة", "احتمال الموافقه",
+    "شو نسبة قبولي", "شو نسبه قبولي", "قديش نسبة الموافقة", "قديش نسبه الموافقه",
+  ]);
+}
+
+function approvalProbabilityReply(app?: ApplicationRecord | null) {
+  const statusLine = app ? `\nحالة طلبك الحالية: ${statusHumanLabel(app.status || "")}.` : "";
+  return `ما في نسبة مئوية معتمدة للموافقة أقدر أعطيك إياها. القرار يعتمد على دراسة الملف والمتطلبات، وأي رقم كنسبة قبول رح يكون تخمين وغير دقيق.${statusLine}`;
+}
+
 function productsReply(baseUrl: string, from: string) {
   const opening = humanOpening(`${from}:products`);
   return `${opening}
@@ -3531,6 +3568,7 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   }
 
   if (String(intent) === "order_status") {
+    if (isApprovalProbabilityQuestionText(customerText)) return approvalProbabilityReply(app);
     return conciseOrderStatusReply(app, customerText);
   }
 
@@ -4150,6 +4188,9 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking, customerText, app);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
+    if (isProductSpecificationQuestionText(customerText) || isShortProductSpecificationFollowupText(customerText)) {
+      return productSpecificationReply(baseUrl, app);
+    }
     if (isDeviceSelectionText(customerText) || !hasSpecificSelectedDevice(app.device_name)) {
       return existingApplicationDeviceSelectionReply(baseUrl, app);
     }
@@ -4818,6 +4859,55 @@ async function sendDiscordNotification(input: {
   }
 }
 
+type ApplicationActionRequestResult = { ok: boolean; duplicate: boolean; error?: string };
+
+async function recordApplicationActionRequest(
+  app: ApplicationRecord,
+  actionType: string,
+  customerMessage: string,
+): Promise<ApplicationActionRequestResult> {
+  try {
+    const { error } = await supabaseAdmin
+      .from("application_action_requests")
+      .insert({
+        application_id: app.id,
+        tracking_id: app.tracking_id || null,
+        action_type: actionType,
+        source: "whatsapp",
+        customer_message: String(customerMessage || "").slice(0, 2000),
+        status: "pending",
+      });
+
+    if (!error) return { ok: true, duplicate: false };
+    if ((error as any).code === "23505") return { ok: true, duplicate: true };
+    console.error("application_action_requests insert failed:", error.message);
+    return { ok: false, duplicate: false, error: error.message };
+  } catch (error) {
+    console.error("application_action_requests exception:", error);
+    return { ok: false, duplicate: false, error: String(error) };
+  }
+}
+
+function refundIntegrityHoldReply(app: ApplicationRecord) {
+  return `في تعارض ظاهر بحالة الطلب، لذلك ما رح أوصف الملف كاسترداد فعّال ولا أغيّر أي حالة مالية تلقائيًا. ما في دفع مؤكد ظاهر على الملف حاليًا.
+
+الحالة تحتاج مراجعة داخلية قبل أي خطوة مالية، وما عليك تعيد تقديم الطلب أو ترسل مستندات عبر واتساب.
+رقم الطلب: ${app.tracking_id || app.id}`;
+}
+
+function stopRefundRequestReply(app: ApplicationRecord, recorded: boolean) {
+  if (!recorded) {
+    return `وصل طلبك بإيقاف الاسترداد والعودة لمسار الطلب، لكن تعذر تسجيل طلب المراجعة الآن، لذلك ما غيرنا أي حالة مالية تلقائيًا.
+
+لا تعتبر الاسترداد موقوفًا ولا الطلب مفعّلًا إلا بعد تحديث رسمي.
+رقم الطلب: ${app.tracking_id || app.id}`;
+  }
+  return `تم تسجيل طلبك بإيقاف الاسترداد والعودة لمسار الطلب للمراجعة. ما غيرنا حالة الطلب تلقائيًا حتى ما يصير تعارض مالي.
+
+لا تعتبر الاسترداد موقوفًا ولا الطلب مفعّلًا إلا بعد تحديث رسمي.
+رقم الطلب: ${app.tracking_id || app.id}`;
+}
+
 async function markRefundRequested(app: ApplicationRecord) {
   if (app.status === "refund_requested" || app.payment_status === "refund_requested" || app.status === "refund_completed") {
     return app;
@@ -5226,13 +5316,18 @@ async function updateCustomerDecision(input: {
   const now = new Date().toISOString();
 
   if (input.decision === "continue") {
-    await supabaseAdmin
+    const { error } = await supabaseAdmin
       .from("applications")
       .update({
         status: "customer_confirmed_continue",
         payment_status: "payment_info_sent",
       })
       .eq("id", input.app.id);
+
+    if (error) {
+      console.error("updateCustomerDecision continue error:", error.message);
+      throw error;
+    }
 
     return {
       ...input.app,
@@ -6300,6 +6395,36 @@ function enforceAssignedAgentIdentity(reply: string, input: AiReplyInput) {
   );
 }
 
+function containsUnsupportedRegistrationClaim(value: string) {
+  const t = normalizeArabicText(value);
+  return hasAny(t, [
+    "شركتنا مسجلة", "شركتنا مسجله", "مسجلة ومعروفة بالأردن", "مسجله ومعروفه بالاردن",
+    "مسجلين ومعروفين", "جهة مسجلة ومعروفة", "جهة مسجله ومعروفه",
+  ]);
+}
+
+function containsWrongReviewDuration(value: string) {
+  const t = normalizeArabicText(value);
+  return hasAny(t, [
+    "يوم إلى يومين", "يوم الى يومين", "يوم او يومين", "يوم أو يومين", "1-2 يوم", "1 إلى 2 يوم", "1 الى 2 يوم",
+  ]);
+}
+
+function containsGuaranteedReviewOutcome(value: string) {
+  const t = normalizeArabicText(value);
+  return hasAny(t, [
+    "بصير عندك خبر واضح", "رح تخلص اليوم", "أكيد اليوم", "اكيد اليوم", "اليوم بنعطيك النتيجة", "اليوم بنعطيك النتيجه",
+  ]);
+}
+
+function containsUnverifiedProductVerificationPromise(value: string) {
+  const t = normalizeArabicText(value);
+  return hasAny(t, [
+    "أقدر أتأكدلك", "اقدر اتأكدلك", "بنقدر نأكدلك", "بنقدر ناكدلك", "رح أتأكدلك", "رح اتأكدلك",
+    "بعد ما تقدم الطلب بنتأكدلك", "بعد ما تقدم الطلب بنأكدلك",
+  ]);
+}
+
 function finalizeHumanReply(reply: string, input: AiReplyInput) {
   let clean = String(reply || "").trim();
   clean = shortenTrackingLinks(clean);
@@ -6314,9 +6439,18 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
   clean = trimOverFormalEmotionalReply(clean, input);
   clean = replaceUnfoundedEmotionalPressure(clean, input);
 
-  if (containsUnverifiedActionClaim(clean, input) || containsIncorrectPaymentSourceClaim(clean)) {
+  if (
+    containsUnverifiedActionClaim(clean, input) ||
+    containsIncorrectPaymentSourceClaim(clean) ||
+    containsUnsupportedRegistrationClaim(clean) ||
+    containsWrongReviewDuration(clean) ||
+    containsGuaranteedReviewOutcome(clean) ||
+    containsUnverifiedProductVerificationPromise(clean)
+  ) {
     clean = input.deterministicReply;
   }
+
+  clean = clean.replace(/الجمعة والسبت عطلة رسمية/gi, "الجمعة والسبت لا تُحسبان ضمن أيام العمل");
 
   if (isLikelyIncompleteReply(clean)) {
     clean = incompleteReplyFallback(input);
@@ -6441,6 +6575,8 @@ function applyFinalSendGuard(reply: string, app?: ApplicationRecord | null) {
     "مرخصة من البنك المركزي", "مرخصه من البنك المركزي", "مرخصين من البنك المركزي",
     "خاضعة لرقابة البنك المركزي", "خاضعه لرقابه البنك المركزي", "تخضع لرقابة البنك المركزي",
     "مرخصة ومسجلة حسب الاصول", "مرخصه ومسجله حسب الاصول",
+    "شركتنا مسجلة", "شركتنا مسجله", "مسجلة ومعروفة بالأردن", "مسجله ومعروفه بالاردن",
+    "مسجلين ومعروفين",
   ]);
   if (forbiddenRegulatoryClaim) {
     return `${BUSINESS_REGULATORY_DISCLOSURE}
@@ -6917,7 +7053,7 @@ async function generateAiReply(input: AiReplyInput) {
 منطق المحادثة الآمنة البشرية:
 - لا ترد كقالب ثابت. اقرأ رسالة العميل ورد على نفس المعنى.
 - إذا قال العميل "كيفك؟" أو "شخبارك؟" أو سأل سؤالًا خفيفًا، جاوبه طبيعيًا باختصار ثم اسأله كيف تساعده.
-- إذا سأل عن مدة الطلب، اذكر: من يومين إلى ثلاث أيام عمل حسب الضغط واكتمال البيانات، والجمعة والسبت عطلة رسمية ولا تُحسب.
+- إذا سأل عن مدة الطلب، اذكر: من يومين إلى ثلاث أيام عمل حسب الضغط واكتمال البيانات، والجمعة والسبت لا تُحسبان ضمن أيام العمل.
 - إذا كانت رسالة العميل فيها سؤالان أو أكثر، جاوبهم كلهم برد واحد وبنفس الترتيب، ولا ترسل ردًا منفصلًا لكل سطر.
 - ابدأ بجواب السؤال نفسه، ثم اذكر الحالة أو الخطوة المطلوبة عند الحاجة. ممنوع تكرار حالة الطلب بدل الإجابة عن السؤال.
 - فرّق بوضوح بين الموافقة المبدئية والموافقة النهائية. عبارة "مؤهل مبدئيًا" لا تعني موافقة نهائية.
@@ -7228,6 +7364,7 @@ async function claimOutgoingReplyLock(input: {
 
 async function buildReply(request: Request, from: string, text: string, messageType = "text") {
   const baseUrl = getBaseUrl(request);
+  const rawCustomerText = String(text || "").trim();
   // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
   const conversationMemory = await getConversationMemory(from, 18);
   const resolvedInput = resolveConversationInput(text, messageType, conversationMemory);
@@ -7324,6 +7461,7 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "application_data_correction_confirmed" ||
     String(intent) === "self_employed" ||
     String(intent) === "refund" ||
+    String(intent) === "stop_refund" ||
     String(intent) === "complaint" ||
     String(intent) === "abuse" ||
     String(intent) === "legal_threat" ||
@@ -7370,6 +7508,28 @@ async function buildReply(request: Request, from: string, text: string, messageT
     String(intent) === "products"
   )) {
     app = await findApplicationByPhone(from);
+  }
+
+  // V1.2.0 GLOBAL STATE INTEGRITY GATE: an impossible refund state is quarantined
+  // before any intent-specific reply or mutation can reinforce it.
+  if (app && hasInvalidRefundState(app)) {
+    const actionRequest = await recordApplicationActionRequest(app, "refund_integrity_review", rawCustomerText);
+    const integrityReply = refundIntegrityHoldReply(app);
+
+    if (!actionRequest.duplicate) {
+      await sendDiscordNotification({
+        title: "🚨 REFUND INTEGRITY HOLD — حالة استرداد بلا دفع مؤكد",
+        description: "تم عزل الطلب عن أي رد أو تغيير مالي تلقائي. لا يوجد دفع مؤكد ظاهر، وتم تسجيل طلب مراجعة داخلية لحالة الطلب بدل تعزيز حالة الاسترداد غير المتسقة.",
+        color: 0xed4245,
+        app,
+        customerPhone: from,
+        customerMessage: rawCustomerText,
+        systemReply: integrityReply,
+        baseUrl,
+      });
+    }
+
+    return integrityReply;
   }
 
   const paymentContextActive = paymentAssistanceStateActive(app, conversationMemory);
@@ -7444,6 +7604,19 @@ async function buildReply(request: Request, from: string, text: string, messageT
     }
   }
 
+  const recentProductSpecContext = [
+    ...(conversationMemory.lastCustomerMessages || []),
+    ...(conversationMemory.lastAssistantReplies || []),
+  ].slice(-8).some((message) => isProductSpecificationQuestionText(String(message || "")) || hasAny(String(message || ""), ["HONOR 600", "هونر 600", "رام", "رامات", "مواصفات"]));
+
+  if (String(intent) === "unknown" && isShortProductSpecificationFollowupText(rawCustomerText) && recentProductSpecContext) {
+    intent = "products";
+  }
+
+  if (app && isApprovalProbabilityQuestionText(rawCustomerText)) {
+    intent = "order_status";
+  }
+
   if (pendingCancellationConfirmation && typedPhone && app && String(intent) === "unknown") {
     intent = "cancel_request";
   }
@@ -7482,20 +7655,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (String(intent) === "human_agent") {
-    deterministicReply = employeeIdentityReply(from, app);
-
-    return humanizeReply({
-      customerText: text,
-      deterministicReply,
-      customerName: app ? firstTwoNames(app.full_name) : undefined,
-      trackingId: app ? app.tracking_id || app.id : tracking || undefined,
-      status: app?.status || null,
-      paymentStatus: app?.payment_status || null,
-      deviceName: app?.device_name || null,
-      isSensitive: false,
-      hasApplication: Boolean(app),
-      intent,
-    });
+    // Human-contact requests are operational, not creative: keep them deterministic and complete.
+    return employeeIdentityReply(from, app);
   }
 
   if (String(intent) === "call_request") {
@@ -7606,12 +7767,53 @@ async function buildReply(request: Request, from: string, text: string, messageT
     });
   }
 
+  if (String(intent) === "stop_refund") {
+    if (!app) {
+      return `حتى أراجع طلب إيقاف الاسترداد على الملف الصحيح، ابعث رقم التتبع الذي يبدأ بـ AM- أو رقم الهاتف المستخدم بالتقديم.`;
+    }
+
+    if (app.status === "refund_completed") {
+      return `الاسترداد ظاهر كمكتمل على الطلب، لذلك ما بقدر أعكس العملية تلقائيًا من واتساب. إذا بدك مراجعة الحالة، تمسك بنفس رقم الطلب عند المتابعة.
+رقم الطلب: ${app.tracking_id || app.id}`;
+    }
+
+    const activeRefund = app.status === "refund_requested" || app.payment_status === "refund_requested";
+    if (!activeRefund) {
+      return `ما في استرداد نشط ظاهر على الطلب حتى يتم إيقافه. حالة الطلب الحالية: ${statusHumanLabel(app.status || "")}
+رقم الطلب: ${app.tracking_id || app.id}`;
+    }
+
+    const actionRequest = await recordApplicationActionRequest(app, "stop_refund", rawCustomerText);
+    deterministicReply = stopRefundRequestReply(app, actionRequest.ok);
+
+    if (actionRequest.ok && !actionRequest.duplicate) {
+      await sendDiscordNotification({
+        title: "🟠 طلب إيقاف استرداد — يحتاج مراجعة",
+        description: "العميل طلب إيقاف الاسترداد والعودة لمسار الطلب. لم يتم عكس أي حالة مالية تلقائيًا؛ تم تسجيل طلب إجراء داخلي pending للمراجعة.",
+        color: 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: rawCustomerText,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+    }
+
+    return deterministicReply;
+  }
+
   if (String(intent) === "reopen_cancelled_request") {
     return app ? reopenCancelledRequestReply(app) : reopenCancelledWithoutAppReply();
   }
 
   if (String(intent) === "reopen_cancelled_confirmed") {
     if (!app) return reopenCancelledWithoutAppReply();
+
+    const explicitReopen = isExactReopenConfirmationText(rawCustomerText) ||
+      (pendingReopenConfirmation && isSimpleReopenConfirmationText(rawCustomerText));
+    if (!explicitReopen) {
+      return app ? reopenCancelledRequestReply(app) : reopenCancelledWithoutAppReply();
+    }
 
     if (app.status === "refund_completed") {
       return reopenCancelledRequestReply(app);
@@ -7819,6 +8021,20 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   }
 
   if (app && String(intent) === "continue_decision") {
+    // V1.2.0: negative language always vetoes continuation, regardless of classifier/context.
+    if (isExplicitNonContinuationText(rawCustomerText)) {
+      return voluntaryOptOutReply(app);
+    }
+
+    const explicitContinue = isPositiveContinueDecisionText(rawCustomerText) ||
+      (pendingContinueDecision && isSimpleContinueConfirmationText(rawCustomerText));
+    if (!explicitContinue) {
+      return `حتى ما أغيّر حالة طلبك بسبب فهم خاطئ، ما رح أسجل استمرار أو أرسل تعليمات دفع بدون تأكيد واضح منك.
+
+إذا بدك تكمل اكتب: أريد الاستمرار
+رقم الطلب: ${app.tracking_id || app.id}`;
+    }
+
     if (
       app.status === "customer_confirmed_continue" ||
       ["pending", "pending_payment", "payment_info_sent"].includes(app.payment_status || "")
@@ -7901,6 +8117,24 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   }
 
   if (app && String(intent) === "cancel_confirmed") {
+    // V1.2.0 DESTRUCTIVE ACTION GATE: classifier output alone can never cancel an order.
+    if (!isExactCancelConfirmationText(rawCustomerText) || isConditionalCancellationText(rawCustomerText)) {
+      deterministicReply = cancelRequestReply(app, baseUrl, rawCustomerText);
+
+      await sendDiscordNotification({
+        title: "🛡️ تم منع إلغاء ملتبس",
+        description: "صُنفت الرسالة كإلغاء مؤكد، لكن النص الخام لا يحتوي تأكيد الإلغاء الدقيق. لم يتم تغيير حالة الطلب.",
+        color: 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: rawCustomerText,
+        systemReply: deterministicReply,
+        baseUrl,
+      });
+
+      return deterministicReply;
+    }
+
     let updatedApp: ApplicationRecord;
 
     try {
@@ -7966,6 +8200,11 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
       deterministicReply = refundCompletedReply(app);
     } else if (alreadyRequested) {
       deterministicReply = refundAlreadyRequestedReply(app, text);
+    } else if (!isExplicitRefundMutationText(rawCustomerText)) {
+      deterministicReply = `حتى ما أسجل استرداد بسبب فهم خاطئ، ما رح أغيّر الحالة المالية بدون طلب صريح منك.
+
+إذا قصدك فعلًا استرداد رسوم فتح الملف اكتب: أريد استرداد رسوم فتح الملف
+رقم الطلب: ${app.tracking_id || app.id}`;
     } else if (!paymentEvidence) {
       deterministicReply = unpaidRefundGuardReply(app);
 
@@ -8201,7 +8440,9 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "apply") {
     deterministicReply = applyReply(baseUrl, from);
   } else if (String(intent) === "products") {
-    deterministicReply = productsReply(baseUrl, from);
+    deterministicReply = (isProductSpecificationQuestionText(text) || isShortProductSpecificationFollowupText(text))
+      ? productSpecificationReply(baseUrl, null)
+      : productsReply(baseUrl, from);
   } else if (String(intent) === "payment") {
     deterministicReply = paymentGeneralReply(from);
   } else if (String(intent) === "delivery") {
@@ -8236,6 +8477,8 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     "system_prompt_request",
     "office_pickup_policy",
     "voluntary_opt_out",
+    "products",
+    "human_agent",
     "loan",
     "greeting",
     "media_upload",

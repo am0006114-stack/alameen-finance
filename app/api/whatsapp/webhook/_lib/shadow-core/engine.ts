@@ -24,7 +24,7 @@ import type {
   ShadowValidation,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.1.9-context-truth-final-guard";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.2.0-transaction-integrity";
 
 function containsAnyNormalized(text: string, values: string[]) {
   const normalized = normalizeArabicText(text);
@@ -91,7 +91,13 @@ function normalizeTopicsForFacts(input: {
     remove("delivery");
   }
 
-  if (explicitRefundRequest) {
+  if (input.initialIntent === "stop_refund") {
+    add("stop_refund");
+    remove("refund");
+    remove("payment_status");
+  }
+
+  if (explicitRefundRequest && input.initialIntent !== "stop_refund") {
     add("refund");
     remove("payment_method");
     remove("payment_status");
@@ -100,7 +106,12 @@ function normalizeTopicsForFacts(input: {
     if (!explicitContactQuestion) remove("contact_number");
   }
 
-  if (refundState && (topics.includes("refund") || refundTransferFollowup || input.initialIntent === "payment_dispute")) {
+  if (refundState && !input.facts.paymentConfirmed) {
+    // Invalid historical state: never normalize it into a legitimate refund conversation.
+    remove("refund");
+    remove("payment_status");
+    add("general_question");
+  } else if (refundState && input.initialIntent !== "stop_refund" && (topics.includes("refund") || refundTransferFollowup || input.initialIntent === "payment_dispute")) {
     add("refund");
     // A live refund is the canonical order/payment status; duplicate topics caused false blocks.
     remove("payment_method");

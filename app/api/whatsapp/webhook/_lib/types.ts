@@ -144,6 +144,7 @@ export type CustomerIntent =
   | "decline_decision"
   | "cancel_request"
   | "cancel_refund_request"
+  | "stop_refund"
   | "cancel_confirmed"
   | "alternative_payment_source"
   | "receipt_upload_needed"

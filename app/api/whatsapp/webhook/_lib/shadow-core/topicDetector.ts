@@ -78,6 +78,7 @@ export function detectShadowTopics(
   if (paymentIntents.includes(initialIntent)) add("payment_method");
   if (paymentStatusIntents.includes(initialIntent)) add("payment_status");
   if (refundIntents.includes(initialIntent)) add("refund");
+  if (initialIntent === "stop_refund") add("stop_refund");
   if (cancellationIntents.includes(initialIntent)) add("cancellation");
   if (deviceChangeIntents.includes(initialIntent)) add("device_change");
   if (initialIntent === "requirements" || initialIntent === "self_employed") add("requirements");
@@ -101,7 +102,8 @@ export function detectShadowTopics(
   ])) add("business_identity");
 
   if (containsAny(text, ["شو صار", "حاله الطلب", "حالة الطلب", "متابعه الطلب", "متابعة الطلب", "وين وصل الطلب", "اخر تحديث", "آخر تحديث", "شو صار بالطلب"])) add("order_status");
-  if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام", "الرد بدو وقت", "الرد بده وقت", "الرد مطول", "طيب يعني لمتى"])) add("review_time");
+  if (containsAny(text, ["كم بدها", "كم بدو", "قديش", "متى الرد", "متى بتخلص", "مدة الدراسة", "مده الدراسه", "كم يوم", "كم وقت", "٣ ايام", "3 ايام", "الرد بدو وقت", "الرد بده وقت", "الرد مطول", "طيب يعني لمتى", "متى رح يبين", "هل الرد يوخذ وقت طويل", "هل الرد ياخذ وقت طويل", "اليوم بتردولي خبر", "متى بتحكولي اه ولا لا"])) add("review_time");
+  if (containsAny(text, ["مواصفات", "الرام", "رامات", "سعة الرام", "سعه الرام", "مواصفات الجهاز", "تفاصيل الجهاز"])) add("procedures");
   if (containsAny(text, ["يحتاج بنك", "بدها بنك", "لازم بنك", "بنك معين", "بنك محدد", "التقسيط بنك"])) add("bank_requirement");
   if (containsAny(text, ["اسدد كامل", "سداد كامل", "ادفع كامل", "دفعة واحدة", "اغلق الاقساط", "اسكر الاقساط", "السداد المبكر"])) add("early_settlement");
   const explicitOfficePaymentRequest = containsAny(text, [
@@ -121,7 +123,9 @@ export function detectShadowTopics(
   const explicitVoluntaryOptOut = containsAny(text, [
     "لا ارغب بدفع اي شي", "لا أريد دفع أي شيء", "ما بدي ادفع", "ما بدي أدفع",
     "مش حاب ادفع", "مش حاب أدفع", "ما رح ادفع", "ما رح أدفع", "مش دافع", "مش دافعة",
-  ]) && !containsAny(text, ["الغاء", "إلغاء", "استرداد", "استرجاع", "رجعولي", "بدي فلوسي"])
+    "لا ارغب بالاستمرار", "لا أرغب بالاستمرار", "لا اريد الاستمرار", "لا أريد الاستمرار",
+    "ما بدي اكمل", "ما بدي أكمل", "مش حاب اكمل", "مش حاب أكمل", "ما بدي استمر",
+  ]) && !containsAny(text, ["استرداد", "استرجاع", "رجعولي", "بدي فلوسي"])
     && !explicitOfficePaymentRequest;
   if (explicitVoluntaryOptOut) add("voluntary_opt_out");
 
@@ -164,7 +168,15 @@ export function detectShadowTopics(
     remove("payment_method");
     remove("payment_status");
   }
-  if (containsAny(text, ["الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "وقف الاسترداد", "اوقف الاسترداد", "ما بدي استرداد", "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة"])) add("stop_refund");
+  if (containsAny(text, [
+    "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "الغي الاسترداد", "ألغي الاسترداد", "الغوا الاسترداد",
+    "وقف الاسترداد", "اوقف الاسترداد", "أوقف الاسترداد", "ما بدي استرداد", "تراجعت عن الاسترداد",
+    "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعوا طلب التلفون", "بدي ارجع للطلب بدل الاسترداد",
+    "بدي اكمل بالمعامله", "بدي أكمل بالمعاملة",
+  ])) {
+    add("stop_refund");
+    remove("refund");
+  }
   if (containsAny(text, [
     "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي اتحدث مع موظف", "بدي أتحدث مع موظف",
     "اريد التحدث مع موظف", "أريد التحدث مع موظف", "بدي مسؤول", "احكي مع مسؤول",

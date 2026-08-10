@@ -425,11 +425,61 @@ function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string)
     "نفس مشكله", "نفس مشكلة", "كيف ارفق الملف", "كيف أرفق الملف",
     "الرد بدو وقت", "الرد بده وقت", "بقدر ارفع قيمة القسط", "بقدر لحد", "كيف الدفع الشهري",
     "اقتطاع من البنك", "ما بقدر اطلع اخذو", "اطلع استلمو", "اقدم شكوى عليكم", "قدما شكوه عليكم",
+    "كم سعة الرامات", "وبخصوص الرام", "مواصفات هاتف", "مواصفات الجهاز", "اتاكديلي من مواصفات",
+    "متى رح يبين", "هل الرد يوخذ وقت طويل", "اليوم بتردولي خبر", "متى بتحكولي اه ولا لا",
+    "كم نسبة الموافقة", "نسبة قبولي", "اعطيني انسان اتواصل معه",
   ]);
   const unknownFallback = includesAny(reply, [
     "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
   ]);
   return clearRequest && unknownFallback;
+}
+
+function hasUnsupportedRegistrationClaim(reply: string) {
+  return includesAny(reply, [
+    "شركتنا مسجلة", "شركتنا مسجله", "مسجلة ومعروفة بالأردن", "مسجله ومعروفه بالاردن",
+    "مسجلين ومعروفين", "جهة مسجلة ومعروفة", "جهة مسجله ومعروفه",
+  ]);
+}
+
+function hasWrongReviewDuration(reply: string) {
+  return includesAny(reply, [
+    "يوم إلى يومين", "يوم الى يومين", "يوم او يومين", "يوم أو يومين", "1-2 يوم", "1 إلى 2 يوم", "1 الى 2 يوم",
+  ]);
+}
+
+function hasGuaranteedReviewOutcome(reply: string) {
+  return includesAny(reply, [
+    "بصير عندك خبر واضح", "رح تخلص اليوم", "أكيد اليوم", "اكيد اليوم", "اليوم بنعطيك النتيجة", "اليوم بنعطيك النتيجه",
+  ]);
+}
+
+function hasUnverifiedProductVerificationPromise(reply: string) {
+  return includesAny(reply, [
+    "أقدر أتأكدلك", "اقدر اتأكدلك", "بنقدر نأكدلك", "بنقدر ناكدلك", "رح أتأكدلك", "رح اتأكدلك",
+    "بعد ما تقدم الطلب بنتأكدلك", "بعد ما تقدم الطلب بنأكدلك",
+  ]);
+}
+
+function customerExplicitlyDeclinesContinuation(text: string) {
+  return includesAny(text, [
+    "لا ارغب بالاستمرار", "لا أرغب بالاستمرار", "لا اريد الاستمرار", "لا أريد الاستمرار",
+    "ما بدي اكمل", "ما بدي أكمل", "مش حاب اكمل", "مش حاب أكمل", "ما بدي استمر",
+  ]);
+}
+
+function customerCancellationIsConditional(text: string) {
+  const mentionsCancel = includesAny(text, ["الغي", "ألغي", "الغاء", "إلغاء", "كنسل", "اكنسل", "cancel"]);
+  const conditional = includesAny(text, ["اذا", "إذا", "لو", "بلاش", "قبل ما", "ممكن", "يمكن", "رح", "راح"]);
+  return mentionsCancel && conditional;
+}
+
+function customerRequestsStopRefund(text: string) {
+  return includesAny(text, [
+    "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد", "الغي الاسترداد", "ألغي الاسترداد", "الغوا الاسترداد",
+    "وقف الاسترداد", "اوقف الاسترداد", "أوقف الاسترداد", "ما بدي استرداد", "تراجعت عن الاسترداد",
+    "رجع طلب التلفون", "رجعولي طلب التلفون", "بدي ارجع للطلب بدل الاسترداد",
+  ]);
 }
 
 export function validateFinalActualReply(
@@ -521,6 +571,31 @@ export function validateFinalActualReply(
     !hasGenderLanguageMismatch(reply, facts.customerGender),
     "critical",
     "صيغة الجنس في الرد الفعلي النهائي تطابق الاسم المؤكد أو تكون محايدة.",
+  );
+  addCheck(checks, "no_unverified_registration_claim", !hasUnsupportedRegistrationClaim(reply), "critical", "لا يُدّعى تسجيل أو شهرة قانونية غير مثبتة.");
+  addCheck(checks, "review_duration_policy_exact", !hasWrongReviewDuration(reply), "critical", "مدة الدراسة المعتمدة من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات.");
+  addCheck(checks, "no_guaranteed_review_outcome", !hasGuaranteedReviewOutcome(reply), "critical", "لا يُضمن موعد أو نتيجة مراجعة غير مؤكدة.");
+  addCheck(checks, "no_unverified_product_verification_promise", !hasUnverifiedProductVerificationPromise(reply), "critical", "لا يُوعد بالتحقق من مواصفة منتج دون آلية أو مصدر مثبت.");
+  addCheck(
+    checks,
+    "negative_continue_has_no_payment_instructions",
+    !customerExplicitlyDeclinesContinuation(context.customerText) || !hasPaymentInstructions(reply),
+    "critical",
+    "رفض الاستمرار لا يجوز أن يفعّل تعليمات الدفع أو الاستمرار.",
+  );
+  addCheck(
+    checks,
+    "conditional_cancel_not_confirmed",
+    !customerCancellationIsConditional(context.customerText) || !includesAny(reply, ["تم إلغاء الطلب بنجاح", "تم الغاء الطلب بنجاح", "تم إلغاء طلبك"]),
+    "critical",
+    "ذكر الإلغاء بصيغة شرطية أو تهديدية ليس تأكيد إلغاء.",
+  );
+  addCheck(
+    checks,
+    "stop_refund_not_inverted",
+    !customerRequestsStopRefund(context.customerText) || !includesAny(reply, ["طلب الاسترداد محفوظ وقيد المتابعة", "طلب الاسترداد مسجل وقيد المتابعة", "أول ما يتم تنفيذ الحوالة", "اول ما يتم تنفيذ الحوالة"]),
+    "critical",
+    "طلب إيقاف الاسترداد لا يجوز الرد عليه وكأنه طلب متابعة للاسترداد.",
   );
   return checks;
 }
@@ -647,6 +722,10 @@ export function validateShadowReply(
   addCheck(checks, "no_unexecuted_action", !actionClaim || supportedDeviceSubmission, "critical", "لا يُدّعى تنفيذ إجراء غير مسجل.");
   addCheck(checks, "no_unsupported_term", !/(?:^|\s)\d{1,3}\s*(?:شهر|اشهر|أشهر)(?:\s|$)/.test(normalized(reply)), "critical", "لا تُخترع مدة تقسيط بالشهور.");
   addCheck(checks, "no_service_promise", !includesAny(reply, ["ما رح نأخرها عنك", "بنضمن ما تتأخر", "رح تخلص اليوم", "أكيد اليوم"]), "critical", "لا يُعطى وعد خدمة أو موعد غير مؤكد.");
+  addCheck(checks, "no_unverified_registration_claim", !hasUnsupportedRegistrationClaim(reply), "critical", "لا يُدّعى تسجيل أو شهرة قانونية غير مثبتة.");
+  addCheck(checks, "review_duration_policy_exact", !hasWrongReviewDuration(reply), "critical", "مدة الدراسة المعتمدة من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات.");
+  addCheck(checks, "no_guaranteed_review_outcome", !hasGuaranteedReviewOutcome(reply), "critical", "لا يُضمن موعد أو نتيجة مراجعة غير مؤكدة.");
+  addCheck(checks, "no_unverified_product_verification_promise", !hasUnverifiedProductVerificationPromise(reply), "critical", "لا يُوعد بالتحقق من مواصفة منتج دون آلية أو مصدر مثبت.");
 
   addCheck(checks, "stage_language_matches_application_status", !stageLanguageMismatch(reply, facts), "critical", "صياغة المرحلة تطابق حالة الطلب الفعلية.");
   addCheck(checks, "gender_language_matches_customer", !hasGenderLanguageMismatch(reply, facts.customerGender), "critical", "صيغة مخاطبة العميل تطابق الجنس اللغوي المؤكد أو تستخدم صياغة محايدة.");
