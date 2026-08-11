@@ -1147,18 +1147,24 @@ ${currentCustomerActionLine(app)}
 رقم الطلب: ${tracking}`;
 }
 
-function socialGreetingReply(from: string, app?: ApplicationRecord | null, baseUrl?: string) {
-  const variants = [
-    "مساء النور 🌿",
-    "يا هلا، مساء الخير 🌿",
-    "وعليكم السلام ورحمة الله 🌿",
-    "هلا فيك 🌿",
-    "أهلًا وسهلًا 🌿",
-    "صباح النور 🌿",
-  ];
+function socialGreetingReply(from: string, app?: ApplicationRecord | null, baseUrl?: string, customerText = "") {
+  void from;
+  void app;
+  void baseUrl;
+  const text = normalizeArabicText(customerText);
 
-  const digits = digitsOnly(from);
-  return variants[Number(digits.slice(-2) || "0") % variants.length];
+  // V1.2.2 GREETING STABILITY: never guess a morning/evening daypart for a generic greeting.
+  if (hasAny(text, ["السلام عليكم", "السلام عليكم ورحمة الله", "سلام عليكم"])) {
+    return "وعليكم السلام ورحمة الله 🌿";
+  }
+  if (hasAny(text, ["صباح الخير", "صباح النور"])) {
+    return "صباح النور 🌿";
+  }
+  if (hasAny(text, ["مساء الخير", "مساء النور"])) {
+    return "مساء النور 🌿";
+  }
+
+  return "أهلًا وسهلًا 🌿";
 }
 
 
@@ -2099,6 +2105,64 @@ function isGeneralMonthlyPaymentQuestionText(text: string) {
   ]);
 }
 
+function isInterestOrReligiousFinancingQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const interestContext = hasAny(t, [
+    "فوائد", "فائده", "فائدة", "نسبة الفائدة", "نسبه الفائده",
+    "ربا", "ربوي", "ربويه", "ربوية", "شرعي", "شرعيه", "شرعية",
+    "حلال", "حرام",
+  ]);
+  const installmentContext = hasAny(t, [
+    "قسط", "اقساط", "أقساط", "تقسيط", "الجهاز", "الهاتف", "تلفون", "موبايل",
+    "البنك", "تمويل", "سعر", "دفعة", "دفعه",
+  ]);
+
+  return interestContext && installmentContext;
+}
+
+function isInstallmentDurationQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  return hasAny(t, [
+    "القسط ع كم شهر", "القسط على كم شهر", "الاقساط ع كم شهر", "الأقساط ع كم شهر",
+    "الاقساط على كم شهر", "الأقساط على كم شهر", "التقسيط ع كم شهر", "التقسيط على كم شهر",
+    "كم شهر تقسيط", "كم شهر الاقساط", "كم شهر الأقساط", "مدة التقسيط", "مده التقسيط",
+    "عدد اشهر التقسيط", "عدد أشهر التقسيط", "عدد الاقساط", "عدد الأقساط",
+  ]);
+}
+
+function isShortInstallmentDurationFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return [
+    "كم شهر", "الكم شهر", "كم شهر؟", "ع كم شهر", "على كم شهر", "المدة كم", "المده كم",
+  ].includes(t);
+}
+
+function interestAndFinancingClarificationReply() {
+  return `للتوضيح: الأمين للأقساط ليست بنكًا ولا شركة تمويل أو إقراض، وما بنعطي توصيفًا شرعيًا أو مصرفيًا غير موثق من عندنا.
+
+السعر وجدول الأقساط وأي مبالغ مرتبطة بالجهاز بتكون واضحة ضمن الطلب والاتفاق المعتمد قبل الاستلام.
+
+إذا سؤالك عن جهاز محدد أو مدة/قسط محدد، بعطيك فقط الخيار الظاهر والمعتمد على الطلب بدون تخمين.`;
+}
+
+function installmentDurationReply(baseUrl: string, app?: ApplicationRecord | null) {
+  const deviceLine = app?.device_name
+    ? `الجهاز المسجل حاليًا: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.\n\n`
+    : "";
+
+  return `${deviceLine}مدة التقسيط ما بنثبتها من واتساب من غير الخيار المعتمد على الجهاز أو الجدول النهائي.
+
+المدة الصحيحة هي اللي بتظهر ضمن خيارات الجهاز والاتفاق الخاص بطلبك، وما رح أعطيك عدد أشهر من عندي إذا مش ظاهر بشكل مؤكد.
+
+رابط الأجهزة والخيارات الحالية:
+${baseUrl}/products`;
+}
+
 function isAdditionalDeviceQuestionText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -2273,7 +2337,7 @@ function classifyIntent(text: string): CustomerIntent {
   // طلب استرداد صريح يسبق أي تصنيف عام للدفع أو الرسوم.
   if (isExplicitRefundRequestText(t)) return "refund";
 
-  if (isProductSpecificationQuestionText(t)) return "products";
+  if (isProductSpecificationQuestionText(t) || isProductAccessoryQuestionText(t)) return "products";
   if (isApprovalProbabilityQuestionText(t)) return "order_status";
 
   // سؤال واضح عن طريقة إرفاق/رفع مستند يجب ألا يسقط في unknown.
@@ -2288,6 +2352,8 @@ function classifyIntent(text: string): CustomerIntent {
   // أسئلة الدفع التفصيلية يجب أن تُفهم قبل كلمات المكتب/التوصيل أو الحالة العامة.
   if (isPaymentLinkIssueText(t)) return "payment_link_issue";
   if (isFirstInstallmentQuestionText(t)) return "payment_amount";
+  if (isInterestOrReligiousFinancingQuestionText(t)) return "installment_info";
+  if (isInstallmentDurationQuestionText(t)) return "installment_info";
   if (isGeneralMonthlyPaymentQuestionText(t)) return "installment_info";
   if (isPaymentMethodText(t)) return "payment_method";
   if (isPaymentTimingText(t)) return "payment_timing";
@@ -3133,6 +3199,14 @@ function loanReply(from: string) {
 }
 
 function installmentInfoReply(baseUrl: string, from: string, customerText = "", app?: ApplicationRecord | null) {
+  if (isInterestOrReligiousFinancingQuestionText(customerText)) {
+    return interestAndFinancingClarificationReply();
+  }
+
+  if (isInstallmentDurationQuestionText(customerText)) {
+    return installmentDurationReply(baseUrl, app);
+  }
+
   if (isGeneralMonthlyPaymentQuestionText(customerText)) {
     return `إذا قصدك طريقة سداد الأقساط بعد استلام الجهاز: وسيلة السداد وأي تفاصيل مثل الكمبيالات أو الاقتطاع البنكي لا بنثبتها من واتساب بدون اتفاق وجدول نهائي معتمد.
 
@@ -3217,6 +3291,22 @@ function isProductSpecificationQuestionText(text: string) {
   return spec && device;
 }
 
+function isProductAccessoryQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const accessory = hasAny(t, [
+    "سماعة", "سماعه", "شاحن", "راس شاحن", "رأس شاحن", "كيبل", "كابل",
+    "كفر", "جراب", "ملحقات", "اكسسوارات", "إكسسوارات", "قلم", "pen",
+  ]);
+  const inclusion = hasAny(t, [
+    "معه", "معاه", "مع الجهاز", "بالعلبه", "بالعلبة", "ضمن العلبه", "ضمن العلبة",
+    "بتيجي", "بتيجي معه", "يشمل", "شامل", "في معه", "هسا في", "هل في",
+  ]);
+
+  return accessory && inclusion;
+}
+
 function isShortProductSpecificationFollowupText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -3226,10 +3316,19 @@ function isShortProductSpecificationFollowupText(text: string) {
   ]);
 }
 
-function productSpecificationReply(baseUrl: string, app?: ApplicationRecord | null) {
+function productSpecificationReply(baseUrl: string, app?: ApplicationRecord | null, customerText = "") {
   const deviceLine = app?.device_name
     ? `الجهاز المسجل على طلبك: ${customerFacingDeviceName(app.device_name) || "غير محدد"}.\n\n`
     : "";
+
+  if (isProductAccessoryQuestionText(customerText)) {
+    return `${deviceLine}الملحقات المرفقة مع الجهاز بنأكدها فقط إذا كانت مذكورة صراحةً ضمن صفحة المنتج أو وصف الخيار المعتمد.
+
+إذا السماعة أو الشاحن أو أي ملحق مش مذكور هناك، ما بقدر أعتبره مشمول أو أوعدك فيه من عندي.
+
+رابط الأجهزة:
+${baseUrl}/products`;
+  }
 
   return `${deviceLine}المواصفات المؤكدة هي فقط التفاصيل الظاهرة على صفحة المنتج الرسمية عندنا. إذا تفصيل مثل سعة RAM غير ظاهر هناك، ما عندي مصدر داخلي مؤكد يسمح لي أعطي رقم من عندي أو أوعدك أني أتحقق منه لاحقًا.
 
@@ -4210,6 +4309,7 @@ function shouldReturnExactCustomerReply(intent: CustomerIntent) {
     "document_upload",
     "document_followup",
     "products",
+    "greeting",
     "reaction",
   ].includes(String(intent));
 }
@@ -4257,8 +4357,8 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 
 ما رح أغيّر جهازك الحالي ولا أسجل جهازًا إضافيًا من واتساب بدون إجراء رسمي واضح. إذا بدك جهازًا ثانيًا، خليه كسؤال منفصل وما تدفع أي مبلغ إضافي بسببه قبل ما توصلك تعليمات معتمدة.`;
     }
-    if (isProductSpecificationQuestionText(customerText) || isShortProductSpecificationFollowupText(customerText)) {
-      return productSpecificationReply(baseUrl, app);
+    if (isProductSpecificationQuestionText(customerText) || isShortProductSpecificationFollowupText(customerText) || isProductAccessoryQuestionText(customerText)) {
+      return productSpecificationReply(baseUrl, app, customerText);
     }
     if (isDeviceSelectionText(customerText) || !hasSpecificSelectedDevice(app.device_name)) {
       return existingApplicationDeviceSelectionReply(baseUrl, app);
@@ -4296,7 +4396,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "supplier_delay_question") return supplierDelayReply(app, baseUrl);
   if (String(intent) === "delivery") return deliveryDateReply(app, baseUrl);
   if (String(intent) === "review_time") return reviewTimeReply(app.phone || tracking, app, baseUrl, customerText);
-  if (String(intent) === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl);
+  if (String(intent) === "greeting") return socialGreetingReply(app.phone || tracking, app, baseUrl, customerText);
 
   if (String(intent) === "payment") {
     if (
@@ -4672,8 +4772,8 @@ ${url}
 ${BUSINESS_NAME}`;
 }
 
-function generalGreetingReply(from: string) {
-  return socialGreetingReply(from, null, undefined);
+function generalGreetingReply(from: string, customerText = "") {
+  return socialGreetingReply(from, null, undefined, customerText);
 }
 
 function generalReviewTimeReply(from: string, customerText = "") {
@@ -6390,6 +6490,35 @@ function isLikelyIncompleteReply(reply: string) {
   return false;
 }
 
+function replyTooShortForIntent(reply: string, intent: CustomerIntent) {
+  const socialIntents = new Set(["greeting", "thanks", "reaction"]);
+  if (socialIntents.has(String(intent))) return false;
+
+  const clean = normalizeArabicText(String(reply || ""))
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/[✅🌿🙂🙏❤️💚]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (!clean) return true;
+  const words = clean.split(/\s+/).filter(Boolean);
+
+  // V1.2.2 SEMANTIC COMPLETENESS: catches fragments such as "ما بق"
+  // while allowing intentionally short social replies.
+  return clean.length < 12 || words.length < 3;
+}
+
+function containsUnverifiedInterestOrReligiousClaim(reply: string) {
+  const t = normalizeArabicText(reply);
+  return hasAny(t, [
+    "ما في فوائد ربوية", "لا يوجد فوائد ربوية", "بدون فوائد ربوية",
+    "ما في ربا", "بدون ربا", "النظام شرعي", "التقسيط شرعي",
+    "حلال 100", "حلال مية بالمية", "حلال ميه بالميه",
+    "ما في فوائد", "بدون فوائد", "لا توجد فوائد",
+  ]);
+}
+
 function incompleteReplyFallback(input: AiReplyInput) {
   if (String(input.intent) === "staff_identity" || String(input.intent) === "human_agent") {
     return `معك ${input.assignedAgentName || "موظف من فريق الأمين"} من فريق الأمين. احكيلي سؤالك وبجاوبك حسب حالة الطلب.`;
@@ -6515,20 +6644,21 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
     containsUnsupportedRegistrationClaim(clean) ||
     containsWrongReviewDuration(clean) ||
     containsGuaranteedReviewOutcome(clean) ||
-    containsUnverifiedProductVerificationPromise(clean)
+    containsUnverifiedProductVerificationPromise(clean) ||
+    containsUnverifiedInterestOrReligiousClaim(clean)
   ) {
     clean = input.deterministicReply;
   }
 
   clean = clean.replace(/الجمعة والسبت عطلة رسمية/gi, "الجمعة والسبت لا تُحسبان ضمن أيام العمل");
 
-  if (isLikelyIncompleteReply(clean)) {
+  if (isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, input.intent)) {
     clean = incompleteReplyFallback(input);
   }
 
   clean = enforceApplicationTruth(clean, input);
 
-  if (!clean || isLikelyIncompleteReply(clean)) {
+  if (!clean || isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, input.intent)) {
     return incompleteReplyFallback(input);
   }
 
@@ -6577,7 +6707,7 @@ function finalizeReplyBeforeSend(reply: string, options: {
     lastQuestionLikeCustomerMessage: options.memory.lastQuestionLikeCustomerMessage || null,
   });
 
-  if (isLikelyIncompleteReply(finalReply)) {
+  if (isLikelyIncompleteReply(finalReply) || replyTooShortForIntent(finalReply, options.intent)) {
     return `وصلت رسالتك، لكن ما بدي أرسل لك جواب ناقص أو غير مؤكد.
 
 ابعث رقم الطلب إذا الموضوع متعلق بملفك، أو اكتب النقطة بجملة واحدة وبجاوبك عليها مباشرة.`;
@@ -7046,6 +7176,7 @@ async function generateAiReply(input: AiReplyInput) {
 
 شخصيتك وأسلوبك:
 - الرد النهائي يجب أن يكون قصيرًا مثل واتساب: 2 إلى 5 أسطر غالبًا.
+- ممنوع إرسال كلمة أو كلمتين مجتزأتين كرد نهائي. كل رد غير اجتماعي يجب أن يحتوي جملة مكتملة المعنى على الأقل.
 - ممنوع عرض الملف ككشف طويل أو قائمة إلا إذا العميل طلب تفاصيل.
 - لا تكرر: رقم التتبع، رابط المتابعة، حالة الدفع، وحالة الملف في كل رد. اذكرها فقط عند الحاجة.
 - إذا سأل العميل: هل أنت AI أو روبوت؟ أو قال: شو اسمك؟ لا تناقش التقنية ولا تقل "مش روبوت" ولا تدّعي أنك إنسان. قل فقط: "معك [اسم الموظف الثابت] من فريق الأمين" ثم ارجع لسؤاله أو ملفه.
@@ -7068,6 +7199,7 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا سأل عن البنك المركزي: قل بوضوح إنها ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا، ولا ندعي الخضوع لرقابة البنك المركزي.
 - إذا سأل عن الاسم القانوني: استخدم فقط الاسم المعتمد "الأمين للأقساط" ولا تخترع اسمًا قانونيًا غير موثق.
 - إذا سأل عن قروض أو مصاري: وضح بلطف أننا لا نقدم قروضًا، فقط تقسيط أجهزة وهواتف.
+- إذا سأل عن فوائد/ربا/شرعية التقسيط: ممنوع إعطاء حكم شرعي أو مصرفي مثل "ما في فوائد ربوية" أو "التقسيط شرعي". اكتفِ بأن الأمين للأقساط ليست بنكًا ولا شركة تمويل أو إقراض، وأن السعر وجدول الأقساط والمبالغ تظهر بوضوح ضمن الطلب والاتفاق المعتمد.
 
 قاعدة عدم فتح موضوع الدفع بلا سبب:
 - لا تذكر الدفع أو رسوم فتح الملف في رد متابعة الطلب إلا إذا العميل سأل عن الدفع، أو كانت حالة الطلب تتطلب دفعًا فعليًا الآن.
@@ -7715,10 +7847,34 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const recentProductSpecContext = [
     ...(conversationMemory.lastCustomerMessages || []),
     ...(conversationMemory.lastAssistantReplies || []),
-  ].slice(-8).some((message) => isProductSpecificationQuestionText(String(message || "")) || hasAny(String(message || ""), ["HONOR 600", "هونر 600", "رام", "رامات", "مواصفات"]));
+  ].slice(-8).some((message) =>
+    isProductSpecificationQuestionText(String(message || "")) ||
+    isProductAccessoryQuestionText(String(message || "")) ||
+    hasAny(String(message || ""), ["HONOR 600", "هونر 600", "رام", "رامات", "مواصفات", "سماعة", "شاحن", "ملحقات"])
+  );
 
-  if (String(intent) === "unknown" && isShortProductSpecificationFollowupText(rawCustomerText) && recentProductSpecContext) {
+  if (
+    String(intent) === "unknown" &&
+    (isShortProductSpecificationFollowupText(rawCustomerText) || isProductAccessoryQuestionText(rawCustomerText)) &&
+    recentProductSpecContext
+  ) {
     intent = "products";
+  }
+
+  const recentInstallmentContext = [
+    ...(conversationMemory.lastCustomerMessages || []),
+    ...(conversationMemory.lastAssistantReplies || []),
+  ].slice(-8).some((message) =>
+    isInstallmentDurationQuestionText(String(message || "")) ||
+    hasAny(String(message || ""), ["تقسيط", "القسط", "الأقساط", "الاقساط", "كم شهر", "مدة التقسيط", "الجدول النهائي"])
+  );
+
+  if (
+    String(intent) === "unknown" &&
+    isShortInstallmentDurationFollowupText(rawCustomerText) &&
+    recentInstallmentContext
+  ) {
+    intent = "installment_info";
   }
 
   if (app && isApprovalProbabilityQuestionText(rawCustomerText)) {
@@ -8548,8 +8704,8 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "apply") {
     deterministicReply = applyReply(baseUrl, from);
   } else if (String(intent) === "products") {
-    deterministicReply = (isProductSpecificationQuestionText(text) || isShortProductSpecificationFollowupText(text))
-      ? productSpecificationReply(baseUrl, null)
+    deterministicReply = (isProductSpecificationQuestionText(text) || isShortProductSpecificationFollowupText(text) || isProductAccessoryQuestionText(text))
+      ? productSpecificationReply(baseUrl, null, text)
       : productsReply(baseUrl, from);
   } else if (String(intent) === "payment") {
     deterministicReply = paymentGeneralReply(from);
@@ -8567,7 +8723,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
   } else if (tracking) {
     deterministicReply = temporaryOrderLookupIssueReply(from, tracking);
   } else if (String(intent) === "greeting") {
-    deterministicReply = generalGreetingReply(from);
+    deterministicReply = generalGreetingReply(from, text);
   } else if (String(intent) === "thanks") {
     deterministicReply = `العفو 🌿
 بخدمتك بأي وقت.`;

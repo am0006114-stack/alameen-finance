@@ -149,7 +149,10 @@ function normalizeDigits(value: string) {
 }
 
 function phoneNumbers(value: string) {
-  const withoutTracking = normalizeDigits(value).replace(/AM-\d{8,}/gi, " ");
+  const withoutTracking = normalizeDigits(value)
+    .replace(/AM-\d{8,}/gi, " ")
+    .replace(/(?:رقم\s+(?:الطلب|التتبع)|tracking\s*(?:id|number)?)\s*[:#-]?\s*\d{8,16}/gi, " ")
+    .replace(/https?:\/\/\S+/gi, " ");
   const matches = withoutTracking.match(/(?:\+?\d[\d\s().-]{7,}\d)/g) || [];
   return matches
     .map((match) => match.replace(/\D/g, ""))
@@ -430,6 +433,9 @@ function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string)
     "كم نسبة الموافقة", "نسبة قبولي", "اعطيني انسان اتواصل معه",
     "جهاز ثاني", "جهاز تاني", "كمان جهاز", "reply me in english", "in english pls",
     "قصدي السؤال الي قبل", "قصدي السؤال اللي قبل", "في مكان ممكن اراجع",
+    "القسط ع كم شهر", "القسط على كم شهر", "كم شهر تقسيط", "مدة التقسيط",
+    "هسا في سماعة معه", "معه سماعة", "سماعة معه", "معه شاحن",
+    "هل في فوائد", "فوائد ربوية", "هل التقسيط شرعي",
   ]);
   const unknownFallback = includesAny(reply, [
     "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
@@ -497,6 +503,27 @@ function finalReplyLooksTruncated(reply: string) {
   if (["من", "الى", "إلى", "على", "عن", "في", "اذا", "إذا", "لو", "عشان", "حتى", "لكن", "بس", "او", "أو", "انه", "إنه", "انو", "إنو"].includes(last)) return true;
   if (/[:،,\-–]$/.test(String(reply || "").trim())) return true;
   return false;
+}
+
+function finalReplyHasMinimumSemanticContent(reply: string, intent: CustomerIntent) {
+  if (["greeting", "thanks", "reaction"].includes(String(intent))) return true;
+  const clean = normalized(reply)
+    .replace(/https?:\/\/\S+/gi, " ")
+    .replace(/[^\p{L}\p{N}\s]/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!clean) return false;
+  const words = clean.split(/\s+/).filter(Boolean);
+  return clean.length >= 12 && words.length >= 3;
+}
+
+function hasUnverifiedInterestOrReligiousClaim(reply: string) {
+  return includesAny(reply, [
+    "ما في فوائد ربوية", "لا يوجد فوائد ربوية", "بدون فوائد ربوية",
+    "ما في ربا", "بدون ربا", "النظام شرعي", "التقسيط شرعي",
+    "حلال 100", "حلال مية بالمية", "حلال ميه بالميه",
+    "ما في فوائد", "بدون فوائد", "لا توجد فوائد",
+  ]);
 }
 
 function customerAsksMonthlyInstallmentMethod(text: string) {
@@ -625,9 +652,16 @@ export function validateFinalActualReply(
   addCheck(
     checks,
     "final_actual_reply_not_truncated",
-    !finalReplyLooksTruncated(reply),
+    !finalReplyLooksTruncated(reply) && finalReplyHasMinimumSemanticContent(reply, context.initialIntent),
     "critical",
-    "الرد الفعلي النهائي لا يجوز أن ينتهي بجملة مقطوعة أو أداة ربط معلقة.",
+    "الرد الفعلي النهائي يجب أن يكون مكتمل المعنى، وليس كلمة أو كلمتين مجتزأتين أو جملة معلقة.",
+  );
+  addCheck(
+    checks,
+    "no_unverified_interest_or_religious_claim",
+    !hasUnverifiedInterestOrReligiousClaim(reply),
+    "critical",
+    "لا يجوز إصدار حكم شرعي أو مصرفي غير موثق مثل نفي الفوائد الربوية أو وصف التقسيط بأنه شرعي.",
   );
   addCheck(
     checks,
@@ -658,6 +692,8 @@ export function validateShadowReply(
 
   addCheck(checks, "non_empty", Boolean(reply), "critical", "الرد غير فارغ.");
   addCheck(checks, "reasonable_length", reply.length <= 1400, "warning", "الرد لا يتجاوز 1400 حرف.");
+  addCheck(checks, "candidate_semantic_completeness", !finalReplyLooksTruncated(reply) && finalReplyHasMinimumSemanticContent(reply, context.initialIntent), "critical", "المسودة يجب أن تكون جملة مكتملة المعنى وليست جزءًا مبتورًا.");
+  addCheck(checks, "no_unverified_interest_or_religious_claim", !hasUnverifiedInterestOrReligiousClaim(reply), "critical", "ممنوع إصدار حكم شرعي أو مصرفي غير موثق عن الفوائد أو الربا.");
   addCheck(checks, "no_internal_template", !includesAny(reply, ["اكتب السؤال كامل", "لازم تدخل بشري", "سيتم تحويلك", "متابعه بشريه", "متابعة بشرية"]), "critical", "لا يحتوي الرد قالبًا داخليًا أو باردًا.");
   addCheck(checks, "no_branch_word", !includesAny(reply, ["فرع", "فروع"]), "critical", "لا تُستخدم كلمة فرع أو فروع.");
   addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payameen"]), "critical", "اسم الدفع الصحيح PAYAMEN وليس PAYAMEEN.");
