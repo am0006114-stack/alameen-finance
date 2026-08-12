@@ -118,7 +118,7 @@ export function isExactReopenConfirmationText(text: string) {
 
 export function hasConfirmedPaymentEvidence(app: ApplicationRecord | null | undefined) {
   if (!app) return false;
-  return app.payment_status === "confirmed" || Boolean(app.payment_confirmed_at) || app.payment_reference === "customer_cancelled_paid_refund_pending";
+  return app.payment_status === "confirmed" || Boolean(app.payment_confirmed_at);
 }
 
 export function hasRefundState(app: ApplicationRecord | null | undefined) {

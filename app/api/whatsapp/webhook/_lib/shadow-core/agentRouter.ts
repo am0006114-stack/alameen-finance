@@ -75,7 +75,7 @@ export function routeShadowAgent(input: {
     "refund",
     "stop_refund",
   ];
-  const studyTopics: ShadowTopic[] = ["requirements", "procedures", "document_upload"];
+  const studyTopics: ShadowTopic[] = ["requirements", "eligibility", "procedures", "document_upload"];
   const contactTopics: ShadowTopic[] = [
     "contact_number",
     "phone_not_answered",
@@ -112,6 +112,8 @@ export function routeShadowAgent(input: {
     "acknowledgement",
     "voluntary_opt_out",
     "office_payment_request",
+    "business_hours",
+    "eligibility",
   ];
 
   const role: ShadowAgentRole = hasAnyTopic(input.topics, contactTopics)

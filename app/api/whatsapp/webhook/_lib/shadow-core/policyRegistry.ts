@@ -11,7 +11,7 @@ import { detectCustomerGender } from "../customerGender";
 
 import { BUSINESS_ACTIVITY, BUSINESS_NAME, BUSINESS_PHONE_DISPLAY, BUSINESS_PHONE_E164, BUSINESS_WEBSITE } from "../constants";
 
-import { changeDeviceUrl, selectDeviceUrl } from "../links";
+import { changeDeviceUrl } from "../links";
 
 // V1.1.4 DEVICE SELECTION FACTS START
 function hasSpecificDeviceSelection(value: string | null | undefined) {
@@ -98,9 +98,10 @@ export function buildShadowFacts(
   const stage = resolveApplicationStage(status, paymentStatus);
   const isApproved = status === "approved" || status === "customer_accepts_delivery_delay";
   const isCancelled = status === "cancelled";
-  const refundActive = status === "refund_requested" || paymentStatus === "refund_requested";
-  const refundCompleted = status === "refund_completed";
-  const paymentConfirmed = Boolean(paymentStatus && PAYMENT_CONFIRMED_STATUSES.has(paymentStatus));
+  const paymentConfirmed = Boolean((paymentStatus && PAYMENT_CONFIRMED_STATUSES.has(paymentStatus)) || meaningfulApp?.payment_confirmed_at);
+  const refundStatePresent = status === "refund_requested" || paymentStatus === "refund_requested";
+  const refundActive = refundStatePresent && paymentConfirmed;
+  const refundCompleted = status === "refund_completed" && paymentConfirmed;
   const paymentReceiptPending = Boolean(
     status === "pending_payment_confirmation" ||
       (paymentStatus && PAYMENT_RECEIPT_PENDING_STATUSES.has(paymentStatus)),
@@ -174,11 +175,7 @@ export function buildShadowFacts(
     trackingId: meaningfulApp?.tracking_id || trackingId || null,
     customerName: resolvedCustomerName,
     deviceName: currentDevice,
-    deviceSelectionUrl: app
-      ? (hasSpecificDeviceSelection(app.device_name)
-          ? changeDeviceUrl(BUSINESS_WEBSITE, app)
-          : selectDeviceUrl(BUSINESS_WEBSITE, app))
-      : `${BUSINESS_WEBSITE}/products`,
+    deviceSelectionUrl: app ? changeDeviceUrl(BUSINESS_WEBSITE, app) : `${BUSINESS_WEBSITE}/products`,
     hasSpecificDevice: hasSpecificDeviceSelection(app?.device_name),
     currentDevice,
     deviceChangeRequest: evidenceInput?.deviceChangeRequest || emptyDeviceChange(),

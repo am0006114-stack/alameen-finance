@@ -39,6 +39,8 @@ export type ShadowTopic =
   | "device_selection"
   | "voluntary_opt_out"
   | "office_payment_request"
+  | "business_hours"
+  | "eligibility"
   | "general_question";
 
 export type ShadowEvidenceSource =

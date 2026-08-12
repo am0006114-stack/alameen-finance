@@ -349,6 +349,14 @@ function generalProceduresReply(facts: ShadowFacts) {
   return `الخطوات باختصار: تختار الجهاز من ${BUSINESS_WEBSITE}/products، تقدم الطلب، وبعدها تصلك الخطوة المطلوبة حسب نتيجة المراجعة. لا ترسل مستندات حساسة عبر واتساب؛ أي مستند مطلوب يكون له رابط رسمي آمن مرتبط بالطلب.`;
 }
 
+function businessHoursReply() {
+  return `ما عندي وقت دوام عام معتمد أقدر أحدده لك بدون تخمين. متابعة الطلبات الأساسية تتم عبر واتساب حسب الدور وضغط المراجعات، والحضور إلى المكتب لا يكون إلا بموعد رسمي بعد الموافقة النهائية.`;
+}
+
+function eligibilityReply() {
+  return `بتقدر تقدم طلب للمراجعة، لكن وجود وظيفة أو اشتراك بالضمان ما بيعني موافقة مسبقة ولا نقدر نضمن القبول قبل دراسة الطلب. إذا احتاج الملف مستندًا محددًا، يصلك اسمه ورابط الرفع الرسمي المرتبط بالطلب.`;
+}
+
 export function buildDeterministicReply(input: {
   facts: ShadowFacts;
   topics: ShadowTopic[];
@@ -389,13 +397,23 @@ export function buildDeterministicReply(input: {
   }
 
   if (hasTopic(topics, "cancellation")) {
-    return composeParts([{ id: cancellationConfirmed(initialIntent, customerText) ? "cancel-confirmed-v1" : "cancel-request-v1", reason: "الإلغاء مسار حتمي ولا يجوز للنموذج ادعاء تنفيذه.", text: cancellationReply(facts, initialIntent, customerText) }], facts);
+    const parts: ReplyPart[] = [{
+      id: cancellationConfirmed(initialIntent, customerText) ? "cancel-confirmed-v1" : "cancel-request-v1",
+      reason: "الإلغاء مسار حتمي ولا يجوز للنموذج ادعاء تنفيذه.",
+      text: cancellationReply(facts, initialIntent, customerText),
+    }];
+    if (hasTopic(topics, "complaint")) parts.push({ id: "complaint-context-v1", reason: "تمت إضافة تهدئة دون وعد أو إجراء غير مؤكد.", text: complaintAcknowledgement(facts) });
+    return composeParts(parts, facts);
   }
   if (hasTopic(topics, "stop_refund")) {
-    return composeParts([{ id: "stop-refund-v1", reason: "إيقاف الاسترداد يحتاج فحص حالة حتمي.", text: stopRefundReply(facts) }], facts);
+    const parts: ReplyPart[] = [{ id: "stop-refund-v1", reason: "إيقاف الاسترداد يحتاج فحص حالة حتمي.", text: stopRefundReply(facts) }];
+    if (hasTopic(topics, "complaint")) parts.push({ id: "complaint-context-v1", reason: "تمت إضافة تهدئة دون وعد أو إجراء غير مؤكد.", text: complaintAcknowledgement(facts) });
+    return composeParts(parts, facts);
   }
   if (hasTopic(topics, "refund")) {
-    return composeParts([{ id: "refund-status-v1", reason: "حالة الاسترداد تُقرأ من الطلب فقط.", text: refundReply(facts) }], facts);
+    const parts: ReplyPart[] = [{ id: "refund-status-v1", reason: "حالة الاسترداد تُقرأ من الطلب فقط.", text: refundReply(facts) }];
+    if (hasTopic(topics, "complaint")) parts.push({ id: "complaint-context-v1", reason: "تمت إضافة تهدئة دون وعد أو إجراء غير مؤكد.", text: complaintAcknowledgement(facts) });
+    return composeParts(parts, facts);
   }
 
   const parts: ReplyPart[] = [];
@@ -403,6 +421,8 @@ export function buildDeterministicReply(input: {
 
   if (hasTopic(topics, "regulatory_status")) add("regulatory-status-v1", "الوضع التنظيمي للنشاط سياسة ثابتة ولا يُسمح للنموذج باختراعه.", regulatoryStatusReply());
   if (hasTopic(topics, "business_identity")) add("business-identity-v1", "اسم الجهة ونوع النشاط يؤخذان من سياسة العمل المعتمدة فقط.", businessIdentityReply());
+  if (hasTopic(topics, "business_hours")) add("business-hours-v1", "لا توجد ساعات دوام عامة معتمدة ضمن الحقائق، لذلك لا يُسمح باختراعها.", businessHoursReply());
+  if (hasTopic(topics, "eligibility")) add("eligibility-v1", "أهلية التقديم لا تعني ضمان القبول، لذلك يُسمح بالتقديم للمراجعة دون وعد بنتيجة.", eligibilityReply());
 
   if (hasTopic(topics, "phone_not_answered")) add("phone-unanswered-v1", "الهاتف غير المجاب له سياسة تواصل ثابتة.", phoneNotAnsweredReply(facts));
   else if (hasTopic(topics, "contact_number")) add("official-contact-v1", "رقم التواصل يؤخذ من الثابت الرسمي فقط.", contactReply(facts));
@@ -440,10 +460,16 @@ export function buildSafeFallbackReply(input: {
   messageType: string | null | undefined;
   route: ShadowRouteDecision;
 }) {
-  if (hasTopic(input.topics, "complaint")) {
+  const substantiveBeyondComplaint = input.topics.some((topic) =>
+    !["complaint", "general_question", "acknowledgement"].includes(topic)
+  );
+  const substantiveBeyondTrust = input.topics.some((topic) =>
+    !["trust", "general_question", "acknowledgement"].includes(topic)
+  );
+  if (hasTopic(input.topics, "complaint") && !substantiveBeyondComplaint) {
     return composeParts([{ id: "complaint-fallback-v2", reason: "تم استبدال مسودة غير آمنة برد تهدئة مبني على الحالة المؤكدة.", text: complaintAcknowledgement(input.facts) }], input.facts);
   }
-  if (hasTopic(input.topics, "trust")) {
+  if (hasTopic(input.topics, "trust") && !substantiveBeyondTrust) {
     return composeParts([{ id: "trust-fallback-v2", reason: "تم استبدال مسودة غير آمنة برد تحقق رسمي دون ضغط.", text: trustReply() }], input.facts);
   }
   return buildDeterministicReply(input);

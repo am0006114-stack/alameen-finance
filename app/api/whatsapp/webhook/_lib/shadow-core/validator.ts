@@ -169,20 +169,11 @@ function hasUnapprovedContactNumber(reply: string, facts: ShadowFacts) {
 
 function hasUnsupportedBusinessHours(reply: string, facts: ShadowFacts) {
   if (facts.officialContact.businessHours) return false;
-  return includesAny(reply, [
-    "ساعات الدوام",
-    "اوقات الدوام",
-    "أوقات الدوام",
-    "من السبت الى",
-    "من السبت إلى",
-    "من الاحد الى",
-    "من الأحد إلى",
-    "الدوام من",
-    "صباحا حتى",
-    "صباحًا حتى",
-    "مساءا",
-    "مساءً",
-  ]) || /(?:^|\s)(?:[1-9]|1[0-2])(?::\d{2})?\s*(?:صباح|مساء)/.test(normalized(reply));
+  const text = normalized(reply);
+  const explicitSchedule =
+    /(?:الدوام|اوقات الدوام|ساعات الدوام)[^\n.]{0,80}(?:من|يبدا|يبدأ|ببلش|الساعة|الساعه)\s*(?:الاحد|الأحد|السبت|[0-9٠-٩])/i.test(String(reply || "")) ||
+    /(?:من\s+(?:الاحد|الأحد|السبت)[^\n.]{0,60}(?:الى|إلى)|(?:^|\s)(?:[1-9]|1[0-2])(?::\d{2})?\s*(?:صباح|مساء))/i.test(text);
+  return explicitSchedule;
 }
 
 function deviceModelKeys(value: string | null | undefined) {
@@ -344,6 +335,8 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
     device_selection: ["اختيار الجهاز", "/products", "/change-device"],
     voluntary_opt_out: ["الخدمه اختياريه", "الخدمة اختيارية", "القرار راجع", "ما في عليك اي التزام", "ما في عليك أي التزام"],
     office_payment_request: ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب", "الخدمة اختيارية", "الاجراء اختياري"],
+    business_hours: ["ما عندي وقت دوام عام معتمد", "الحضور إلى المكتب لا يكون إلا بموعد رسمي", "الحضور الى المكتب لا يكون الا بموعد رسمي", "موعد رسمي"],
+    eligibility: ["تقدر تقدم", "بتقدر تقدم", "لا تعني موافقة", "ما بيعني موافقة", "ما بنقدر نضمن القبول"],
     device_change: ["change-device", "تغيير الجهاز", "تعديل الجهاز"],
     cancellation: ["الغاء", "إلغاء", "تأكيدك"],
     refund: ["الاسترداد", "المبلغ", "الحواله", "الحوالة"],
@@ -368,7 +361,7 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
 function agentRoleValid(agent: ShadowAgentId, topics: ShadowTopic[]) {
   const contact = topics.some((topic) => ["contact_number", "phone_not_answered", "human_agent", "staff_change", "regulatory_status", "business_identity"].includes(topic));
   const escalation = topics.some((topic) => ["complaint", "trust", "cancellation", "refund", "stop_refund"].includes(topic));
-  const study = topics.some((topic) => ["requirements", "procedures", "document_upload"].includes(topic));
+  const study = topics.some((topic) => ["requirements", "eligibility", "procedures", "document_upload"].includes(topic));
   if (contact) return agent === "tala" || agent === "fadwa";
   if (escalation) return agent === "omran";
   if (study) return agent === "abdullah" || agent === "abdulrahman";
@@ -399,8 +392,9 @@ function hasOptOutCoercion(reply: string) {
 
 function hasVoluntaryChoiceLanguage(reply: string) {
   return includesAny(reply, [
-    "الخدمه اختياريه بالكامل", "الخدمة اختيارية بالكامل", "القرار راجع الك", "القرار راجع إلك",
-    "ما في عليك اي التزام", "ما في عليك أي التزام", "بدون ضغط", "ما رح نضغط عليك",
+    "الخدمه اختياريه بالكامل", "الخدمة اختيارية بالكامل", "الاجراء اختياري بالكامل", "الإجراء اختياري بالكامل",
+    "القرار راجع الك", "القرار راجع إلك", "ما في عليك اي التزام", "ما في عليك أي التزام",
+    "بدون ضغط", "ما رح نضغط عليك",
   ]);
 }
 
@@ -436,6 +430,10 @@ function clearRequestWasAnsweredWithUnknown(customerText: string, reply: string)
     "القسط ع كم شهر", "القسط على كم شهر", "كم شهر تقسيط", "مدة التقسيط",
     "هسا في سماعة معه", "معه سماعة", "سماعة معه", "معه شاحن",
     "هل في فوائد", "فوائد ربوية", "هل التقسيط شرعي",
+    "استمرار", "يعني بطول", "قديش بقعد وقت", "الوقت", "ممكن موقعكم", "موقعكم",
+    "رقم تواصل مكالمة", "في رقم ثاني لتواصل", "بدي اتواصل مع الاداره", "بدي أتواصل مع الإدارة",
+    "الدوام ببلش", "من اي ساعه لا اي ساعه", "من أي ساعة لأي ساعة", "ايام الدوام", "أيام الدوام",
+    "مطلوب اي اشي لبعدين", "مطلوب أي اشي لبعدين", "وين اعبي", "وين أعبي",
   ]);
   const unknownFallback = includesAny(reply, [
     "معناها مش واضح", "الرسالة قصيرة وما قدرت احدد", "اكتب السؤال كامل", "ما بدي اخمن",
@@ -526,6 +524,39 @@ function hasUnverifiedInterestOrReligiousClaim(reply: string) {
   ]);
 }
 
+function hasUnverifiedEligibilityGuarantee(reply: string) {
+  return includesAny(reply, [
+    "اكيد يزبط", "أكيد يزبط", "اكيد بتنقبل", "أكيد بتنقبل", "مضمون قبول", "القبول مضمون",
+    "وضعك الممتاز", "وضعك ممتاز", "اكيد مؤهل", "أكيد مؤهل", "رح تنقبل", "راح تنقبل",
+  ]);
+}
+
+function hasNonRejectionGuarantee(reply: string) {
+  return includesAny(reply, [
+    "ما في اي نيه لرفضه", "ما في أي نية لرفضه", "ما في نيه لرفضه", "ما في نية لرفضه",
+    "ما رح ينرفض", "مش رح ينرفض", "اكيد ما بينرفض", "أكيد ما بينرفض", "مستحيل ينرفض",
+  ]);
+}
+
+function hasUnexecutedAdminTransferClaim(reply: string) {
+  return includesAny(reply, [
+    "اوصل التفاصيل", "أوصل التفاصيل", "حولت طلبك للاداره", "حولت طلبك للإدارة",
+    "رفعت طلبك للاداره", "رفعت طلبك للإدارة",
+  ]);
+}
+
+function finalReplyIsIntroOnly(reply: string) {
+  const text = normalized(reply).replace(/[،,.!؟\s]+/g, " ").trim();
+  return /^(?:معك|انا معك|أنا معك)\s+(?:تالا|فدوه|فدوة|عبدالله|عبدالرحمن|عمران)(?:\s+من\s+فريق\s+الامين)?$/.test(text);
+}
+
+function replyClaimsAuthoritativeDocumentReceipt(reply: string) {
+  return {
+    guarantor: includesAny(reply, ["تم استلام معلومات الكفيل", "تم استلام بيانات الكفيل", "استلمنا بيانات الكفيل"]),
+    salary: includesAny(reply, ["تم استلام كشف الراتب", "استلمنا كشف الراتب", "كشف الراتب تم استلامه"]),
+  };
+}
+
 function customerAsksMonthlyInstallmentMethod(text: string) {
   return includesAny(text, [
     "كيف الدفع الشهري", "كيف ادفع القسط", "كيف أدفع القسط", "اقتطاع من البنك", "اقتطاع مباشر",
@@ -536,7 +567,7 @@ function customerAsksMonthlyInstallmentMethod(text: string) {
 
 export function validateFinalActualReply(
   reply: string,
-  _topics: ShadowTopic[],
+  topics: ShadowTopic[],
   facts: ShadowFacts,
   context: {
     initialIntent: CustomerIntent;
@@ -603,6 +634,18 @@ export function validateFinalActualReply(
     "critical",
     "لا يُوعد بتعديل القسط أو تسجيل طلب تعديل دون جدول أو إجراء مثبت.",
   );
+  addCheck(checks, "final_actual_no_invented_business_hours", !hasUnsupportedBusinessHours(reply, facts), "critical", "لا يجوز اختراع أيام أو ساعات دوام غير موجودة ضمن الحقائق المعتمدة.");
+  addCheck(checks, "final_actual_no_unverified_eligibility_guarantee", !hasUnverifiedEligibilityGuarantee(reply), "critical", "التقديم للمراجعة لا يعني ضمان الأهلية أو الموافقة.");
+  addCheck(checks, "final_actual_no_non_rejection_guarantee", !hasNonRejectionGuarantee(reply), "critical", "لا يجوز ضمان أن الطلب لن يُرفض قبل صدور قرار فعلي.");
+  addCheck(checks, "final_actual_no_unexecuted_admin_transfer", !hasUnexecutedAdminTransferClaim(reply), "critical", "لا يُدّعى تحويل التفاصيل أو التصعيد للإدارة دون إجراء مسجل فعليًا.");
+  addCheck(checks, "final_actual_reply_not_intro_only", !finalReplyIsIntroOnly(reply), "critical", "مقدمة اسم الموظف وحدها ليست جوابًا صالحًا لسؤال العميل.");
+  const receiptClaims = replyClaimsAuthoritativeDocumentReceipt(reply);
+  addCheck(checks, "final_actual_guarantor_receipt_truth", !receiptClaims.guarantor || facts.status === "guarantor_submitted", "critical", "لا يُدّعى استلام بيانات الكفيل قبل أن تعكس قاعدة البيانات ذلك.");
+  addCheck(checks, "final_actual_salary_receipt_truth", !receiptClaims.salary || facts.status === "salary_slip_uploaded", "critical", "لا يُدّعى استلام كشف الراتب قبل أن تعكس قاعدة البيانات ذلك.");
+  const asksIndependence = topics.includes("independence");
+  addCheck(checks, "final_actual_independence_disclosure", !asksIndependence || includesAny(reply, ["جهة مستقلة تمامًا", "جهه مستقله تماما"]) && includesAny(reply, ["لا توجد أي علاقة", "لا توجد اي علاقه", "لا علاقة", "لا علاقه"]), "critical", "عند السؤال عن الأمين للتمويل الأصغر يجب توضيح الاستقلال التام وعدم وجود علاقة أو شراكة أو تبعية.");
+  const voiceInput = topics.includes("voice_message");
+  addCheck(checks, "final_actual_voice_requires_text", !voiceInput || includesAny(reply, ["الرسالة الصوتية", "الرساله الصوتيه"]) && includesAny(reply, ["اكتب", "نص"]), "critical", "الصوت دون تفريغ نصي لا يجوز تفسير محتواه؛ يجب طلب توضيح نصي.");
   addCheck(
     checks,
     "clear_customer_request_not_treated_as_unknown",
@@ -678,6 +721,13 @@ export function validateFinalActualReply(
     "critical",
     "لا يجوز اختراع خيار أقساط أسبوعية دون جدول معتمد.",
   );
+  const highPriorityTopics = topics.filter((topic) => [
+    "refund", "stop_refund", "cancellation", "complaint", "voice_message", "business_hours",
+    "eligibility", "office_location", "independence", "contact_number", "phone_not_answered",
+    "human_agent", "review_time", "requirements", "office_payment_request", "voluntary_opt_out",
+  ].includes(topic));
+  const missingHighPriority = highPriorityTopics.filter((topic) => !topicAnswered(topic, reply));
+  addCheck(checks, "final_actual_high_priority_topics_answered", missingHighPriority.length === 0, "critical", "الرد النهائي يجب أن يغطي كل موضوع تشغيلي أو حساس واضح في الرسالة الحالية.");
   return checks;
 }
 

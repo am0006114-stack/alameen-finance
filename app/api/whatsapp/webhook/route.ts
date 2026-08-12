@@ -60,6 +60,12 @@ import {
   isPositiveContinueDecisionText,
 } from "./_lib/stateIntegrity";
 import { enqueueShadowJob } from "./_lib/shadow-core";
+import { buildShadowFacts } from "./_lib/shadow-core/policyRegistry";
+import { detectShadowTopics } from "./_lib/shadow-core/topicDetector";
+import { validateFinalActualReply } from "./_lib/shadow-core/validator";
+import { buildSafeFallbackReply } from "./_lib/shadow-core/deterministicReply";
+import { routeShadowAgent } from "./_lib/shadow-core/agentRouter";
+import type { ShadowAgentId, ShadowPolicyCheck } from "./_lib/shadow-core/types";
 import {
   customerAskedAboutFinalApproval,
   resolveApplicationStage,
@@ -1634,6 +1640,7 @@ function classifyIncomingIntent(text: string, messageType = "text"): CustomerInt
   const type = String(messageType || "text").toLowerCase();
 
   if (type === "reaction") return "reaction";
+  if (type === "audio" || type === "voice") return "media_upload";
   if (type === "image" || type === "video") return "media_upload";
   if (type === "document") return "document_upload";
 
@@ -5413,33 +5420,19 @@ async function handleDocumentAutomation(input: {
     });
   }
 
-  if (submitted && officialUploadConfirmed && hasGuarantorContext) {
-    const updatedApp = await markGuarantorSubmitted(app);
-    const reply = guarantorSubmittedAutoReply(updatedApp);
+  if (submitted && officialUploadConfirmed && (hasGuarantorContext || hasSalaryContext)) {
+    const label = hasGuarantorContext ? "بيانات الكفيل" : "كشف الراتب";
+    const reply = `تمام. إذا تم رفع ${label} من الرابط الرسمي المرتبط بالطلب، ما في داعي تعيد الرفع أو ترسله عبر واتساب.
+
+حالة الطلب عندي ما زالت لا تؤكد استلام ${label} في السجل الرسمي، لذلك ما رح أغيّر حالة الملف اعتمادًا على رسالة واتساب وحدها. أول ما يتحدث السجل من مسار الرفع الرسمي تظهر الخطوة التالية حسب حالة الطلب.
+
+رقم الطلب: ${app.tracking_id || app.id}`;
 
     await sendDiscordNotification({
-      title: "✅ تم استلام معلومات الكفيل تلقائيًا",
-      description: "العميل أكد تعبئة معلومات الكفيل عبر واتساب، وتم تحديث حالة الطلب تلقائيًا إلى guarantor_submitted.",
-      color: 0x57f287,
-      app: updatedApp,
-      customerPhone: from,
-      customerMessage: text,
-      systemReply: reply,
-      baseUrl,
-    });
-
-    return reply;
-  }
-
-  if (submitted && officialUploadConfirmed && hasSalaryContext) {
-    const updatedApp = await markSalarySlipUploaded(app);
-    const reply = salarySlipUploadedAutoReply(updatedApp);
-
-    await sendDiscordNotification({
-      title: "✅ تم استلام كشف الراتب تلقائيًا",
-      description: "العميل أكد رفع كشف الراتب عبر واتساب، وتم تحديث حالة الطلب تلقائيًا إلى salary_slip_uploaded.",
-      color: 0x57f287,
-      app: updatedApp,
+      title: "🛡️ ادعاء رفع مستند بانتظار المزامنة الرسمية",
+      description: "العميل ذكر أنه أكمل الرفع عبر الرابط. لم يتم تغيير حالة الطلب من رسالة واتساب؛ مصدر الحقيقة هو مسار الرفع الرسمي فقط.",
+      color: 0xfee75c,
+      app,
       customerPhone: from,
       customerMessage: text,
       systemReply: reply,
@@ -5505,7 +5498,7 @@ async function updateCustomerDecision(input: {
     } as ApplicationRecord;
   }
 
-  const wasPaid = input.app.payment_status === "confirmed";
+  const wasPaid = hasConfirmedPaymentEvidence(input.app);
   const updatePayload = wasPaid
     ? {
         status: "cancelled",
@@ -5697,7 +5690,7 @@ function reopenCancelledRequestReply(app: ApplicationRecord) {
 رقم الطلب: ${tracking}`;
   }
 
-  const paidCancellation = app.payment_status === "refund_requested" || app.payment_reference === "customer_cancelled_paid_refund_pending";
+  const paidCancellation = hasConfirmedPaymentEvidence(app) && (app.payment_status === "refund_requested" || app.status === "refund_requested");
 
   if (paidCancellation) {
     return `ممكن تطلب التراجع عن الإلغاء ما دام الاسترداد ما اكتمل، لكن لازم نوقف مسار الاسترداد أولًا حتى ما يصير تعارض.
@@ -6675,6 +6668,146 @@ function aiTemperatureForInput(input: AiReplyInput, useDeepThinking: boolean) {
   }
 
   return Number(process.env.AI_TEMPERATURE || "0.45");
+}
+
+
+function shadowAgentIdFromStaffName(name: string): ShadowAgentId | null {
+  const normalizedName = normalizeArabicText(name);
+  if (normalizedName === normalizeArabicText("تالا")) return "tala";
+  if (normalizedName === normalizeArabicText("فدوة")) return "fadwa";
+  if (normalizedName === normalizeArabicText("عبدالله")) return "abdullah";
+  if (normalizedName === normalizeArabicText("عبدالرحمن")) return "abdulrahman";
+  if (normalizedName === normalizeArabicText("عمران")) return "omran";
+  return null;
+}
+
+function criticalPolicyFailures(checks: ShadowPolicyCheck[]) {
+  return checks.filter((check) => check.severity === "critical" && !check.passed);
+}
+
+function explicitLinkRecoveryReply(
+  request: Request,
+  app: ApplicationRecord | null,
+  customerText: string,
+  fallbackReply: string,
+) {
+  if (!app || !isExplicitOperationalLinkRequestText(customerText)) return fallbackReply;
+  const text = normalizeArabicText(customerText);
+  const baseUrl = getBaseUrl(request);
+  let url = "";
+
+  if (hasAny(text, ["وصل", "ايصال", "إيصال", "حواله", "حوالة"])) url = receiptUrl(baseUrl, app);
+  else if (hasAny(text, ["هويه", "هوية", "الهوية", "الهويه"])) url = identityUrl(baseUrl, app);
+  else if (hasAny(text, ["كشف راتب", "شهادة راتب", "شهاده راتب", "راتب"])) url = salarySlipUrl(baseUrl, app);
+  else if (hasAny(text, ["كفيل", "الضامن", "ضامن"])) url = guarantorUrl(baseUrl, app);
+  else if (hasAny(text, ["استرداد", "استرجاع", "تأخير", "تاخير"])) url = delayUrl(baseUrl, app);
+  else if (hasAny(text, ["اختيار الجهاز", "اختيار جهاز"])) url = hasSpecificSelectedDevice(app.device_name)
+    ? changeDeviceUrl(baseUrl, app)
+    : selectDeviceUrl(baseUrl, app);
+  else if (hasAny(text, ["تغيير الجهاز", "تعديل الجهاز"])) url = changeDeviceUrl(baseUrl, app);
+  else if (hasAny(text, ["تتبع", "متابعه", "متابعة"])) url = trackUrl(baseUrl, app);
+
+  if (!url || fallbackReply.includes(url)) return fallbackReply;
+  return `${fallbackReply}\n\nالرابط الرسمي المرتبط بطلبك:\n${url}`;
+}
+
+async function applyProductionFinalTruthGate(input: {
+  request: Request;
+  from: string;
+  customerName: string | null;
+  customerText: string;
+  messageType: string;
+  initialIntent: CustomerIntent;
+  application: ApplicationRecord | null;
+  reply: string;
+}) {
+  const facts = buildShadowFacts(
+    input.application,
+    input.application?.tracking_id || extractTracking(input.customerText) || null,
+    input.application?.full_name || input.customerName || null,
+    input.messageType,
+    null,
+    input.customerText,
+  );
+  const topics = detectShadowTopics(input.customerText, input.messageType, input.initialIntent);
+  const preferredAgent = shadowAgentIdFromStaffName(assignedStaffName(input.from));
+  const route = routeShadowAgent({
+    topics,
+    customerText: input.customerText,
+    initialIntent: input.initialIntent,
+    facts,
+    seed: input.application?.tracking_id || input.from,
+    preferredAgent,
+  });
+
+  const validate = (candidate: string) => validateFinalActualReply(candidate, topics, facts, {
+    initialIntent: input.initialIntent,
+    agent: route.agent,
+    agentName: route.agentName,
+    customerText: input.customerText,
+  });
+
+  const firstChecks = validate(input.reply);
+  const firstFailures = criticalPolicyFailures(firstChecks);
+  if (!firstFailures.length) {
+    return {
+      reply: input.reply,
+      recovered: false,
+      failedChecks: [] as string[],
+    };
+  }
+
+  const fallbackPlan = buildSafeFallbackReply({
+    facts,
+    topics,
+    initialIntent: input.initialIntent,
+    customerText: input.customerText,
+    messageType: input.messageType,
+    route,
+  });
+  let fallbackReply = explicitLinkRecoveryReply(input.request, input.application, input.customerText, fallbackPlan.reply);
+  fallbackReply = applyFinalSendGuard(fallbackReply, input.application);
+
+  const secondChecks = validate(fallbackReply);
+  const secondFailures = criticalPolicyFailures(secondChecks);
+
+  if (secondFailures.length) {
+    const voice = topics.includes("voice_message");
+    const independence = topics.includes("independence");
+    const businessHours = topics.includes("business_hours");
+
+    if (voice) {
+      fallbackReply = "وصلت الرسالة الصوتية، لكن ما عندي تفريغ نصي معتمد لمحتواها. اكتب النقطة نفسها بجملة قصيرة حتى أرد عليها بدقة.";
+    } else if (independence) {
+      fallbackReply = "الأمين للأقساط جهة مستقلة تمامًا، ولا توجد أي علاقة أو شراكة أو تبعية بينها وبين شركة الأمين للتمويل الأصغر على الإطلاق.";
+    } else if (businessHours) {
+      fallbackReply = "ما عندي وقت دوام عام معتمد أقدر أحدده لك بدون تخمين. متابعة الطلبات الأساسية تتم عبر واتساب حسب الدور وضغط المراجعات، والحضور إلى المكتب لا يكون إلا بموعد رسمي بعد الموافقة النهائية.";
+    } else if (input.application) {
+      fallbackReply = `حتى أحافظ على دقة ملفك، ما رح أؤكد أو أغيّر أي حالة بناءً على رد غير مكتمل أو معلومة غير مثبتة. الحالة المعتمدة تُقرأ من الطلب نفسه، وأول ما يظهر تحديث فعلي يتم التواصل معك.\n\nرقم الطلب: ${input.application.tracking_id || input.application.id}`;
+    } else {
+      fallbackReply = "حتى أعطيك معلومة دقيقة، ما رح أخمّن أو أؤكد إجراء غير موجود. اكتب النقطة المطلوبة بجملة قصيرة، وإذا عندك طلب قائم أرسل رقم التتبع الموجود في الرسالة الرسمية.";
+    }
+
+    fallbackReply = explicitLinkRecoveryReply(input.request, input.application, input.customerText, fallbackReply);
+    fallbackReply = applyFinalSendGuard(fallbackReply, input.application);
+  }
+
+  await sendDiscordNotification({
+    title: "🛡️ FINAL TRUTH GATE — تم استبدال رد غير آمن",
+    description: `فشل الرد الأول في الحمايات التالية: ${firstFailures.map((check) => check.id).join(", ")}. تم استخدام رد حتمي مبني على الحقائق قبل الإرسال.`,
+    color: 0xed4245,
+    app: input.application || undefined,
+    customerPhone: input.from,
+    customerMessage: input.customerText,
+    systemReply: fallbackReply,
+    baseUrl: getBaseUrl(input.request),
+  });
+
+  return {
+    reply: fallbackReply,
+    recovered: true,
+    failedChecks: firstFailures.map((check) => check.id),
+  };
 }
 
 function finalizeReplyBeforeSend(reply: string, options: {
@@ -8091,8 +8224,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
     }
 
     const paidCancellation =
-      app.payment_status === "refund_requested" ||
-      app.payment_reference === "customer_cancelled_paid_refund_pending";
+      hasConfirmedPaymentEvidence(app) &&
+      (app.payment_status === "refund_requested" || app.status === "refund_requested");
 
     if (paidCancellation) {
       deterministicReply = reopenPaidCancellationPendingReply(app);
@@ -9346,23 +9479,26 @@ export async function POST(request: Request) {
           return;
         }
 
-        // Capture a stable snapshot for the independent Shadow queue.
-        // The model is never called from the WhatsApp webhook.
-        const shadowApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
-        const shadowTrackingId =
-          extractTracking(replyInputText) ||
-          incomingTracking ||
-          shadowApplication?.tracking_id ||
-          null;
+        // Capture the pre-reply state for diagnostics only. buildReply may mutate the application,
+        // so every final policy decision must be based on a fresh post-reply read.
+        const preReplyApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
 
         const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
         const outgoingMemory = await getConversationMemory(from);
+        const refreshedApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, outgoingMemory);
+        const finalApplication = refreshedApplication || preReplyApplication;
+        const shadowTrackingId =
+          extractTracking(replyInputText) ||
+          incomingTracking ||
+          finalApplication?.tracking_id ||
+          null;
+
         let reply = finalizeReplyBeforeSend(rawReply, {
           from,
           text: replyInputText,
           intent: processingIntent,
           memory: outgoingMemory,
-          application: shadowApplication,
+          application: finalApplication,
         });
 
         if (isNearDuplicateAssistantReply(reply, outgoingMemory, processingIntent)) {
@@ -9387,7 +9523,19 @@ export async function POST(request: Request) {
           });
         }
 
-        reply = applyFinalSendGuard(reply, shadowApplication);
+        reply = applyFinalSendGuard(reply, finalApplication);
+
+        const finalTruthResult = await applyProductionFinalTruthGate({
+          request,
+          from,
+          customerName: contactName || null,
+          customerText: processingText,
+          messageType: processingMessageType,
+          initialIntent: processingIntent,
+          application: finalApplication,
+          reply,
+        });
+        reply = finalTruthResult.reply;
 
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
@@ -9424,7 +9572,7 @@ export async function POST(request: Request) {
             handledByAi: true,
           });
 
-          const aiMemoryApp = shadowApplication;
+          const aiMemoryApp = finalApplication;
           await logAiConversation({
             phone: from,
             customerMessage: processingText,
@@ -9445,7 +9593,7 @@ export async function POST(request: Request) {
               actualReply: reply,
               initialIntent: processingIntent,
               trackingId: shadowTrackingId,
-              application: shadowApplication,
+              application: finalApplication,
               conversationSnapshot: {
                 conversationContext: outgoingMemory.conversationContext,
                 lastAssistantReplies: outgoingMemory.lastAssistantReplies,
