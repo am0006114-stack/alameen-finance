@@ -481,16 +481,48 @@ function customerCancellationIsConditional(text: string) {
 }
 
 function customerRequestsStopRefund(text: string) {
-  const refundAnchor = includesAny(text, ["استرداد", "الاسترداد", "استرجاع", "الاسترجاع", "refund"]);
+  const refundAnchor = includesAny(text, ["استرداد", "الاسترداد", "استرد", "استرجاع", "الاسترجاع", "استرجع", "refund"]);
   const stopAnchor = includesAny(text, [
     "الغاء", "إلغاء", "الغي", "ألغي", "الغوا", "وقف", "اوقف", "أوقف", "ايقاف", "إيقاف",
-    "تراجع", "تراجعت", "ما بدي", "لا اريد", "لا أريد",
+    "تراجع", "تراجعت", "ما بدي", "بديش", "مش طالب", "لا اريد", "لا أريد",
   ]);
   const returnToOrder = includesAny(text, [
     "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعولي الطلب", "رجعوا الطلب",
     "بدي ارجع للطلب بدل الاسترداد", "بدي أرجع للطلب بدل الاسترداد", "الرجوع الى طلبي", "الرجوع إلى طلبي",
   ]);
   return (refundAnchor && stopAnchor) || returnToOrder;
+}
+
+function customerAsksRefundPolicyInquiry(text: string) {
+  const explicitNoRefund = includesAny(text, [
+    "ما بدي استرد", "ما بدي استرجع", "بديش استرد", "بديش استرجع",
+    "مش طالب استرداد", "مش طالب استرجاع", "انا بستفسر", "أنا بستفسر",
+    "بس بستفسر", "مجرد استفسار",
+  ]);
+  if (explicitNoRefund) return true;
+
+  const feeOrRefundContext = includesAny(text, [
+    "رسوم", "رسوم فتح الملف", "قيمة الملف", "قيمه الملف", "الخمس", "الخمسه", "الخمسة",
+    "5", "٥", "دينار", "دنانير", "مبلغ", "المبلغ", "فلوس", "مصاري",
+    "استرد", "استرداد", "استرجع", "استرجاع", "رجع", "بترجع", "برجع", "مسترد", "مسترده", "مستردة",
+  ]);
+  if (!feeOrRefundContext) return false;
+
+  const refundTimingOrStatus = includesAny(text, [
+    "متى", "امتى", "إمتى", "قديش بد", "كم بد", "كم يوم", "كم ساعه", "كم ساعة",
+    "اليوم", "بكرا", "غدا", "غدًا", "وين وصل", "شو صار بالاسترداد", "حالة الاسترداد",
+    "موعد الاسترداد", "وقت الاسترداد", "متى الحواله", "متى الحوالة",
+  ]);
+  if (refundTimingOrStatus) return false;
+
+  return includesAny(text, [
+    "هل", "اذا", "إذا", "لو", "في حال", "بحال",
+    "بترجع", "برجع", "بيرجع", "ترجعلي", "ترجع", "يرجع",
+    "مسترده", "مستردة", "مسترد",
+    "بتنخصم", "تنخصم", "بينخصم", "ينخصم", "بتنهضم", "تنهضم",
+    "من اول قسط", "من أول قسط", "من القسط الاول", "من القسط الأول",
+    "شو بصير", "وين بتروح", "شو مصير", "بسال", "بسأل", "سؤال",
+  ]);
 }
 
 function finalReplyLooksTruncated(reply: string) {
@@ -626,6 +658,19 @@ export function validateFinalActualReply(
     facts.paymentConfirmed || !actualRefundRegistrationClaim,
     "critical",
     "ممنوع تسجيل أو وصف استرداد نشط دون وجود دفع مؤكد على الطلب.",
+  );
+  const refundPolicyInquiry = customerAsksRefundPolicyInquiry(context.customerText);
+  const refundMutationClaim = actualRefundRegistrationClaim || includesAny(reply, [
+    "وصلتني رغبتك بالاسترداد",
+    "رابط تثبيت بيانات الاسترداد",
+    "/delay-decision",
+  ]);
+  addCheck(
+    checks,
+    "refund_inquiry_must_not_start_or_confirm_refund",
+    !refundPolicyInquiry || !refundMutationClaim,
+    "critical",
+    "السؤال عن رسوم فتح الملف أو إمكانية استردادها لا يجوز أن يبدأ أو يؤكد طلب استرداد.",
   );
   addCheck(
     checks,

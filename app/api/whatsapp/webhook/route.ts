@@ -56,6 +56,7 @@ import {
   isExactReopenConfirmationText,
   isExplicitNonContinuationText,
   isExplicitRefundMutationText,
+  isRefundPolicyInquiryText,
   isExplicitStopRefundText,
   isPositiveContinueDecisionText,
 } from "./_lib/stateIntegrity";
@@ -64,6 +65,7 @@ import { buildShadowFacts } from "./_lib/shadow-core/policyRegistry";
 import { detectShadowTopics } from "./_lib/shadow-core/topicDetector";
 import { validateFinalActualReply } from "./_lib/shadow-core/validator";
 import { buildSafeFallbackReply } from "./_lib/shadow-core/deterministicReply";
+import { buildFinalTruthContextRecovery } from "./_lib/shadow-core/finalTruthRecovery";
 import { routeShadowAgent } from "./_lib/shadow-core/agentRouter";
 import type { ShadowAgentId, ShadowPolicyCheck } from "./_lib/shadow-core/types";
 import {
@@ -1937,6 +1939,9 @@ function isExplicitRefundRequestText(text: string) {
     "استرداد", "استرجاع", "بدي استرد", "بدي استرجع", "رجعوا فلوسي",
     "رجعولي فلوسي", "بدي فلوسي", "مصاريي رجعوها", "استرجاع الرسوم",
     "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
+    "بدي ارجع ال 5", "بدي أرجع ال 5", "بدي ارجع 5", "بدي أرجع 5",
+    "بدي ارجع الخمس", "بدي أرجع الخمس", "بدي ارجع الرسوم", "بدي أرجع الرسوم",
+    "بدي ارجع المبلغ", "بدي أرجع المبلغ",
     "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
   ]);
   if (strongRefundLanguage) return true;
@@ -2340,6 +2345,10 @@ function classifyIntent(text: string): CustomerIntent {
 
   // إيقاف الاسترداد عكس طلب الاسترداد تمامًا، لذلك يُحسم أولًا.
   if (isExplicitStopRefundText(t)) return "stop_refund";
+
+  // سؤال عن مصير رسوم فتح الملف أو إمكانية استردادها ليس طلب استرداد.
+  // هذه أولوية ثابتة قبل أي Refund mutation حتى لو احتوت الرسالة كلمات "رجع/استرد".
+  if (isRefundPolicyInquiryText(t)) return "payment_amount";
 
   // طلب استرداد صريح يسبق أي تصنيف عام للدفع أو الرسوم.
   if (isExplicitRefundRequestText(t)) return "refund";
@@ -4106,6 +4115,22 @@ function keepRequestReply(app: ApplicationRecord | null) {
 
 function paymentAmountReply(app: ApplicationRecord | null, customerText: string) {
   const t = normalizeArabicText(customerText);
+
+  if (isRefundPolicyInquiryText(customerText)) {
+    const asksDeduction = hasAny(t, [
+      "تنخصم", "بتنخصم", "ينخصم", "بينخصم", "بتنهضم", "تنهضم",
+      "من اول قسط", "من أول قسط", "من القسط الاول", "من القسط الأول",
+    ]);
+    const feeLine = `رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير منفصلة عن ثمن الجهاز وعن القسط الأول.`;
+    const refundLine = `إذا لم تتم الموافقة النهائية على الطلب، تكون رسوم فتح الملف مستردة بالكامل حسب حالة الطلب.`;
+    const deductionLine = asksDeduction
+      ? `ولا يتم احتسابها كخصم من القسط الأول.`
+      : `مجرد سؤالك عن الاسترداد لا يسجل طلب استرداد ولا يغيّر حالة طلبك.`;
+
+    return `${feeLine}
+${refundLine}
+${deductionLine}`;
+  }
 
   if (hasAny(t, ["رسوم فتح الملف", "رسوم الملف"])) {
     return `رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط، وتُطلب بعد التأهيل المبدئي للطلب، وليست دفعة على الجهاز ولا القسط الأول.`;
@@ -6757,6 +6782,16 @@ async function applyProductionFinalTruthGate(input: {
     };
   }
 
+  const failureDirectedReply = buildFinalTruthContextRecovery({
+    customerText: input.customerText,
+    failedCheckIds: firstFailures.map((check) => check.id),
+    hasApplication: facts.hasApplication,
+    refundActive: facts.refundActive,
+    refundCompleted: facts.refundCompleted,
+    refundEligible: facts.refundEligible,
+    conditionalCancellation: isConditionalCancellationText(input.customerText),
+  });
+
   const fallbackPlan = buildSafeFallbackReply({
     facts,
     topics,
@@ -6765,7 +6800,8 @@ async function applyProductionFinalTruthGate(input: {
     messageType: input.messageType,
     route,
   });
-  let fallbackReply = explicitLinkRecoveryReply(input.request, input.application, input.customerText, fallbackPlan.reply);
+  const selectedRecoveryReply = failureDirectedReply || fallbackPlan.reply;
+  let fallbackReply = explicitLinkRecoveryReply(input.request, input.application, input.customerText, selectedRecoveryReply);
   fallbackReply = applyFinalSendGuard(fallbackReply, input.application);
 
   const secondChecks = validate(fallbackReply);
@@ -6794,7 +6830,7 @@ async function applyProductionFinalTruthGate(input: {
 
   await sendDiscordNotification({
     title: "🛡️ FINAL TRUTH GATE — تم استبدال رد غير آمن",
-    description: `فشل الرد الأول في الحمايات التالية: ${firstFailures.map((check) => check.id).join(", ")}. تم استخدام رد حتمي مبني على الحقائق قبل الإرسال.`,
+    description: `فشل الرد الأول في الحمايات التالية: ${firstFailures.map((check) => check.id).join(", ")}. تم استخدام ${failureDirectedReply ? "إنقاذ سياقي موجّه بسبب الفشل" : "رد حتمي مبني على الحقائق"} قبل الإرسال.`,
     color: 0xed4245,
     app: input.application || undefined,
     customerPhone: input.from,
@@ -7710,6 +7746,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
   // from the customer's raw current message before historical context can invert them.
   if (isExplicitStopRefundText(rawCustomerText)) {
     intent = "stop_refund";
+  } else if (isRefundPolicyInquiryText(rawCustomerText)) {
+    intent = "payment_amount";
   } else if (isExactCancelConfirmationText(rawCustomerText)) {
     intent = "cancel_confirmed";
   } else if (isCancelRequestText(rawCustomerText)) {

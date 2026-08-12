@@ -62,6 +62,51 @@ export function isConditionalCancellationText(text: string) {
   return cancel && conditional && !isExactCancelConfirmationText(t);
 }
 
+
+export function isRefundPolicyInquiryText(text: string) {
+  const t = cleanDecisionText(text);
+  if (!t) return false;
+
+  const explicitNoRefund = containsAny(t, [
+    "ما بدي استرد", "ما بدي استرجع", "بديش استرد", "بديش استرجع",
+    "مش بدي استرد", "مش بدي استرجع", "لا اريد استرداد", "لا أريد استرداد",
+    "لا اريد استرجاع", "لا أريد استرجاع", "مش طالب استرداد", "مش طالب استرجاع",
+    "انا بستفسر", "أنا بستفسر", "بس بستفسر", "مجرد استفسار",
+  ]);
+  if (explicitNoRefund) return true;
+
+  const feeOrRefundContext = containsAny(t, [
+    "رسوم", "رسوم فتح الملف", "قيمة الملف", "قيمه الملف",
+    "الخمس", "الخمسه", "الخمسة", "5", "٥",
+    "دينار", "دنانير", "مبلغ", "المبلغ", "فلوس", "مصاري",
+    "استرد", "استرداد", "استرجع", "استرجاع",
+    "رجع", "بترجع", "برجع", "ترجع", "يرجع", "مسترد", "مسترده", "مستردة",
+  ]);
+  if (!feeOrRefundContext) return false;
+
+  // Timing/status questions about an already requested refund are not fee-policy questions.
+  // They must never create a refund either, but keeping them out of this classifier lets
+  // the existing refund-status path answer them from the real application state.
+  const refundTimingOrStatus = containsAny(t, [
+    "متى", "امتى", "إمتى", "قديش بد", "كم بد", "كم يوم", "كم ساعه", "كم ساعة",
+    "اليوم", "بكرا", "غدا", "غدًا", "وين وصل", "شو صار بالاسترداد", "حالة الاسترداد",
+    "موعد الاسترداد", "وقت الاسترداد", "متى الحواله", "متى الحوالة",
+  ]);
+  if (refundTimingOrStatus) return false;
+
+  const policyInquiry = containsAny(t, [
+    "هل", "اذا", "إذا", "لو", "في حال", "بحال",
+    "بترجع", "برجع", "بيرجع", "ترجعلي", "ترجع", "يرجع",
+    "مسترده", "مستردة", "مسترد",
+    "بتنخصم", "تنخصم", "بينخصم", "ينخصم", "بتنهضم", "تنهضم",
+    "من اول قسط", "من أول قسط", "من القسط الاول", "من القسط الأول",
+    "شو بصير", "وين بتروح", "وين بروح", "شو مصير",
+    "بسال", "بسأل", "سؤال", "حاب اعرف", "حاب أعرف",
+  ]);
+
+  return policyInquiry;
+}
+
 export function isExplicitStopRefundText(text: string) {
   const t = cleanDecisionText(text);
   if (!t) return false;
@@ -70,11 +115,11 @@ export function isExplicitStopRefundText(text: string) {
   // Any clear stop/cancel/reverse verb attached to an explicit refund noun means STOP REFUND,
   // even when the customer writes variants such as "اريد الغاء الاسترداد".
   const refundAnchor = containsAny(t, [
-    "استرداد", "الاسترداد", "استرجاع", "الاسترجاع", "refund",
+    "استرداد", "الاسترداد", "استرد", "استرجاع", "الاسترجاع", "استرجع", "refund",
   ]);
   const stopAnchor = containsAny(t, [
     "الغاء", "إلغاء", "الغي", "ألغي", "الغوا", "لغي", "وقف", "اوقف", "أوقف",
-    "ايقاف", "إيقاف", "تراجع", "تراجعت", "ما بدي", "لا اريد", "لا أريد",
+    "ايقاف", "إيقاف", "تراجع", "تراجعت", "ما بدي", "بديش", "مش طالب", "لا اريد", "لا أريد",
   ]);
   const returnToOrder = containsAny(t, [
     "رجع طلب التلفون", "رجعولي طلب التلفون", "رجعوا طلب التلفون", "رجع الطلب وكملوه",
@@ -88,13 +133,16 @@ export function isExplicitStopRefundText(text: string) {
 
 export function isExplicitRefundMutationText(text: string) {
   const t = cleanDecisionText(text);
-  if (!t || isExplicitStopRefundText(t)) return false;
+  if (!t || isExplicitStopRefundText(t) || isRefundPolicyInquiryText(t)) return false;
 
   const direct = containsAny(t, [
     "بدي استرداد", "اريد استرداد", "أريد استرداد", "بدي استرجاع", "اريد استرجاع", "أريد استرجاع",
     "رجعوا فلوسي", "رجعولي فلوسي", "بدي فلوسي", "رجعولي الرسوم", "رجعوا الرسوم",
     "استرجاع الرسوم", "استرداد الرسوم", "رجعولي الخمسه", "رجعولي الخمسة",
     "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي ال 5", "رجعولي 5", "رجعولي ٥",
+    "بدي ارجع ال 5", "بدي أرجع ال 5", "بدي ارجع 5", "بدي أرجع 5",
+    "بدي ارجع الخمس", "بدي أرجع الخمس", "بدي ارجع الرسوم", "بدي أرجع الرسوم",
+    "بدي ارجع المبلغ", "بدي أرجع المبلغ",
     "الخمس دنانير رجعهم", "الخمسه دنانير رجعهم", "الخمسة دنانير رجعهم",
   ]);
   if (direct) return true;
