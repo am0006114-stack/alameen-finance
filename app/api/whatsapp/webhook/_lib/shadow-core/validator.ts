@@ -597,6 +597,18 @@ function customerAsksMonthlyInstallmentMethod(text: string) {
   ]);
 }
 
+
+function hasRoboticClarificationStyle(value: string) {
+  const text = String(value || "");
+  return [
+    "اكتب السؤال كامل بجملة واحدة",
+    "اكتب النقطة بكلمتين",
+    "الرسالة قصيرة وما قدرت أحدد المقصود",
+    "ما بدي أخمّن وأعطيك معلومة غلط",
+    "وصلتني الرسالة، لكن معناها مش واضح عندي",
+  ].some((needle) => text.includes(needle));
+}
+
 export function validateFinalActualReply(
   reply: string,
   topics: ShadowTopic[],
@@ -773,6 +785,7 @@ export function validateFinalActualReply(
   ].includes(topic));
   const missingHighPriority = highPriorityTopics.filter((topic) => !topicAnswered(topic, reply));
   addCheck(checks, "final_actual_high_priority_topics_answered", missingHighPriority.length === 0, "critical", "الرد النهائي يجب أن يغطي كل موضوع تشغيلي أو حساس واضح في الرسالة الحالية.");
+  addCheck(checks, "human_style_avoids_robotic_clarification", !hasRoboticClarificationStyle(reply), "warning", "الرد الطبيعي لا يطلب إعادة صياغة السؤال بقالب آلي إذا كان السياق كافيًا.");
   return checks;
 }
 

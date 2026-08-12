@@ -66,6 +66,13 @@ import { detectShadowTopics } from "./_lib/shadow-core/topicDetector";
 import { validateFinalActualReply } from "./_lib/shadow-core/validator";
 import { buildSafeFallbackReply } from "./_lib/shadow-core/deterministicReply";
 import { buildFinalTruthContextRecovery } from "./_lib/shadow-core/finalTruthRecovery";
+import {
+  humanFirstStyleInstructions,
+  isHardExactCustomerIntent,
+  looksLikeRoboticClarification,
+  shouldPreferHumanFirstPro,
+  shouldReturnExactHumanFirstReply,
+} from "./_lib/humanFirstPolicy";
 import { routeShadowAgent } from "./_lib/shadow-core/agentRouter";
 import type { ShadowAgentId, ShadowPolicyCheck } from "./_lib/shadow-core/types";
 import {
@@ -4310,40 +4317,10 @@ function repeatedReplyRecoveryReply(intent: CustomerIntent) {
 }
 
 function shouldReturnExactCustomerReply(intent: CustomerIntent) {
-  // نخلي الرد الحرفي فقط للمسارات التي تنفذ إجراءً فعليًا أو تحتوي بيانات يجب ألا يعيد النموذج صياغتها.
-  // باقي الأسئلة تمر على DeepSeek ليصيغها كحوار طبيعي مع إبقاء الرد الآمن مصدر الحقيقة.
-  return [
-    "regulatory_status",
-    "business_identity",
-    "payment_method",
-    "payment_recipient",
-    "payment_link_issue",
-    "reopen_cancelled_request",
-    "reopen_cancelled_confirmed",
-    "receipt_upload_confirmation",
-    "review_time",
-    "payment_review_time",
-    "continue_decision",
-    "decline_decision",
-    "cancel_confirmed",
-    "cancel_refund_request",
-    "refund",
-    "office_pickup_policy",
-    "tracking_link_request",
-    "contact_info",
-    "website",
-    "location",
-    "staff_identity",
-    "system_prompt_request",
-    "call_request",
-    "alternative_payment_source",
-    "media_upload",
-    "document_upload",
-    "document_followup",
-    "products",
-    "greeting",
-    "reaction",
-  ].includes(String(intent));
+  // V1.3.0 HUMAN-FIRST: exact wording is reserved for state-changing / secure flows
+  // and tiny social replies. Factual conversation is normally phrased by Pro and
+  // remains protected by the final truth gate.
+  return shouldReturnExactHumanFirstReply(intent);
 }
 
 function isNearDuplicateAssistantReply(
@@ -4814,12 +4791,10 @@ function generalReviewTimeReply(from: string, customerText = "") {
 
 function unknownReply(from: string) {
   const variants = [
-    "وصلتني الرسالة، لكن معناها مش واضح عندي. اكتب النقطة بكلمتين مثل: حالة الطلب، الدفع، التوريد، أو الإلغاء.",
-    "حتى أعطيك جواب صحيح، اكتب السؤال كامل بجملة واحدة أو ابعث رقم التتبع إذا الموضوع متعلق بطلب.",
-    "الرسالة قصيرة وما قدرت أحدد المقصود منها. اكتب مثلًا: متى الرد؟ أو كم الرسوم؟ أو بدي ألغي.",
-    "ما بدي أخمّن وأعطيك معلومة غلط. اكتب السؤال بجملة قصيرة وواضحة.",
+    "وصلتني. خليني أمشي مع نفس سياق الحديث؛ إذا في نقطة واحدة ناقصة بسألك عنها مباشرة.",
+    "فاهم إنك مكمل على نفس الموضوع. إذا المقصود نقطة من آخر كلام بينا، رح أعتمد عليها وما أغير أي حالة من عندي.",
+    "وصلتني الرسالة. رح أجاوب على المقصود من السياق قدر الإمكان، وإذا ناقصني شيء محدد بطلبه منك بس.",
   ];
-
   const digits = digitsOnly(from);
   return variants[Number(digits.slice(-2) || "0") % variants.length];
 }
@@ -6658,13 +6633,11 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
 
   if (
     containsUnverifiedActionClaim(clean, input) ||
-    containsIncorrectPaymentSourceClaim(clean) ||
-    containsUnsupportedRegistrationClaim(clean) ||
-    containsWrongReviewDuration(clean) ||
-    containsGuaranteedReviewOutcome(clean) ||
-    containsUnverifiedProductVerificationPromise(clean) ||
-    containsUnverifiedInterestOrReligiousClaim(clean)
+    containsIncorrectPaymentSourceClaim(clean)
   ) {
+    // Immediate operational/source-of-payment hazards are collapsed here.
+    // Other policy deviations are left intact for the Final Truth Gate so it can
+    // repair the answer in-context instead of turning the whole conversation into a template.
     clean = input.deterministicReply;
   }
 
@@ -6745,6 +6718,10 @@ async function applyProductionFinalTruthGate(input: {
   initialIntent: CustomerIntent;
   application: ApplicationRecord | null;
   reply: string;
+  conversationContext?: string | null;
+  lastAssistantReplies?: string[];
+  lastCustomerMessages?: string[];
+  hasRecentStaffIntro?: boolean;
 }) {
   const facts = buildShadowFacts(
     input.application,
@@ -6805,7 +6782,39 @@ async function applyProductionFinalTruthGate(input: {
   fallbackReply = applyFinalSendGuard(fallbackReply, input.application);
 
   const secondChecks = validate(fallbackReply);
-  const secondFailures = criticalPolicyFailures(secondChecks);
+  let secondFailures = criticalPolicyFailures(secondChecks);
+  let recoveryWasHumanized = false;
+
+  // V1.3.0: once a safe recovery exists, try to phrase that SAME safe content naturally.
+  // The humanized version must pass the exact same critical validators before it can be sent.
+  if (!secondFailures.length && !isHardExactCustomerIntent(input.initialIntent)) {
+    const humanizedRecovery = await generateAiReply({
+      customerText: input.customerText,
+      deterministicReply: fallbackReply,
+      customerName: input.application?.full_name ? firstTwoNames(input.application.full_name) : input.customerName || undefined,
+      trackingId: input.application?.tracking_id || input.application?.id || undefined,
+      status: input.application?.status || null,
+      paymentStatus: input.application?.payment_status || null,
+      deviceName: input.application?.device_name || null,
+      isSensitive: true,
+      hasApplication: Boolean(input.application),
+      intent: input.initialIntent,
+      conversationContext: input.conversationContext || undefined,
+      lastAssistantReplies: input.lastAssistantReplies || [],
+      lastCustomerMessages: input.lastCustomerMessages || [],
+      hasRecentConversation: Boolean(input.conversationContext),
+      hasRecentStaffIntro: input.hasRecentStaffIntro,
+      assignedAgentName: assignedStaffName(input.from),
+    });
+    let candidate = explicitLinkRecoveryReply(input.request, input.application, input.customerText, humanizedRecovery);
+    candidate = applyFinalSendGuard(candidate, input.application);
+    const humanChecks = validate(candidate);
+    const humanFailures = criticalPolicyFailures(humanChecks);
+    if (!humanFailures.length && candidate.trim()) {
+      fallbackReply = candidate;
+      recoveryWasHumanized = true;
+    }
+  }
 
   if (secondFailures.length) {
     const voice = topics.includes("voice_message");
@@ -6830,7 +6839,7 @@ async function applyProductionFinalTruthGate(input: {
 
   await sendDiscordNotification({
     title: "🛡️ FINAL TRUTH GATE — تم استبدال رد غير آمن",
-    description: `فشل الرد الأول في الحمايات التالية: ${firstFailures.map((check) => check.id).join(", ")}. تم استخدام ${failureDirectedReply ? "إنقاذ سياقي موجّه بسبب الفشل" : "رد حتمي مبني على الحقائق"} قبل الإرسال.`,
+    description: `فشل الرد الأول في الحمايات التالية: ${firstFailures.map((check) => check.id).join(", ")}. تم استخدام ${recoveryWasHumanized ? "إنقاذ إنساني أعيد التحقق منه بنفس الحمايات" : failureDirectedReply ? "إنقاذ سياقي موجّه بسبب الفشل" : "رد حتمي مبني على الحقائق"} قبل الإرسال.`,
     color: 0xed4245,
     app: input.application || undefined,
     customerPhone: input.from,
@@ -7176,10 +7185,17 @@ async function generateAiReply(input: AiReplyInput) {
     Boolean(input.conversationContext) &&
     (isTinyContextFollowupText(input.customerText) || String(input.intent) === "unknown" || String(input.intent) === "human_agent");
 
+  const preferHumanFirstPro = shouldPreferHumanFirstPro(
+    input.intent,
+    input.customerText,
+    Boolean(input.hasRecentConversation || input.conversationContext),
+  );
+
   const useDeepThinking =
     input.isSensitive ||
     reasoningIntents.includes(input.intent) ||
-    contextNeedsReasoning;
+    contextNeedsReasoning ||
+    preferHumanFirstPro;
 
   const model = useDeepThinking ? reasoningModel : defaultModel;
 
@@ -7188,24 +7204,7 @@ async function generateAiReply(input: AiReplyInput) {
     return safeShortHumanFallback(input);
   }
 
-  const strictDeterministicIntents: CustomerIntent[] = [
-    "contact_info",
-    "location",
-    "website",
-    "office_pickup_policy",
-    "staff_identity",
-    "system_prompt_request",
-    "call_request",
-    "alternative_payment_source",
-    "payment_amount",
-    "trust_verification",
-    "receipt_upload_confirmation",
-    "review_time",
-    "payment_review_time",
-    "supplier_delay_question",
-  ];
-
-  if (strictDeterministicIntents.includes(input.intent)) {
+  if (isHardExactCustomerIntent(input.intent)) {
     return input.deterministicReply;
   }
 
@@ -7421,6 +7420,8 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تعطي وعدًا بوقت تنفيذ استرداد أو استلام نهائي من المكتب. حاليًا جميع مواعيد التسليم معلقة حتى وصول الأجهزة واعتماد جدول الاستلام من المكتب من الإدارة.
 - لا تقول موافقة نهائية إلا إذا الحالة approved.
 
+${humanFirstStyleInstructions()}
+
 منطق المحادثة الآمنة البشرية:
 - لا ترد كقالب ثابت. اقرأ رسالة العميل ورد على نفس المعنى.
 - إذا قال العميل "كيفك؟" أو "شخبارك؟" أو سأل سؤالًا خفيفًا، جاوبه طبيعيًا باختصار ثم اسأله كيف تساعده.
@@ -7533,7 +7534,7 @@ ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية 
 - الرد الآمن الأساسي وبيانات الطلب الحالية أقوى من أي مثال سابق.
 - اختصر الرد الآمن الأساسي ولا تنقله حرفيًا إذا كان طويلًا. خذ منه الحقائق فقط.
 
-الرد الآمن الأساسي الذي يجب الالتزام به وعدم مخالفته:
+الرد الآمن الأساسي — استخدمه كحقائق وحدود فقط، ولا تنسخ أسلوبه أو ترتيبه تلقائيًا:
 ${input.deterministicReply}
 `;
 
@@ -7594,8 +7595,44 @@ ${input.deterministicReply}
 
     const data = await response.json();
     const aiText = extractDeepSeekText(data);
+    let finalAiReply = finalizeHumanReply(sanitizeAiReply(aiText, input.deterministicReply), input);
 
-    return finalizeHumanReply(sanitizeAiReply(aiText, input.deterministicReply), input);
+    const retryForHumanity = preferHumanFirstPro && (
+      !finalAiReply ||
+      looksLikeRoboticClarification(finalAiReply) ||
+      (finalAiReply.trim() === String(input.deterministicReply || "").trim() && String(input.deterministicReply || "").length > 80)
+    );
+
+    if (retryForHumanity) {
+      try {
+        const retryBody: Record<string, unknown> = {
+          model: reasoningModel,
+          messages: [
+            { role: "system", content: systemInstructions },
+            { role: "user", content: `${userInput}
+
+المحاولة السابقة طلعت قالبية أو قريبة جدًا من النص الآمن. أعد الصياغة من الصفر كموظف واتساب طبيعي: جاوب سؤال العميل مباشرة، خليك قصير، ولا تضف أي حقيقة أو إجراء غير موجود.` },
+          ],
+          temperature: Number(process.env.AI_HUMAN_RETRY_TEMPERATURE || "0.42"),
+          max_tokens: Number(process.env.AI_HUMAN_RETRY_MAX_TOKENS || "520"),
+        };
+        const retryResponse = await fetch(`${baseUrl}/chat/completions`, {
+          method: "POST",
+          headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+          body: JSON.stringify(retryBody),
+        });
+        if (retryResponse.ok) {
+          const retryData = await retryResponse.json();
+          const retryText = extractDeepSeekText(retryData);
+          const retryReply = finalizeHumanReply(sanitizeAiReply(retryText, input.deterministicReply), input);
+          if (retryReply && !looksLikeRoboticClarification(retryReply)) finalAiReply = retryReply;
+        }
+      } catch (retryError) {
+        console.error("DeepSeek human-first retry error:", retryError);
+      }
+    }
+
+    return finalAiReply;
   } catch (error) {
     console.error("DeepSeek reply error:", error);
     return safeShortHumanFallback(input);
@@ -8902,25 +8939,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     deterministicReply = unknownReply(from);
   }
 
-  const factualIntentNeedsExactReply = [
-    "regulatory_status",
-    "business_identity",
-    "contact_info",
-    "website",
-    "location",
-    "self_employed",
-    "system_prompt_request",
-    "office_pickup_policy",
-    "voluntary_opt_out",
-    "products",
-    "human_agent",
-    "loan",
-    "greeting",
-    "media_upload",
-    "document_upload",
-    "document_followup",
-    "reaction",
-  ].includes(intent);
+  const factualIntentNeedsExactReply = shouldReturnExactHumanFirstReply(intent);
 
   if (factualIntentNeedsExactReply) {
     return deterministicReply;
@@ -9572,6 +9591,10 @@ export async function POST(request: Request) {
           initialIntent: processingIntent,
           application: finalApplication,
           reply,
+          conversationContext: outgoingMemory.conversationContext,
+          lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+          lastCustomerMessages: outgoingMemory.lastCustomerMessages,
+          hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
         });
         reply = finalTruthResult.reply;
 
