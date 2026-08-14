@@ -117,11 +117,33 @@ export function customerAsksAmmanLocation(value: string) {
   ]);
 }
 
+
+export function customerAsksGeneralOfficeArea(value: string) {
+  const text = n(value);
+  if (!text) return false;
+  return hasAny(text, [
+    "في اي محافظه", "في أي محافظة", "اي محافظه", "أي محافظة", "وين موقعكم", "وين المكتب",
+    "وين بعمان", "وين في عمان", "بأي منطقة", "باي منطقه", "شارع شو", "اي شارع", "أي شارع",
+    "الموقع بعيد", "اعرف اذا بعيد", "أعرف إذا بعيد",
+  ]);
+}
+
+export function customerAsksCancellationPossibility(value: string) {
+  const text = n(value);
+  if (!text) return false;
+  if (hasAny(text, ["بلاش الغي", "بلاش ألغي", "ما بدي الغي", "ما بدي ألغي", "مش بدي الغي", "مش بدي ألغي"])) return false;
+  return hasAny(text, [
+    "بزبط الغي", "بزبط ألغي", "بقدر الغي", "بقدر ألغي", "ممكن الغي", "ممكن ألغي",
+    "هل بقدر الغي", "هل بقدر ألغي", "بصير الغي", "بصير ألغي", "كيف الغي", "كيف ألغي",
+  ]);
+}
+
 export function currentMessageSemanticIntentHint(value: string): CustomerIntent | null {
   if (isReceiptConfirmationCurrentText(value)) return "receipt_upload_confirmation";
+  if (customerAsksCancellationPossibility(value)) return "cancel_request";
+  if (customerAsksGeneralOfficeArea(value) || customerAsksAmmanLocation(value)) return "location";
   if (customerAsksReviewTiming(value)) return "review_time";
   if (customerAsksCurrentNextStep(value)) return "order_status";
-  if (customerAsksAmmanLocation(value)) return "location";
   return null;
 }
 

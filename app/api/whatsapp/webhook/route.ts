@@ -10,6 +10,7 @@ import type {
 import {
   BUSINESS_ACTIVITY,
   BUSINESS_ADDRESS,
+  BUSINESS_GENERAL_LOCATION,
   BUSINESS_NAME,
   BUSINESS_REGULATORY_DISCLOSURE,
   BUSINESS_PHONE_DISPLAY,
@@ -96,10 +97,24 @@ import {
 } from "./_lib/customerGender";
 
 import {
+  findApplicationById,
   findApplicationByPhone,
+  findApplicationsByPhone,
   findApplicationByTracking,
   findApplicationByTrackingAndPhone,
 } from "./_lib/applicationLookup";
+import {
+  clearApplicationConversationLock,
+  getApplicationConversationLock,
+  setApplicationConversationLock,
+  touchApplicationConversationLock,
+} from "./_lib/applicationConversationLock";
+import {
+  applicationChoicesNeedDisambiguation,
+  applicationDisambiguationReply,
+  findExplicitlyNamedApplication,
+  isApplicationSpecificIntent,
+} from "./_lib/applicationIdentity";
 
 export const dynamic = "force-dynamic";
 
@@ -3207,14 +3222,11 @@ function locationReply(from: string, app?: ApplicationRecord | null) {
   const opening = humanOpening(`${from}:location`);
 
   if (!canShareOfficeAddress(app)) {
-    const requestLine = app?.tracking_id || app?.id
-      ? `\nرقم الطلب: ${app.tracking_id || app.id}`
-      : "\nإذا عندك طلب قائم، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبراجع الحالة مباشرة.";
-
     return `${opening}
 
-عنوان المكتب لا يتم إرساله قبل الموافقة النهائية أو إرسال موعد حضور رسمي.
-الاستلام من المكتب فقط وبموعد مسبق، ولا يوجد توصيل.${requestLine}`;
+المكتب في ${BUSINESS_GENERAL_LOCATION}.
+العنوان التفصيلي واسم المبنى والطابق يتم إرسالهم فقط بعد الموافقة النهائية ومع الموعد الرسمي.
+الحضور للمكتب يكون بموعد فقط، وما في توصيل.`;
   }
 
   return `${opening}
@@ -6070,30 +6082,41 @@ async function findApplicationForAiMemory(
 
   try {
     if (tracking && typedPhone) {
-      return (await findApplicationByTrackingAndPhone(tracking, typedPhone)) || (await findApplicationByTracking(tracking));
+      const direct = (await findApplicationByTrackingAndPhone(tracking, typedPhone)) || (await findApplicationByTracking(tracking));
+      if (direct) await setApplicationConversationLock(from, direct, "direct_tracking");
+      return direct;
     }
 
     if (tracking) {
-      return (await findApplicationByTracking(tracking)) || (await findApplicationByTrackingAndPhone(tracking, from));
+      const direct = (await findApplicationByTracking(tracking)) || (await findApplicationByTrackingAndPhone(tracking, from));
+      if (direct) await setApplicationConversationLock(from, direct, "direct_tracking");
+      return direct;
     }
 
-    const applicationScopedIntent = [
-      "order_status", "delivery", "payment", "payment_method", "payment_timing", "payment_recipient",
-      "payment_next_step", "payment_review_time", "payment_objection", "payment_link_issue",
-      "reopen_cancelled_request", "reopen_cancelled_confirmed", "refund", "complaint", "abuse",
-      "legal_threat", "social_media_threat", "scam_accusation", "payment_dispute", "device_delay_rage",
-      "continue_decision", "decline_decision", "cancel_request", "cancel_confirmed",
-      "alternative_payment_source", "receipt_upload_needed", "office_pickup_policy", "site_issue",
-      "supplier_delay_question", "apply", "products", "human_agent", "unknown", "installment_info",
-      "document_upload", "document_followup", "location",
-    ].includes(intent);
+    const applicationScopedIntent = isApplicationSpecificIntent(intent) || [
+      "abuse", "legal_threat", "social_media_threat", "scam_accusation", "device_delay_rage",
+      "human_agent", "unknown", "installment_info", "location", "apply", "products",
+    ].includes(String(intent));
 
     if (!applicationScopedIntent) return null;
 
-    const directByPhone = await findApplicationByPhone(typedPhone || from);
-    if (directByPhone) return directByPhone;
+    const candidatePhone = typedPhone || from;
+    const candidates = await findApplicationsByPhone(candidatePhone, 12);
+    const named = findExplicitlyNamedApplication(text, candidates);
+    if (named) {
+      await setApplicationConversationLock(from, named, "explicit_name");
+      return named;
+    }
 
-    // V1.1.9: Shadow/final-send must resolve the same application as buildReply.
+    const existingLock = await getApplicationConversationLock(from);
+    if (existingLock?.application_id) {
+      const locked = await findApplicationById(existingLock.application_id);
+      if (locked) {
+        await touchApplicationConversationLock(from);
+        return locked;
+      }
+    }
+
     // A customer often omits the tracking number in a follow-up while memory still has it.
     const resolvedMemory = memory || await getConversationMemory(from, 18);
     const memoryTracking = resolvedMemory.lastTrackingId || extractTracking(resolvedMemory.conversationContext || "");
@@ -6103,18 +6126,40 @@ async function findApplicationForAiMemory(
 
     if (memoryTracking && memoryPhone) {
       const byBoth = await findApplicationByTrackingAndPhone(memoryTracking, memoryPhone);
-      if (byBoth) return byBoth;
+      if (byBoth) {
+        await setApplicationConversationLock(from, byBoth, "memory_tracking_phone");
+        return byBoth;
+      }
     }
     if (memoryTracking) {
       const byTracking = await findApplicationByTracking(memoryTracking);
-      if (byTracking) return byTracking;
-    }
-    if (memoryPhone) {
-      const byMemoryPhone = await findApplicationByPhone(memoryPhone);
-      if (byMemoryPhone) return byMemoryPhone;
+      if (byTracking) {
+        await setApplicationConversationLock(from, byTracking, "memory_tracking");
+        return byTracking;
+      }
     }
 
-    return await findApplicationByPhone(from);
+    if (candidates.length === 1) {
+      await setApplicationConversationLock(from, candidates[0], "single_phone_application");
+      return candidates[0];
+    }
+
+    // Keep AI memory/final guards aligned with buildReply: when the same phone owns
+    // multiple distinct applications and no explicit name/tracking/lock resolved one,
+    // never silently attach the newest application to the AI context.
+    if (candidates.length > 1 && applicationChoicesNeedDisambiguation(candidates)) {
+      return null;
+    }
+
+    if (memoryPhone) {
+      const memoryCandidates = await findApplicationsByPhone(memoryPhone, 12);
+      if (memoryCandidates.length === 1) {
+        await setApplicationConversationLock(from, memoryCandidates[0], "single_memory_phone_application");
+        return memoryCandidates[0];
+      }
+    }
+
+    return candidates[0] || null;
   } catch (error) {
     console.error("findApplicationForAiMemory failed:", error);
   }
@@ -6969,23 +7014,23 @@ function applyFinalSendGuard(reply: string, app?: ApplicationRecord | null) {
   // V1.1.8 FINAL ADDRESS GUARD: حتى لو خرج عنوان المكتب من أي مسار قديم،
   // يمنع قبل الموافقة النهائية. هذا الفحص يقع مباشرة قبل sendWhatsAppText.
   if (!canShareOfficeAddress(app)) {
-    const addressMarkers = [
+    const detailedAddressMarkers = [
       BUSINESS_ADDRESS,
       "رانا سنتر",
-      "شارع المدينة المنورة",
+      "الطابق الثاني",
       "مقابل مستشفى العيون",
     ];
-    if (addressMarkers.some((marker) => marker && normalizeArabicText(original).includes(normalizeArabicText(marker)))) {
+    if (detailedAddressMarkers.some((marker) => marker && normalizeArabicText(original).includes(normalizeArabicText(marker)))) {
       const safeLines = original.split(/\r?\n/).filter((line) => {
         const value = normalizeArabicText(line);
         if (!value) return true;
-        if (addressMarkers.some((marker) => marker && value.includes(normalizeArabicText(marker)))) return false;
+        if (detailedAddressMarkers.some((marker) => marker && value.includes(normalizeArabicText(marker)))) return false;
         if (hasAny(value, ["عنواننا الرسمي", "عنوان المكتب:", "العنوان الرسمي:"])) return false;
         return true;
       });
       original = safeLines.join("\n").replace(/\n{3,}/g, "\n\n").trim();
-      const notice = "عنوان المكتب لا يتم إرساله قبل الموافقة النهائية أو إرسال موعد حضور رسمي.";
-      if (!normalizeArabicText(original).includes(normalizeArabicText(notice))) {
+      const notice = `المكتب في ${BUSINESS_GENERAL_LOCATION}. العنوان التفصيلي واسم المبنى والطابق يتم إرسالهم فقط بعد الموافقة النهائية ومع الموعد الرسمي.`;
+      if (!normalizeArabicText(original).includes(normalizeArabicText(BUSINESS_GENERAL_LOCATION))) {
         original = `${original}${original ? "\n\n" : ""}${notice}`;
       }
     }
@@ -7196,38 +7241,94 @@ function safeShortHumanFallback(input: AiReplyInput) {
   return input.deterministicReply;
 }
 
+
+async function callDeepSeekQualityStage(input: {
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  system: string;
+  user: string;
+  temperature: number;
+  maxTokens: number;
+  thinking?: boolean;
+}) {
+  const body: Record<string, unknown> = {
+    model: input.model,
+    messages: [
+      { role: "system", content: input.system },
+      { role: "user", content: input.user },
+    ],
+    temperature: input.temperature,
+    max_tokens: input.maxTokens,
+  };
+  if (input.thinking && process.env.DEEPSEEK_THINKING_MODE !== "off") {
+    body.thinking = { type: "enabled", reasoning_effort: process.env.DEEPSEEK_REASONING_EFFORT || "high" };
+  }
+
+  let response = await fetch(`${input.baseUrl}/chat/completions`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!response.ok && "thinking" in body) {
+    delete body.thinking;
+    response = await fetch(`${input.baseUrl}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${input.apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  }
+
+  if (!response.ok) {
+    console.error("DeepSeek quality stage failed:", await response.text());
+    return "";
+  }
+  return extractDeepSeekText(await response.json());
+}
+
+async function buildQualityFirstConversationPlan(input: AiReplyInput, apiKey: string, baseUrl: string, model: string) {
+  const plan = await callDeepSeekQualityStage({
+    apiKey,
+    baseUrl,
+    model,
+    temperature: 0.08,
+    maxTokens: Number(process.env.AI_QUALITY_PLAN_MAX_TOKENS || "360"),
+    thinking: true,
+    system: `أنت مخطط جودة داخلي لمحادثة واتساب. لا تكتب الرد النهائي ولا تعرض سلسلة تفكير. اكتب فقط قائمة قصيرة قابلة للتنفيذ توضح: ما الذي يريده العميل الآن، كل النقاط التي يجب الإجابة عنها، ما المرجع/الطلب المقصود إن كان واضحًا، وما الذي يجب تجنب ادعائه. إذا كانت الرسالة تحتوي سؤالين أو أكثر يجب تعدادهم كلهم. لا تخترع حقائق.`,
+    user: `رسالة العميل الحالية:\n${input.customerText}\n\nالسياق القريب:\n${input.conversationContext || "لا يوجد"}\n\nالطلب المرتبط حاليًا:\nالاسم: ${input.customerName || "غير متوفر"}\nرقم التتبع: ${input.trackingId || "غير متوفر"}\nالحالة: ${input.status || "غير متوفرة"}\nحالة الدفع: ${input.paymentStatus || "غير متوفرة"}\nالجهاز: ${input.deviceName || "غير متوفر"}\n\nالحقائق الآمنة المتاحة للكاتب:\n${input.deterministicReply}`,
+  });
+  return String(plan || "").trim();
+}
+
+async function reviseReplyWithQualityCritic(input: {
+  aiInput: AiReplyInput;
+  apiKey: string;
+  baseUrl: string;
+  model: string;
+  plan: string;
+  draft: string;
+}) {
+  const revised = await callDeepSeekQualityStage({
+    apiKey: input.apiKey,
+    baseUrl: input.baseUrl,
+    model: input.model,
+    temperature: Number(process.env.AI_QUALITY_CRITIC_TEMPERATURE || "0.22"),
+    maxTokens: Number(process.env.AI_QUALITY_CRITIC_MAX_TOKENS || "700"),
+    thinking: true,
+    system: `أنت محرر جودة نهائي لرد واتساب باسم الأمين للأقساط. أعد الرد فقط، بدون تقييم أو شرح. يجب أن يبدو كموظف أردني طبيعي، وأن يجيب كل نقاط الرسالة الحالية، وألا يحوّل سؤالًا متعدد المواضيع إلى موضوع واحد. لا تضف حقيقة أو وعدًا أو إجراءً غير موجود في الحقائق الآمنة. لا تذكر آلية داخلية أو ذكاء اصطناعي. إذا كانت المسودة صحيحة اجعلها أقصر وأطبيعية فقط.`,
+    user: `رسالة العميل:\n${input.aiInput.customerText}\n\nخطة التغطية الداخلية:\n${input.plan || "جاوب كل ما طلبه العميل بوضوح."}\n\nالسياق:\n${input.aiInput.conversationContext || "لا يوجد"}\n\nالحقائق والحدود الآمنة:\n${input.aiInput.deterministicReply}\n\nالمسودة الحالية:\n${input.draft}\n\nأعد الرد النهائي فقط.`,
+  });
+  return String(revised || "").trim();
+}
+
 async function generateAiReply(input: AiReplyInput) {
   const apiKey = process.env.DEEPSEEK_API_KEY;
   const baseUrl = (process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
-  const defaultModel = process.env.DEEPSEEK_MODEL || "deepseek-v4-flash";
   const reasoningModel =
     process.env.DEEPSEEK_REASONING_MODEL ||
     process.env.DEEPSEEK_ESCALATION_MODEL ||
     "deepseek-v4-pro";
-
-  const reasoningIntents: CustomerIntent[] = [
-    "abuse",
-    "legal_threat",
-    "social_media_threat",
-    "scam_accusation",
-    "trust_verification",
-    "payment_dispute",
-    "device_delay_rage",
-    "emotional_pressure",
-    "media_upload",
-    "document_upload",
-    "document_followup",
-    "complaint",
-    "refund",
-    "cancel_request",
-    "cancel_confirmed",
-    "site_issue",
-    "human_agent",
-  ];
-
-  const contextNeedsReasoning =
-    Boolean(input.conversationContext) &&
-    (isTinyContextFollowupText(input.customerText) || String(input.intent) === "unknown" || String(input.intent) === "human_agent");
 
   const preferHumanFirstPro = shouldPreferHumanFirstPro(
     input.intent,
@@ -7235,13 +7336,10 @@ async function generateAiReply(input: AiReplyInput) {
     Boolean(input.hasRecentConversation || input.conversationContext),
   );
 
-  const useDeepThinking =
-    input.isSensitive ||
-    reasoningIntents.includes(input.intent) ||
-    contextNeedsReasoning ||
-    preferHumanFirstPro;
-
-  const model = useDeepThinking ? reasoningModel : defaultModel;
+  // V1.4.0 QUALITY-FIRST: every non-hard conversation uses the reasoning model.
+  // Cost is intentionally secondary to comprehension and reply quality.
+  const useDeepThinking = true;
+  const model = reasoningModel;
 
   if (!apiKey) {
     console.error("Missing DEEPSEEK_API_KEY");
@@ -7270,14 +7368,16 @@ async function generateAiReply(input: AiReplyInput) {
 - رقم واتساب الشركة الرسمي: ${BUSINESS_PHONE_E164}
 - الرقم المحلي الرسمي: ${BUSINESS_PHONE_DISPLAY}
 - الموقع الرسمي: ${BUSINESS_WEBSITE}
-- العنوان الرسمي: ${BUSINESS_ADDRESS}
+- الموقع العام المسموح ذكره قبل الموافقة: ${BUSINESS_GENERAL_LOCATION}
+- العنوان التفصيلي الكامل (محمي قبل الموافقة): ${BUSINESS_ADDRESS}
 - رسوم فتح الملف الرسمية: ${FILE_OPENING_FEE_JOD} دنانير فقط.
 - التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط يكون عند العميل محفظة Orange Money.
 - الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى AMENPAY أو PAYAMEN، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
 - ممنوع القول إن التحويل البنكي لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يدفع شخص لديه محفظة أورنج.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
-- إذا سأل العميل عن العنوان أو الموقع الجغرافي، أعطِ العنوان الرسمي فقط مع ملاحظة أن زيارة المكتب لا تتم إلا إذا وصلت للعميل رسالة واضحة من الإدارة تطلب الحضور أو تحدد موعدًا لذلك.
+- إذا سأل العميل عن الموقع قبل الموافقة النهائية: اذكر فقط أن المكتب في ${BUSINESS_GENERAL_LOCATION} حتى يعرف المسافة، ووضّح أن اسم المبنى والطابق والتفاصيل الدقيقة تُرسل مع الموعد الرسمي بعد الموافقة النهائية.
+- إذا كانت حالة الطلب تسمح بمشاركة العنوان التفصيلي، يمكن ذكر ${BUSINESS_ADDRESS}.
 - ممنوع دعوة العميل لزيارة المكتب، أو قول "جاهزين لاستقبالك"، أو ذكر دوام المكتب، أو ساعات العمل، أو أي موعد زيارة، إلا إذا كانت رسالة الإدارة نفسها تطلب ذلك صراحة.
 
 قاعدة التوصيل وأرامكس والاستلام:
@@ -7582,6 +7682,11 @@ ${similarSuccessfulReplies || "لا توجد أمثلة مشابهة كافية 
 ${input.deterministicReply}
 `;
 
+  const qualityPlan = preferHumanFirstPro
+    ? await buildQualityFirstConversationPlan(input, apiKey, baseUrl, reasoningModel)
+    : "";
+  const qualityUserInput = `${userInput}\n\nخطة جودة داخلية إلزامية قبل الكتابة:\n${qualityPlan || "جاوب كل ما طلبه العميل في الرسالة الحالية، ولا تترك سؤالًا واضحًا بلا جواب."}`;
+
   try {
     const requestBody: Record<string, unknown> = {
       model,
@@ -7592,13 +7697,11 @@ ${input.deterministicReply}
         },
         {
           role: "user",
-          content: userInput,
+          content: qualityUserInput,
         },
       ],
       temperature: aiTemperatureForInput(input, useDeepThinking),
-      max_tokens: useDeepThinking
-        ? Number(process.env.AI_REASONING_MAX_TOKENS || "650")
-        : Number(process.env.AI_MAX_TOKENS || "420"),
+      max_tokens: Number(process.env.AI_REASONING_MAX_TOKENS || "850"),
     };
 
     if (process.env.DEEPSEEK_THINKING_MODE !== "off") {
@@ -7641,6 +7744,25 @@ ${input.deterministicReply}
     const aiText = extractDeepSeekText(data);
     let finalAiReply = finalizeHumanReply(sanitizeAiReply(aiText, input.deterministicReply), input);
 
+    if (preferHumanFirstPro && finalAiReply) {
+      try {
+        const revised = await reviseReplyWithQualityCritic({
+          aiInput: input,
+          apiKey,
+          baseUrl,
+          model: reasoningModel,
+          plan: qualityPlan,
+          draft: finalAiReply,
+        });
+        if (revised) {
+          const revisedFinal = finalizeHumanReply(sanitizeAiReply(revised, input.deterministicReply), input);
+          if (revisedFinal && !looksLikeRoboticClarification(revisedFinal)) finalAiReply = revisedFinal;
+        }
+      } catch (qualityError) {
+        console.error("DeepSeek quality critic error:", qualityError);
+      }
+    }
+
     const retryForHumanity = preferHumanFirstPro && (
       !finalAiReply ||
       looksLikeRoboticClarification(finalAiReply) ||
@@ -7653,12 +7775,12 @@ ${input.deterministicReply}
           model: reasoningModel,
           messages: [
             { role: "system", content: systemInstructions },
-            { role: "user", content: `${userInput}
+            { role: "user", content: `${qualityUserInput}
 
-المحاولة السابقة طلعت قالبية أو قريبة جدًا من النص الآمن. أعد الصياغة من الصفر كموظف واتساب طبيعي: جاوب سؤال العميل مباشرة، خليك قصير، ولا تضف أي حقيقة أو إجراء غير موجود.` },
+المحاولة السابقة طلعت قالبية أو قريبة جدًا من النص الآمن. أعد الصياغة من الصفر كموظف واتساب طبيعي: جاوب كل نقاط رسالة العميل الحالية، خليك قصير، ولا تضف أي حقيقة أو إجراء غير موجود.` },
           ],
           temperature: Number(process.env.AI_HUMAN_RETRY_TEMPERATURE || "0.42"),
-          max_tokens: Number(process.env.AI_HUMAN_RETRY_MAX_TOKENS || "520"),
+          max_tokens: Number(process.env.AI_HUMAN_RETRY_MAX_TOKENS || "700"),
         };
         const retryResponse = await fetch(`${baseUrl}/chat/completions`, {
           method: "POST",
@@ -7814,6 +7936,90 @@ async function claimOutgoingReplyLock(input: {
   return { shouldSend: true, reason: "outgoing_lock_claimed" };
 }
 
+
+type ResolvedApplicationSelection = {
+  app: ApplicationRecord | null;
+  ambiguousChoices: ApplicationRecord[];
+  source: string;
+};
+
+async function resolveApplicationForConversation(input: {
+  from: string;
+  text: string;
+  intent: CustomerIntent;
+  directTracking?: string | null;
+  typedPhone?: string | null;
+  memoryTracking?: string | null;
+  memoryPhone?: string | null;
+  explicitlyNewApplication?: boolean;
+}): Promise<ResolvedApplicationSelection> {
+  const { from, text, intent } = input;
+
+  if (input.explicitlyNewApplication) {
+    await clearApplicationConversationLock(from);
+    return { app: null, ambiguousChoices: [], source: "explicit_new_application" };
+  }
+
+  const directTracking = String(input.directTracking || "").trim();
+  const typedPhone = String(input.typedPhone || "").trim();
+  const memoryTracking = String(input.memoryTracking || "").trim();
+  const memoryPhone = String(input.memoryPhone || "").trim();
+
+  if (directTracking) {
+    const direct = typedPhone
+      ? (await findApplicationByTrackingAndPhone(directTracking, typedPhone)) || (await findApplicationByTracking(directTracking))
+      : (await findApplicationByTracking(directTracking)) || (await findApplicationByTrackingAndPhone(directTracking, memoryPhone || from));
+    if (direct) {
+      await setApplicationConversationLock(from, direct, "direct_tracking");
+      return { app: direct, ambiguousChoices: [], source: "direct_tracking" };
+    }
+  }
+
+  const preferredPhone = typedPhone || memoryPhone || from;
+  let candidates = await findApplicationsByPhone(preferredPhone, 12);
+  if (!candidates.length && normalizeJordanPhone(preferredPhone) !== normalizeJordanPhone(from)) {
+    candidates = await findApplicationsByPhone(from, 12);
+  }
+
+  const named = findExplicitlyNamedApplication(text, candidates);
+  if (named) {
+    await setApplicationConversationLock(from, named, "explicit_name");
+    return { app: named, ambiguousChoices: [], source: "explicit_name" };
+  }
+
+  const existingLock = await getApplicationConversationLock(from);
+  if (existingLock?.application_id) {
+    const locked = await findApplicationById(existingLock.application_id);
+    if (locked) {
+      await touchApplicationConversationLock(from);
+      return { app: locked, ambiguousChoices: [], source: "conversation_lock" };
+    }
+    await clearApplicationConversationLock(from);
+  }
+
+  if (memoryTracking) {
+    const byMemoryTracking = (await findApplicationByTracking(memoryTracking)) ||
+      (await findApplicationByTrackingAndPhone(memoryTracking, preferredPhone));
+    if (byMemoryTracking) {
+      await setApplicationConversationLock(from, byMemoryTracking, "memory_tracking");
+      return { app: byMemoryTracking, ambiguousChoices: [], source: "memory_tracking" };
+    }
+  }
+
+  if (candidates.length === 1) {
+    await setApplicationConversationLock(from, candidates[0], "single_candidate");
+    return { app: candidates[0], ambiguousChoices: [], source: "single_candidate" };
+  }
+
+  if (candidates.length > 1 && isApplicationSpecificIntent(intent) && applicationChoicesNeedDisambiguation(candidates)) {
+    return { app: null, ambiguousChoices: candidates, source: "ambiguous_same_phone" };
+  }
+
+  const latest = candidates[0] || null;
+  if (latest) await setApplicationConversationLock(from, latest, "latest_unambiguous_context");
+  return { app: latest, ambiguousChoices: [], source: latest ? "latest_unambiguous_context" : "none" };
+}
+
 async function buildReply(request: Request, from: string, text: string, messageType = "text") {
   const baseUrl = getBaseUrl(request);
   const rawCustomerText = String(text || "").trim();
@@ -7914,80 +8120,20 @@ async function buildReply(request: Request, from: string, text: string, messageT
 بخدمتك بأي وقت.`;
   }
 
-  let app: ApplicationRecord | null = null;
+  const resolvedApplication = await resolveApplicationForConversation({
+    from,
+    text: rawCustomerText,
+    intent,
+    directTracking: directTracking || null,
+    typedPhone: typedPhone || null,
+    memoryTracking: memoryTracking || null,
+    memoryPhone: memoryPhone || null,
+    explicitlyNewApplication,
+  });
+  let app: ApplicationRecord | null = resolvedApplication.app;
 
-  if (tracking && typedPhone) {
-    app = await findApplicationByTrackingAndPhone(tracking, typedPhone);
-    if (!app) app = await findApplicationByTracking(tracking);
-  } else if (tracking) {
-    app = await findApplicationByTracking(tracking);
-    if (!app) app = await findApplicationByTrackingAndPhone(tracking, typedPhone || memoryPhone || from);
-  } else if (typedPhone) {
-    app = await findApplicationByPhone(typedPhone);
-    if (!app && normalizeJordanPhone(typedPhone) !== normalizeJordanPhone(from)) {
-      app = await findApplicationByPhone(from);
-    }
-  } else if (memoryPhone && !explicitlyNewApplication) {
-    app = await findApplicationByPhone(memoryPhone);
-    if (!app && normalizeJordanPhone(memoryPhone) !== normalizeJordanPhone(from)) {
-      app = await findApplicationByPhone(from);
-    }
-  } else if (!explicitlyNewApplication && (
-    String(intent) === "order_status" ||
-    String(intent) === "delivery" ||
-    String(intent) === "payment" ||
-    String(intent) === "requirements" ||
-    String(intent) === "application_data_correction" ||
-    String(intent) === "application_data_correction_confirmed" ||
-    String(intent) === "self_employed" ||
-    String(intent) === "refund" ||
-    String(intent) === "stop_refund" ||
-    String(intent) === "complaint" ||
-    String(intent) === "abuse" ||
-    String(intent) === "legal_threat" ||
-    String(intent) === "social_media_threat" ||
-    String(intent) === "scam_accusation" ||
-    String(intent) === "payment_dispute" ||
-    String(intent) === "device_delay_rage" ||
-    String(intent) === "emotional_pressure" ||
-    String(intent) === "media_upload" ||
-    String(intent) === "document_upload" ||
-    String(intent) === "document_followup" ||
-    String(intent) === "continue_decision" ||
-    String(intent) === "keep_request" ||
-    String(intent) === "decline_decision" ||
-    String(intent) === "cancel_request" ||
-    String(intent) === "cancel_confirmed" ||
-    String(intent) === "alternative_payment_source" ||
-    String(intent) === "receipt_upload_needed" ||
-    String(intent) === "receipt_upload_confirmation" ||
-    String(intent) === "trust_verification" ||
-    String(intent) === "supplier_delay_question" ||
-    String(intent) === "site_issue" ||
-    String(intent) === "review_time" ||
-    String(intent) === "human_agent" ||
-    String(intent) === "staff_identity" ||
-    String(intent) === "call_request" ||
-    String(intent) === "payment_amount" ||
-    String(intent) === "payment_method" ||
-    String(intent) === "payment_timing" ||
-    String(intent) === "payment_recipient" ||
-    String(intent) === "payment_next_step" ||
-    String(intent) === "payment_review_time" ||
-    String(intent) === "payment_objection" ||
-    String(intent) === "payment_link_issue" ||
-    String(intent) === "voluntary_opt_out" || String(intent) === "office_payment_request" ||
-    String(intent) === "reopen_cancelled_request" ||
-    String(intent) === "reopen_cancelled_confirmed" ||
-    String(intent) === "device_change" ||
-    String(intent) === "device_change_cancelled" ||
-    String(intent) === "device_change_confirmed" ||
-    String(intent) === "unknown" ||
-    String(intent) === "thanks" ||
-    String(intent) === "apply" ||
-    String(intent) === "products"
-  )) {
-    app = await findApplicationByPhone(from);
+  if (resolvedApplication.ambiguousChoices.length) {
+    return applicationDisambiguationReply(resolvedApplication.ambiguousChoices);
   }
 
   // V1.2.0 GLOBAL STATE INTEGRITY GATE: an impossible refund state is quarantined

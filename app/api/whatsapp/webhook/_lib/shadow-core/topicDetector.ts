@@ -2,6 +2,8 @@ import { normalizeArabicText } from "../text";
 import type { CustomerIntent } from "../types";
 import {
   customerAsksAmmanLocation,
+  customerAsksGeneralOfficeArea,
+  customerAsksCancellationPossibility,
   customerAsksCurrentNextStep,
   customerAsksReviewTiming,
   hasSubstantiveContentAfterSocialPrefix,
@@ -103,7 +105,8 @@ export function detectShadowTopics(
   // V1.3.1: the literal current message outranks a stale/social initial intent.
   if (customerAsksReviewTiming(customerText)) add("review_time");
   if (customerAsksCurrentNextStep(customerText)) add("order_status");
-  if (customerAsksAmmanLocation(customerText)) add("office_location");
+  if (customerAsksGeneralOfficeArea(customerText) || customerAsksAmmanLocation(customerText)) add("office_location");
+  if (customerAsksCancellationPossibility(customerText)) add("cancellation");
   const currentReceiptConfirmation = isReceiptConfirmationCurrentText(customerText);
   if (currentReceiptConfirmation) {
     add("payment_status");
@@ -141,6 +144,7 @@ export function detectShadowTopics(
     "القسط ع كم شهر", "القسط على كم شهر", "كم شهر تقسيط", "مدة التقسيط", "مده التقسيط",
     "فوائد", "فائدة", "فائده", "ربا", "ربوي", "شرعي", "حلال",
   ])) add("procedures");
+  if (containsAny(text, ["12 شهر", "١٢ شهر", "18 شهر", "١٨ شهر", "24 شهر", "٢٤ شهر", "مدة القسط", "مده القسط"])) add("procedures");
   if (containsAny(text, ["يحتاج بنك", "بدها بنك", "لازم بنك", "بنك معين", "بنك محدد", "التقسيط بنك"])) add("bank_requirement");
   if (containsAny(text, ["اسدد كامل", "سداد كامل", "ادفع كامل", "دفعة واحدة", "اغلق الاقساط", "اسكر الاقساط", "السداد المبكر"])) add("early_settlement");
   const explicitOfficePaymentRequest = containsAny(text, [

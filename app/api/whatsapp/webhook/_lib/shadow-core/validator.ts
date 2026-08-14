@@ -764,9 +764,9 @@ export function validateFinalActualReply(
   addCheck(
     checks,
     "final_actual_address_allowed",
-    facts.officeAddressCanBeShared || !includesAny(reply, ["رانا سنتر", "شارع المدينه المنوره", "شارع المدينة المنورة", "مقابل مستشفى العيون"]),
+    facts.officeAddressCanBeShared || !includesAny(reply, ["رانا سنتر", "الطابق الثاني", "مقابل مستشفى العيون"]),
     "critical",
-    "الرد الفعلي النهائي لا يحتوي عنوان المكتب قبل الموافقة أو الموعد الرسمي.",
+    "قبل الموافقة يُسمح فقط بالموقع العام: عمّان - شارع المدينة المنورة، ويُمنع اسم المبنى والطابق والتفاصيل الدقيقة.",
   );
   addCheck(
     checks,
@@ -813,6 +813,39 @@ export function validateFinalActualReply(
     currentMessageIntentAlignmentSatisfied(context.customerText, reply),
     "critical",
     "الرد النهائي يجب أن يجيب الطلب الفعلي في الرسالة الحالية، ولا يجوز أن تبتلع التحية أو كلمة تمام السؤال الذي يليها.",
+  );
+  const currentTextNormalized = normalized(context.customerText);
+  const asksGeneralOfficeArea = includesAny(currentTextNormalized, [
+    "في اي محافظه", "اي محافظه", "وين موقعكم", "وين المكتب", "وين بعمان", "وين في عمان", "باي منطقه", "اي شارع", "الموقع بعيد",
+  ]);
+  const officePaymentContext = topics.includes("office_payment_request");
+  addCheck(
+    checks,
+    "final_actual_general_location_answered",
+    !asksGeneralOfficeArea || officePaymentContext || (includesAny(reply, ["عمان", "عمّان"]) && includesAny(reply, ["شارع المدينه المنوره", "شارع المدينة المنورة"])),
+    "critical",
+    "عند سؤال العميل عن مكان المكتب لتقدير المسافة يجب ذكر الموقع العام: عمّان - شارع المدينة المنورة، دون كشف تفاصيل المبنى قبل الموعد.",
+  );
+
+  const asksInstallmentTerm = includesAny(currentTextNormalized, [
+    "كم شهر", "12 شهر", "١٢ شهر", "18 شهر", "١٨ شهر", "24 شهر", "٢٤ شهر", "مده القسط", "مدة القسط", "مده التقسيط", "مدة التقسيط",
+  ]);
+  addCheck(
+    checks,
+    "final_actual_installment_term_answered",
+    !asksInstallmentTerm || includesAny(reply, ["شهر", "المده", "المدة", "الجدول", "لا اقدر ااكد", "لا أقدر أأكد", "ما بقدر ااكد", "ما بقدر أأكد"]),
+    "critical",
+    "سؤال مدة التقسيط يجب أن يُجاب مباشرة أو يُوضح أن المدة لا يمكن تأكيدها قبل الجدول المعتمد.",
+  );
+
+  const explicitNameMatch = String(context.customerText || "").match(/(?:باسم|ب اسم|الاسم)\s+([\p{L}]{2,})\s+([\p{L}]{2,})/iu);
+  const explicitName = explicitNameMatch ? normalized(`${explicitNameMatch[1]} ${explicitNameMatch[2]}`) : "";
+  addCheck(
+    checks,
+    "final_actual_explicit_application_name_respected",
+    !explicitName || normalized(reply).includes(explicitName) || !/(?:تمام|اهلا|أهلا|طلبك)\s+[\p{L}]{2,}\s+[\p{L}]{2,}/iu.test(String(reply || "")),
+    "critical",
+    "إذا حدد العميل اسم صاحب الطلب صراحةً فلا يجوز مخاطبته باسم طلب آخر.",
   );
   addCheck(
     checks,
@@ -958,7 +991,7 @@ export function validateShadowReply(
   ]);
   addCheck(checks, "application_link_truth", facts.hasApplication || !linkedApplicationClaim, "critical", "لا تُذكر حالة طلب شخصية دون طلب مرتبط بالمحادثة.");
 
-  addCheck(checks, "address_allowed", facts.officeAddressCanBeShared || !includesAny(reply, ["رانا سنتر", "شارع المدينه المنوره", "شارع المدينة المنورة", "مقابل مستشفى العيون"]), "critical", "لا يُذكر عنوان المكتب قبل الموافقة أو الموعد الرسمي.");
+  addCheck(checks, "address_allowed", facts.officeAddressCanBeShared || !includesAny(reply, ["رانا سنتر", "الطابق الثاني", "مقابل مستشفى العيون"]), "critical", "قبل الموافقة يُسمح بالموقع العام فقط ويُمنع العنوان التفصيلي.");
   addCheck(checks, "no_delivery_promise", !includesAny(reply, ["نوصل الجهاز", "التوصيل متاح", "مندوب التوصيل", "بنوصله لعندك"]), "critical", "لا يوجد توصيل.");
   addCheck(checks, "no_early_settlement_guarantee", !includesAny(reply, ["اكيد بتقدر تسدد كامل", "السداد الكامل متاح دائما", "تقدر تسكر الاقساط بأي وقت"]), "critical", "السداد المبكر لا يُضمن مسبقًا.");
   addCheck(checks, "final_approval_truth", facts.isApproved || !hasUnsupportedFinalApprovalClaim(reply), "critical", "لا تُدّعى موافقة نهائية غير موجودة.");
