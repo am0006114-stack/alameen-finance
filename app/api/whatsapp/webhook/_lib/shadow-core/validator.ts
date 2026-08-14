@@ -1,6 +1,14 @@
 import { normalizeArabicText } from "../text";
 import { hasGenderLanguageMismatch } from "../customerGender";
 import type { CustomerIntent } from "../types";
+import {
+  customerAsksAmmanLocation,
+  customerAsksCurrentNextStep,
+  customerAsksReviewTiming,
+  hasSubstantiveContentAfterSocialPrefix,
+  isReceiptConfirmationCurrentText,
+  replyLooksSocialOnly,
+} from "../intentAlignment";
 import type {
   ShadowAgentId,
   ShadowFacts,
@@ -525,13 +533,21 @@ function customerAsksRefundPolicyInquiry(text: string) {
   ]);
 }
 
-function finalReplyLooksTruncated(reply: string) {
-  const clean = normalized(reply).replace(/[،,.؟!;:]+$/g, "").trim();
+export function finalReplyLooksTruncated(reply: string) {
+  const raw = String(reply || "").trim();
+  const clean = normalized(raw).replace(/[،,.؟!;:]+$/g, "").trim();
   if (!clean) return true;
   const words = clean.split(/\s+/).filter(Boolean);
   const last = words[words.length - 1] || "";
+  const previous = words[words.length - 2] || "";
   if (["من", "الى", "إلى", "على", "عن", "في", "اذا", "إذا", "لو", "عشان", "حتى", "لكن", "بس", "او", "أو", "انه", "إنه", "انو", "إنو"].includes(last)) return true;
-  if (/[:،,\-–]$/.test(String(reply || "").trim())) return true;
+  if (/[:،,\-–]$/.test(raw)) return true;
+  // Production examples such as "حقك علينا يا غ" and endings like "... والع"
+  // are incomplete even though they have 3+ words.
+  if (words.length >= 3 && last.length <= 1 && !["لا"].includes(last)) return true;
+  if (previous === "يا" && last.length <= 2) return true;
+  if (/^وال[\p{L}]{0,2}$/u.test(last) && !["والله"].includes(last)) return true;
+  if (/^(?:بال|لل|وال|فال|كال)$/u.test(last)) return true;
   return false;
 }
 
@@ -544,7 +560,42 @@ function finalReplyHasMinimumSemanticContent(reply: string, intent: CustomerInte
     .trim();
   if (!clean) return false;
   const words = clean.split(/\s+/).filter(Boolean);
-  return clean.length >= 12 && words.length >= 3;
+  return clean.length >= 16 && words.length >= 4;
+}
+
+export function currentMessageIntentAlignmentSatisfied(customerText: string, reply: string) {
+  const substantiveAfterSocial = hasSubstantiveContentAfterSocialPrefix(customerText);
+  if (substantiveAfterSocial && replyLooksSocialOnly(reply)) return false;
+
+  if (customerAsksReviewTiming(customerText)) {
+    if (!includesAny(reply, [
+      "يومين", "3 أيام", "3 ايام", "ثلاث أيام", "ثلاث ايام", "مدة", "الوقت", "موعد",
+      "حسب الدور", "ضغط المراجعات", "ما في موعد", "لا يوجد موعد", "تحديث", "الرد",
+    ])) return false;
+  }
+
+  if (customerAsksCurrentNextStep(customerText)) {
+    if (!includesAny(reply, [
+      "مطلوب", "ما عليك", "ما في عليك", "الخطوة", "الخطوه", "حاليًا", "حاليا",
+      "استنى", "انتظر", "الرابط", "ارفع", "أرفع", "اكمل", "أكمل", "الحالة", "حاله",
+    ])) return false;
+  }
+
+  if (customerAsksAmmanLocation(customerText)) {
+    if (!includesAny(reply, ["عمان", "عمّان", "المكتب"])) return false;
+  }
+
+  if (isReceiptConfirmationCurrentText(customerText)) {
+    const receiptAligned = includesAny(reply, [
+      "الوصل", "وصل الدفع", "الدفع", "تأكيد", "تاكيد", "مؤكد", "قيد المراجعة", "بانتظار التأكيد",
+    ]);
+    const hijackedByFeeRefund = includesAny(reply, [
+      "مجرد سؤالك عن الاسترداد", "إذا لم تتم الموافقة النهائية", "اذا لم تتم الموافقة النهائية",
+    ]) && !includesAny(customerText, ["استرداد", "استرجاع", "بترجع", "برجع", "مسترد"]);
+    if (!receiptAligned || hijackedByFeeRefund) return false;
+  }
+
+  return true;
 }
 
 function hasUnverifiedInterestOrReligiousClaim(reply: string) {
@@ -755,6 +806,20 @@ export function validateFinalActualReply(
     !finalReplyLooksTruncated(reply) && finalReplyHasMinimumSemanticContent(reply, context.initialIntent),
     "critical",
     "الرد الفعلي النهائي يجب أن يكون مكتمل المعنى، وليس كلمة أو كلمتين مجتزأتين أو جملة معلقة.",
+  );
+  addCheck(
+    checks,
+    "final_actual_current_message_alignment",
+    currentMessageIntentAlignmentSatisfied(context.customerText, reply),
+    "critical",
+    "الرد النهائي يجب أن يجيب الطلب الفعلي في الرسالة الحالية، ولا يجوز أن تبتلع التحية أو كلمة تمام السؤال الذي يليها.",
+  );
+  addCheck(
+    checks,
+    "final_actual_receipt_confirmation_not_fee_inquiry",
+    !isReceiptConfirmationCurrentText(context.customerText) || !includesAny(reply, ["مجرد سؤالك عن الاسترداد"]),
+    "critical",
+    "رفع وصل الدفع أو متابعة تأكيده يجب أن يبقى في مسار تأكيد الدفع، لا مسار سؤال رسوم/استرداد.",
   );
   addCheck(
     checks,

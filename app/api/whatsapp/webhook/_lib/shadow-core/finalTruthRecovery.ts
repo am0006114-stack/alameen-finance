@@ -1,3 +1,4 @@
+import { isReceiptConfirmationCurrentText } from "../intentAlignment";
 export type FinalTruthRecoveryInput = {
   customerText: string;
   failedCheckIds: string[];
@@ -47,6 +48,7 @@ function hasMoneyAnchor(text: string) {
 }
 
 function hasFeeRefundPolicyInquiry(text: string) {
+  if (isReceiptConfirmationCurrentText(text)) return false;
   const feeContext = containsAny(text, [
     "رسوم", "رسوم فتح الملف", "قيمه الملف", "قيمة الملف",
     "الخمس", "الخمسه", "الخمسة", "5", "٥", "دينار", "دنانير",
@@ -82,6 +84,12 @@ export function buildFinalTruthContextRecovery(input: FinalTruthRecoveryInput): 
   const moneyAnchor = hasMoneyAnchor(text);
   const timingAnchor = hasTimingAnchor(text);
   const feeRefundPolicyInquiry = hasFeeRefundPolicyInquiry(text);
+  const currentMessageAlignmentFailure = input.failedCheckIds.includes("final_actual_current_message_alignment");
+  const receiptAlignmentFailure = input.failedCheckIds.includes("final_actual_receipt_confirmation_not_fee_inquiry");
+
+  if ((currentMessageAlignmentFailure || receiptAlignmentFailure) && isReceiptConfirmationCurrentText(input.customerText)) {
+    return "فاهم إنك بتحكي عن وصل الدفع ومتابعة تأكيده. ما رح أحوّل سؤالك لمسار استرداد. حالة الوصل والدفع لازم تنقرأ من الطلب نفسه، وما في داعي تعيد الدفع أو ترسل الوصل عبر واتساب.";
+  }
 
   if (feeRefundPolicyInquiry) {
     return "سؤالك عن الخمس دنانير هو استفسار وليس طلب استرداد. رسوم فتح الملف منفصلة عن ثمن الجهاز وعن القسط الأول، وتكون مستردة بالكامل إذا لم تتم الموافقة النهائية حسب حالة الطلب. ولا يتم احتسابها كخصم من القسط الأول.";

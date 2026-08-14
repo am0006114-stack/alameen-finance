@@ -24,7 +24,7 @@ import type {
   ShadowValidation,
 } from "./types";
 
-export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.3.0-human-first-safety-locked";
+export const SHADOW_PROMPT_VERSION = "solid-multi-agent-v1.3.1-intent-alignment-human-recovery";
 
 function containsAnyNormalized(text: string, values: string[]) {
   const normalized = normalizeArabicText(text);

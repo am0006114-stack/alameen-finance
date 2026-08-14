@@ -1,5 +1,12 @@
 import { normalizeArabicText } from "../text";
 import type { CustomerIntent } from "../types";
+import {
+  customerAsksAmmanLocation,
+  customerAsksCurrentNextStep,
+  customerAsksReviewTiming,
+  hasSubstantiveContentAfterSocialPrefix,
+  isReceiptConfirmationCurrentText,
+} from "../intentAlignment";
 import type { ShadowTopic } from "./types";
 
 function containsAny(text: string, values: string[]) {
@@ -33,7 +40,8 @@ export function detectShadowTopics(
   if (["audio", "voice"].includes(type)) add("voice_message");
   if (["image", "video", "sticker"].includes(type)) add("media_upload");
   if (type === "document") add("document_upload");
-  if (isAcknowledgementOnly(String(customerText || "")) || initialIntent === "reaction" || initialIntent === "thanks") {
+  const substantiveAfterSocial = hasSubstantiveContentAfterSocialPrefix(String(customerText || ""));
+  if (isAcknowledgementOnly(String(customerText || "")) || ((initialIntent === "reaction" || initialIntent === "thanks") && !substantiveAfterSocial)) {
     add("acknowledgement");
   }
 
@@ -92,6 +100,17 @@ export function detectShadowTopics(
   if (["document_upload", "document_followup"].includes(initialIntent)) add("document_upload");
   if (["apply", "products", "installment_info", "loan"].includes(initialIntent)) add("procedures");
 
+  // V1.3.1: the literal current message outranks a stale/social initial intent.
+  if (customerAsksReviewTiming(customerText)) add("review_time");
+  if (customerAsksCurrentNextStep(customerText)) add("order_status");
+  if (customerAsksAmmanLocation(customerText)) add("office_location");
+  const currentReceiptConfirmation = isReceiptConfirmationCurrentText(customerText);
+  if (currentReceiptConfirmation) {
+    add("payment_status");
+    remove("acknowledgement");
+    remove("refund");
+  }
+
   if (containsAny(text, [
     "البنك المركزي", "مرخصين من البنك المركزي", "مرخصه من البنك المركزي", "مرخصة من البنك المركزي",
     "خاضعين للبنك المركزي", "خاضعه للبنك المركزي", "خاضعة للبنك المركزي", "رقابه البنك المركزي", "رقابة البنك المركزي",
@@ -113,7 +132,8 @@ export function detectShadowTopics(
     "كم يوم", "كم وقت", "٣ ايام", "3 ايام", "الرد بدو وقت", "الرد بده وقت", "الرد مطول",
     "طيب يعني لمتى", "متى رح يبين", "هل الرد يوخذ وقت طويل", "هل الرد ياخذ وقت طويل",
     "اليوم بتردولي خبر", "متى بتحكولي اه ولا لا", "قديش بقعد وقت", "كم بقعد وقت",
-    "يعني بطول", "الوقت", "صرلي اسبوعين", "صرله اسبوعين", "الي اسبوعين", "إلي أسبوعين",
+    "يعني بطول", "الوقت", "لمتى", "لحد متى", "اكثر من 72 ساعه", "أكثر من 72 ساعة", "72 ساعه", "72 ساعة",
+    "صرلي اسبوعين", "صرله اسبوعين", "الي اسبوعين", "إلي أسبوعين",
   ])) add("review_time");
   if (containsAny(text, [
     "مواصفات", "الرام", "رامات", "سعة الرام", "سعه الرام", "مواصفات الجهاز", "تفاصيل الجهاز",
@@ -150,6 +170,10 @@ export function detectShadowTopics(
   if (explicitVoluntaryOptOut || explicitOfficePaymentRequest) remove("payment_method");
   if (explicitOfficePaymentRequest) remove("office_location");
   if (containsAny(text, ["دفعت", "حولت", "وصل الدفع", "تأكد الدفع", "تاكد الدفع", "رفعت الوصل", "تأكيد الوصل"])) add("payment_status");
+  if (currentReceiptConfirmation) {
+    remove("payment_method");
+    remove("refund");
+  }
   if (containsAny(text, ["ارفع قيمة القسط", "أرفع قيمة القسط", "بقدر لحد", "ميزانيتي", "اخليها ٥٠", "أخليها ٥٠", "اخليها 50", "أخليها 50"])) add("procedures");
   if (containsAny(text, ["الاجراءات", "الإجراءات", "كيف بتم", "كيف تتم", "شو الخطوات", "ايش ضل خطوات", "ما هي الخطوات", "طريقة التقديم", "طريقه التقديم"])) add("procedures");
   if (containsAny(text, [
@@ -161,13 +185,14 @@ export function detectShadowTopics(
     "شو المطلوب", "المتطلبات", "كفيل", "كشف راتب", "شهادة راتب", "شهاده راتب", "هويه", "هوية",
     "اثبات دخل", "إثبات دخل", "شو الاوراق", "شو الأوراق", "شو اجهز", "شو أجهز",
     "مطلوب اي اشي لبعدين", "مطلوب أي اشي لبعدين", "مطلوب اشي بعدين", "في اشي مطلوب بعدين",
+    "شو مطلوب مني", "مطلوب مني حالين", "مطلوب مني حاليا", "مطلوب مني حاليًا",
   ])) add("requirements");
   if (containsAny(text, [
     "يزبط اقدم", "يزبط أقدم", "بقدر اقدم", "بقدر أقدم", "اقدر اقدم", "أقدر أقدم",
     "مؤهل اقدم", "مؤهل أقدم", "مؤهله اقدم", "مؤهلة أقدم", "ينفع اقدم", "ينفع أقدم",
     "انا موظف", "انا موظفه", "أنا موظف", "أنا موظفة", "مشترك ضمان", "مشتركه ضمان",
   ]) && containsAny(text, ["اقدم", "أقدم", "طلب", "ضمان", "موظف", "موظفه", "موظفة"])) add("eligibility");
-  if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "ممكن موقعكم", "موقعكم", "الموقع", "مكانكم", "الفرع", "فروعكم", "فروع"])) {
+  if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "ممكن موقعكم", "موقعكم", "الموقع", "مكانكم", "موجود بعمان", "موجود في عمان", "انتو بعمان", "المكتب بعمان", "الفرع", "فروعكم", "فروع"])) {
     if (!explicitOfficePaymentRequest) add("office_location");
     if (containsAny(text, ["الفرع", "فروعكم", "فروع"])) add("independence");
   }
@@ -191,7 +216,7 @@ export function detectShadowTopics(
     ]);
 
   const refundPolicyInquiry =
-    explicitNoRefund ||
+    !currentReceiptConfirmation && (explicitNoRefund ||
     (!refundTimingOrStatus &&
       containsAny(text, [
         "رسوم", "رسوم فتح الملف", "قيمة الملف", "قيمه الملف", "الخمس", "الخمسه", "الخمسة",
@@ -205,7 +230,7 @@ export function detectShadowTopics(
         "بتنخصم", "تنخصم", "بينخصم", "ينخصم", "بتنهضم", "تنهضم",
         "من اول قسط", "من أول قسط", "من القسط الاول", "من القسط الأول",
         "شو بصير", "وين بتروح", "شو مصير", "بسال", "بسأل", "سؤال",
-      ]));
+      ])));
 
   const strongRefundRequest = containsAny(text, [
     "استرداد", "استرجاع", "رجعوا فلوسي", "رجعولي فلوسي", "بدي فلوسي", "استرجاع الرسوم",

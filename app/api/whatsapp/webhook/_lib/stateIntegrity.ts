@@ -1,5 +1,6 @@
 import type { ApplicationRecord } from "./types";
 import { normalizeArabicText } from "./text";
+import { isReceiptConfirmationCurrentText } from "./intentAlignment";
 
 function cleanDecisionText(value: string) {
   return normalizeArabicText(String(value || ""))
@@ -66,6 +67,7 @@ export function isConditionalCancellationText(text: string) {
 export function isRefundPolicyInquiryText(text: string) {
   const t = cleanDecisionText(text);
   if (!t) return false;
+  if (isReceiptConfirmationCurrentText(text)) return false;
 
   const explicitNoRefund = containsAny(t, [
     "ما بدي استرد", "ما بدي استرجع", "بديش استرد", "بديش استرجع",

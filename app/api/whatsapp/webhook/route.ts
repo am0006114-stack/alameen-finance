@@ -74,6 +74,13 @@ import {
   shouldReturnExactHumanFirstReply,
 } from "./_lib/humanFirstPolicy";
 import { routeShadowAgent } from "./_lib/shadow-core/agentRouter";
+import {
+  currentMessageSemanticIntentHint,
+  hasSubstantiveContentAfterSocialPrefix,
+  isPureSocialAcknowledgementText,
+  isReceiptConfirmationCurrentText,
+  stripLeadingSocialAcknowledgement,
+} from "./_lib/intentAlignment";
 import type { ShadowAgentId, ShadowPolicyCheck } from "./_lib/shadow-core/types";
 import {
   customerAskedAboutFinalApproval,
@@ -581,7 +588,11 @@ function resolveConversationInput(
   messageType: string,
   memory: Awaited<ReturnType<typeof getConversationMemory>>,
 ) {
-  let effectiveText = String(customerText || "").trim();
+  const rawCurrentText = String(customerText || "").trim();
+  const semanticTail = stripLeadingSocialAcknowledgement(rawCurrentText);
+  let effectiveText = hasSubstantiveContentAfterSocialPrefix(rawCurrentText) && semanticTail
+    ? semanticTail
+    : rawCurrentText;
 
   if (isContextOnlyFollowupText(effectiveText) || isContextualShortRequestText(effectiveText)) {
     const previousQuestion =
@@ -590,11 +601,13 @@ function resolveConversationInput(
       "";
 
     if (previousQuestion && normalizeArabicText(previousQuestion) !== normalizeArabicText(effectiveText)) {
-      effectiveText = `${previousQuestion}\nمتابعة العميل: ${customerText}`;
+      effectiveText = `${previousQuestion}\nمتابعة العميل: ${semanticTail || customerText}`;
     }
   }
 
   let intent = classifyIncomingIntent(effectiveText, messageType);
+  const currentMessageHint = currentMessageSemanticIntentHint(rawCurrentText);
+  if (currentMessageHint) intent = currentMessageHint;
 
   if (
     memory.hasRecentPreliminaryApprovalTemplate &&
@@ -2350,6 +2363,9 @@ function classifyIntent(text: string): CustomerIntent {
   if (isReopenCancelledConfirmedText(t)) return "reopen_cancelled_confirmed";
   if (isReopenCancelledRequestText(t)) return "reopen_cancelled_request";
 
+  // تأكيد رفع وصل الدفع أعلى أولوية من كلمات "رسوم فتح الملف" حتى لا يتحول لمسار استرداد/رسوم.
+  if (isReceiptConfirmationCurrentText(t) || isReceiptUploadConfirmationText(t)) return "receipt_upload_confirmation";
+
   // إيقاف الاسترداد عكس طلب الاسترداد تمامًا، لذلك يُحسم أولًا.
   if (isExplicitStopRefundText(t)) return "stop_refund";
 
@@ -2573,7 +2589,9 @@ function classifyIntent(text: string): CustomerIntent {
 
   if (isGreeting(t) || isCasualWellbeingText(t)) return "greeting";
 
-  if (hasAny(t, ["شكرا", "شكراً", "اشكرك", "أشكرك", "شكرك", "شكرا الك", "يسلمو", "تسلم", "تمام", "يعطيك العافيه", "يعطيكم العافيه", "مشكور", "تشرفنا", "تشرفت"])) {
+  // التحية أو "تمام/شكرا" تُعامل اجتماعيًا فقط إذا كانت الرسالة اجتماعية صافية.
+  // إذا تبعها سؤال أو طلب، أولوية المعنى الحالي أعلى من المجاملة.
+  if (isPureSocialAcknowledgementText(t)) {
     return "thanks";
   }
 
@@ -4122,6 +4140,10 @@ function keepRequestReply(app: ApplicationRecord | null) {
 
 function paymentAmountReply(app: ApplicationRecord | null, customerText: string) {
   const t = normalizeArabicText(customerText);
+
+  if (isReceiptConfirmationCurrentText(customerText)) {
+    return receiptUploadConfirmationReply(app);
+  }
 
   if (isRefundPolicyInquiryText(customerText)) {
     const asksDeduction = hasAny(t, [
@@ -6477,6 +6499,10 @@ function isLikelyIncompleteReply(reply: string) {
   if (danglingWords.includes(lastWord)) return true;
   if (["خلينا ن", "حتى ن", "بدي ا", "بدي أ", "بدنا ن"].includes(lastTwo)) return true;
   if (/^معك\s+\S+\s+من$/i.test(lastThree)) return true;
+  if (words.length >= 3 && lastWord.length <= 1 && lastWord !== "لا") return true;
+  if (words.length >= 3 && words[words.length - 2] === "يا" && lastWord.length <= 2) return true;
+  if (/^وال[\p{L}]{0,2}$/u.test(lastWord) && lastWord !== "والله") return true;
+  if (/^(?:بال|لل|وال|فال|كال)$/u.test(lastWord)) return true;
   if (/https?:\/\/\S*$/i.test(clean) && !/^https?:\/\/[^\s]+\.[^\s]+$/i.test(clean.split(/\s+/).pop() || "")) return true;
   if (/[:،,\-–]$/.test(clean)) return true;
 
@@ -6499,7 +6525,7 @@ function replyTooShortForIntent(reply: string, intent: CustomerIntent) {
 
   // V1.2.2 SEMANTIC COMPLETENESS: catches fragments such as "ما بق"
   // while allowing intentionally short social replies.
-  return clean.length < 12 || words.length < 3;
+  return clean.length < 16 || words.length < 4;
 }
 
 function containsUnverifiedInterestOrReligiousClaim(reply: string) {
@@ -6855,6 +6881,21 @@ async function applyProductionFinalTruthGate(input: {
   };
 }
 
+function incompleteReplyRecovery(options: {
+  from: string;
+  text: string;
+  intent: CustomerIntent;
+  application?: ApplicationRecord | null;
+}) {
+  const app = options.application || null;
+  if (String(options.intent) === "review_time") return app ? reviewAndProcedureReply(app) : generalReviewTimeReply(options.from, options.text);
+  if (String(options.intent) === "receipt_upload_confirmation") return receiptUploadConfirmationReply(app);
+  if (String(options.intent) === "location") return locationReply(options.from, app);
+  if (String(options.intent) === "order_status" && app) return conciseOrderStatusReply(app, options.text);
+  if (String(options.intent) === "requirements" && app) return directRequirementQuestionReply(app, options.text) || `المطلوب منك يتحدد حسب حالة طلبك نفسها، وما بطلب منك أي مستند غير ظاهر كمطلوب على الملف حاليًا.\n\nرقم الطلب: ${app.tracking_id || app.id}`;
+  return "وصلت سؤالك، وما رح أرسل لك جواب ناقص. خليني أجاوبك على نفس النقطة من الحالة والمعلومة المؤكدة فقط.";
+}
+
 function finalizeReplyBeforeSend(reply: string, options: {
   from: string;
   text: string;
@@ -6886,9 +6927,12 @@ function finalizeReplyBeforeSend(reply: string, options: {
   });
 
   if (isLikelyIncompleteReply(finalReply) || replyTooShortForIntent(finalReply, options.intent)) {
-    return `وصلت رسالتك، لكن ما بدي أرسل لك جواب ناقص أو غير مؤكد.
-
-ابعث رقم الطلب إذا الموضوع متعلق بملفك، أو اكتب النقطة بجملة واحدة وبجاوبك عليها مباشرة.`;
+    return incompleteReplyRecovery({
+      from: options.from,
+      text: options.text,
+      intent: options.intent,
+      application: options.application,
+    });
   }
 
   return finalReply;
@@ -7779,9 +7823,12 @@ async function buildReply(request: Request, from: string, text: string, messageT
   text = resolvedInput.effectiveText;
   let intent = resolvedInput.intent;
 
-  // V1.2.1 CURRENT-MESSAGE ACTION OVERRIDE: destructive/reversal decisions are derived
-  // from the customer's raw current message before historical context can invert them.
-  if (isExplicitStopRefundText(rawCustomerText)) {
+  // V1.3.1 CURRENT-MESSAGE SEMANTIC PRIORITY: receipt confirmation and the current
+  // substantive question outrank historical context and social prefixes such as "تمام/شكرا".
+  const currentSemanticHint = currentMessageSemanticIntentHint(rawCustomerText);
+  if (isReceiptConfirmationCurrentText(rawCustomerText) || isReceiptUploadConfirmationText(rawCustomerText)) {
+    intent = "receipt_upload_confirmation";
+  } else if (isExplicitStopRefundText(rawCustomerText)) {
     intent = "stop_refund";
   } else if (isRefundPolicyInquiryText(rawCustomerText)) {
     intent = "payment_amount";
@@ -7795,6 +7842,8 @@ async function buildReply(request: Request, from: string, text: string, messageT
     intent = "continue_decision";
   } else if (isExplicitRefundMutationText(rawCustomerText)) {
     intent = "refund";
+  } else if (currentSemanticHint) {
+    intent = currentSemanticHint;
   }
 
   if (isEnglishReplyPreferenceText(rawCustomerText)) {
