@@ -1,4 +1,5 @@
 import { normalizeArabicText } from "../text";
+import { hasInternalCustomerFacingLanguage } from "../customerFacingPolicy";
 import { hasGenderLanguageMismatch } from "../customerGender";
 import type { CustomerIntent } from "../types";
 import {
@@ -342,7 +343,7 @@ function topicAnswered(topic: ShadowTopic, reply: string) {
     supplier_delay: ["التوريد", "المورد", "موعد توريد"],
     device_selection: ["اختيار الجهاز", "/products", "/change-device"],
     voluntary_opt_out: ["الخدمه اختياريه", "الخدمة اختيارية", "القرار راجع", "ما في عليك اي التزام", "ما في عليك أي التزام"],
-    office_payment_request: ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب", "الخدمة اختيارية", "الاجراء اختياري"],
+    office_payment_request: ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب", "دفع رسوم فتح الملف بالمكتب غير متاح", "الخدمة اختيارية", "الاجراء اختياري", "ما في عليك أي التزام"],
     business_hours: ["ما عندي وقت دوام عام معتمد", "الحضور إلى المكتب لا يكون إلا بموعد رسمي", "الحضور الى المكتب لا يكون الا بموعد رسمي", "موعد رسمي"],
     eligibility: ["تقدر تقدم", "بتقدر تقدم", "لا تعني موافقة", "ما بيعني موافقة", "ما بنقدر نضمن القبول"],
     device_change: ["change-device", "تغيير الجهاز", "تعديل الجهاز"],
@@ -926,11 +927,12 @@ export function validateShadowReply(
   const officePaymentRequest = topics.includes("office_payment_request");
   addCheck(checks, "voluntary_opt_out_reply_is_non_coercive", !voluntaryOptOut || (!hasOptOutCoercion(reply) && hasVoluntaryChoiceLanguage(reply)), "critical", "الرفض الصريح للدفع يُجاب عنه باحترام الاختيار دون ضغط أو محاولة إقناع.");
   addCheck(checks, "voluntary_opt_out_has_no_payment_instructions", !voluntaryOptOut || !paymentInstructions, "critical", "بعد رفض العميل الصريح لا تُرسل معلومات تحويل أو طلب دفع.");
-  addCheck(checks, "office_payment_policy_is_clear", !officePaymentRequest || includesAny(reply, ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب"]), "critical", "طلب الدفع في المكتب يجب أن يُجاب عنه بأن هذه الوسيلة غير متاحة.");
+  addCheck(checks, "office_payment_policy_is_clear", !officePaymentRequest || includesAny(reply, ["الدفع في المكتب غير متاح", "دفع رسوم فتح الملف غير متاح في المكتب", "دفع رسوم فتح الملف بالمكتب غير متاح"]), "critical", "طلب الدفع في المكتب يجب أن يُجاب عنه بأن هذه الوسيلة غير متاحة.");
   addCheck(checks, "office_payment_reply_is_non_coercive", !officePaymentRequest || (!hasOptOutCoercion(reply) && hasVoluntaryChoiceLanguage(reply)), "critical", "رد الدفع في المكتب يوضح أن الاستمرار اختياري دون ضغط.");
   addCheck(checks, "office_payment_reply_has_no_address", !officePaymentRequest || !includesAny(reply, ["شارع", "مجمع", "الطابق", "موقعنا هو", "عنواننا هو"]), "critical", "لا يُرسل عنوان المكتب لغرض دفع الرسوم.");
   addCheck(checks, "office_payment_reply_has_no_payment_instructions", !officePaymentRequest || !paymentInstructions, "critical", "بعد توضيح رفض الدفع في المكتب لا تُكرر تعليمات التحويل أو روابط الدفع في نفس الرد.");
   addCheck(checks, "internal_ready_to_ignore_not_exposed", !includesAny(reply, ["جاهز للتجاهل", "تجاهل العميل", "جاهز للتطنيش"]), "critical", "وسم التجاهل داخلي ولا يظهر للعميل.");
+  addCheck(checks, "final_actual_no_internal_system_language", !hasInternalCustomerFacingLanguage(reply), "critical", "لغة الحراس والتصنيف والتغيير الداخلي تبقى داخلية ولا تظهر للعميل.");
   addCheck(checks, "payment_allowed", facts.paymentCurrentlyAllowed || !paymentInstructions, "critical", "لا تُرسل تعليمات دفع عندما لا يكون الدفع مسموحًا.");
   addCheck(checks, "no_duplicate_payment", !facts.paymentAlreadyConfirmed || !includesAny(reply, ["ادفع الرسوم", "ادفعي الرسوم", "حول الرسوم", "حولي الرسوم", "الخطوه الجايه هي دفع"]), "critical", "لا يُطلب الدفع مرة ثانية بعد التأكيد أو رفع الوصل.");
   addCheck(checks, "confirmed_not_pending", !facts.paymentConfirmed || !includesAny(reply, ["الوصل بانتظار التأكيد", "الدفع قيد التأكيد", "ننتظر تأكيد الوصل", "خلينا نأكد الوصل"]), "critical", "لا يوصف الدفع المؤكد بأنه بانتظار التأكيد.");

@@ -74,6 +74,14 @@ import {
   shouldPreferHumanFirstPro,
   shouldReturnExactHumanFirstReply,
 } from "./_lib/humanFirstPolicy";
+import {
+  customerFacingPolicyInstructions,
+  hasInternalCustomerFacingLanguage,
+  isAbsolutePaymentRefusalText,
+  isClearPaymentRefusalText,
+  paymentRefusalFinalClosureWasSent,
+  paymentRefusalPolicyWasExplained,
+} from "./_lib/customerFacingPolicy";
 import { routeShadowAgent } from "./_lib/shadow-core/agentRouter";
 import {
   currentMessageSemanticIntentHint,
@@ -904,13 +912,10 @@ function isVoluntaryOptOutText(text: string) {
     "استرداد", "استرجاع", "رجعولي", "رجعوا فلوسي", "بدي فلوسي",
   ])) return false;
 
-  // V1.1.7.1: هذا المسار لرفض الدفع نفسه فقط. رفض الحضور للمكتب ليس مقصودًا هنا.
-  return hasAny(t, [
-    "لا ارغب بدفع اي شي", "لا أرغب بدفع أي شيء", "لا اريد دفع اي شي", "لا أريد دفع أي شيء",
-    "ما بدي ادفع", "ما بدي أدفع", "مش حاب ادفع", "مش حاب أدفع", "مش حابه ادفع", "مش حابة أدفع",
-    "ما رح ادفع", "ما رح أدفع", "ما راح ادفع", "ما راح أدفع", "مش دافع", "مش دافعه", "مش دافعة",
-    "ما بدي ادفع الرسوم", "ما بدي أدفع الرسوم", "مش رح ادفع الرسوم", "مش رح أدفع الرسوم",
-  ]);
+  // V1.4.1 CUSTOMER EXPERIENCE: robust refusal detection catches natural Jordanian
+  // phrases such as "انا ما بدفع ايشي قبل ما يكون الجهاز في ايدي" without
+  // turning ordinary payment questions into opt-out.
+  return isClearPaymentRefusalText(t);
 }
 
 function isOfficeFeePaymentRequestText(text: string) {
@@ -964,53 +969,45 @@ function officeFeePaymentCanBeIgnored(app: ApplicationRecord | null) {
 }
 
 function officeFeePaymentPolicyWasExplained(replies: string[]) {
-  return replies.some((reply) => /دفع رسوم فتح الملف غير متاح في المكتب|الدفع في المكتب غير متاح|عنوان المكتب لا يرسل لهذه الغايه|عنوان المكتب لا يُرسل لهذه الغاية/i.test(normalizeArabicText(String(reply || ""))));
+  return replies.some((reply) => /دفع رسوم فتح الملف.*(?:غير متاح|مش متاح).*المكتب|الدفع بالمكتب.*(?:غير متاح|مش متاح)|اذا هالطريقه ما بتناسبك|إذا هالطريقة ما بتناسبك/i.test(normalizeArabicText(String(reply || ""))));
 }
 
 function officeFeePaymentFinalReplyWasSent(replies: string[]) {
-  return replies.some((reply) => /الدفع في المكتب غير متاح.*ما في عليك اي التزام|الدفع في المكتب غير متاح.*ما في عليك أي التزام/i.test(normalizeArabicText(String(reply || ""))));
+  return replies.some((reply) => /بنحترم قرارك.*اذا غيرت رايك لاحقا|بنحترم قرارك.*إذا غيرت رأيك لاحقًا/i.test(normalizeArabicText(String(reply || ""))));
 }
 
 function officeFeePaymentReply(app: ApplicationRecord | null, finalClosure: boolean) {
-  const trackingLine = app ? `
-رقم الطلب: ${app.tracking_id || app.id}` : "";
-
   if (!officeFeePaymentCanBeIgnored(app)) {
     const paymentStatus = app?.payment_status || "";
     const paymentConfirmed = paymentStatus === "confirmed" || paymentStatus === "customer_claimed_paid" || Boolean(app?.payment_confirmed_at);
     if (paymentConfirmed) {
-      return `الدفع مسجل ومؤكد على طلبك، وما في أي دفع إضافي مطلوب أو حاجة للحضور إلى المكتب للدفع.${trackingLine}`;
+      return "الدفع مسجل ومؤكد على طلبك، وما في أي دفع إضافي مطلوب.";
     }
 
-    return `دفع رسوم فتح الملف غير متاح في المكتب، والحضور لا يتم لهذه الغاية. بما أن الطلب عليه إجراء مالي أو مرحلة متقدمة، ما بنتركه للتجاهل أو نغلقه تلقائيًا. إذا قرارك النهائي عدم الاستمرار، اكتب: أكد إلغاء الطلب، وبعدها تظهر خطوات الاسترداد الرسمية إن كانت مستحقة.${trackingLine}`;
+    return "دفع رسوم فتح الملف بالمكتب غير متاح. إذا قرارك النهائي عدم الاستمرار، احكيلي إنك بدك تلغي الطلب وبوضحلك الخطوة المناسبة حسب حالته.";
   }
 
   if (finalClosure) {
-    return `مفهوم، وبنحترم قرارك. الدفع في المكتب غير متاح، وما في عليك أي التزام بالدفع أو باستكمال الطلب. إذا قررت لاحقًا الاستمرار من خلال الطريقة الرسمية، تواصل معنا من نفس الرقم.${trackingLine} 🌿`;
+    return "واضح، وبنحترم قرارك. دفع رسوم فتح الملف بالمكتب غير متاح، وإذا طريقة الدفع الرسمية ما بتناسبك ما عليك أي التزام تكمل الطلب. إذا غيرت رأيك لاحقًا تواصل معنا من نفس الرقم.";
   }
 
-  return `أهلًا، دفع رسوم فتح الملف غير متاح في المكتب، ويتم فقط من خلال وسيلة الدفع الرسمية المرتبطة بطلبك.
-
-الإجراء اختياري بالكامل، وإذا ما بناسبك الدفع بهذه الطريقة فمش مطلوب منك تكمل الطلب، وبنحترم قرارك بدون أي ضغط. عنوان المكتب لا يُرسل لهذه الغاية، والحضور يكون فقط بموعد رسمي بعد الموافقة النهائية.${trackingLine} 🌿`;
+  return "دفع رسوم فتح الملف بالمكتب غير متاح؛ الدفع فقط بالطريقة الرسمية المرتبطة بالطلب. إذا هالطريقة ما بتناسبك، ما عليك أي التزام تكمل.";
 }
 
 function voluntaryOptOutCanBeIgnored(app: ApplicationRecord | null) {
   return officeFeePaymentCanBeIgnored(app);
 }
 
-function voluntaryOptOutReply(app: ApplicationRecord | null) {
-  const trackingLine = app ? `
-رقم الطلب: ${app.tracking_id || app.id}` : "";
-
+function voluntaryOptOutReply(app: ApplicationRecord | null, finalClosure: boolean) {
   if (!voluntaryOptOutCanBeIgnored(app)) {
-    return `أكيد، القرار راجع إلك بالكامل وما في أي ضغط عليك للاستمرار. لكن بما أن على الطلب إجراء مالي أو مرحلة متقدمة، ما رح نعتبره متروكًا أو نغلقه تلقائيًا.
-
-إذا قرارك نهائي، اكتب: أكد إلغاء الطلب، وبعدها تظهر خطوات الاسترداد الرسمية إن كانت مستحقة.${trackingLine}`;
+    return "أكيد القرار إلك بالكامل. إذا قرارك النهائي عدم الاستمرار، اكتب: أكد إلغاء الطلب، وبنوضحلك الخطوة حسب حالة طلبك.";
   }
 
-  return `أكيد، الخدمة اختيارية بالكامل والقرار راجع إلك. ما في عليك أي التزام بالدفع أو باستكمال الطلب، وإذا الإجراء ما بناسبك بنحترم قرارك وما رح نضغط عليك أو نكرر طلب الدفع.
+  if (finalClosure) {
+    return "واضح، وبنحترم قرارك. ما في عليك أي التزام تكمل الطلب، وإذا غيرت رأيك لاحقًا تواصل معنا من نفس الرقم.";
+  }
 
-طلبك يبقى دون استكمال، وإذا قررت ترجع لاحقًا تواصل معنا من نفس الرقم.${trackingLine} 🌿`;
+  return `فاهم عليك. رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير مطلوبة قبل بدء دراسة الملف، وهي مش قسط على الجهاز. إذا هالطريقة ما بتناسبك، ما عليك أي التزام تكمل.`;
 }
 
 function isPaymentLinkIssueText(text: string) {
@@ -4166,11 +4163,11 @@ function paymentAmountReply(app: ApplicationRecord | null, customerText: string)
     const refundLine = `إذا لم تتم الموافقة النهائية على الطلب، تكون رسوم فتح الملف مستردة بالكامل حسب حالة الطلب.`;
     const deductionLine = asksDeduction
       ? `ولا يتم احتسابها كخصم من القسط الأول.`
-      : `مجرد سؤالك عن الاسترداد لا يسجل طلب استرداد ولا يغيّر حالة طلبك.`;
+      : "";
 
     return `${feeLine}
-${refundLine}
-${deductionLine}`;
+${refundLine}${deductionLine ? `
+${deductionLine}` : ""}`;
   }
 
   if (hasAny(t, ["رسوم فتح الملف", "رسوم الملف"])) {
@@ -4823,14 +4820,8 @@ function generalReviewTimeReply(from: string, customerText = "") {
   return reviewTimeReply(from, null, undefined, customerText);
 }
 
-function unknownReply(from: string) {
-  const variants = [
-    "وصلتني. خليني أمشي مع نفس سياق الحديث؛ إذا في نقطة واحدة ناقصة بسألك عنها مباشرة.",
-    "فاهم إنك مكمل على نفس الموضوع. إذا المقصود نقطة من آخر كلام بينا، رح أعتمد عليها وما أغير أي حالة من عندي.",
-    "وصلتني الرسالة. رح أجاوب على المقصود من السياق قدر الإمكان، وإذا ناقصني شيء محدد بطلبه منك بس.",
-  ];
-  const digits = digitsOnly(from);
-  return variants[Number(digits.slice(-2) || "0") % variants.length];
+function unknownReply(_from: string) {
+  return "شو النقطة اللي بدك تعرفها تحديدًا؟";
 }
 
 function envFlag(name: string, defaultValue = true) {
@@ -5099,22 +5090,22 @@ async function recordApplicationActionRequest(
 }
 
 function refundIntegrityHoldReply(app: ApplicationRecord) {
-  return `في تعارض ظاهر بحالة الطلب، لذلك ما رح أوصف الملف كاسترداد فعّال ولا أغيّر أي حالة مالية تلقائيًا. ما في دفع مؤكد ظاهر على الملف حاليًا.
+  return `ما في دفع مؤكد ظاهر على هذا الطلب، لذلك ما بقدر أأكد وجود مبلغ قيد الاسترداد حاليًا.
 
-الحالة تحتاج مراجعة داخلية قبل أي خطوة مالية، وما عليك تعيد تقديم الطلب أو ترسل مستندات عبر واتساب.
+إذا كنت دفعت فعلًا، خليك على نفس رقم الطلب وبنراجع حالة الدفع أولًا.
 رقم الطلب: ${app.tracking_id || app.id}`;
 }
 
 function stopRefundRequestReply(app: ApplicationRecord, recorded: boolean) {
   if (!recorded) {
-    return `وصل طلبك بإيقاف الاسترداد والعودة لمسار الطلب، لكن تعذر تسجيل طلب المراجعة الآن، لذلك ما غيرنا أي حالة مالية تلقائيًا.
+    return `وصل طلبك بإيقاف الاسترداد، لكن ما تم تأكيد الإيقاف لحد الآن.
 
-لا تعتبر الاسترداد موقوفًا ولا الطلب مفعّلًا إلا بعد تحديث رسمي.
+تابع على نفس رقم الطلب، وأول ما يصير تحديث واضح بنبلغك.
 رقم الطلب: ${app.tracking_id || app.id}`;
   }
-  return `تم تسجيل طلبك بإيقاف الاسترداد والعودة لمسار الطلب للمراجعة. ما غيرنا حالة الطلب تلقائيًا حتى ما يصير تعارض مالي.
+  return `تم استلام طلب إيقاف الاسترداد للمراجعة، ولسا ما صار تأكيد بإيقافه.
 
-لا تعتبر الاسترداد موقوفًا ولا الطلب مفعّلًا إلا بعد تحديث رسمي.
+أول ما تتغير الحالة بنبلغك مباشرة.
 رقم الطلب: ${app.tracking_id || app.id}`;
 }
 
@@ -5456,10 +5447,9 @@ async function handleDocumentAutomation(input: {
 
   if (submitted && officialUploadConfirmed && (hasGuarantorContext || hasSalaryContext)) {
     const label = hasGuarantorContext ? "بيانات الكفيل" : "كشف الراتب";
-    const reply = `تمام. إذا تم رفع ${label} من الرابط الرسمي المرتبط بالطلب، ما في داعي تعيد الرفع أو ترسله عبر واتساب.
+    const reply = `تمام. إذا رفعت ${label} من الرابط الرسمي، ما في داعي تعيد الرفع أو ترسله عبر واتساب.
 
-حالة الطلب عندي ما زالت لا تؤكد استلام ${label} في السجل الرسمي، لذلك ما رح أغيّر حالة الملف اعتمادًا على رسالة واتساب وحدها. أول ما يتحدث السجل من مسار الرفع الرسمي تظهر الخطوة التالية حسب حالة الطلب.
-
+أول ما يثبت استلامه على الطلب بتظهر الخطوة التالية.
 رقم الطلب: ${app.tracking_id || app.id}`;
 
     await sendDiscordNotification({
@@ -6898,10 +6888,16 @@ async function applyProductionFinalTruthGate(input: {
       fallbackReply = "الأمين للأقساط جهة مستقلة تمامًا، ولا توجد أي علاقة أو شراكة أو تبعية بينها وبين شركة الأمين للتمويل الأصغر على الإطلاق.";
     } else if (businessHours) {
       fallbackReply = "ما عندي وقت دوام عام معتمد أقدر أحدده لك بدون تخمين. متابعة الطلبات الأساسية تتم عبر واتساب حسب الدور وضغط المراجعات، والحضور إلى المكتب لا يكون إلا بموعد رسمي بعد الموافقة النهائية.";
+    } else if (topics.includes("office_location")) {
+      fallbackReply = locationReply(input.from, input.application);
+    } else if (topics.includes("review_time")) {
+      fallbackReply = input.application
+        ? reviewTimeReply(input.from, input.application, input.application.tracking_id || input.application.id, input.customerText)
+        : generalReviewTimeReply(input.from, input.customerText);
     } else if (input.application) {
-      fallbackReply = `حتى أحافظ على دقة ملفك، ما رح أؤكد أو أغيّر أي حالة بناءً على رد غير مكتمل أو معلومة غير مثبتة. الحالة المعتمدة تُقرأ من الطلب نفسه، وأول ما يظهر تحديث فعلي يتم التواصل معك.\n\nرقم الطلب: ${input.application.tracking_id || input.application.id}`;
+      fallbackReply = `الظاهر عندي على طلبك حاليًا: ${statusHumanLabel(input.application.status || "")}. إذا سؤالك عن نقطة ثانية احكيلي إياها مباشرة.`;
     } else {
-      fallbackReply = "حتى أعطيك معلومة دقيقة، ما رح أخمّن أو أؤكد إجراء غير موجود. اكتب النقطة المطلوبة بجملة قصيرة، وإذا عندك طلب قائم أرسل رقم التتبع الموجود في الرسالة الرسمية.";
+      fallbackReply = "شو النقطة اللي بدك تعرفها تحديدًا؟";
     }
 
     fallbackReply = explicitLinkRecoveryReply(input.request, input.application, input.customerText, fallbackReply);
@@ -6938,7 +6934,7 @@ function incompleteReplyRecovery(options: {
   if (String(options.intent) === "location") return locationReply(options.from, app);
   if (String(options.intent) === "order_status" && app) return conciseOrderStatusReply(app, options.text);
   if (String(options.intent) === "requirements" && app) return directRequirementQuestionReply(app, options.text) || `المطلوب منك يتحدد حسب حالة طلبك نفسها، وما بطلب منك أي مستند غير ظاهر كمطلوب على الملف حاليًا.\n\nرقم الطلب: ${app.tracking_id || app.id}`;
-  return "وصلت سؤالك، وما رح أرسل لك جواب ناقص. خليني أجاوبك على نفس النقطة من الحالة والمعلومة المؤكدة فقط.";
+  return "شو النقطة اللي بدك تعرفها تحديدًا؟";
 }
 
 function finalizeReplyBeforeSend(reply: string, options: {
@@ -7185,6 +7181,11 @@ function sanitizeAiReply(reply: string, fallback: string) {
     "طلبك مقبول وماشي",
     "خلينا نأهل الطلب",
     "صفحة الإدارة",
+    "مجرد سؤالك عن الاسترداد لا يسجل طلب استرداد",
+    "حتى أحافظ على دقة ملفك",
+    "الحالة المعتمدة تُقرأ من الطلب نفسه",
+    "ما رح أرسل لك جواب ناقص",
+    "المعلومة المؤكدة فقط",
   ];
 
   if (forbidden.some((word) => clean.includes(word))) {
@@ -7565,6 +7566,7 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تقول موافقة نهائية إلا إذا الحالة approved.
 
 ${humanFirstStyleInstructions()}
+${customerFacingPolicyInstructions()}
 
 منطق المحادثة الآمنة البشرية:
 - لا ترد كقالب ثابت. اقرأ رسالة العميل ورد على نفس المعنى.
@@ -8360,20 +8362,20 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (String(intent) === "voluntary_opt_out") {
-    deterministicReply = voluntaryOptOutReply(app);
+    const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
+    const policyAlreadyExplained = paymentRefusalPolicyWasExplained(recentAssistantReplies);
+    const finalClosure = policyAlreadyExplained || isAbsolutePaymentRefusalText(text);
     const readyToIgnore = voluntaryOptOutCanBeIgnored(app);
-    const alreadyAcknowledged = (conversationMemory.lastAssistantReplies || []).some((reply) =>
-      /الخدمة اختيارية بالكامل|ما رح نضغط عليك|بدون ضغط أو متابعة إضافية/i.test(String(reply || ""))
-    );
+    deterministicReply = voluntaryOptOutReply(app, finalClosure);
 
-    if (!alreadyAcknowledged) {
+    if (finalClosure && !paymentRefusalFinalClosureWasSent(recentAssistantReplies)) {
       await sendDiscordNotification({
         title: readyToIgnore
-          ? "🟣 العميل اختار عدم الاستمرار — جاهز للتجاهل"
-          : "🟠 العميل لا يريد الاستمرار — يحتاج إنهاء رسمي",
+          ? "🟣 العميل رفض الدفع بعد التوضيح — جاهز للتجاهل"
+          : "🟠 العميل رفض الاستمرار — يحتاج إنهاء رسمي",
         description: readyToIgnore
-          ? "العميل رفض الدفع أو استكمال الطلب صراحةً. لم يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا. لا حاجة لمتابعته أو تكرار الروابط؛ يترك دون إجراء ما لم يعود من نفسه."
-          : "يوجد دفع مؤكد أو استرداد نشط أو موافقة نهائية، لذلك لا تُترك الحالة للتجاهل قبل إتمام الإلغاء أو الاسترداد رسميًا.",
+          ? "تم توضيح سياسة رسوم فتح الملف باختصار، والعميل رفض الدفع بوضوح أو كرر الرفض. لا يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا، ولا تُكرر تعليمات الدفع ما لم يعود العميل من نفسه."
+          : "يوجد دفع مؤكد أو استرداد نشط أو موافقة نهائية؛ يلزم إنهاء الحالة رسميًا إذا كان قراره نهائيًا.",
         color: readyToIgnore ? 0x9b59b6 : 0xfee75c,
         app,
         customerPhone: from,
@@ -8545,18 +8547,53 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   }
 
   if (String(intent) === "payment_amount") {
-    return paymentAmountReply(app, text);
+    deterministicReply = paymentAmountReply(app, text);
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: false,
+      hasApplication: Boolean(app),
+      intent,
+    });
   }
 
   if (String(intent) === "self_employed") {
-    return selfEmployedReply(app);
+    deterministicReply = selfEmployedReply(app);
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: false,
+      hasApplication: Boolean(app),
+      intent,
+    });
   }
 
   if (String(intent) === "trust_verification") {
-    if (isPaymentGuaranteeText(text)) {
-      return paymentGuaranteeReply(baseUrl, app);
-    }
-    return trustVerificationReply(baseUrl, app);
+    deterministicReply = isPaymentGuaranteeText(text)
+      ? paymentGuaranteeReply(baseUrl, app)
+      : trustVerificationReply(baseUrl, app);
+    return humanizeReply({
+      customerText: text,
+      deterministicReply,
+      customerName: app ? firstTwoNames(app.full_name) : undefined,
+      trackingId: app ? app.tracking_id || app.id : undefined,
+      status: app?.status || null,
+      paymentStatus: app?.payment_status || null,
+      deviceName: app?.device_name || null,
+      isSensitive: true,
+      hasApplication: Boolean(app),
+      intent,
+    });
   }
 
   if (String(intent) === "receipt_upload_confirmation") {
@@ -8690,15 +8727,13 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   if (app && String(intent) === "continue_decision") {
     // V1.2.0: negative language always vetoes continuation, regardless of classifier/context.
     if (isExplicitNonContinuationText(rawCustomerText)) {
-      return voluntaryOptOutReply(app);
+      return voluntaryOptOutReply(app, false);
     }
 
     const explicitContinue = isPositiveContinueDecisionText(rawCustomerText) ||
       (pendingContinueDecision && isSimpleContinueConfirmationText(rawCustomerText));
     if (!explicitContinue) {
-      return `حتى ما أغيّر حالة طلبك بسبب فهم خاطئ، ما رح أسجل استمرار أو أرسل تعليمات دفع بدون تأكيد واضح منك.
-
-إذا بدك تكمل اكتب: أريد الاستمرار
+      return `إذا بدك تكمل الطلب اكتب: أريد الاستمرار
 رقم الطلب: ${app.tracking_id || app.id}`;
     }
 
@@ -8868,9 +8903,7 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
     } else if (alreadyRequested) {
       deterministicReply = refundAlreadyRequestedReply(app, text);
     } else if (!isExplicitRefundMutationText(rawCustomerText)) {
-      deterministicReply = `حتى ما أسجل استرداد بسبب فهم خاطئ، ما رح أغيّر الحالة المالية بدون طلب صريح منك.
-
-إذا قصدك فعلًا استرداد رسوم فتح الملف اكتب: أريد استرداد رسوم فتح الملف
+      deterministicReply = `إذا قصدك فعلًا تطلب استرداد رسوم فتح الملف اكتب: أريد استرداد رسوم فتح الملف
 رقم الطلب: ${app.tracking_id || app.id}`;
     } else if (!paymentEvidence) {
       deterministicReply = unpaidRefundGuardReply(app);
@@ -9063,14 +9096,14 @@ ${BUSINESS_NAME}`;
       });
     }
   } else if (String(intent) === "voluntary_opt_out") {
-    deterministicReply = voluntaryOptOutReply(null);
-    const alreadyAcknowledged = (conversationMemory.lastAssistantReplies || []).some((reply) =>
-      /الخدمة اختيارية بالكامل|ما رح نضغط عليك|بدون ضغط أو متابعة إضافية/i.test(String(reply || ""))
-    );
-    if (!alreadyAcknowledged) {
+    const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
+    const policyAlreadyExplained = paymentRefusalPolicyWasExplained(recentAssistantReplies);
+    const finalClosure = policyAlreadyExplained || isAbsolutePaymentRefusalText(text);
+    deterministicReply = voluntaryOptOutReply(null, finalClosure);
+    if (finalClosure && !paymentRefusalFinalClosureWasSent(recentAssistantReplies)) {
       await sendDiscordNotification({
-        title: "🟣 العميل اختار عدم الاستمرار — جاهز للتجاهل",
-        description: "لا يوجد طلب مرتبط بالمحادثة، والعميل رفض الدفع أو الاستمرار صراحةً. لا حاجة لمتابعته أو تكرار الروابط ما لم يعود من نفسه.",
+        title: "🟣 العميل رفض الدفع بعد التوضيح — جاهز للتجاهل",
+        description: "لا يوجد طلب مرتبط بالمحادثة. تم توضيح السياسة باختصار والعميل رفض الدفع بوضوح أو كرر الرفض. لا حاجة لتكرار تعليمات الدفع ما لم يعود من نفسه.",
         color: 0x9b59b6,
         customerPhone: from,
         customerMessage: text,
@@ -9078,6 +9111,7 @@ ${BUSINESS_NAME}`;
         baseUrl,
       });
     }
+
   } else if (String(intent) === "office_pickup_policy") {
     deterministicReply = officePickupPolicyReply(from, null, baseUrl);
   } else if (String(intent) === "supplier_delay_question") {
@@ -9792,6 +9826,41 @@ export async function POST(request: Request) {
           hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
         });
         reply = finalTruthResult.reply;
+
+        // V1.4.1 CUSTOMER-FACING FIREWALL: internal guard/debug language is never
+        // allowed to reach the customer, even if an upstream recovery path regresses.
+        if (hasInternalCustomerFacingLanguage(reply)) {
+          const beforeFirewall = reply;
+          if (String(processingIntent) === "location") {
+            reply = locationReply(from, finalApplication);
+          } else if (String(processingIntent) === "payment_amount") {
+            reply = paymentAmountReply(finalApplication, replyInputText);
+          } else if (String(processingIntent) === "review_time") {
+            reply = finalApplication
+              ? reviewTimeReply(from, finalApplication, finalApplication.tracking_id || finalApplication.id, replyInputText)
+              : generalReviewTimeReply(from, replyInputText);
+          } else if (String(processingIntent) === "voluntary_opt_out") {
+            reply = voluntaryOptOutReply(finalApplication, true);
+          } else if (String(processingIntent) === "office_payment_request") {
+            reply = officeFeePaymentReply(finalApplication, true);
+          } else if (finalApplication) {
+            reply = `الظاهر عندي على طلبك حاليًا: ${statusHumanLabel(finalApplication.status || "")}. إذا سؤالك عن نقطة ثانية احكيلي إياها مباشرة.`;
+          } else {
+            reply = "شو النقطة اللي بدك تعرفها تحديدًا؟";
+          }
+          reply = applyFinalSendGuard(reply, finalApplication);
+          await sendDiscordNotification({
+            title: "🧹 CUSTOMER-FACING FIREWALL — تم منع لغة داخلية",
+            description: "تم استبدال رد احتوى لغة داخلية/تقنية قبل الإرسال للعميل.",
+            color: 0xfee75c,
+            app: finalApplication || undefined,
+            customerPhone: from,
+            customerMessage: processingText,
+            systemReply: reply,
+            baseUrl: getBaseUrl(request),
+          });
+          console.warn("Customer-facing firewall replaced internal narration", { beforeFirewall, reply });
+        }
 
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
