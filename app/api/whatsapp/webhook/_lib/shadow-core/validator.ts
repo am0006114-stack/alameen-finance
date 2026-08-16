@@ -1,6 +1,11 @@
 import { normalizeArabicText } from "../text";
 import { hasInternalCustomerFacingLanguage, isPaymentOnReceiptRefusalText } from "../customerFacingPolicy";
 import { hasGenderLanguageMismatch } from "../customerGender";
+import {
+  isGuarantorUnavailableText,
+  isNaturalContinueText,
+  isNaturalNonContinuationText,
+} from "../conversationDecisionPlane";
 import type { CustomerIntent } from "../types";
 import {
   customerAsksAmmanLocation,
@@ -796,6 +801,27 @@ export function validateFinalActualReply(
     !customerExplicitlyDeclinesContinuation(context.customerText) || !hasPaymentInstructions(reply),
     "critical",
     "رفض الاستمرار لا يجوز أن يفعّل تعليمات الدفع أو الاستمرار.",
+  );
+  addCheck(
+    checks,
+    "natural_non_continuation_has_no_payment_or_continue",
+    !isNaturalNonContinuationText(context.customerText) || (!hasPaymentInstructions(reply) && !includesAny(reply, ["تم تأكيد رغبتك بالاستمرار", "طلبك مؤهل مبدئيًا ونقدر نبدأ"])),
+    "critical",
+    "الرفض الطبيعي مثل مابدي أكمل أو لا أرغب بالاستمرار لا يجوز أن يتحول إلى دفع أو استمرار.",
+  );
+  addCheck(
+    checks,
+    "natural_continue_not_asked_to_repeat_magic_phrase",
+    !isNaturalContinueText(context.customerText) || !includesAny(reply, ["اكتب: أريد الاستمرار", "اكتب أريد الاستمرار"]),
+    "critical",
+    "صيغة استمرار واضحة مثل نعم استمر لا يجوز إجبار العميل على إعادة عبارة سحرية.",
+  );
+  addCheck(
+    checks,
+    "guarantor_unavailable_not_treated_as_upload",
+    !isGuarantorUnavailableText(context.customerText) || !includesAny(reply, ["عبّي بيانات الكفيل", "عبي بيانات الكفيل", "ارفع بيانات الكفيل", "رابط بيانات الكفيل"]),
+    "critical",
+    "إذا قال العميل إن الكفيل المطلوب غير متوفر، لا يجوز الرد بقالب رفع الكفيل.",
   );
   addCheck(
     checks,

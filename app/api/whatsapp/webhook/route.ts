@@ -92,6 +92,16 @@ import {
   isReceiptConfirmationCurrentText,
   stripLeadingSocialAcknowledgement,
 } from "./_lib/intentAlignment";
+import {
+  currentMessageDecisionOverride,
+  guarantorUnavailableReply,
+  isGuarantorUnavailableText,
+  isNaturalContinueText,
+  isNaturalNonContinuationText,
+  replyAsksContinueAgain,
+  replyContradictsNonContinuation,
+  replyWronglyRequestsGuarantorUpload,
+} from "./_lib/conversationDecisionPlane";
 import type { ShadowAgentId, ShadowPolicyCheck } from "./_lib/shadow-core/types";
 import {
   customerAskedAboutFinalApproval,
@@ -1003,14 +1013,14 @@ function voluntaryOptOutCanBeIgnored(app: ApplicationRecord | null) {
 
 function voluntaryOptOutReply(app: ApplicationRecord | null, finalClosure: boolean) {
   if (!voluntaryOptOutCanBeIgnored(app)) {
-    return "أكيد القرار إلك بالكامل. إذا قرارك النهائي عدم الاستمرار، اكتب: أكد إلغاء الطلب، وبنوضحلك الخطوة حسب حالة طلبك.";
+    return "تمام، فهمت عليك. إذا بدك تنهي الطلب نهائيًا احكيلي بوضوح إنك بدك تلغيه، وبمشي معك بالخطوة المناسبة حسب حالته.";
   }
 
   if (finalClosure) {
-    return "واضح، وبنحترم قرارك. ما في عليك أي التزام تكمل الطلب، وإذا غيرت رأيك لاحقًا تواصل معنا من نفس الرقم.";
+    return "تمام، بنحترم قرارك. ما في عليك أي التزام تكمل، وإذا غيرت رأيك لاحقًا تواصل معنا من نفس الرقم.";
   }
 
-  return `فاهم عليك. رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير مطلوبة قبل بدء دراسة الملف، وهي مش قسط على الجهاز. إذا هالطريقة ما بتناسبك، ما عليك أي التزام تكمل.`;
+  return "تمام، ما في عليك أي التزام تكمل هسا. بنوقف عند هالمرحلة، وإذا غيرت رأيك لاحقًا تواصل معنا من نفس الرقم.";
 }
 
 function paymentOnReceiptReply(app: ApplicationRecord | null, finalClosure: boolean) {
@@ -3463,27 +3473,17 @@ function customerFacingDeviceName(value: string | null | undefined) {
 
 function paymentMessage(app: ApplicationRecord, baseUrl: string) {
   const name = firstTwoNames(app.full_name);
-  const tracking = app.tracking_id || app.id;
-  const device = customerFacingDeviceName(app.device_name);
 
-  return `تمام ${name}، طلبك مؤهل مبدئيًا ونقدر نبدأ باستكمال دراسة الملف.
+  return `تمام ${name}، هيك بنقدر نكمل الطلب.
 
-الجهاز: ${device}
-رقم الطلب: ${tracking}
-
-رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط. هي ليست قسطًا على الجهاز، ودفعها هو الخطوة التي تثبت رغبتك بالاستمرار وتسمح ببدء مراجعة الملف والمتطلبات.
-
-الرسوم مستردة بالكامل في حال عدم الموافقة النهائية، والقسط الأول لا يُدفع الآن؛ يكون بعد استلام الجهاز حسب الاتفاق.
-
-${bankCliqPaymentExplanation()}
+رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير، وهي منفصلة عن القسط الأول ومستردة بالكامل إذا ما صدرت الموافقة النهائية.
 
 ${paymentDestinationBlock()}
 
-
-بعد التحويل ارفع الوصل من رابط طلبك:
+بعد التحويل ارفع الوصل فقط من الرابط الرسمي:
 ${receiptUrl(baseUrl, app)}
 
-بعد تأكيد الوصل تُستكمل الدراسة، والنتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.`;
+بعد تأكيد الوصل بتستكمل دراسة الملف، وعادةً النتيجة تحتاج من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات، والجمعة والسبت ما بتنحسب.`;
 }
 
 function paymentAlreadyHandledReply(app: ApplicationRecord) {
@@ -7112,6 +7112,18 @@ function finalizeLastMileDeliveryReply(reply: string, options: {
     return applyFinalSendGuard(paymentOnReceiptReply(app, true), app);
   }
 
+  if (replyContradictsNonContinuation(options.text, reply)) {
+    return applyFinalSendGuard(voluntaryOptOutReply(app, true), app);
+  }
+
+  if (replyWronglyRequestsGuarantorUpload(options.text, reply)) {
+    return applyFinalSendGuard(guarantorUnavailableReply(), app);
+  }
+
+  if (replyAsksContinueAgain(options.text, reply)) {
+    return applyFinalSendGuard("تمام، وصلت رغبتك بالاستمرار.", app);
+  }
+
   let clean = applyFinalSendGuard(String(reply || ""), app);
 
   if (isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, options.intent)) {
@@ -8087,8 +8099,11 @@ async function buildReply(request: Request, from: string, text: string, messageT
 
   // V1.3.1 CURRENT-MESSAGE SEMANTIC PRIORITY: receipt confirmation and the current
   // substantive question outrank historical context and social prefixes such as "تمام/شكرا".
+  const hardCurrentDecision = currentMessageDecisionOverride(rawCustomerText);
   const currentSemanticHint = currentMessageSemanticIntentHint(rawCustomerText);
-  if (isReceiptConfirmationCurrentText(rawCustomerText) || isReceiptUploadConfirmationText(rawCustomerText)) {
+  if (hardCurrentDecision) {
+    intent = hardCurrentDecision;
+  } else if (isReceiptConfirmationCurrentText(rawCustomerText) || isReceiptUploadConfirmationText(rawCustomerText)) {
     intent = "receipt_upload_confirmation";
   } else if (isExplicitStopRefundText(rawCustomerText)) {
     intent = "stop_refund";
@@ -8120,8 +8135,11 @@ async function buildReply(request: Request, from: string, text: string, messageT
   );
 
   if (
-    (pendingContinueDecision && (isShortContinuationText(text) || isSimpleContinueConfirmationText(text))) ||
-    (conversationMemory.hasRecentPreliminaryApprovalTemplate && isSimpleContinueConfirmationText(text))
+    !hardCurrentDecision &&
+    (
+      (pendingContinueDecision && (isShortContinuationText(text) || isSimpleContinueConfirmationText(text))) ||
+      (conversationMemory.hasRecentPreliminaryApprovalTemplate && isSimpleContinueConfirmationText(text))
+    )
   ) {
     intent = "continue_decision";
   }
@@ -8212,6 +8230,12 @@ async function buildReply(request: Request, from: string, text: string, messageT
     }
 
     return integrityReply;
+  }
+
+  // V1.4.3 HUMAN DECISION PLANE: saying the required guarantor is unavailable
+  // is not a document-upload action and must never trigger an upload template.
+  if (isGuarantorUnavailableText(rawCustomerText)) {
+    return guarantorUnavailableReply();
   }
 
   if (app && isShortDocumentCompletionText(rawCustomerText)) {
@@ -8792,12 +8816,13 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   }
 
   if (app && String(intent) === "continue_decision") {
-    // V1.2.0: negative language always vetoes continuation, regardless of classifier/context.
-    if (isExplicitNonContinuationText(rawCustomerText)) {
+    // V1.4.3: current-message wording is authoritative for continue/stop decisions.
+    if (isNaturalNonContinuationText(rawCustomerText) || isExplicitNonContinuationText(rawCustomerText)) {
       return voluntaryOptOutReply(app, false);
     }
 
-    const explicitContinue = isPositiveContinueDecisionText(rawCustomerText) ||
+    const explicitContinue = isNaturalContinueText(rawCustomerText) ||
+      isPositiveContinueDecisionText(rawCustomerText) ||
       (pendingContinueDecision && isSimpleContinueConfirmationText(rawCustomerText));
     if (!explicitContinue) {
       return `إذا بدك تكمل الطلب اكتب: أريد الاستمرار
@@ -9023,7 +9048,25 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
     });
 
     if (documentAutomationReply) {
-      return documentAutomationReply;
+      const exactDocumentOperation = ["media_upload", "document_upload", "document_followup"].includes(String(intent)) ||
+        isDocumentLinkRequestText(rawCustomerText);
+
+      if (exactDocumentOperation) return documentAutomationReply;
+
+      // V1.4.3: requirements/status replies keep document facts exact, but Pro
+      // phrases them around the customer's actual concern instead of exposing a form template.
+      return humanizeReply({
+        customerText: rawCustomerText,
+        deterministicReply: documentAutomationReply,
+        customerName: firstTwoNames(app.full_name),
+        trackingId: app.tracking_id || app.id,
+        status: app.status || null,
+        paymentStatus: app.payment_status || null,
+        deviceName: app.device_name || null,
+        isSensitive: false,
+        hasApplication: true,
+        intent,
+      });
     }
   }
 
