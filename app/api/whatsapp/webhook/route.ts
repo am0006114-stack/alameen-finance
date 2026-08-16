@@ -79,6 +79,8 @@ import {
   hasInternalCustomerFacingLanguage,
   isAbsolutePaymentRefusalText,
   isClearPaymentRefusalText,
+  isPaymentOnReceiptQuestionText,
+  isPaymentOnReceiptRefusalText,
   paymentRefusalFinalClosureWasSent,
   paymentRefusalPolicyWasExplained,
 } from "./_lib/customerFacingPolicy";
@@ -905,6 +907,7 @@ function isVoluntaryOptOutText(text: string) {
   if (!t) return false;
 
   if (isExplicitNonContinuationText(t)) return true;
+  if (isPaymentOnReceiptRefusalText(t)) return true;
 
   // الإلغاء والاسترداد مساران رسميان مستقلان ولا يتحولان إلى مجرد تجاهل.
   if (hasAny(t, [
@@ -1008,6 +1011,23 @@ function voluntaryOptOutReply(app: ApplicationRecord | null, finalClosure: boole
   }
 
   return `فاهم عليك. رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير مطلوبة قبل بدء دراسة الملف، وهي مش قسط على الجهاز. إذا هالطريقة ما بتناسبك، ما عليك أي التزام تكمل.`;
+}
+
+function paymentOnReceiptReply(app: ApplicationRecord | null, finalClosure: boolean) {
+  if (!voluntaryOptOutCanBeIgnored(app)) {
+    const paymentStatus = app?.payment_status || "";
+    const paymentConfirmed = paymentStatus === "confirmed" || paymentStatus === "customer_claimed_paid" || Boolean(app?.payment_confirmed_at);
+    if (paymentConfirmed) {
+      return "الدفع مسجل ومؤكد على طلبك، وما في أي دفع إضافي مطلوب.";
+    }
+    return "رسوم فتح الملف تُدفع قبل بدء دراسة الطلب، والدفع عند استلام الجهاز غير متاح. إذا قرارك النهائي عدم الاستمرار، احكيلي إنك بدك تلغي الطلب وبوضحلك الخطوة المناسبة حسب حالته.";
+  }
+
+  if (finalClosure) {
+    return "واضح، وبنحترم قرارك. رسوم فتح الملف تُدفع قبل بدء دراسة الطلب، والدفع عند استلام الجهاز غير متاح. إذا هالطريقة ما بتناسبك ما عليك أي التزام تكمل، وإذا غيرت رأيك لاحقًا تواصل معنا من نفس الرقم.";
+  }
+
+  return "رسوم فتح الملف تُدفع قبل بدء دراسة الطلب، والدفع عند استلام الجهاز غير متاح. إذا هالطريقة ما بتناسبك ما عليك أي التزام تكمل.";
 }
 
 function isPaymentLinkIssueText(text: string) {
@@ -2396,6 +2416,9 @@ function classifyIntent(text: string): CustomerIntent {
 
   // طلب دفع رسوم فتح الملف في المكتب له سياسة مستقلة، ويُحسم قبل الرفض العام للدفع.
   if (isOfficeFeePaymentRequestText(t)) return "office_payment_request";
+
+  // سؤال الدفع عند الاستلام يبقى استفسارًا ما لم يتحول إلى شرط/رفض صريح.
+  if (isPaymentOnReceiptQuestionText(t)) return "payment_objection";
 
   // الرفض الصريح للدفع مسار اختياري مستقل، وليس اعتراض دفع ولا إلغاء تلقائيًا.
   if (isVoluntaryOptOutText(t)) return "voluntary_opt_out";
@@ -6998,6 +7021,8 @@ function unsafeSensitiveUploadLine(line: string) {
     "ابعثه هون", "ابعت هون", "ابعث هون", "ارسل هون", "أرسل هون", "ارسلها هون", "أرسلها هون",
     "ابعثلي", "ابعتلي", "ارسل لنا", "أرسل لنا", "معه صورة", "معها صورة",
     "صورة الوصل ان وجدت", "صورة الوصل إن وجدت", "صورة من الحركة",
+    "ارفع الوصل هون", "ارفع الوصل هنا", "ارفع اشعار الدفع هون", "ارفع إشعار الدفع هون",
+    "ارفعه هون", "ارفعه هنا", "هون او عبر الرابط", "هون أو عبر الرابط", "هنا او عبر الرابط", "هنا أو عبر الرابط",
   ]);
 
   return sensitive && directRequest && !safeInstruction;
@@ -7071,6 +7096,35 @@ function applyFinalSendGuard(reply: string, app?: ApplicationRecord | null) {
   }
 
   return compacted.join("\n").trim();
+}
+
+function finalizeLastMileDeliveryReply(reply: string, options: {
+  from: string;
+  text: string;
+  intent: CustomerIntent;
+  application?: ApplicationRecord | null;
+}) {
+  const app = options.application || null;
+
+  // Current-message hard veto: an explicit pay-on-receipt condition can never
+  // be sent back as a continuation confirmation, regardless of upstream intent drift.
+  if (isPaymentOnReceiptRefusalText(options.text)) {
+    return applyFinalSendGuard(paymentOnReceiptReply(app, true), app);
+  }
+
+  let clean = applyFinalSendGuard(String(reply || ""), app);
+
+  if (isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, options.intent)) {
+    clean = incompleteReplyRecovery({
+      from: options.from,
+      text: options.text,
+      intent: options.intent,
+      application: app,
+    });
+    clean = applyFinalSendGuard(clean, app);
+  }
+
+  return clean;
 }
 
 function sanitizeAiReply(reply: string, fallback: string) {
@@ -8364,17 +8418,26 @@ async function buildReply(request: Request, from: string, text: string, messageT
   if (String(intent) === "voluntary_opt_out") {
     const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
     const policyAlreadyExplained = paymentRefusalPolicyWasExplained(recentAssistantReplies);
+    const paymentOnReceipt = isPaymentOnReceiptRefusalText(text);
     const finalClosure = policyAlreadyExplained || isAbsolutePaymentRefusalText(text);
     const readyToIgnore = voluntaryOptOutCanBeIgnored(app);
-    deterministicReply = voluntaryOptOutReply(app, finalClosure);
+    deterministicReply = paymentOnReceipt
+      ? paymentOnReceiptReply(app, finalClosure)
+      : voluntaryOptOutReply(app, finalClosure);
 
     if (finalClosure && !paymentRefusalFinalClosureWasSent(recentAssistantReplies)) {
       await sendDiscordNotification({
         title: readyToIgnore
-          ? "🟣 العميل رفض الدفع بعد التوضيح — جاهز للتجاهل"
-          : "🟠 العميل رفض الاستمرار — يحتاج إنهاء رسمي",
+          ? paymentOnReceipt
+            ? "🟣 العميل يصر على الدفع عند الاستلام — جاهز للتجاهل"
+            : "🟣 العميل رفض الدفع بعد التوضيح — جاهز للتجاهل"
+          : paymentOnReceipt
+            ? "🟠 العميل يصر على الدفع عند الاستلام — يحتاج إنهاء رسمي"
+            : "🟠 العميل رفض الاستمرار — يحتاج إنهاء رسمي",
         description: readyToIgnore
-          ? "تم توضيح سياسة رسوم فتح الملف باختصار، والعميل رفض الدفع بوضوح أو كرر الرفض. لا يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا، ولا تُكرر تعليمات الدفع ما لم يعود العميل من نفسه."
+          ? paymentOnReceipt
+            ? "العميل اشترط أو أصر أن الدفع يكون عند استلام الجهاز. تم توضيح أن رسوم فتح الملف تُدفع قبل بدء دراسة الطلب وأن الدفع عند الاستلام غير متاح. لا يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا؛ الحالة جاهزة للمراجعة الإدارية والتجاهل إذا رغبت الإدارة."
+            : "تم توضيح سياسة رسوم فتح الملف باختصار، والعميل رفض الدفع بوضوح أو كرر الرفض. لا يتم إلغاء الطلب أو تسجيل استرداد تلقائيًا، ولا تُكرر تعليمات الدفع ما لم يعود العميل من نفسه."
           : "يوجد دفع مؤكد أو استرداد نشط أو موافقة نهائية؛ يلزم إنهاء الحالة رسميًا إذا كان قراره نهائيًا.",
         color: readyToIgnore ? 0x9b59b6 : 0xfee75c,
         app,
@@ -8399,6 +8462,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
       "payment_link_issue",
     ].includes(String(intent))
   ) {
+    if (isPaymentOnReceiptQuestionText(text)) {
+      return paymentOnReceiptReply(app, false);
+    }
+
     if (!app) {
       if (isGeneralMonthlyPaymentQuestionText(text)) {
         return `إذا سؤالك عن الأقساط الشهرية بعد استلام الجهاز: طريقة السداد تُحدد ضمن الاتفاق والجدول النهائي بعد الموافقة والاستلام، لذلك ما بقدر أؤكد اقتطاعًا بنكيًا تلقائيًا أو زيارة شهرية للمكتب بدون اتفاق معتمد.
@@ -9098,12 +9165,19 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "voluntary_opt_out") {
     const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
     const policyAlreadyExplained = paymentRefusalPolicyWasExplained(recentAssistantReplies);
+    const paymentOnReceipt = isPaymentOnReceiptRefusalText(text);
     const finalClosure = policyAlreadyExplained || isAbsolutePaymentRefusalText(text);
-    deterministicReply = voluntaryOptOutReply(null, finalClosure);
+    deterministicReply = paymentOnReceipt
+      ? paymentOnReceiptReply(null, finalClosure)
+      : voluntaryOptOutReply(null, finalClosure);
     if (finalClosure && !paymentRefusalFinalClosureWasSent(recentAssistantReplies)) {
       await sendDiscordNotification({
-        title: "🟣 العميل رفض الدفع بعد التوضيح — جاهز للتجاهل",
-        description: "لا يوجد طلب مرتبط بالمحادثة. تم توضيح السياسة باختصار والعميل رفض الدفع بوضوح أو كرر الرفض. لا حاجة لتكرار تعليمات الدفع ما لم يعود من نفسه.",
+        title: paymentOnReceipt
+          ? "🟣 العميل يصر على الدفع عند الاستلام — جاهز للتجاهل"
+          : "🟣 العميل رفض الدفع بعد التوضيح — جاهز للتجاهل",
+        description: paymentOnReceipt
+          ? "لا يوجد طلب مرتبط بالمحادثة. العميل اشترط أو أصر أن الدفع يكون عند استلام الجهاز، وتم توضيح أن الدفع عند الاستلام غير متاح. الحالة جاهزة للمراجعة الإدارية والتجاهل إذا رغبت الإدارة."
+          : "لا يوجد طلب مرتبط بالمحادثة. تم توضيح السياسة باختصار والعميل رفض الدفع بوضوح أو كرر الرفض. لا حاجة لتكرار تعليمات الدفع ما لم يعود من نفسه.",
         color: 0x9b59b6,
         customerPhone: from,
         customerMessage: text,
@@ -9861,6 +9935,37 @@ export async function POST(request: Request) {
           });
           console.warn("Customer-facing firewall replaced internal narration", { beforeFirewall, reply });
         }
+
+        // V1.4.2 FINAL DELIVERY INTEGRITY: the final customer text is checked
+        // after Final Truth, human recovery and Customer-Facing Firewall. Nothing
+        // may modify the reply after this gate except the send lock itself.
+        reply = finalizeLastMileDeliveryReply(reply, {
+          from,
+          text: replyInputText,
+          intent: processingIntent,
+          application: finalApplication,
+        });
+
+        const deliveryTruthResult = await applyProductionFinalTruthGate({
+          request,
+          from,
+          customerName: contactName || null,
+          customerText: processingText,
+          messageType: processingMessageType,
+          initialIntent: processingIntent,
+          application: finalApplication,
+          reply,
+          conversationContext: outgoingMemory.conversationContext,
+          lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+          lastCustomerMessages: outgoingMemory.lastCustomerMessages,
+          hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
+        });
+        reply = finalizeLastMileDeliveryReply(deliveryTruthResult.reply, {
+          from,
+          text: replyInputText,
+          intent: processingIntent,
+          application: finalApplication,
+        });
 
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,

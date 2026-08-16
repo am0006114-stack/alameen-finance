@@ -1,5 +1,5 @@
 import { normalizeArabicText } from "../text";
-import { hasInternalCustomerFacingLanguage } from "../customerFacingPolicy";
+import { hasInternalCustomerFacingLanguage, isPaymentOnReceiptRefusalText } from "../customerFacingPolicy";
 import { hasGenderLanguageMismatch } from "../customerGender";
 import type { CustomerIntent } from "../types";
 import {
@@ -99,6 +99,16 @@ function hasDirectWhatsAppReceiptRequest(reply: string) {
     "صورة الوصل ان وجدت",
     "صورة الوصل إن وجدت",
     "صورة من الحركة",
+    "ارفع الوصل هون",
+    "ارفع الوصل هنا",
+    "ارفع اشعار الدفع هون",
+    "ارفع إشعار الدفع هون",
+    "ارفعه هون",
+    "ارفعه هنا",
+    "هون او عبر الرابط",
+    "هون أو عبر الرابط",
+    "هنا او عبر الرابط",
+    "هنا أو عبر الرابط",
   ]);
   const hasOfficialUpload = includesAny(reply, ["الرابط الرسمي", "/receipt", "ارفع الوصل من الرابط"]);
   return asksDirectly && !hasOfficialUpload;
@@ -786,6 +796,13 @@ export function validateFinalActualReply(
     !customerExplicitlyDeclinesContinuation(context.customerText) || !hasPaymentInstructions(reply),
     "critical",
     "رفض الاستمرار لا يجوز أن يفعّل تعليمات الدفع أو الاستمرار.",
+  );
+  addCheck(
+    checks,
+    "payment_on_receipt_refusal_not_confirmed_as_continue",
+    !isPaymentOnReceiptRefusalText(context.customerText) || !includesAny(reply, ["تم تأكيد رغبتك بالاستمرار", "تم تاكيد رغبتك بالاستمرار", "تم تأكيد الاستمرار", "تم تاكيد الاستمرار"]),
+    "critical",
+    "اشتراط الدفع عند استلام الجهاز لا يجوز تحويله إلى تأكيد استمرار.",
   );
   addCheck(
     checks,
