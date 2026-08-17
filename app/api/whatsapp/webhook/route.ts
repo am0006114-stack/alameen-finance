@@ -11,6 +11,7 @@ import {
   BUSINESS_ACTIVITY,
   BUSINESS_ADDRESS,
   BUSINESS_GENERAL_LOCATION,
+  BUSINESS_INDEPENDENCE_STATEMENT,
   BUSINESS_NAME,
   BUSINESS_REGULATORY_DISCLOSURE,
   BUSINESS_PHONE_DISPLAY,
@@ -319,6 +320,14 @@ function isCallRequestText(text: string) {
     "بقدر أتصل",
     "احكي معكم مكالمه",
     "احكي معكم مكالمة",
+    "بقدر اتواصل معاكم مكالمه",
+    "بقدر اتواصل معاكم مكالمة",
+    "بقدر اتواصل معكم مكالمه",
+    "بقدر اتواصل معكم مكالمة",
+    "ممكن اتواصل معاكم مكالمه",
+    "ممكن اتواصل معاكم مكالمة",
+    "ممكن اتواصل معكم مكالمه",
+    "ممكن اتواصل معكم مكالمة",
     "برن عالرقم",
     "برن على الرقم",
     "برن عليكم",
@@ -423,6 +432,9 @@ function isOfficeLocationText(text: string) {
     "location",
     "وين الفرع",
     "عنوان الفرع",
+    "ممكن ازور الشركة", "ممكن أزور الشركة", "ممكن ازوركم", "ممكن أزوركم",
+    "بقدر ازور المكتب", "بقدر أزور المكتب", "بدي ازور المكتب", "بدي أزور المكتب",
+    "بدي اجي عالمكتب", "بدي أجي عالمكتب",
     "في مكان ممكن اراجع", "في مكان ممكن أراجع", "مكان ممكن اراجع", "مكان ممكن أراجع",
     "عندكم مكان", "مكان او موسسه", "مكان أو مؤسسة", "مكان او مؤسسة", "وين اقدر اراجع", "وين أقدر أراجع",
   ]);
@@ -448,6 +460,65 @@ function isWebsiteText(text: string) {
   ]);
 }
 
+
+function isBusinessIndependenceQuestionText(text: string, conversationContext = "") {
+  const current = normalizeArabicText(text);
+  const combined = normalizeArabicText(`${conversationContext}\n${text}`);
+  if (!current) return false;
+
+  const hasMicrofinanceContext = hasAny(combined, [
+    "الأمين للتمويل الأصغر", "الامين للتمويل الاصغر",
+    "شركة الأمين للتمويل الأصغر", "شركة الامين للتمويل الاصغر",
+    "تمويل أصغر", "تمويل اصغر",
+  ]);
+  if (!hasMicrofinanceContext) return false;
+
+  return hasAny(current, [
+    "نفس الشركة", "نفس الشركه", "نفسهم", "تابعين الهم", "تابعين لهم",
+    "تابعين لشركة", "تابعين لشركه", "الكم علاقة", "الكم علاقه", "في علاقة", "في علاقه",
+    "في شراكة", "في شراكه", "مرتبطين", "تابعين", "نفس الجهة", "نفس الجهه",
+    "شو علاقتكم", "ما علاقتكم", "بينكم علاقة", "بينكم علاقه",
+  ]) || hasAny(current, ["الأمين للتمويل الأصغر", "الامين للتمويل الاصغر"]);
+}
+
+function isRefundResumeFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, [
+    "وقف الاسترداد", "اوقف الاسترداد", "أوقف الاسترداد", "الغاء الاسترداد", "إلغاء الاسترداد",
+    "ما بدي الاسترداد", "مش بدي استرداد", "تراجعت عن الاسترداد", "بدي اكمل بالمعامله",
+    "بدي أكمل بالمعاملة", "بدي اكمل المعاملة", "بدي ارجع اكمل", "بدي أرجع أكمل",
+    "بدي اكمل الطلب", "بدي أكمل الطلب", "هسا لو بدي اكمل", "هسا لو بدي أكمل",
+    "لو بدي اكمل المعامله", "لو بدي أكمل المعاملة",
+  ]);
+}
+
+function isRefundMoneyFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, [
+    "حولي 5", "حولي ٥", "حولولي 5", "حولولي ٥", "رجعولي 5", "رجعولي ٥",
+    "رجعولي الخمسه", "رجعولي الخمسة", "حولولي الخمسه", "حولولي الخمسة",
+    "بدي الخمسه", "بدي الخمسة", "وين الخمسه", "وين الخمسة",
+    "وين الفلوس", "وين المصاري", "وين المبلغ", "متى الحوالة", "متى الحواله",
+  ]);
+}
+
+function isRefundTimingOrDeliveryFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  const timing = isReviewTimeText(t) || hasAny(t, ["كم بدو وقت", "قديش بدو وقت", "متى", "امتى", "إمتى"]);
+  const deliveryOrProcess = hasAny(t, ["استلم", "استلام", "التلفون", "الجهاز", "المعامله", "المعاملة", "الطلب"]);
+  return timing && deliveryOrProcess;
+}
+
+function messageHasReviewAndCallTopics(text: string) {
+  if (!isCallRequestText(text)) return false;
+  return isReviewTimeText(text) || isLongDelayComplaintText(text) || hasAny(text, [
+    "صار اي ابديت", "صار أي أبديت", "اخر تحديث", "آخر تحديث", "شو صار بالطلب", "وين وصل الطلب",
+  ]);
+}
+
 function isPaymentAmountText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -465,6 +536,10 @@ function isPaymentAmountText(text: string) {
     "قيمه الدفعه",
     "كم رسوم فتح الملف",
     "قديش رسوم فتح الملف",
+    "كم الرسوم",
+    "قديش الرسوم",
+    "الرسوم كم",
+    "كم رسومكم",
   ]);
 }
 
@@ -2939,6 +3014,12 @@ function businessIdentityReply() {
 نشاطنا هو ${BUSINESS_ACTIVITY}، والجهة ليست بنكًا ولا شركة تمويل أو إقراض ولا تمنح قروضًا.`;
 }
 
+function businessIndependenceReply() {
+  return `${BUSINESS_INDEPENDENCE_STATEMENT}.
+
+إحنا مختصين بتقسيط الأجهزة الإلكترونية والهواتف فقط، ولسنا بنكًا ولا شركة تمويل أو إقراض.`;
+}
+
 function trustVerificationReply(baseUrl: string, app?: ApplicationRecord | null) {
   const requestLines = app
     ? `
@@ -2949,9 +3030,7 @@ ${app.tracking_id || app.id}
 ${statusHumanLabel(app.status || "")}`
     : "";
 
-  const addressLine = app && (app.status === "approved" || app.status === "customer_accepts_delivery_delay")
-    ? `\n- عنوان المكتب: ${BUSINESS_ADDRESS}`
-    : "";
+  const addressLine = `\n- الموقع العام: ${BUSINESS_GENERAL_LOCATION}`;
 
   return `من حقك تتأكد قبل أي دفع، وما بنطلب منك تعتمد على الكلام وحده.
 
@@ -3250,24 +3329,12 @@ function canShareOfficeAddress(app?: ApplicationRecord | null) {
 
 function locationReply(from: string, app?: ApplicationRecord | null) {
   const opening = humanOpening(`${from}:location`);
-
-  if (!canShareOfficeAddress(app)) {
-    return `${opening}
-
-المكتب في ${BUSINESS_GENERAL_LOCATION}.
-العنوان التفصيلي واسم المبنى والطابق يتم إرسالهم فقط بعد الموافقة النهائية ومع الموعد الرسمي.
-الحضور للمكتب يكون بموعد فقط، وما في توصيل.`;
-  }
+  const statusLine = app ? `\nحالة طلبك الحالية: ${statusHumanLabel(app.status || "")}.` : "";
 
   return `${opening}
 
-عنوان المكتب:
-${BUSINESS_ADDRESS}
-
-للتواصل عبر واتساب:
-${BUSINESS_PHONE_DISPLAY}
-
-الحضور يكون فقط وفق الموعد الرسمي المحدد للطلب.`;
+المكتب في ${BUSINESS_GENERAL_LOCATION}.
+الحضور يكون بموعد رسمي فقط، والعنوان التفصيلي واسم المبنى والطابق يُرسلون مع الموعد الرسمي.${statusLine}`;
 }
 
 function loanReply(from: string) {
@@ -4841,6 +4908,20 @@ function generalGreetingReply(from: string, customerText = "") {
 
 function generalReviewTimeReply(from: string, customerText = "") {
   return reviewTimeReply(from, null, undefined, customerText);
+}
+
+function refundActiveTimingReply(app: ApplicationRecord) {
+  const tracking = app.tracking_id || app.id;
+  return `طلبك حاليًا بمسار الاسترداد، لذلك ما في موعد دراسة أو استلام فعّال على الملف الآن.
+
+إذا بدك تتراجع عن الاسترداد وتكمل على نفس الطلب، اكتب: أريد إعادة تفعيل الطلب.
+رقم الطلب: ${tracking}`;
+}
+
+function reviewAndCallReply(app: ApplicationRecord | null, from: string, customerText: string) {
+  const review = reviewTimeReply(from, app, undefined, customerText);
+  const call = `وبالنسبة للمكالمة: التواصل الأساسي للطلبات والمتابعة عبر واتساب حاليًا. اترك رسالتك ورقم طلبك هون، والرد بيكون حسب الدور وضغط المراجعات.`;
+  return `${review}\n\n${call}`;
 }
 
 function unknownReply(_from: string) {
@@ -7106,6 +7187,28 @@ function finalizeLastMileDeliveryReply(reply: string, options: {
 }) {
   const app = options.application || null;
 
+  if (isOfficeLocationText(options.text) && hasAny(options.text, [
+    "ممكن ازور", "ممكن أزور", "بقدر ازور", "بقدر أزور", "بدي ازور", "بدي أزور", "بدي اجي عالمكتب", "بدي أجي عالمكتب",
+  ])) {
+    return applyFinalSendGuard(locationReply(options.from, app), app);
+  }
+
+  if (messageHasReviewAndCallTopics(options.text)) {
+    return applyFinalSendGuard(reviewAndCallReply(app, options.from, options.text), app);
+  }
+
+  if (app && (app.status === "refund_requested" || app.payment_status === "refund_requested")) {
+    if (isRefundResumeFollowupText(options.text)) {
+      return applyFinalSendGuard(reopenCancelledRequestReply(app), app);
+    }
+    if (isRefundMoneyFollowupText(options.text)) {
+      return applyFinalSendGuard(refundAlreadyRequestedReply(app, options.text), app);
+    }
+    if (isRefundTimingOrDeliveryFollowupText(options.text)) {
+      return applyFinalSendGuard(refundActiveTimingReply(app), app);
+    }
+  }
+
   // Current-message hard veto: an explicit pay-on-receipt condition can never
   // be sent back as a continuation confirmation, regardless of upstream intent drift.
   if (isPaymentOnReceiptRefusalText(options.text)) {
@@ -7443,8 +7546,9 @@ async function generateAiReply(input: AiReplyInput) {
 - ممنوع القول إن التحويل البنكي لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يدفع شخص لديه محفظة أورنج.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
-- إذا سأل العميل عن الموقع قبل الموافقة النهائية: اذكر فقط أن المكتب في ${BUSINESS_GENERAL_LOCATION} حتى يعرف المسافة، ووضّح أن اسم المبنى والطابق والتفاصيل الدقيقة تُرسل مع الموعد الرسمي بعد الموافقة النهائية.
-- إذا كانت حالة الطلب تسمح بمشاركة العنوان التفصيلي، يمكن ذكر ${BUSINESS_ADDRESS}.
+- إذا سأل العميل عن الموقع أو زيارة المكتب: اذكر فقط أن المكتب في ${BUSINESS_GENERAL_LOCATION}، وأن الحضور يكون بموعد رسمي فقط.
+- لا تذكر اسم المبنى أو الطابق أو العنوان التفصيلي من حالة الموافقة وحدها؛ التفاصيل الدقيقة تُرسل فقط ضمن الموعد الرسمي المعتمد.
+- ${BUSINESS_INDEPENDENCE_STATEMENT}. إذا سأل العميل هل نحن نفس شركة الأمين للتمويل الأصغر أو تابعين لها، استخدم هذه الحقيقة ولا تقل إن المعلومة غير متوفرة.
 - ممنوع دعوة العميل لزيارة المكتب، أو قول "جاهزين لاستقبالك"، أو ذكر دوام المكتب، أو ساعات العمل، أو أي موعد زيارة، إلا إذا كانت رسالة الإدارة نفسها تطلب ذلك صراحة.
 
 قاعدة التوصيل وأرامكس والاستلام:
@@ -8127,6 +8231,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return `Of course. I can reply in English. Please send your question or your application tracking number, and I will answer based on the actual status of your application.`;
   }
 
+  if (isBusinessIndependenceQuestionText(rawCustomerText, conversationMemory.conversationContext)) {
+    return businessIndependenceReply();
+  }
+
   const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
 
@@ -8230,6 +8338,17 @@ async function buildReply(request: Request, from: string, text: string, messageT
     }
 
     return integrityReply;
+  }
+
+  // V1.4.4.1 CONTEXT INTEGRITY: an active refund state outranks generic payment/review/delivery wording.
+  if (app && (app.status === "refund_requested" || app.payment_status === "refund_requested")) {
+    if (isRefundResumeFollowupText(rawCustomerText)) {
+      intent = "reopen_cancelled_request";
+    } else if (isRefundMoneyFollowupText(rawCustomerText)) {
+      intent = "refund";
+    } else if (isRefundTimingOrDeliveryFollowupText(rawCustomerText)) {
+      return refundActiveTimingReply(app);
+    }
   }
 
   // V1.4.3 HUMAN DECISION PLANE: saying the required guarantor is unavailable
@@ -8404,6 +8523,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
   if (String(intent) === "human_agent") {
     // Human-contact requests are operational, not creative: keep them deterministic and complete.
     return employeeIdentityReply(from, app);
+  }
+
+  if (messageHasReviewAndCallTopics(rawCustomerText)) {
+    return reviewAndCallReply(app, from, rawCustomerText);
   }
 
   if (String(intent) === "call_request") {

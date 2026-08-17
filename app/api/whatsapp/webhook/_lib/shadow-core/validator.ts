@@ -665,6 +665,45 @@ function customerAsksMonthlyInstallmentMethod(text: string) {
 }
 
 
+
+function customerAsksOfficeVisit(text: string) {
+  return includesAny(text, [
+    "ممكن ازور الشركة", "ممكن أزور الشركة", "ممكن ازوركم", "ممكن أزوركم",
+    "بقدر ازور المكتب", "بقدر أزور المكتب", "بدي ازور المكتب", "بدي أزور المكتب",
+    "بدي اجي عالمكتب", "بدي أجي عالمكتب",
+  ]);
+}
+
+function customerAsksCall(text: string) {
+  return includesAny(text, [
+    "مكالمة", "مكالمه", "بقدر اتصل", "بقدر أتصل", "اتصلوا في", "رنوا علي",
+    "بقدر اتواصل معاكم", "بقدر اتواصل معكم", "ممكن اتواصل معاكم", "ممكن اتواصل معكم",
+  ]);
+}
+
+function customerAsksReviewOrUpdate(text: string) {
+  return includesAny(text, [
+    "صار اي ابديت", "صار أي أبديت", "اخر تحديث", "آخر تحديث", "شو صار", "وين وصل الطلب",
+    "كم بدها", "كم بدو", "قديش", "متى الرد", "كم يوم", "صار اسبوع", "صار أسبوع",
+  ]);
+}
+
+function customerAsksSameCompanyRelationship(text: string) {
+  return includesAny(text, [
+    "الأمين للتمويل الأصغر", "الامين للتمويل الاصغر", "نفس الشركة", "نفس الشركه",
+    "تابعين لهم", "تابعين الهم", "شو علاقتكم", "في علاقة", "في علاقه", "في شراكة", "في شراكه",
+  ]);
+}
+
+function customerAsksRefundResumeOrMoney(text: string) {
+  return includesAny(text, [
+    "وقف الاسترداد", "الغاء الاسترداد", "إلغاء الاسترداد", "ما بدي الاسترداد",
+    "بدي اكمل المعامله", "بدي أكمل المعاملة", "هسا لو بدي اكمل", "هسا لو بدي أكمل",
+    "حولي 5", "حولي ٥", "حولولي 5", "حولولي ٥", "رجعولي 5", "رجعولي ٥",
+    "كم بدو وقت واستلم", "متى استلم", "استلم التلفون",
+  ]);
+}
+
 function hasRoboticClarificationStyle(value: string) {
   const text = String(value || "");
   return [
@@ -920,6 +959,55 @@ export function validateFinalActualReply(
     "critical",
     "لا يجوز اختراع خيار أقساط أسبوعية دون جدول معتمد.",
   );
+
+  const officeVisitQuestion = customerAsksOfficeVisit(context.customerText);
+  addCheck(
+    checks,
+    "final_actual_office_visit_requires_official_appointment",
+    !officeVisitQuestion || (
+      includesAny(reply, ["موعد رسمي", "بموعد رسمي", "الحضور بموعد", "الحضور يكون بموعد"]) &&
+      !includesAny(reply, ["رانا سنتر", "الطابق الثاني", "مقابل مستشفى العيون"])
+    ),
+    "critical",
+    "زيارة المكتب لا تكون إلا بموعد رسمي، ولا يجوز كشف العنوان التفصيلي في هذا الرد.",
+  );
+
+  const asksCallAndReview = customerAsksCall(context.customerText) && customerAsksReviewOrUpdate(context.customerText);
+  addCheck(
+    checks,
+    "final_actual_review_and_call_topics_both_answered",
+    !asksCallAndReview || (
+      includesAny(reply, ["يومين", "3 أيام", "3 ايام", "تحديث", "حسب الدور", "ضغط المراجعات", "ما في موعد", "لا يوجد موعد", "قيد الاسترداد"]) &&
+      includesAny(reply, ["مكالمة", "مكالمه", "واتساب", "ضغط الاتصالات", "اتصال"])
+    ),
+    "critical",
+    "إذا جمعت الرسالة متابعة/مدة مع سؤال مكالمة، يجب الإجابة عن الموضوعين معًا.",
+  );
+
+  const asksSameCompany = customerAsksSameCompanyRelationship(context.customerText);
+  addCheck(
+    checks,
+    "final_actual_same_company_requires_independence_fact",
+    !asksSameCompany || (
+      includesAny(reply, ["جهة مستقلة تمامًا", "جهه مستقله تماما"]) &&
+      includesAny(reply, ["لا توجد أي علاقة", "لا توجد اي علاقه", "لا علاقة", "لا علاقه"])
+    ),
+    "critical",
+    "سؤال العلاقة مع شركة الأمين للتمويل الأصغر يجب أن يثبت الاستقلال التام وعدم وجود علاقة أو شراكة أو تبعية.",
+  );
+
+  const refundContextFollowup = facts.refundActive && customerAsksRefundResumeOrMoney(context.customerText);
+  addCheck(
+    checks,
+    "final_actual_refund_state_followup_alignment",
+    !refundContextFollowup || (
+      includesAny(reply, ["استرداد", "الاسترداد"]) &&
+      !includesAny(reply, ["الدفع مؤكد على طلبك، وما في أي دفع إضافي", "من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات"])
+    ),
+    "critical",
+    "عندما يكون الاسترداد نشطًا، أسئلة الرجوع أو مبلغ الخمس دنانير أو الاستلام لا تُجاب كدفع عادي أو مدة دراسة عادية.",
+  );
+
   const highPriorityTopics = topics.filter((topic) => [
     "refund", "stop_refund", "cancellation", "complaint", "voice_message", "business_hours",
     "eligibility", "office_location", "independence", "contact_number", "phone_not_answered",

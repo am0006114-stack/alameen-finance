@@ -1,6 +1,7 @@
 export const BUSINESS_NAME = "الأمين للأقساط";
 export const BUSINESS_ADDRESS = "رانا سنتر - الطابق الثاني - مقابل مستشفى العيون - شارع المدينة المنورة";
 export const BUSINESS_GENERAL_LOCATION = "عمّان - شارع المدينة المنورة";
+export const BUSINESS_INDEPENDENCE_STATEMENT = "الأمين للأقساط جهة مستقلة تمامًا، ولا توجد أي علاقة أو شراكة أو تبعية بينها وبين شركة الأمين للتمويل الأصغر على الإطلاق";
 export const BUSINESS_PHONE_DISPLAY = "0788500337";
 export const BUSINESS_PHONE_E164 = "+962788500337";
 export const BUSINESS_WEBSITE = "https://www.ameenfinance.co";
