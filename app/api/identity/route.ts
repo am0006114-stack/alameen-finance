@@ -131,14 +131,27 @@ export async function POST(request: Request) {
     return NextResponse.redirect(`${baseUrl}/`);
   }
 
+  // Bind the POST to the exact application that generated the official link.
+  // Never trust applicationId alone because hidden form fields can be edited client-side.
   const { data: application, error: fetchError } = await supabaseAdmin
     .from("applications")
     .select("id, tracking_id, full_name, phone, device_name, status")
     .eq("id", applicationId)
+    .eq("tracking_id", tracking)
+    .eq("phone", phone)
     .maybeSingle();
 
   if (fetchError || !application) {
-    return NextResponse.redirect(`${baseUrl}/`);
+    console.error("Identity upload binding mismatch", { applicationId, tracking });
+    return NextResponse.redirect(`${baseUrl}/identity?tracking=${safeTracking}&phone=${safePhone}&error=invalid_link`);
+  }
+
+  // Do not let an old/stale identity link overwrite terminal or financial states.
+  const identityUploadAllowed = ["needs_identity", "identity_requested", "identity_uploaded"].includes(String(application.status || ""));
+  if (!identityUploadAllowed) {
+    return NextResponse.redirect(
+      `${baseUrl}/identity?tracking=${safeTracking}&phone=${safePhone}&error=invalid_state`
+    );
   }
 
   const frontFile = formData.get("applicantIdFront");

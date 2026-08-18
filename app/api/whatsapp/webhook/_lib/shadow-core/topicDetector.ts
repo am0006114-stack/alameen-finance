@@ -219,8 +219,13 @@ export function detectShadowTopics(
       "موعد الاسترداد", "وقت الاسترداد", "متى الحواله", "متى الحوالة",
     ]);
 
+  const directRefundDemand = containsAny(text, [
+    "رجعولي الرسوم", "رجعوا الرسوم", "رجعولي فلوسي", "رجعوا فلوسي",
+    "بدي استرداد", "بدي استرجاع", "بدي فلوسي", "استرداد الرسوم", "استرجاع الرسوم",
+  ]);
+
   const refundPolicyInquiry =
-    !currentReceiptConfirmation && (explicitNoRefund ||
+    !currentReceiptConfirmation && !directRefundDemand && (explicitNoRefund ||
     (!refundTimingOrStatus &&
       containsAny(text, [
         "رسوم", "رسوم فتح الملف", "قيمة الملف", "قيمه الملف", "الخمس", "الخمسه", "الخمسة",

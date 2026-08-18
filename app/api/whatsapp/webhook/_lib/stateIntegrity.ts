@@ -96,6 +96,15 @@ export function isRefundPolicyInquiryText(text: string) {
   ]);
   if (refundTimingOrStatus) return false;
 
+  // An imperative financial return phrase is not a policy question merely because
+  // the same sentence also contains "اذا/لو". It still must pass the payment and
+  // mutation guards before any refund state can be created.
+  const directReturnDemand = containsAny(t, [
+    "رجعولي الرسوم", "رجعوا الرسوم", "رجعولي فلوسي", "رجعوا فلوسي",
+    "بدي استرداد", "بدي استرجاع", "بدي فلوسي", "استرداد الرسوم", "استرجاع الرسوم",
+  ]);
+  if (directReturnDemand) return false;
+
   const policyInquiry = containsAny(t, [
     "هل", "اذا", "إذا", "لو", "في حال", "بحال",
     "بترجع", "برجع", "بيرجع", "ترجعلي", "ترجع", "يرجع",

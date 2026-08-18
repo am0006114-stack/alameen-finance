@@ -532,6 +532,12 @@ function customerAsksRefundPolicyInquiry(text: string) {
   ]);
   if (!feeOrRefundContext) return false;
 
+  const directRefundDemand = includesAny(text, [
+    "رجعولي الرسوم", "رجعوا الرسوم", "رجعولي فلوسي", "رجعوا فلوسي",
+    "بدي استرداد", "بدي استرجاع", "بدي فلوسي", "استرداد الرسوم", "استرجاع الرسوم",
+  ]);
+  if (directRefundDemand) return false;
+
   const refundTimingOrStatus = includesAny(text, [
     "متى", "امتى", "إمتى", "قديش بد", "كم بد", "كم يوم", "كم ساعه", "كم ساعة",
     "اليوم", "بكرا", "غدا", "غدًا", "وين وصل", "شو صار بالاسترداد", "حالة الاسترداد",

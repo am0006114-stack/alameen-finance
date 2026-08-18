@@ -519,6 +519,23 @@ function messageHasReviewAndCallTopics(text: string) {
   ]);
 }
 
+
+function messageHasReviewAndLocationTopics(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return isReviewTimeText(t) && isOfficeLocationText(t);
+}
+
+function reviewAndLocationReply(app: ApplicationRecord | null, from: string, customerText: string) {
+  const review = reviewTimeReply(app?.phone || from, app, "", customerText)
+    .replace(/\n?رابط المتابعة:[\s\S]*$/i, "")
+    .trim();
+
+  return `${review}
+
+وبالنسبة للموقع: المكتب في عمّان – شارع المدينة المنورة. العنوان التفصيلي يُرسل فقط مع الموعد الرسمي، والحضور بموعد فقط.`;
+}
+
 function isPaymentAmountText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -1746,6 +1763,8 @@ function isDocumentFollowupText(text: string) {
     "كيف ارفق الملف", "كيف أرفق الملف", "كيف ارفع الملف", "كيف أرفع الملف",
     "وين ارفق الملف", "وين أرفق الملف", "وين ارفع الملف", "وين أرفع الملف",
     "كيف ارفق المستند", "كيف أرفق المستند", "كيف ارفع المستند", "كيف أرفع المستند",
+    "رابط رفع الهوية", "رابط رفع الهويه", "رابط الهوية", "رابط الهويه",
+    "وين ارفع الهوية", "وين أرفع الهوية", "كيف ارفع الهوية", "كيف أرفع الهوية",
   ]);
 
   return documentContext;
@@ -2524,6 +2543,14 @@ function classifyIntent(text: string): CustomerIntent {
   if (isApplicationDataCorrectionConfirmationText(t)) return "application_data_correction_confirmed";
   if (isApplicationDataCorrectionText(t)) return "application_data_correction";
   if (isAfterApprovalRequirementQuestionText(t) || isGeneralDocumentsQuestionText(t)) return "requirements";
+
+  // V1.5.0 CRITICAL INTENT PRIORITY:
+  // A direct cancellation decision must outrank delay/review wording in the same message.
+  // Destructive execution is still protected later by the explicit confirmation gate.
+  if (isCancelRefundRequestText(t)) return "cancel_refund_request";
+  if (isCancelConfirmedText(t)) return "cancel_confirmed";
+  if (isCancelRequestText(t)) return "cancel_request";
+
   if (isApprovalTimingQuestionText(t)) return "review_time";
   if (isReviewTimeText(t)) return "review_time";
   if (isApprovalStatusQuestionText(t)) return "order_status";
@@ -2551,12 +2578,6 @@ function classifyIntent(text: string): CustomerIntent {
   if (isSelfEmployedText(t) || isEmploymentEligibilityQuestionText(t)) return "self_employed";
 
   if (isMinorEligibilityQuestionText(t)) return "requirements";
-
-  // V1.1.8: الإلغاء الصريح يسبق كلمات الموقع/المكتب حتى لا تتحول رسالة مثل
-  // "بدي ألغي الطلب، ليش راجع فرع" إلى طلب عنوان مكتب.
-  if (isCancelRefundRequestText(t)) return "cancel_refund_request";
-  if (isCancelConfirmedText(t)) return "cancel_confirmed";
-  if (isCancelRequestText(t)) return "cancel_request";
 
   if (isOfficeLocationText(t)) return "location";
 
@@ -5526,6 +5547,10 @@ async function handleDocumentAutomation(input: {
   const paymentStatus = app.payment_status || "";
   const hasGuarantorContext = isGuarantorContextText(text);
   const hasSalaryContext = isSalarySlipContextText(text);
+  const hasIdentityContext = hasAny(normalizeArabicText(text), [
+    "هوية", "هويه", "الهوية", "الهويه", "بطاقة", "بطاقه",
+    "الوجه الامامي", "الوجه الأمامي", "الوجه الخلفي",
+  ]);
   const submitted = isDocumentSubmittedText(text);
   const officialUploadConfirmed = isOfficialUploadConfirmationText(text);
   const linkRequest = isDocumentLinkRequestText(text);
@@ -5575,6 +5600,20 @@ async function handleDocumentAutomation(input: {
     isStandardApplicationFollowupText(text) ||
     linkRequest ||
     hasAny(normalizeArabicText(text), ["شو المطلوب", "المتطلبات المطلوبه", "المتطلبات المطلوبة", "الخطوه التاليه", "الخطوة التالية", "استكمال الخطوات"]);
+
+  // Identity is a first-class official upload flow. When the application itself is
+  // waiting for identity, a generic "send me the link" must resolve to /identity,
+  // never to /track and never to WhatsApp media upload.
+  if (
+    ["needs_identity", "identity_requested"].includes(status) &&
+    (hasIdentityContext || linkRequest || explicitRequirementsOverview)
+  ) {
+    return `تفضل، هذا رابط رفع الهوية المرتبط بطلبك:
+${identityUrl(baseUrl, app)}
+
+ارفع صورة الوجه الأمامي والخلفي من الرابط نفسه حتى تنربط بالطلب رسميًا.
+رقم الطلب: ${app.tracking_id || app.id}`;
+  }
 
   if (status === "needs_guarantor" && !directRequirementQuestion && (hasGuarantorContext || linkRequest || explicitRequirementsOverview)) {
     const alreadySent = await wasGuarantorLinkAlreadySent(from);
@@ -8523,6 +8562,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
   if (String(intent) === "human_agent") {
     // Human-contact requests are operational, not creative: keep them deterministic and complete.
     return employeeIdentityReply(from, app);
+  }
+
+  if (messageHasReviewAndLocationTopics(rawCustomerText)) {
+    return reviewAndLocationReply(app, from, rawCustomerText);
   }
 
   if (messageHasReviewAndCallTopics(rawCustomerText)) {
