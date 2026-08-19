@@ -512,6 +512,26 @@ function isRefundTimingOrDeliveryFollowupText(text: string) {
   return timing && deliveryOrProcess;
 }
 
+function isRefundStatePriorityFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const moneyOrRefund = hasAny(t, [
+    "استرداد", "استرجاع", "رجعولي", "رجعوا", "حولولي", "تحولو", "حولو",
+    "الخمس", "الخمسه", "الخمسة", "ليره", "ليرة", "ليرات", "دينار", "دنانير",
+    "فلوس", "مصاري", "المبلغ", "الحواله", "الحوالة",
+  ]);
+  const timingPressure = hasAny(t, [
+    "اليوم", "بكره", "بكرة", "غدا", "غداً", "ساعه", "ساعة", "ساعتين",
+    "متى", "لمتى", "لحد متى", "معكم", "هسا", "الان", "الآن",
+  ]);
+  const shortPressure = t.length <= 28 && hasAny(t, [
+    "الخمس", "ليرات", "ساعتين", "اليوم", "بكره", "بكرة", "هسا", "الان", "الآن",
+  ]);
+
+  return moneyOrRefund || (timingPressure && shortPressure);
+}
+
 function messageHasReviewAndCallTopics(text: string) {
   if (!isCallRequestText(text)) return false;
   return isReviewTimeText(text) || isLongDelayComplaintText(text) || hasAny(text, [
@@ -1395,8 +1415,12 @@ const LEGAL_THREAT_KEYWORDS = [
 ];
 
 const SOCIAL_MEDIA_THREAT_KEYWORDS = [
-  "بفضحكم", "افضحكم", "رح افضحكم", "راح افضحكم", "بنشر عليكم", "انشر عليكم", "سوشال ميديا", "فيسبوك", "تيك توك", "انستغرام",
-  "بوست", "منشور", "جروبات", "قروبات", "الناس تعرف", "بحذر الناس", "احذر الناس", "بنزل سكرينات", "سكرينات", "سكرين شوت",
+  "بفضحكم", "افضحكم", "رح افضحكم", "راح افضحكم", "بنشر عليكم", "انشر عليكم",
+  "بنشر موقعكم", "انشر موقعكم", "بنشر عنكم", "انشر عنكم", "بنشر تجربتي", "انشر تجربتي",
+  "بنشر على صفحتي", "انشر على صفحتي", "عندي صفحة", "عندي صفحه", "متابع", "متابعين", "مشاهداتي",
+  "سوشال ميديا", "فيسبوك", "تيك توك", "انستغرام",
+  "بوست", "منشور", "جروبات", "قروبات", "الناس تعرف", "بحذر الناس", "احذر الناس", "بحذر كل الناس",
+  "بنزل سكرينات", "سكرينات", "سكرين شوت",
   "تقييم سيء", "review", "facebook", "instagram", "tiktok",
 ];
 
@@ -2957,32 +2981,43 @@ ${BUSINESS_NAME}`;
 }
 
 function socialMediaThreatReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  const tracking = app?.tracking_id || app?.id || "";
+  const refundActive = Boolean(app && (app.status === "refund_requested" || app.payment_status === "refund_requested"));
+  const refundCompleted = Boolean(app && app.status === "refund_completed");
+
   if (app) {
-    if (app.status === "refund_requested" || app.payment_status === "refund_requested") {
-      return refundDeescalationReply(app, customerText);
+    if (refundCompleted) {
+      return `نتفهم انزعاجك، ومن حقك تقديم شكوى أو التعبير عن تجربتك.
+
+حسب حالة الطلب الظاهرة عندنا، الاسترداد مكتمل. وإذا عندك اعتراض محدد على الإجراء احكيه وبنراجعه حسب البيانات المسجلة.
+
+وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.
+
+رقم الطلب: ${tracking}`;
     }
 
-    return `فاهمين إنك منزعج، وحقك يكون عندك تحديث واضح قبل ما تضطر تصعّد الموضوع بأي مكان.
+    if (refundActive) {
+      return `نتفهم انزعاجك، ومن حقك تقديم شكوى أو التعبير عن تجربتك.
 
-حالة طلبك الحالية:
-${statusHumanLabel(app.status || "")}
+طلب الاسترداد مسجل وقيد المتابعة على طلبك، وما رح نعطيك موعدًا غير مؤكد. أول ما يظهر تحديث فعلي بنبلغك مباشرة.
 
-رقم التتبع:
-${app.tracking_id || app.id}
+وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.
 
-خلينا نحلها بهدوء: احكيلي النقطة المحددة اللي مضايقتك — تأخير، دفع، تسليم، أو مستند ناقص — وبوضحها لك حسب البيانات الظاهرة.
+رقم الطلب: ${tracking}`;
+    }
 
-رابط المتابعة:
-${trackUrl(baseUrl, app)}
+    return `نتفهم انزعاجك، وإذا ما عدت ترغب بإكمال الطلب نقدر نمشي معك بإجراءات الإلغاء والاسترداد حسب حالة الطلب، بدون ما يتحول الموضوع لخلاف. ما رح نلغي الطلب أو نغير حالته من مجرد هذه الرسالة؛ إذا رغبت بالإلغاء بنطلب منك التأكيد الرسمي قبل أي إجراء.
 
-${BUSINESS_NAME}`;
+ومن حقك تقديم شكوى أو التعبير عن تجربتك. وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.
+
+رقم الطلب: ${tracking}`;
   }
 
-  return `فاهمين انزعاجك، وحقك يكون عندك جواب واضح.
+  return `نتفهم انزعاجك، ومن حقك تقديم شكوى أو التعبير عن تجربتك.
 
-قبل أي تصعيد، ابعثلي رقم التتبع أو رقم الهاتف المستخدم بالطلب، وبراجعها لك مباشرة وأعطيك الحالة الحالية والخطوة المطلوبة.
+إذا عندك طلب قائم وما عدت ترغب بإكماله، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى نراجع حالة الإلغاء والاسترداد بشكل صحيح.
 
-${BUSINESS_NAME}`;
+وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.`;
 }
 
 function scamAccusationReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
@@ -4519,7 +4554,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 أما الألوان أو الأجهزة المتوفرة فعليًا فتتأكد حسب توريد المورد وقت اعتماد الطلب، وما بدي أعطيك توفر غير مؤكد.`;
   }
   if (String(intent) === "unknown") {
-    return unknownReply(app.phone || tracking);
+    return unknownReply(app.phone || tracking, app, customerText);
   }
 
   if (String(intent) === "abuse") return abuseReply(baseUrl, app.phone || tracking, app, customerText);
@@ -4945,8 +4980,26 @@ function reviewAndCallReply(app: ApplicationRecord | null, from: string, custome
   return `${review}\n\n${call}`;
 }
 
-function unknownReply(_from: string) {
-  return "شو النقطة اللي بدك تعرفها تحديدًا؟";
+function unknownReply(_from: string, app?: ApplicationRecord | null, customerText = "") {
+  const t = normalizeArabicText(customerText);
+
+  if (app && (app.status === "refund_requested" || app.payment_status === "refund_requested")) {
+    if (isRefundStatePriorityFollowupText(customerText) || t.length <= 28) {
+      return refundAlreadyRequestedReply(app, customerText);
+    }
+  }
+
+  if (app && ["approved", "customer_accepts_delivery_delay"].includes(app.status || "") && hasAny(t, [
+    "بكره بستلم", "بكرة بستلم", "غدا بستلم", "غداً بستلم", "متى بستلم", "استلم", "الاستلام",
+  ])) {
+    return deliveryDateReply(app, "");
+  }
+
+  if (hasAny(t, ["عندي سوال", "عندي سؤال", "بدي اسال", "بدي أسأل"])) {
+    return "تفضل، احكيلي سؤالك.";
+  }
+
+  return "احكيلي شو بدك تعرف تحديدًا، وبجاوبك مباشرة.";
 }
 
 function envFlag(name: string, defaultValue = true) {
@@ -7027,20 +7080,24 @@ async function applyProductionFinalTruthGate(input: {
 
     if (voice) {
       fallbackReply = "وصلت الرسالة الصوتية، لكن ما عندي تفريغ نصي معتمد لمحتواها. اكتب النقطة نفسها بجملة قصيرة حتى أرد عليها بدقة.";
+    } else if (input.application && facts.refundActive && (topics.includes("refund") || isRefundStatePriorityFollowupText(input.customerText))) {
+      fallbackReply = refundAlreadyRequestedReply(input.application, input.customerText);
+    } else if (topics.includes("cancellation") && input.application) {
+      fallbackReply = cancelRequestReply(input.application, getBaseUrl(input.request), input.customerText);
     } else if (independence) {
       fallbackReply = "الأمين للأقساط جهة مستقلة تمامًا، ولا توجد أي علاقة أو شراكة أو تبعية بينها وبين شركة الأمين للتمويل الأصغر على الإطلاق.";
     } else if (businessHours) {
       fallbackReply = "ما عندي وقت دوام عام معتمد أقدر أحدده لك بدون تخمين. متابعة الطلبات الأساسية تتم عبر واتساب حسب الدور وضغط المراجعات، والحضور إلى المكتب لا يكون إلا بموعد رسمي بعد الموافقة النهائية.";
-    } else if (topics.includes("office_location")) {
+    } else if (topics.includes("office_location") && isOfficeLocationText(input.customerText)) {
       fallbackReply = locationReply(input.from, input.application);
     } else if (topics.includes("review_time")) {
       fallbackReply = input.application
         ? reviewTimeReply(input.from, input.application, input.application.tracking_id || input.application.id, input.customerText)
         : generalReviewTimeReply(input.from, input.customerText);
     } else if (input.application) {
-      fallbackReply = `الظاهر عندي على طلبك حاليًا: ${statusHumanLabel(input.application.status || "")}. إذا سؤالك عن نقطة ثانية احكيلي إياها مباشرة.`;
+      fallbackReply = unknownReply(input.from, input.application, input.customerText);
     } else {
-      fallbackReply = "شو النقطة اللي بدك تعرفها تحديدًا؟";
+      fallbackReply = unknownReply(input.from, null, input.customerText);
     }
 
     fallbackReply = explicitLinkRecoveryReply(input.request, input.application, input.customerText, fallbackReply);
@@ -8383,7 +8440,10 @@ async function buildReply(request: Request, from: string, text: string, messageT
   if (app && (app.status === "refund_requested" || app.payment_status === "refund_requested")) {
     if (isRefundResumeFollowupText(rawCustomerText)) {
       intent = "reopen_cancelled_request";
-    } else if (isRefundMoneyFollowupText(rawCustomerText)) {
+    } else if (isRefundMoneyFollowupText(rawCustomerText) || isRefundStatePriorityFollowupText(rawCustomerText)) {
+      // V1.5.1: the durable refund state outranks noisy lexical intents such as
+      // payment_amount / unknown / abuse when the current message is clearly
+      // about the money or timing of that existing refund.
       intent = "refund";
     } else if (isRefundTimingOrDeliveryFollowupText(rawCustomerText)) {
       return refundActiveTimingReply(app);
@@ -9448,7 +9508,7 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
     deterministicReply = `العفو 🌿
 بخدمتك بأي وقت.`;
   } else {
-    deterministicReply = unknownReply(from);
+    deterministicReply = unknownReply(from, app, text);
   }
 
   const factualIntentNeedsExactReply = shouldReturnExactHumanFirstReply(intent);
@@ -10127,9 +10187,9 @@ export async function POST(request: Request) {
           } else if (String(processingIntent) === "office_payment_request") {
             reply = officeFeePaymentReply(finalApplication, true);
           } else if (finalApplication) {
-            reply = `الظاهر عندي على طلبك حاليًا: ${statusHumanLabel(finalApplication.status || "")}. إذا سؤالك عن نقطة ثانية احكيلي إياها مباشرة.`;
+            reply = unknownReply(from, finalApplication, replyInputText);
           } else {
-            reply = "شو النقطة اللي بدك تعرفها تحديدًا؟";
+            reply = unknownReply(from, null, replyInputText);
           }
           reply = applyFinalSendGuard(reply, finalApplication);
           await sendDiscordNotification({
