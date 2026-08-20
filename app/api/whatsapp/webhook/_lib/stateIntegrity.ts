@@ -53,7 +53,22 @@ export function isExactCancelConfirmationText(text: string) {
     "متاكد بدي الغي", "متأكد بدي ألغي", "خلص الغي نهائي", "خلص ألغي نهائي",
     "confirm cancel", "yes cancel", "cancel confirmed", "cancel it permanently",
   ].map(cleanDecisionText));
-  return exact.has(t);
+
+  if (exact.has(t)) return true;
+
+  const explicitEmbeddedConfirmation = containsAny(t, [
+    "اكد الغاء الطلب", "أكد إلغاء الطلب",
+    "اكد الالغاء", "أكد الإلغاء",
+  ]);
+  if (!explicitEmbeddedConfirmation) return false;
+
+  // A destructive action must never be inferred from a conditional/hypothetical message.
+  const conditional = containsAny(t, [
+    "اذا", "إذا", "لو", "ممكن", "يمكن", "قبل ما",
+    "اذا ما", "إذا ما", "لو ما", "رح", "راح",
+  ]);
+
+  return !conditional;
 }
 
 export function isConditionalCancellationText(text: string) {

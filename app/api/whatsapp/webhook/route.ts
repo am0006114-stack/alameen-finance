@@ -5819,12 +5819,19 @@ ${tracking}`;
 function cancelRefundRequestReply(app: ApplicationRecord) {
   const name = firstTwoNames(app.full_name);
 
-  return `أهلًا ${name}، وصلتني رغبتك بإلغاء الطلب وطلب الاسترداد.
+  if (!hasConfirmedPaymentEvidence(app)) {
+    return `أهلًا ${name}، وصلتني رغبتك بإلغاء الطلب.
+
+للتأكيد النهائي اكتب:
+أكد إلغاء الطلب`;
+  }
+
+  return `أهلًا ${name}، وصلتني رغبتك بإلغاء الطلب.
 
 للتأكيد النهائي اكتب:
 أكد إلغاء الطلب
 
-بعد التأكيد، إذا كان الدفع مؤكدًا على الملف بنلغي الطلب ونرسل لك رابط تثبيت بيانات الاسترداد.`;
+بما أن الدفع مؤكد على الملف، بعد تنفيذ الإلغاء بنرسل لك رابط تثبيت بيانات الاسترداد.`;
 }
 
 function criticalCaseOpening() {
@@ -8301,7 +8308,9 @@ async function buildReply(request: Request, from: string, text: string, messageT
   // substantive question outrank historical context and social prefixes such as "تمام/شكرا".
   const hardCurrentDecision = currentMessageDecisionOverride(rawCustomerText);
   const currentSemanticHint = currentMessageSemanticIntentHint(rawCustomerText);
-  if (hardCurrentDecision) {
+  if (isExactCancelConfirmationText(rawCustomerText)) {
+    intent = "cancel_confirmed";
+  } else if (hardCurrentDecision) {
     intent = hardCurrentDecision;
   } else if (isReceiptConfirmationCurrentText(rawCustomerText) || isReceiptUploadConfirmationText(rawCustomerText)) {
     intent = "receipt_upload_confirmation";
@@ -8309,8 +8318,6 @@ async function buildReply(request: Request, from: string, text: string, messageT
     intent = "stop_refund";
   } else if (isRefundPolicyInquiryText(rawCustomerText)) {
     intent = "payment_amount";
-  } else if (isExactCancelConfirmationText(rawCustomerText)) {
-    intent = "cancel_confirmed";
   } else if (isCancelRequestText(rawCustomerText)) {
     intent = "cancel_request";
   } else if (isExplicitNonContinuationText(rawCustomerText)) {
