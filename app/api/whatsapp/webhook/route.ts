@@ -1221,7 +1221,7 @@ function paymentAssistanceStateActive(
   );
 }
 
-function currentCustomerActionLine(app: ApplicationRecord) {
+function currentCustomerActionLine(app: ApplicationRecord, baseUrl = "") {
   const status = app.status || "";
   const paymentStatus = app.payment_status || "";
 
@@ -1242,7 +1242,10 @@ function currentCustomerActionLine(app: ApplicationRecord) {
     status === "customer_confirmed_continue" ||
     ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus)
   ) {
-    return `المطلوب منك حاليًا دفع رسوم فتح الملف بقيمة ${FILE_OPENING_FEE_JOD} دنانير ورفع الوصل من الرابط الرسمي.`;
+    const receiptLine = baseUrl
+      ? `\nرابط رفع الوصل:\n${receiptUrl(baseUrl, app)}`
+      : "";
+    return `المطلوب منك حاليًا دفع رسوم فتح الملف بقيمة ${FILE_OPENING_FEE_JOD} دنانير ورفع الوصل من الرابط الرسمي.${receiptLine}`;
   }
 
   if (paymentStatus === "customer_claimed_paid") {
@@ -1344,7 +1347,7 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
     return `دراسة الملف عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.
 
 حالة طلبك الحالية: ${statusHumanLabel(status)}.
-${currentCustomerActionLine(app)}
+${currentCustomerActionLine(app, baseUrl)}
 رقم الطلب: ${tracking}`;
   }
 
@@ -1355,7 +1358,7 @@ ${currentCustomerActionLine(app)}
   ) {
     return `المدة المعتادة للدراسة من يومين إلى 3 أيام عمل، وتبدأ بعد رفع وصل رسوم فتح الملف وتأكيده. الجمعة والسبت ما بتنحسب.
 
-${currentCustomerActionLine(app)}
+${currentCustomerActionLine(app, baseUrl)}
 رقم الطلب: ${tracking}`;
   }
 
@@ -6611,6 +6614,12 @@ function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
     return clean;
   }
 
+  const receiptUploadInstruction = /(?:ارفع|أرفع|ترفع|رفع)\s+(?:صورة\s+)?(?:وصل|إيصال|ايصال)|(?:رفع|رابط)\s+(?:صورة\s+)?(?:وصل|إيصال|ايصال)/i.test(clean);
+  const requiredReceiptUrl = extractUrlsFromReply(clean)
+    .map(normalizeUrlForMemory)
+    .find((url) => /\/receipt(?:$|[?#])/i.test(url)) || "";
+  const forceReceiptUrl = Boolean(receiptUploadInstruction && requiredReceiptUrl);
+
   const previousUrls = new Set((input.sentUrls || []).map(normalizeUrlForMemory));
   for (const reply of input.lastAssistantReplies || []) {
     for (const url of extractUrlsFromReply(reply)) previousUrls.add(normalizeUrlForMemory(url));
@@ -6628,7 +6637,8 @@ function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
       continue;
     }
 
-    const isRepeated = urls.some((url) => previousUrls.has(url));
+    const isRequiredReceiptLine = forceReceiptUrl && urls.some((url) => url === requiredReceiptUrl);
+    const isRepeated = urls.some((url) => previousUrls.has(url)) && !isRequiredReceiptLine;
     if (isRepeated || keptFirstUrl) {
       suppressedAny = true;
       continue;
@@ -7809,6 +7819,7 @@ async function generateAiReply(input: AiReplyInput) {
 قواعد الروابط:
 - لا ترسل أكثر من رابط واحد في الرد الواحد.
 - إذا تم إرسال نفس الرابط في نفس محادثة واتساب سابقًا، لا تكرره؛ قل: الرابط أرسلناه لك سابقًا بنفس المحادثة.
+- استثناء إلزامي: رابط رفع وصل الدفع /receipt. إذا كان الرد الحالي يطلب من العميل رفع الوصل، أو يشرح أن الخطوة الحالية هي رفع الوصل، أو العميل يسأل أين/كيف يرفع الوصل، أرسل رابط رفع الوصل في نفس الرسالة حتى لو سبق إرساله. لا تطلب إعادة رفعه إذا كان الدفع مؤكدًا أو الوصل مسجلًا وبانتظار التأكيد.
 - روابط التتبع تكون قصيرة قدر الإمكان: ${BUSINESS_WEBSITE}/track، واكتب رقم الطلب ورقم الهاتف كنص عادي بدل رابط طويل.
 - رابط المنتجات يرسل مرة واحدة فقط في المحادثة، وبعدها قل للعميل إن الرابط موجود فوق.
 

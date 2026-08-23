@@ -1153,6 +1153,25 @@ export function validateShadowReply(
   addCheck(checks, "confirmed_not_pending", !facts.paymentConfirmed || !includesAny(reply, ["الوصل بانتظار التأكيد", "الدفع قيد التأكيد", "ننتظر تأكيد الوصل", "خلينا نأكد الوصل"]), "critical", "لا يوصف الدفع المؤكد بأنه بانتظار التأكيد.");
   addCheck(checks, "pending_not_confirmed", !facts.paymentReceiptPending || !includesAny(reply, ["الدفع مؤكد", "تم تأكيد الدفع"]), "critical", "لا يوصف الوصل المعلق بأنه دفع مؤكد.");
   addCheck(checks, "no_whatsapp_receipt", !hasDirectWhatsAppReceiptRequest(reply), "critical", "وصل الدفع يُرفع فقط من الرابط الرسمي، وليس عبر واتساب.");
+  const receiptUploadInstruction = includesAny(reply, [
+    "ارفع الوصل", "أرفع الوصل", "ترفع الوصل", "رفع الوصل من الرابط",
+    "رفع الوصل فقط من الرابط", "رابط رفع الوصل", "ارفع صورة وصل", "أرفع صورة وصل",
+  ]);
+  const hasReceiptUploadUrl = /https?:\/\/[^\s]+\/receipt(?:$|[?#\s])/i.test(String(reply || ""));
+  addCheck(
+    checks,
+    "receipt_upload_instruction_has_link",
+    !receiptUploadInstruction || facts.paymentAlreadyConfirmed || facts.paymentReceiptPending || hasReceiptUploadUrl,
+    "critical",
+    "إذا طلب الرد رفع وصل الدفع، يجب أن يتضمن رابط /receipt في نفس الرسالة حتى لو أُرسل سابقًا.",
+  );
+  addCheck(
+    checks,
+    "no_duplicate_receipt_upload_after_payment",
+    !(receiptUploadInstruction && (facts.paymentAlreadyConfirmed || facts.paymentReceiptPending)),
+    "critical",
+    "بعد تأكيد الدفع أو تسجيل الوصل بانتظار التأكيد، لا يُطلب من العميل رفع الوصل مرة ثانية.",
+  );
   addCheck(checks, "no_whatsapp_documents", !hasDirectWhatsAppDocumentRequest(reply), "critical", "المستندات الحساسة تُرفع فقط من الرابط الرسمي.");
 
   const unrequestedDocument = !facts.requiredDocument && includesAny(reply, [
