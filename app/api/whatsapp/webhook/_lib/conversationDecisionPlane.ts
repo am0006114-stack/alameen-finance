@@ -75,7 +75,7 @@ export function guarantorUnavailableReply() {
 export function replyContradictsNonContinuation(customerText: string, reply: string) {
   if (!isNaturalNonContinuationText(customerText)) return false;
   const out = n(reply);
-  return /(تم تأكيد رغبتك بالاستمرار|طلبك مؤهل مبدئيا ونقدر نبدأ|رسوم فتح الملف|AMENPAY|PAYAMEN|ارفع الوصل|تحويل)/i.test(out);
+  return /(تم تأكيد رغبتك بالاستمرار|طلبك مؤهل مبدئيا ونقدر نبدأ|رسوم فتح الملف|AMENPAY|AMEEENPAY|ارفع الوصل|تحويل)/i.test(out);
 }
 
 export function replyAsksContinueAgain(customerText: string, reply: string) {

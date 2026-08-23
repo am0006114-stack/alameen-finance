@@ -1040,7 +1040,7 @@ export function validateShadowReply(
   addCheck(checks, "no_unverified_interest_or_religious_claim", !hasUnverifiedInterestOrReligiousClaim(reply), "critical", "ممنوع إصدار حكم شرعي أو مصرفي غير موثق عن الفوائد أو الربا.");
   addCheck(checks, "no_internal_template", !includesAny(reply, ["اكتب السؤال كامل", "لازم تدخل بشري", "سيتم تحويلك", "متابعه بشريه", "متابعة بشرية"]), "critical", "لا يحتوي الرد قالبًا داخليًا أو باردًا.");
   addCheck(checks, "no_branch_word", !includesAny(reply, ["فرع", "فروع"]), "critical", "لا تُستخدم كلمة فرع أو فروع.");
-  addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payameen"]), "critical", "اسم الدفع الصحيح PAYAMEN وليس PAYAMEEN.");
+  addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payameen"]), "critical", "اسم الدفع الصحيح AMEEENPAY وليس PAYAMEEN.");
   addCheck(checks, "no_ai_or_bot_discussion", !includesAny(reply, ["بوت", "ذكاء اصطناعي", "نظام تجريبي", "ai assistant"]), "critical", "لا يناقش الرد كونه بوتًا أو نظامًا تجريبيًا.");
   addCheck(checks, "no_invented_staff_availability", !hasUnsupportedStaffAvailabilityClaim(reply), "critical", "لا يجوز اختراع توفر الموظفين أو عدم توفرهم.");
   addCheck(checks, "no_false_central_bank_claim", !hasFalseCentralBankClaim(reply), "critical", "ممنوع الادعاء بأن الجهة مرخصة أو خاضعة لرقابة البنك المركزي الأردني.");
