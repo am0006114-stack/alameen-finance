@@ -7,6 +7,8 @@ export type FinalTruthRecoveryInput = {
   refundCompleted: boolean;
   refundEligible: boolean;
   conditionalCancellation: boolean;
+  initialIntent?: string;
+  paymentConfirmed?: boolean;
 };
 
 function normalize(text: string) {
@@ -53,6 +55,12 @@ function hasFeeRefundPolicyInquiry(text: string) {
     "رسوم", "رسوم فتح الملف", "قيمه الملف", "قيمة الملف",
     "الخمس", "الخمسه", "الخمسة", "5", "٥", "دينار", "دنانير",
   ]);
+  const directRefundDemand = containsAny(text, [
+    "رجعولي الرسوم", "رجعوا الرسوم", "رجعولي فلوسي", "رجعوا فلوسي",
+    "رجعولي الخمس", "رجعوا الخمس", "بدي استرداد", "بدي استرجاع", "بدي فلوسي",
+  ]);
+  if (directRefundDemand) return false;
+
   const policyQuestion = containsAny(text, [
     "هل", "اذا", "إذا", "لو", "بترجع", "برجع", "بيرجع", "ترجعلي",
     "مسترده", "مستردة", "بتنخصم", "تنخصم", "بتنهضم", "تنهضم",
@@ -86,6 +94,14 @@ export function buildFinalTruthContextRecovery(input: FinalTruthRecoveryInput): 
   const feeRefundPolicyInquiry = hasFeeRefundPolicyInquiry(text);
   const currentMessageAlignmentFailure = input.failedCheckIds.includes("final_actual_current_message_alignment");
   const receiptAlignmentFailure = input.failedCheckIds.includes("final_actual_receipt_confirmation_not_fee_inquiry");
+  const publicEscalation = containsAny(text, [
+    "بنشر", "رح انشر", "راح انشر", "بفضح", "افضح", "فيسبوك", "فيس بوك",
+    "صفحه عندي", "صفحة عندي", "متابع", "بحذر الناس", "احذر الناس",
+  ]);
+
+  if (currentMessageAlignmentFailure && publicEscalation) {
+    return "فاهم إنك متضايق، ومن حقك تقدم شكوى أو تحكي عن تجربتك. وبخصوص النشر، المهم يكون الكلام دقيق ويعكس الوقائع كما هي؛ الادعاءات غير الصحيحة ممكن تترتب عليها مسؤولية قانونية، والأمين للأقساط تحتفظ بحقوقها القانونية تجاهها. إذا بدك تنهي الطلب، بنمشي معك بإجراء الإلغاء الرسمي حسب حالته.";
+  }
 
   if ((currentMessageAlignmentFailure || receiptAlignmentFailure) && isReceiptConfirmationCurrentText(input.customerText)) {
     return "فاهم إنك بتحكي عن وصل الدفع ومتابعة تأكيده. ما رح أحوّل سؤالك لمسار استرداد. حالة الوصل والدفع لازم تنقرأ من الطلب نفسه، وما في داعي تعيد الدفع أو ترسل الوصل عبر واتساب.";

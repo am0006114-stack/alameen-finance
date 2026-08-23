@@ -196,10 +196,19 @@ export function detectShadowTopics(
     "مؤهل اقدم", "مؤهل أقدم", "مؤهله اقدم", "مؤهلة أقدم", "ينفع اقدم", "ينفع أقدم",
     "انا موظف", "انا موظفه", "أنا موظف", "أنا موظفة", "مشترك ضمان", "مشتركه ضمان",
   ]) && containsAny(text, ["اقدم", "أقدم", "طلب", "ضمان", "موظف", "موظفه", "موظفة"])) add("eligibility");
-  if (containsAny(text, ["وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "ممكن موقعكم", "موقعكم", "الموقع", "مكانكم", "موجود بعمان", "موجود في عمان", "انتو بعمان", "المكتب بعمان", "الفرع", "فروعكم", "فروع"])) {
+  const explicitOfficeLocationQuestion = containsAny(text, [
+    "وين المكتب", "موقع المكتب", "عنوان المكتب", "وين موقعكم", "ممكن موقعكم",
+    "اعطيني موقعكم", "أعطيني موقعكم", "ابعث موقعكم", "ارسل موقعكم", "أرسل موقعكم",
+    "مكانكم وين", "وين مكانكم", "موجود بعمان", "موجود في عمان", "انتو بعمان",
+    "المكتب بعمان", "وين الفرع", "عنوان الفرع", "فروعكم وين",
+  ]) || (
+    containsAny(text, ["موقعكم", "الموقع", "مكانكم"]) &&
+    containsAny(text, ["وين", "ممكن", "اعطيني", "أعطيني", "ابعث", "ارسل", "أرسل", "بدي", "لوكيشن"])
+  );
+  if (explicitOfficeLocationQuestion) {
     if (!explicitOfficePaymentRequest) add("office_location");
-    if (containsAny(text, ["الفرع", "فروعكم", "فروع"])) add("independence");
   }
+  if (containsAny(text, ["وين الفرع", "عنوان الفرع", "فروعكم وين"])) add("independence");
   if (containsAny(text, ["توصيل", "شحن", "مندوب", "استلام الجهاز", "وين استلم", "كيف استلم", "يوصلني الجهاز", "يوصل الجهاز", "استلم الجهاز فعلا", "أستلم الجهاز فعلا"])) add("delivery");
   if (containsAny(text, ["المورد", "التوريد", "متى يوصل الجهاز", "متى بتوفر الجهاز"])) add("supplier_delay");
   if (containsAny(text, ["بدي اغير الجهاز", "تغيير الجهاز", "غير الجهاز", "أغير الجهاز"])) add("device_change");
@@ -333,7 +342,7 @@ export function detectShadowTopics(
 
   // Explicit wording in the current message outranks a noisy legacy intent.
   if (topics.includes("contact_number") || topics.includes("phone_not_answered")) {
-    const paymentIsExplicit = containsAny(text, ["كيف ادفع", "وين ادفع", "رسوم فتح الملف", "amenpay", "payamen", "كليك", "cliq"]);
+    const paymentIsExplicit = containsAny(text, ["كيف ادفع", "وين ادفع", "رسوم فتح الملف", "amenpay", "ameeenpay", "كليك", "cliq"]);
     if (!paymentIsExplicit) {
       const paymentIndex = topics.indexOf("payment_method");
       if (paymentIndex >= 0) topics.splice(paymentIndex, 1);

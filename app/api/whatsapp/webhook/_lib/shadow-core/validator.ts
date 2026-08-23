@@ -74,7 +74,7 @@ function asksForCancellationConfirmationAgain(reply: string) {
 function hasPaymentInstructions(reply: string) {
   return includesAny(reply, [
     "amenpay",
-    "payamen",
+    "ameeenpay",
     "abdul rahman alharahsheh",
     "تحويل رسوم فتح الملف",
     "حول 5",
@@ -155,7 +155,7 @@ function paymentExplanationComplete(reply: string) {
     includesAny(reply, ["القسط الاول", "القسط الأول"]),
     includesAny(reply, ["orange money"]),
     includesAny(reply, ["amenpay"]),
-    includesAny(reply, ["payamen"]),
+    includesAny(reply, ["ameeenpay"]),
     includesAny(reply, ["abdul rahman alharahsheh"]),
     includesAny(reply, ["/receipt", "الرابط الرسمي"]),
     includesAny(reply, ["يومين الى 3", "يومين إلى 3", "يومين ل 3", "يومين لـ 3"]),
@@ -730,6 +730,9 @@ export function validateFinalActualReply(
     agent: ShadowAgentId;
     agentName: string;
     customerText: string;
+    hasRecentConversation?: boolean;
+    lastAssistantReplies?: string[];
+    lastCustomerMessages?: string[];
   },
 ): ShadowPolicyCheck[] {
   const checks: ShadowPolicyCheck[] = [];
@@ -954,7 +957,7 @@ export function validateFinalActualReply(
     checks,
     "monthly_installment_method_not_confused_with_file_fee",
     !customerAsksMonthlyInstallmentMethod(context.customerText) ||
-      (!includesAny(reply, ["amenpay", "payamen"]) && includesAny(reply, ["الاتفاق", "الجدول النهائي", "طريقة السداد", "وسيلة السداد"])),
+      (!includesAny(reply, ["amenpay", "ameeenpay"]) && includesAny(reply, ["الاتفاق", "الجدول النهائي", "طريقة السداد", "وسيلة السداد"])),
     "critical",
     "سؤال طريقة الأقساط بعد الاستلام يجب ألا يُجاب بمعلومات رسوم فتح الملف أو تحويلها.",
   );
@@ -1014,6 +1017,81 @@ export function validateFinalActualReply(
     "عندما يكون الاسترداد نشطًا، أسئلة الرجوع أو مبلغ الخمس دنانير أو الاستلام لا تُجاب كدفع عادي أو مدة دراسة عادية.",
   );
 
+  const rawInternalStateLeak = includesAny(reply, [
+    "under_review", "refund_requested", "payment_info_sent", "customer_claimed_paid",
+    "preliminary_qualified", "final_review", "needs_guarantor", "needs_identity", "needs_salary_slip",
+  ]);
+  addCheck(
+    checks,
+    "final_actual_no_internal_state_tokens",
+    !rawInternalStateLeak,
+    "critical",
+    "ممنوع ظهور أسماء الحالات الداخلية حرفيًا للعميل؛ يجب استخدام الوصف العربي البشري فقط.",
+  );
+
+  const oldCliqAliasLeak = includesAny(reply, ["payamen", "payameen"]);
+  addCheck(
+    checks,
+    "final_actual_no_old_cliq_alias",
+    !oldCliqAliasLeak,
+    "critical",
+    "أسماء CliQ النهائية هي AMENPAY و AMEEENPAY فقط.",
+  );
+
+  const cancellationTopic = topics.includes("cancellation");
+  const mentionsRefundInCancellation = includesAny(reply, [
+    "استرداد", "استرجاع", "رابط الاسترداد", "ترجع الرسوم", "ترجعلك الرسوم",
+  ]);
+  addCheck(
+    checks,
+    "unpaid_cancellation_must_not_mention_refund",
+    !cancellationTopic || facts.paymentConfirmed || !mentionsRefundInCancellation,
+    "critical",
+    "الإلغاء لطلب غير مدفوع يتم بدون ذكر أو عرض الاسترداد.",
+  );
+
+  const publicEscalationText = includesAny(context.customerText, [
+    "بنشر", "رح انشر", "راح انشر", "بفضح", "افضح", "فيسبوك", "فيس بوك",
+    "صفحه عندي", "صفحة عندي", "متابع", "بحذر الناس", "احذر الناس",
+  ]);
+  const officePolicyHijack = includesAny(reply, [
+    "شارع المدينه المنوره", "شارع المدينة المنورة", "الحضور بموعد", "موعد رسمي للمكتب",
+  ]);
+  addCheck(
+    checks,
+    "public_escalation_not_hijacked_by_office_policy",
+    !publicEscalationText || !officePolicyHijack,
+    "critical",
+    "تهديد النشر/التشهير لا يجوز أن يتحول إلى رد عن عنوان المكتب أو سياسة الحضور.",
+  );
+
+  const genericClarification = includesAny(reply, [
+    "احكيلي شو بدك تعرف تحديدا",
+    "احكيلي شو بدك تعرف تحديدًا",
+    "شو النقطه اللي بدك تعرفها",
+    "شو النقطة اللي بدك تعرفها",
+  ]);
+  const tinyContextualMessage = normalized(context.customerText).length <= 34;
+  addCheck(
+    checks,
+    "contextual_followup_not_generic_fallback",
+    !(Boolean(context.hasRecentConversation) && tinyContextualMessage && genericClarification),
+    "critical",
+    "عند وجود سياق قريب، المتابعة القصيرة يجب حل مرجعها بدل إرجاع العميل لسؤال عام.",
+  );
+
+  if (publicEscalationText) {
+    const respectsComplaintRight = includesAny(reply, ["من حقك", "حقك", "تقدم شكوى", "تقديم شكوى", "تحكي عن تجربتك", "تعبر عن تجربتك"]);
+    const accuracyBoundary = includesAny(reply, ["دقيق", "دقيقا", "دقيقًا", "الوقائع", "معلومات غير صحيحه", "معلومات غير صحيحة", "ادعاءات غير صحيحه", "ادعاءات غير صحيحة"]);
+    addCheck(
+      checks,
+      "public_escalation_balances_rights_and_legal_boundary",
+      respectsComplaintRight && accuracyBoundary,
+      "warning",
+      "الرد على التهديد بالنشر يوازن بين حق الشكوى والتنبيه الهادئ إلى دقة الادعاءات.",
+    );
+  }
+
   const highPriorityTopics = topics.filter((topic) => [
     "refund", "stop_refund", "cancellation", "complaint", "voice_message", "business_hours",
     "eligibility", "office_location", "independence", "contact_number", "phone_not_answered",
@@ -1040,7 +1118,7 @@ export function validateShadowReply(
   addCheck(checks, "no_unverified_interest_or_religious_claim", !hasUnverifiedInterestOrReligiousClaim(reply), "critical", "ممنوع إصدار حكم شرعي أو مصرفي غير موثق عن الفوائد أو الربا.");
   addCheck(checks, "no_internal_template", !includesAny(reply, ["اكتب السؤال كامل", "لازم تدخل بشري", "سيتم تحويلك", "متابعه بشريه", "متابعة بشرية"]), "critical", "لا يحتوي الرد قالبًا داخليًا أو باردًا.");
   addCheck(checks, "no_branch_word", !includesAny(reply, ["فرع", "فروع"]), "critical", "لا تُستخدم كلمة فرع أو فروع.");
-  addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payameen"]), "critical", "اسم الدفع الصحيح AMEEENPAY وليس PAYAMEEN.");
+  addCheck(checks, "correct_payment_alias", !includesAny(reply, ["payamen", "payameen"]), "critical", "أسماء CliQ الصحيحة فقط AMENPAY و AMEEENPAY؛ PAYAMEN/PAYAMEEN ممنوعة.");
   addCheck(checks, "no_ai_or_bot_discussion", !includesAny(reply, ["بوت", "ذكاء اصطناعي", "نظام تجريبي", "ai assistant"]), "critical", "لا يناقش الرد كونه بوتًا أو نظامًا تجريبيًا.");
   addCheck(checks, "no_invented_staff_availability", !hasUnsupportedStaffAvailabilityClaim(reply), "critical", "لا يجوز اختراع توفر الموظفين أو عدم توفرهم.");
   addCheck(checks, "no_false_central_bank_claim", !hasFalseCentralBankClaim(reply), "critical", "ممنوع الادعاء بأن الجهة مرخصة أو خاضعة لرقابة البنك المركزي الأردني.");

@@ -76,6 +76,14 @@ import {
   shouldReturnExactHumanFirstReply,
 } from "./_lib/humanFirstPolicy";
 import {
+  buildOperationalTransparencyParagraph,
+  contextualHumanIntentHint,
+  currentOperationalTransparencyFacts,
+  detectHumanPresenceProfile,
+  humanPresencePromptInstructions,
+  shouldExplainOperationalPicture,
+} from "./_lib/humanPresence";
+import {
   customerFacingPolicyInstructions,
   hasInternalCustomerFacingLanguage,
   isAbsolutePaymentRefusalText,
@@ -1245,7 +1253,19 @@ function currentCustomerActionLine(app: ApplicationRecord) {
 }
 
 function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?: string, customerText = "") {
+  const wantsOperationalPicture = shouldExplainOperationalPicture(customerText);
+
   if (!app) {
+    if (wantsOperationalPicture) {
+      return `${buildOperationalTransparencyParagraph({
+        seed: `${from}:${customerText}:general-delay`,
+        customerSpecificApproved: false,
+        facts: currentOperationalTransparencyFacts(),
+      })}
+
+إذا بتحكي عن طلبك تحديدًا، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أربط الشرح بالحالة الفعلية لملفك.`;
+    }
+
     if (isLongDelayComplaintText(customerText)) {
       return `معك حق، الانتظار طال أكثر من المعتاد.
 
@@ -1260,6 +1280,22 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
   const status = app.status || "";
   const paymentStatus = app.payment_status || "";
   const tracking = app.tracking_id || app.id;
+
+  if (wantsOperationalPicture) {
+    const approved = ["approved", "customer_accepts_delivery_delay"].includes(status);
+    const statusLine = approved
+      ? null
+      : `وبالنسبة لطلبك نفسه: ${stageCustomerStatusLine(app)}`;
+
+    return `${buildOperationalTransparencyParagraph({
+      seed: `${from}:${tracking}:${customerText}`,
+      customerSpecificApproved: approved,
+      statusLine,
+      facts: currentOperationalTransparencyFacts(),
+    })}
+
+رقم الطلب: ${tracking}`;
+  }
 
   if (isLongDelayComplaintText(customerText)) {
     return `معك حق، الطلب طال أكثر من المدة المعتادة.
@@ -2185,7 +2221,12 @@ function isCancelRefundRequestText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
-  const cancelContext = hasAny(t, ["الغاء", "الغي", "ألغي", "الغوا", "لغي", "كنسل", "cancel"]);
+  const cancelContext = hasAny(t, [
+    "الغاء", "الغي", "ألغي", "الغوا", "لغي", "كنسل", "cancel",
+    "بطلت بدي", "ما بدي اكمل", "ما بدي أكمل", "مش حاب اكمل", "مش حاب أكمل",
+    "ما بدي الجهاز", "ما بدي التلفون", "بطلت بدي الجهاز", "بطلت بدي التلفون",
+    "لا اريد الجهاز", "لا أريد الجهاز",
+  ]);
   const refundContext = hasAny(t, ["استرد", "استرداد", "استرجاع", "رجع", "رجعولي", "رجعوا", "فلوسي", "مصاري", "الرسوم", "refund"]);
 
   return cancelContext && refundContext;
@@ -2360,6 +2401,7 @@ function isAdditionalDeviceQuestionText(text: string) {
   if (!t) return false;
   const secondDevice = hasAny(t, [
     "جهاز ثاني", "جهاز تاني", "تلفون ثاني", "تلفون تاني", "موبايل ثاني", "موبايل تاني",
+    "جهازين", "جهازيين", "جهازين اثنين", "تلفونين", "موبايلين",
     "كمان جهاز", "اضيف جهاز", "أضيف جهاز", "انزل جهاز", "أنزل جهاز",
   ]);
   const questionOrAdd = hasAny(t, [
@@ -2536,7 +2578,7 @@ function classifyIntent(text: string): CustomerIntent {
   // طلب استرداد صريح يسبق أي تصنيف عام للدفع أو الرسوم.
   if (isExplicitRefundRequestText(t)) return "refund";
 
-  if (isProductSpecificationQuestionText(t) || isProductAccessoryQuestionText(t)) return "products";
+  if (isProductSpecificationQuestionText(t) || isProductAccessoryQuestionText(t) || isProductPackagingQuestionText(t)) return "products";
   if (isApprovalProbabilityQuestionText(t)) return "order_status";
 
   // سؤال واضح عن طريقة إرفاق/رفع مستند يجب ألا يسقط في unknown.
@@ -2981,43 +3023,65 @@ ${BUSINESS_NAME}`;
 }
 
 function socialMediaThreatReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
+  void baseUrl;
+  void from;
   const tracking = app?.tracking_id || app?.id || "";
   const refundActive = Boolean(app && (app.status === "refund_requested" || app.payment_status === "refund_requested"));
   const refundCompleted = Boolean(app && app.status === "refund_completed");
+  const paid = hasConfirmedPaymentEvidence(app);
+
+  const legalBoundary = `ومن حقك تقدم شكوى أو تحكي عن تجربتك. بس أي نشر أو اتهام لازم يكون دقيق ويعكس الوقائع كما هي؛ نشر معلومات أو اتهامات غير صحيحة ممكن تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها بإحالة أي إساءة أو ادعاءات غير صحيحة للمستشارين القانونيين عند الحاجة.`;
 
   if (app) {
     if (refundCompleted) {
-      return `نتفهم انزعاجك، ومن حقك تقديم شكوى أو التعبير عن تجربتك.
+      return `فاهم إنك متضايق، وما بدنا نحول الموضوع لجدال.
 
-حسب حالة الطلب الظاهرة عندنا، الاسترداد مكتمل. وإذا عندك اعتراض محدد على الإجراء احكيه وبنراجعه حسب البيانات المسجلة.
+حسب حالة الطلب الظاهرة عندنا، الاسترداد مكتمل. إذا عندك اعتراض محدد على الإجراء احكيه وبنراجعه حسب البيانات المسجلة.
 
-وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.
+${legalBoundary}
 
 رقم الطلب: ${tracking}`;
     }
 
     if (refundActive) {
-      return `نتفهم انزعاجك، ومن حقك تقديم شكوى أو التعبير عن تجربتك.
+      return `فاهم إن الانتظار ضايقك، وحقك يكون عندك جواب واضح.
 
-طلب الاسترداد مسجل وقيد المتابعة على طلبك، وما رح نعطيك موعدًا غير مؤكد. أول ما يظهر تحديث فعلي بنبلغك مباشرة.
+طلب الاسترداد مسجل وقيد المتابعة على طلبك، وما رح أعطيك موعد غير مؤكد. أول ما يظهر تحديث فعلي بنبلغك مباشرة.
 
-وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.
+${legalBoundary}
 
 رقم الطلب: ${tracking}`;
     }
 
-    return `نتفهم انزعاجك، وإذا ما عدت ترغب بإكمال الطلب نقدر نمشي معك بإجراءات الإلغاء والاسترداد حسب حالة الطلب، بدون ما يتحول الموضوع لخلاف. ما رح نلغي الطلب أو نغير حالته من مجرد هذه الرسالة؛ إذا رغبت بالإلغاء بنطلب منك التأكيد الرسمي قبل أي إجراء.
+    if (app.status === "cancelled") {
+      return `طلبك ظاهر عندي ملغي بالفعل.
 
-ومن حقك تقديم شكوى أو التعبير عن تجربتك. وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.
+${paid ? "وبما أن الدفع مؤكد على الملف، أي استرداد مرتبط فيه يتابع فقط حسب حالته الفعلية المسجلة." : "وما في إجراء مالي إضافي ظاهر على الملف."}
+
+${legalBoundary}
+
+رقم الطلب: ${tracking}`;
+    }
+
+    const resolutionLine = paid
+      ? `إذا ما عدت ترغب بإكمال الطلب، بنمشي معك بإجراء الإلغاء الرسمي. وبعد تنفيذ الإلغاء، بما أن الدفع مؤكد على الملف، يدخل الطلب بمسار الاسترداد حسب الحالة.`
+      : `إذا ما عدت ترغب بإكمال الطلب، بنمشي معك بإجراء الإلغاء الرسمي.`;
+
+    return `واضح إنك وصلت لمرحلة انزعاج كبيرة، وخلينا نحكي بالحل بدون شد.
+
+${resolutionLine}
+الإلغاء ما بصير من مجرد رسالة تهديد أو غضب؛ إذا قرارك نهائي بنطلب منك تأكيد الإلغاء بشكل واضح قبل التنفيذ.
+
+${legalBoundary}
 
 رقم الطلب: ${tracking}`;
   }
 
-  return `نتفهم انزعاجك، ومن حقك تقديم شكوى أو التعبير عن تجربتك.
+  return `فاهم إنك متضايق، ومن حقك تقدم شكوى أو تحكي عن تجربتك.
 
-إذا عندك طلب قائم وما عدت ترغب بإكماله، ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى نراجع حالة الإلغاء والاسترداد بشكل صحيح.
+إذا الموضوع مرتبط بطلب، ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم حتى نراجع حالته ونحكي بالحل الفعلي بدل كلام عام.
 
-وبخصوص النشر، نرجو أن يكون أي محتوى منشور دقيقًا ويعكس الوقائع كما هي. نشر معلومات أو اتهامات غير صحيحة قد تترتب عليه مسؤولية قانونية، والأمين للأقساط تحتفظ بحقها في اتخاذ الإجراءات القانونية اللازمة لحماية حقوقها.`;
+${legalBoundary}`;
 }
 
 function scamAccusationReply(baseUrl: string, from: string, app?: ApplicationRecord | null, customerText = "") {
@@ -3036,8 +3100,8 @@ function scamAccusationReply(baseUrl: string, from: string, app?: ApplicationRec
 }
 
 const PAYMENT_WALLET_TYPE = "Orange Money";
-const PAYMENT_DESTINATION_PRIMARY = "AMENPAY";
-const PAYMENT_DESTINATION_SECONDARY = "AMEEENPAY";
+const PAYMENT_DESTINATION_PRIMARY = "AMEEENPAY";
+const PAYMENT_DESTINATION_SECONDARY = "AMENPAY";
 const PAYMENT_BENEFICIARY_NAME = "ABDUL RAHMAN ALHARAHSHEH";
 
 function paymentDestinationBlock() {
@@ -3251,17 +3315,25 @@ function complaintReply(baseUrl: string, from: string, app?: ApplicationRecord |
       return refundDeescalationReply(app, customerText);
     }
 
+    if (shouldExplainOperationalPicture(customerText) || isLongDelayComplaintText(customerText)) {
+      return reviewTimeReply(from, app, baseUrl, customerText);
+    }
+
     return `${apology}
 
 طلبك ظاهر عندي وحالته: ${statusHumanLabel(app.status || "")}.
-احكيلي الاعتراض نفسه بجملة واضحة — دفع، تأخير، موافقة، أو معلومات تواصل — وبجاوبك على نفس النقطة مباشرة.
+إذا اعتراضك على نقطة واضحة بالرسالة نفسها، بجاوبك عليها مباشرة بدون ما أخليك تعيد شرحها.
 
 رقم الطلب: ${app.tracking_id || app.id}`;
   }
 
+  if (shouldExplainOperationalPicture(customerText) || isLongDelayComplaintText(customerText)) {
+    return reviewTimeReply(from, null, baseUrl, customerText);
+  }
+
   return `${apology}
 
-احكيلي المشكلة نفسها بجملة واضحة، وإذا مرتبطة بطلب ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم حتى أعطيك جوابًا محددًا.`;
+إذا الموضوع مرتبط بطلب، ابعث رقم التتبع أو رقم الهاتف المستخدم بالتقديم حتى أعطيك جوابًا محددًا.`;
 }
 
 function refundDeescalationReply(app: ApplicationRecord, customerText = "") {
@@ -3513,6 +3585,18 @@ function isProductAccessoryQuestionText(text: string) {
   return accessory && inclusion;
 }
 
+function isProductPackagingQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+
+  const device = hasAny(t, ["جهاز", "هاتف", "تلفون", "موبايل", "ايفون", "iphone", "سامسونج", "هونر", "honor"]);
+  const packaging = hasAny(t, [
+    "مسكر بالكرتونه", "مسكر بالكرتونة", "مسكر بالكرتون", "مختوم", "سيل", "sealed",
+    "جديد بالكرتونه", "جديد بالكرتونة", "مغلف", "بالعلبه مسكر", "بالعلبة مسكر",
+  ]);
+  return device && packaging;
+}
+
 function isShortProductSpecificationFollowupText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
@@ -3534,6 +3618,12 @@ function productSpecificationReply(baseUrl: string, app?: ApplicationRecord | nu
 
 رابط الأجهزة:
 ${baseUrl}/products`;
+  }
+
+  if (isProductPackagingQuestionText(customerText)) {
+    return `${deviceLine}إذا قصدك هل الجهاز جديد ومسكر بكرتونته: ما بقدر أأكد هالتفصيل من عندي إلا إذا كان مذكور بوضوح ضمن صفحة المنتج أو الخيار المعتمد للطلب.
+
+المؤكد عندي فقط هو وصف الجهاز المسجل/المعروض رسميًا، وما بدي أوعدك بتغليف أو ختم غير مثبت.`;
   }
 
   return `${deviceLine}المواصفات المؤكدة هي فقط التفاصيل الظاهرة على صفحة المنتج الرسمية عندنا. إذا تفصيل مثل سعة RAM غير ظاهر هناك، ما عندي مصدر داخلي مؤكد يسمح لي أعطي رقم من عندي أو أوعدك أني أتحقق منه لاحقًا.
@@ -4543,7 +4633,7 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
 
 ما رح أغيّر جهازك الحالي ولا أسجل جهازًا إضافيًا من واتساب بدون إجراء رسمي واضح. إذا بدك جهازًا ثانيًا، خليه كسؤال منفصل وما تدفع أي مبلغ إضافي بسببه قبل ما توصلك تعليمات معتمدة.`;
     }
-    if (isProductSpecificationQuestionText(customerText) || isShortProductSpecificationFollowupText(customerText) || isProductAccessoryQuestionText(customerText)) {
+    if (isProductSpecificationQuestionText(customerText) || isShortProductSpecificationFollowupText(customerText) || isProductAccessoryQuestionText(customerText) || isProductPackagingQuestionText(customerText)) {
       return productSpecificationReply(baseUrl, app, customerText);
     }
     if (isDeviceSelectionText(customerText) || !hasSpecificSelectedDevice(app.device_name)) {
@@ -7011,6 +7101,9 @@ async function applyProductionFinalTruthGate(input: {
     agent: route.agent,
     agentName: route.agentName,
     customerText: input.customerText,
+    hasRecentConversation: Boolean(input.conversationContext || input.lastAssistantReplies?.length || input.lastCustomerMessages?.length),
+    lastAssistantReplies: input.lastAssistantReplies,
+    lastCustomerMessages: input.lastCustomerMessages,
   });
 
   const firstChecks = validate(input.reply);
@@ -7031,6 +7124,8 @@ async function applyProductionFinalTruthGate(input: {
     refundCompleted: facts.refundCompleted,
     refundEligible: facts.refundEligible,
     conditionalCancellation: isConditionalCancellationText(input.customerText),
+    initialIntent: input.initialIntent,
+    paymentConfirmed: facts.paymentConfirmed,
   });
 
   const fallbackPlan = buildSafeFallbackReply({
@@ -7568,8 +7663,8 @@ async function buildQualityFirstConversationPlan(input: AiReplyInput, apiKey: st
     temperature: 0.08,
     maxTokens: Number(process.env.AI_QUALITY_PLAN_MAX_TOKENS || "360"),
     thinking: true,
-    system: `أنت مخطط جودة داخلي لمحادثة واتساب. لا تكتب الرد النهائي ولا تعرض سلسلة تفكير. اكتب فقط قائمة قصيرة قابلة للتنفيذ توضح: ما الذي يريده العميل الآن، كل النقاط التي يجب الإجابة عنها، ما المرجع/الطلب المقصود إن كان واضحًا، وما الذي يجب تجنب ادعائه. إذا كانت الرسالة تحتوي سؤالين أو أكثر يجب تعدادهم كلهم. لا تخترع حقائق.`,
-    user: `رسالة العميل الحالية:\n${input.customerText}\n\nالسياق القريب:\n${input.conversationContext || "لا يوجد"}\n\nالطلب المرتبط حاليًا:\nالاسم: ${input.customerName || "غير متوفر"}\nرقم التتبع: ${input.trackingId || "غير متوفر"}\nالحالة: ${input.status || "غير متوفرة"}\nحالة الدفع: ${input.paymentStatus || "غير متوفرة"}\nالجهاز: ${input.deviceName || "غير متوفر"}\n\nالحقائق الآمنة المتاحة للكاتب:\n${input.deterministicReply}`,
+    system: `أنت مخطط جودة داخلي لمحادثة واتساب. لا تكتب الرد النهائي ولا تعرض سلسلة تفكير. اكتب فقط قائمة قصيرة قابلة للتنفيذ توضح: ما الذي يريده العميل الآن، كل النقاط التي يجب الإجابة عنها، ما المرجع/الطلب المقصود إن كان واضحًا، الحالة العاطفية الفعلية (غضب/قلق/إحباط/تهديد علني/هدوء)، مستوى الحزم المناسب، وما الذي يجب تجنب ادعائه. إذا كانت الرسالة تحتوي سؤالين أو أكثر يجب تعدادهم كلهم. إذا كان العميل شرح السبب أو أعطى معلومة، سجّل أنها معروفة ولا تطلبها منه مرة ثانية. لا تخترع حقائق.`,
+    user: `رسالة العميل الحالية:\n${input.customerText}\n\nالسياق القريب:\n${input.conversationContext || "لا يوجد"}\n\nالطلب المرتبط حاليًا:\nالاسم: ${input.customerName || "غير متوفر"}\nرقم التتبع: ${input.trackingId || "غير متوفر"}\nالحالة: ${input.status || "غير متوفرة"}\nحالة الدفع: ${input.paymentStatus || "غير متوفرة"}\nالجهاز: ${input.deviceName || "غير متوفر"}\n\nHuman Presence:\n${humanPresencePromptInstructions({ profile: detectHumanPresenceProfile({ customerText: input.customerText, lastCustomerMessages: input.lastCustomerMessages, lastAssistantReplies: input.lastAssistantReplies }), applicationStatus: input.status })}\n\nالحقائق الآمنة المتاحة للكاتب:\n${input.deterministicReply}`,
   });
   return String(plan || "").trim();
 }
@@ -7589,7 +7684,7 @@ async function reviseReplyWithQualityCritic(input: {
     temperature: Number(process.env.AI_QUALITY_CRITIC_TEMPERATURE || "0.22"),
     maxTokens: Number(process.env.AI_QUALITY_CRITIC_MAX_TOKENS || "700"),
     thinking: true,
-    system: `أنت محرر جودة نهائي لرد واتساب باسم الأمين للأقساط. أعد الرد فقط، بدون تقييم أو شرح. يجب أن يبدو كموظف أردني طبيعي، وأن يجيب كل نقاط الرسالة الحالية، وألا يحوّل سؤالًا متعدد المواضيع إلى موضوع واحد. لا تضف حقيقة أو وعدًا أو إجراءً غير موجود في الحقائق الآمنة. لا تذكر آلية داخلية أو ذكاء اصطناعي. إذا كانت المسودة صحيحة اجعلها أقصر وأطبيعية فقط.`,
+    system: `أنت محرر جودة نهائي لرد واتساب باسم الأمين للأقساط. أعد الرد فقط، بدون تقييم أو شرح. يجب أن يبدو كموظف أردني حاضر ذهنيًا: يفهم سبب غضب/قلق العميل، يوازن التعاطف والحزم، ويجيب كل نقاط الرسالة الحالية بدون أن يطلب معلومة قالها العميل أصلًا. لا تحوّل سؤالًا متعدد المواضيع إلى موضوع واحد. لا تضف حقيقة أو وعدًا أو إجراءً غير موجود في الحقائق الآمنة. لا تذكر آلية داخلية أو ذكاء اصطناعي. لا تستخدم اعتذارًا محفوظًا إذا السياق يحتاج جوابًا مباشرًا. إذا كانت المسودة صحيحة اجعلها أقصر وأكثر طبيعية فقط.`,
     user: `رسالة العميل:\n${input.aiInput.customerText}\n\nخطة التغطية الداخلية:\n${input.plan || "جاوب كل ما طلبه العميل بوضوح."}\n\nالسياق:\n${input.aiInput.conversationContext || "لا يوجد"}\n\nالحقائق والحدود الآمنة:\n${input.aiInput.deterministicReply}\n\nالمسودة الحالية:\n${input.draft}\n\nأعد الرد النهائي فقط.`,
   });
   return String(revised || "").trim();
@@ -7623,6 +7718,18 @@ async function generateAiReply(input: AiReplyInput) {
     return input.deterministicReply;
   }
 
+  const humanPresenceProfile = detectHumanPresenceProfile({
+    customerText: input.customerText,
+    lastCustomerMessages: input.lastCustomerMessages,
+    lastAssistantReplies: input.lastAssistantReplies,
+  });
+  const operationalTransparencyFacts = currentOperationalTransparencyFacts();
+  const humanPresenceInstructions = humanPresencePromptInstructions({
+    profile: humanPresenceProfile,
+    operationalFacts: operationalTransparencyFacts,
+    applicationStatus: input.status,
+  });
+
   const systemInstructions = `
 اكتب ردود واتساب باسم موظف رسمي من فريق "الأمين للأقساط" في الأردن.
 اسم الموظف الثابت لهذه المحادثة سيصل ضمن البيانات، ويجب استخدامه فقط عند بداية محادثة جديدة أو عندما يسأل العميل مع من يتحدث.
@@ -7645,7 +7752,7 @@ async function generateAiReply(input: AiReplyInput) {
 - العنوان التفصيلي الكامل (محمي قبل الموافقة): ${BUSINESS_ADDRESS}
 - رسوم فتح الملف الرسمية: ${FILE_OPENING_FEE_JOD} دنانير فقط.
 - التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط يكون عند العميل محفظة Orange Money.
-- الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى AMENPAY أو AMEEENPAY، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
+- الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى AMEEENPAY أو AMENPAY، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
 - ممنوع القول إن التحويل البنكي لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يدفع شخص لديه محفظة أورنج.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.
@@ -7838,6 +7945,7 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تعطي وعدًا بوقت تنفيذ استرداد أو استلام نهائي من المكتب. حاليًا جميع مواعيد التسليم معلقة حتى وصول الأجهزة واعتماد جدول الاستلام من المكتب من الإدارة.
 - لا تقول موافقة نهائية إلا إذا الحالة approved.
 
+${humanPresenceInstructions}
 ${humanFirstStyleInstructions()}
 ${customerFacingPolicyInstructions()}
 
@@ -8310,6 +8418,13 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const currentSemanticHint = currentMessageSemanticIntentHint(rawCustomerText);
   if (isExactCancelConfirmationText(rawCustomerText)) {
     intent = "cancel_confirmed";
+  } else if (isProductPackagingQuestionText(rawCustomerText)) {
+    intent = "products";
+  } else if (isCancelRefundRequestText(rawCustomerText)) {
+    // V1.6.0: "بطلت بدي الجهاز + رجعولي الرسوم" is a combined cancel/refund request,
+    // not a fee-policy question and not a generic opt-out. It still requires explicit
+    // cancellation confirmation before any destructive mutation.
+    intent = "cancel_refund_request";
   } else if (hardCurrentDecision) {
     intent = hardCurrentDecision;
   } else if (isReceiptConfirmationCurrentText(rawCustomerText) || isReceiptUploadConfirmationText(rawCustomerText)) {
@@ -8375,6 +8490,16 @@ async function buildReply(request: Request, from: string, text: string, messageT
     intent = "reopen_cancelled_confirmed";
   }
 
+  const humanContextIntent = contextualHumanIntentHint({
+    customerText: rawCustomerText,
+    currentIntent: intent,
+    lastCustomerMessages: conversationMemory.lastCustomerMessages,
+    lastAssistantReplies: conversationMemory.lastAssistantReplies,
+  });
+  if (humanContextIntent) {
+    intent = humanContextIntent;
+  }
+
   const sensitive = looksSensitive(text) || (Boolean(conversationMemory.conversationContext) && isTinyContextFollowupText(text));
 
   const humanizeReply = (input: AiReplyInput) =>
@@ -8392,6 +8517,19 @@ async function buildReply(request: Request, from: string, text: string, messageT
       lastMeaningfulCustomerMessage: conversationMemory.lastMeaningfulCustomerMessage || null,
       lastQuestionLikeCustomerMessage: conversationMemory.lastQuestionLikeCustomerMessage || null,
     });
+
+  // V1.6.0 GREETING + SUBSTANCE: "مرحبا" must never swallow a complaint,
+  // delay question, cancellation, or other substantive content that follows it.
+  if (String(intent) === "greeting" && hasSubstantiveContentAfterSocialPrefix(rawCustomerText)) {
+    const substantiveTail = stripLeadingSocialAcknowledgement(rawCustomerText);
+    const tailIntent = classifyIntent(substantiveTail);
+    if (!["greeting", "thanks", "reaction", "unknown"].includes(String(tailIntent))) {
+      intent = tailIntent;
+    } else {
+      const semanticTailIntent = currentMessageSemanticIntentHint(substantiveTail);
+      if (semanticTailIntent) intent = semanticTailIntent;
+    }
+  }
 
   if (String(intent) === "greeting") {
     if (!conversationMemory.hasRecentStaffIntro) {
@@ -9491,7 +9629,7 @@ ${BUSINESS_NAME}`;
   } else if (String(intent) === "apply") {
     deterministicReply = applyReply(baseUrl, from);
   } else if (String(intent) === "products") {
-    deterministicReply = (isProductSpecificationQuestionText(text) || isShortProductSpecificationFollowupText(text) || isProductAccessoryQuestionText(text))
+    deterministicReply = (isProductSpecificationQuestionText(text) || isShortProductSpecificationFollowupText(text) || isProductAccessoryQuestionText(text) || isProductPackagingQuestionText(text))
       ? productSpecificationReply(baseUrl, null, text)
       : productsReply(baseUrl, from);
   } else if (String(intent) === "payment") {
@@ -10194,7 +10332,9 @@ export async function POST(request: Request) {
           } else if (String(processingIntent) === "office_payment_request") {
             reply = officeFeePaymentReply(finalApplication, true);
           } else if (finalApplication) {
-            reply = unknownReply(from, finalApplication, replyInputText);
+            // V1.6.0 SEMANTIC FIREWALL: recover on the same customer topic instead
+            // of collapsing a valid question into the generic unknown fallback.
+            reply = safeReply(finalApplication, getBaseUrl(request), replyInputText, processingIntent);
           } else {
             reply = unknownReply(from, null, replyInputText);
           }
