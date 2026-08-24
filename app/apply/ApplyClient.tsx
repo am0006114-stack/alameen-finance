@@ -6,6 +6,11 @@ import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
 import { getProductById } from "../../lib/products";
 import { calculateInstallment, formatJod } from "../../lib/installments";
+import {
+  extensionForImageFile,
+  formatUploadBytes,
+  optimizeDocumentImage,
+} from "../../lib/clientImageOptimization";
 
 type UploadKey = "applicantIdFront" | "applicantIdBack";
 
@@ -303,6 +308,13 @@ export default function ApplyPage() {
     applicantIdBack: 0,
   });
 
+  const [optimizationNotes, setOptimizationNotes] = useState<
+    Record<UploadKey, string>
+  >({
+    applicantIdFront: "",
+    applicantIdBack: "",
+  });
+
 
 
   useEffect(() => {
@@ -432,20 +444,46 @@ export default function ApplyPage() {
     return existing;
   }
 
-  function handleFileChange(key: UploadKey, file: File | null) {
+  async function handleFileChange(key: UploadKey, file: File | null) {
     if (!file) return;
 
     const currentScroll = window.scrollY;
-    const allowedTypes = ["image/jpeg", "image/png"];
-    const maxSize = 5 * 1024 * 1024;
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    const maxOriginalSize = 15 * 1024 * 1024;
+    const maxPreparedSize = 5 * 1024 * 1024;
 
     if (!allowedTypes.includes(file.type)) {
-      focusAndScrollTo(identityUploadRef.current, "يُسمح فقط برفع صور JPG أو PNG.");
+      focusAndScrollTo(
+        identityUploadRef.current,
+        "يُسمح فقط برفع صور JPG أو PNG أو WEBP."
+      );
       return;
     }
 
-    if (file.size > maxSize) {
-      focusAndScrollTo(identityUploadRef.current, "حجم الصورة يجب ألا يتجاوز 5MB.");
+    if (file.size > maxOriginalSize) {
+      focusAndScrollTo(
+        identityUploadRef.current,
+        "حجم الصورة كبير جدًا. يرجى اختيار صورة أقل من 15MB."
+      );
+      return;
+    }
+
+    setProgress((prev) => ({ ...prev, [key]: 12 }));
+    setOptimizationNotes((prev) => ({
+      ...prev,
+      [key]: "جاري تحسين الصورة وتقليل حجمها...",
+    }));
+
+    const result = await optimizeDocumentImage(file);
+    const preparedFile = result.file;
+
+    if (preparedFile.size > maxPreparedSize) {
+      setProgress((prev) => ({ ...prev, [key]: 0 }));
+      setOptimizationNotes((prev) => ({ ...prev, [key]: "" }));
+      focusAndScrollTo(
+        identityUploadRef.current,
+        "تعذر تقليل حجم الصورة بما يكفي. يرجى اختيار صورة أصغر."
+      );
       return;
     }
 
@@ -456,27 +494,22 @@ export default function ApplyPage() {
 
       return {
         ...prev,
-        [key]: URL.createObjectURL(file),
+        [key]: URL.createObjectURL(preparedFile),
       };
     });
 
-    setFiles((prev) => ({ ...prev, [key]: file }));
-    setProgress((prev) => ({ ...prev, [key]: 0 }));
+    setFiles((prev) => ({ ...prev, [key]: preparedFile }));
+    setProgress((prev) => ({ ...prev, [key]: 100 }));
+    setOptimizationNotes((prev) => ({
+      ...prev,
+      [key]: result.optimized
+        ? `تم تحسين الصورة: ${formatUploadBytes(
+            result.originalBytes
+          )} ← ${formatUploadBytes(result.optimizedBytes)}`
+        : `الصورة جاهزة للرفع — ${formatUploadBytes(result.optimizedBytes)}`,
+    }));
     clearStepError();
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
-
-    let value = 0;
-
-    const interval = setInterval(() => {
-      value += 10;
-
-      setProgress((prev) => ({
-        ...prev,
-        [key]: value > 100 ? 100 : value,
-      }));
-
-      if (value >= 100) clearInterval(interval);
-    }, 80);
   }
 
   function removeFile(key: UploadKey) {
@@ -495,6 +528,7 @@ export default function ApplyPage() {
 
     setFiles((prev) => ({ ...prev, [key]: null }));
     setProgress((prev) => ({ ...prev, [key]: 0 }));
+    setOptimizationNotes((prev) => ({ ...prev, [key]: "" }));
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
   }
 
@@ -836,7 +870,7 @@ export default function ApplyPage() {
 
         if (!file) continue;
 
-        const extension = file.type === "image/png" ? "png" : "jpg";
+        const extension = extensionForImageFile(file);
         const path = `${trackingId}/${item.type}-${Date.now()}.${extension}`;
         const publicUrl = await uploadFile(file, path);
 
@@ -1635,6 +1669,7 @@ ${cleanDigits(phone)}
                     const file = files[item.key];
                     const percent = progress[item.key];
                     const previewUrl = previewUrls[item.key];
+                    const optimizationNote = optimizationNotes[item.key];
 
                     return (
                       <div
@@ -1651,12 +1686,12 @@ ${cleanDigits(phone)}
                           </span>
 
                           <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
-                            يمكنك اختيار صورة محفوظة من الجهاز أو تصوير الهوية.
+                            يمكنك اختيار صورة محفوظة أو تصوير الهوية، وسيتم تقليل حجم الصور الكبيرة تلقائيًا.
                           </span>
 
                           <input
                             type="file"
-                            accept="image/png,image/jpeg"
+                            accept="image/png,image/jpeg,image/webp"
                             onChange={(e) =>
                               handleFileChange(
                                 item.key,
@@ -1682,6 +1717,12 @@ ${cleanDigits(phone)}
                             <p className="break-words text-sm text-[#d7ddd5]">
                               {file.name} — {(file.size / 1024 / 1024).toFixed(2)} MB
                             </p>
+
+                            {optimizationNote && (
+                              <p className="text-xs font-bold leading-6 text-[#b8f3c0]">
+                                {optimizationNote}
+                              </p>
+                            )}
 
                             <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
                               <div

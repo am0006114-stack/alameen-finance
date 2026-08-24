@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import ReceiptWaitClient from "./ReceiptWaitClient";
+import OptimizedUploadInput from "@/app/_components/OptimizedUploadInput";
 
 type PageProps = {
   searchParams?: Promise<{
@@ -221,9 +222,8 @@ export default async function ReceiptUploadPage({ searchParams }: PageProps) {
                 <span className="block text-sm font-black text-[#7c5b13]">
                   اختر صورة أو ملف PDF للوصل
                 </span>
-                <input
+                <OptimizedUploadInput
                   required
-                  type="file"
                   name="receipt"
                   accept="image/*,.pdf"
                   className="mt-4 w-full rounded-2xl border border-[#eadcc5] bg-white px-4 py-3 text-sm font-bold text-[#123725]"
