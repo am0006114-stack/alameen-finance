@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import OptimizedUploadInput from "@/app/_components/OptimizedUploadInput";
 
 export const dynamic = "force-dynamic";
 
@@ -171,8 +170,9 @@ export default async function IdentityUploadPage({ searchParams }: PageProps) {
                   <span className="block text-sm font-black text-[#7c5b13]">
                     هوية مقدم الطلب — الوجه الأمامي
                   </span>
-                  <OptimizedUploadInput
+                  <input
                     required
+                    type="file"
                     name="applicantIdFront"
                     accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                     className="mt-4 w-full rounded-2xl border border-[#eadcc5] bg-white px-4 py-3 text-sm font-bold text-[#123725]"
@@ -183,8 +183,9 @@ export default async function IdentityUploadPage({ searchParams }: PageProps) {
                   <span className="block text-sm font-black text-[#7c5b13]">
                     هوية مقدم الطلب — الوجه الخلفي
                   </span>
-                  <OptimizedUploadInput
+                  <input
                     required
+                    type="file"
                     name="applicantIdBack"
                     accept="image/jpeg,image/png,image/webp,image/heic,image/heif"
                     className="mt-4 w-full rounded-2xl border border-[#eadcc5] bg-white px-4 py-3 text-sm font-bold text-[#123725]"

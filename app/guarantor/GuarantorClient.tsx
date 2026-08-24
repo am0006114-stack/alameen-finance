@@ -4,11 +4,6 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { supabase } from "../../lib/supabase";
-import {
-  extensionForImageFile,
-  formatUploadBytes,
-  optimizeDocumentImage,
-} from "../../lib/clientImageOptimization";
 
 type UploadKey = "guarantorIdFront" | "guarantorIdBack";
 
@@ -85,13 +80,6 @@ export default function GuarantorClient() {
     guarantorIdBack: 0,
   });
 
-  const [optimizationNotes, setOptimizationNotes] = useState<
-    Record<UploadKey, string>
-  >({
-    guarantorIdFront: "",
-    guarantorIdBack: "",
-  });
-
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStep, setSubmissionStep] = useState("");
   const [submissionProgress, setSubmissionProgress] = useState(0);
@@ -135,36 +123,19 @@ export default function GuarantorClient() {
     return data.publicUrl;
   }
 
-  async function handleFileChange(key: UploadKey, file: File | null) {
+  function handleFileChange(key: UploadKey, file: File | null) {
     if (!file) return;
 
-    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    const maxOriginalSize = 15 * 1024 * 1024;
-    const maxPreparedSize = 5 * 1024 * 1024;
+    const allowedTypes = ["image/jpeg", "image/png"];
+    const maxSize = 5 * 1024 * 1024;
 
     if (!allowedTypes.includes(file.type)) {
-      alert("يُسمح فقط برفع صور JPG أو PNG أو WEBP");
+      alert("يُسمح فقط برفع صور JPG أو PNG");
       return;
     }
 
-    if (file.size > maxOriginalSize) {
-      alert("حجم الصورة كبير جدًا. يرجى اختيار صورة أقل من 15MB");
-      return;
-    }
-
-    setProgress((prev) => ({ ...prev, [key]: 12 }));
-    setOptimizationNotes((prev) => ({
-      ...prev,
-      [key]: "جاري تحسين الصورة وتقليل حجمها...",
-    }));
-
-    const result = await optimizeDocumentImage(file);
-    const preparedFile = result.file;
-
-    if (preparedFile.size > maxPreparedSize) {
-      setProgress((prev) => ({ ...prev, [key]: 0 }));
-      setOptimizationNotes((prev) => ({ ...prev, [key]: "" }));
-      alert("تعذر تقليل حجم الصورة بما يكفي. يرجى اختيار صورة أصغر.");
+    if (file.size > maxSize) {
+      alert("حجم الصورة يجب ألا يتجاوز 5MB");
       return;
     }
 
@@ -173,20 +144,27 @@ export default function GuarantorClient() {
 
       return {
         ...prev,
-        [key]: URL.createObjectURL(preparedFile),
+        [key]: URL.createObjectURL(file),
       };
     });
 
-    setFiles((prev) => ({ ...prev, [key]: preparedFile }));
-    setProgress((prev) => ({ ...prev, [key]: 100 }));
-    setOptimizationNotes((prev) => ({
-      ...prev,
-      [key]: result.optimized
-        ? `تم تحسين الصورة: ${formatUploadBytes(
-            result.originalBytes
-          )} ← ${formatUploadBytes(result.optimizedBytes)}`
-        : `الصورة جاهزة للرفع — ${formatUploadBytes(result.optimizedBytes)}`,
-    }));
+    setFiles((prev) => ({ ...prev, [key]: file }));
+    setProgress((prev) => ({ ...prev, [key]: 0 }));
+
+    let value = 0;
+
+    const interval = window.setInterval(() => {
+      value += 10;
+
+      setProgress((prev) => ({
+        ...prev,
+        [key]: value > 100 ? 100 : value,
+      }));
+
+      if (value >= 100) {
+        window.clearInterval(interval);
+      }
+    }, 80);
   }
 
   function removeFile(key: UploadKey) {
@@ -201,7 +179,6 @@ export default function GuarantorClient() {
 
     setFiles((prev) => ({ ...prev, [key]: null }));
     setProgress((prev) => ({ ...prev, [key]: 0 }));
-    setOptimizationNotes((prev) => ({ ...prev, [key]: "" }));
   }
 
   useEffect(() => {
@@ -322,7 +299,7 @@ export default function GuarantorClient() {
           50 + Math.round(((index + 1) / uploadTypes.length) * 35)
         );
 
-        const extension = extensionForImageFile(file);
+        const extension = file.type === "image/png" ? "png" : "jpg";
         const path = `${application.tracking_id || application.id}/${item.type}-${Date.now()}.${extension}`;
         const publicUrl = await uploadFile(file, path);
 
@@ -544,7 +521,6 @@ export default function GuarantorClient() {
                 const file = files[item.key];
                 const percent = progress[item.key];
                 const previewUrl = previewUrls[item.key];
-                const optimizationNote = optimizationNotes[item.key];
 
                 return (
                   <div
@@ -559,12 +535,12 @@ export default function GuarantorClient() {
                       </span>
 
                       <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
-                        يتم تقليل حجم الصور الكبيرة تلقائيًا قبل الرفع مع الحفاظ على الوضوح.
+                        JPG أو PNG — الحد الأقصى 5MB لكل صورة.
                       </span>
 
                       <input
                         type="file"
-                        accept="image/png,image/jpeg,image/webp"
+                        accept="image/png,image/jpeg"
                         onChange={(e) =>
                           handleFileChange(item.key, e.target.files?.[0] || null)
                         }
@@ -587,12 +563,6 @@ export default function GuarantorClient() {
                         <p className="break-words text-sm text-[#d7ddd5]">
                           {file.name} — {(file.size / 1024 / 1024).toFixed(2)} MB
                         </p>
-
-                        {optimizationNote && (
-                          <p className="text-xs font-bold leading-6 text-[#b8f3c0]">
-                            {optimizationNote}
-                          </p>
-                        )}
 
                         <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
                           <div

@@ -1,6 +1,5 @@
 import { redirect } from "next/navigation";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import OptimizedUploadInput from "@/app/_components/OptimizedUploadInput";
 
 type PageProps = {
   searchParams?: Promise<{
@@ -160,8 +159,9 @@ export default async function SalarySlipPage({ searchParams }: PageProps) {
                 <span className="block text-sm font-black text-[#7c5b13]">
                   اختر صورة أو ملف PDF
                 </span>
-                <OptimizedUploadInput
+                <input
                   required
+                  type="file"
                   name="salarySlip"
                   accept="image/*,.pdf"
                   className="mt-4 w-full rounded-2xl border border-[#eadcc5] bg-white px-4 py-3 text-sm font-bold text-[#123725]"
