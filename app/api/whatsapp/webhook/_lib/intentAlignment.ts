@@ -140,9 +140,79 @@ export function customerAsksCancellationPossibility(value: string) {
   ]);
 }
 
+
+function isPureGreetingFragment(value: string) {
+  const text = n(value);
+  return [
+    "الخير", "صباح", "مساء",
+  ].includes(text);
+}
+
+function isExplicitHumanRequest(value: string) {
+  const text = n(value);
+  if (!text) return false;
+  return hasAny(text, [
+    "بدي موظف", "احكي مع موظف", "بدي حدا يحكي معي", "بدي حد يحكي معي",
+    "بدي انسان", "بدي إنسان", "بدي بني ادم", "بدي بني آدم", "بدي بني تدم",
+    "بدي بشر", "وين البشر", "حدا حقيقي", "شخص حقيقي", "موظف حقيقي",
+    "انت روبوت", "انت روبورت", "انتي روبوت", "انتي روبورت",
+    "talk to a human", "live agent", "real person",
+  ]);
+}
+
+function isExplicitTrackingLinkRequest(value: string) {
+  const text = n(value);
+  if (!text) return false;
+  const direct = hasAny(text, [
+    "وين الرابط", "اين الرابط", "أين الرابط", "اين الرايط", "وين الرايط",
+    "بدي الرابط", "ابعث الرابط", "ابعت الرابط", "ارسل الرابط", "أرسل الرابط",
+    "هات الرابط", "اعطيني الرابط", "أعطيني الرابط", "الرابط لو سمحت",
+    "وين اللينك", "بدي اللينك", "link please",
+  ]);
+  const linkWord = hasAny(text, ["رابط", "الرايط", "لينك", "link"]);
+  const askWord = hasAny(text, ["وين", "اين", "أين", "بدي", "ابعث", "ابعت", "ارسل", "أرسل", "هات", "اعطيني", "أعطيني", "لو سمحت"]);
+  return direct || (linkWord && askWord);
+}
+
+function isClearSiteIssue(value: string) {
+  const text = n(value);
+  if (!text) return false;
+  const problem = hasAny(text, [
+    "مش راضي يفتح", "مو راضي يفتح", "ما بفتح", "مش شغال", "ما بشتغل",
+    "حدث خطا", "حدث خطأ", "خطا في الاتصال", "خطأ في الاتصال", "error", "404",
+    "لا يمكنني تتبع", "مش قادر اتتبع", "مش قادر أتتبع", "ما بقدر اتتبع", "ما بقدر أتتبع",
+    "غير موجود", "ما لقي الطلب", "مش لاقي الطلب",
+  ]);
+  const context = hasAny(text, [
+    "الموقع", "السايت", "الرابط", "الرايط", "تتبع", "التتبع", "متابعه الطلب", "متابعة الطلب",
+    "اقدم الطلب", "أقدم الطلب", "التقديم", "اختار جهاز", "اختيار جهاز", "الطلب",
+  ]);
+  return problem && context;
+}
+
+function isProductAvailabilityUiIssue(value: string) {
+  const text = n(value);
+  return hasAny(text, ["مخزون محدود", "المخزون محدود", "ما لقينا جهاز مطابق", "ما لقينا جهازا مطابقا", "ما لقيت الجهاز بالموقع"]);
+}
+
+function isGeneralRequirementsQuestion(value: string) {
+  const text = n(value);
+  if (!text) return false;
+  return hasAny(text, [
+    "شو الاوراق", "شو الأوراق", "الاوراق المطلوبه", "الأوراق المطلوبة", "شو الورق المطلوب",
+    "شو اجهز اوراق", "شو أجهز أوراق", "اي اوراق", "أي أوراق", "شو الوثائق", "المستندات المطلوبة",
+  ]);
+}
+
 export function currentMessageSemanticIntentHint(value: string): CustomerIntent | null {
   if (isReceiptConfirmationCurrentText(value)) return "receipt_upload_confirmation";
   if (customerAsksCancellationPossibility(value)) return "cancel_request";
+  if (isClearSiteIssue(value)) return "site_issue";
+  if (isExplicitTrackingLinkRequest(value)) return "tracking_link_request";
+  if (isProductAvailabilityUiIssue(value)) return "products";
+  if (isGeneralRequirementsQuestion(value)) return "requirements";
+  if (isExplicitHumanRequest(value) && n(value).length <= 90) return "human_agent";
+  if (isPureGreetingFragment(value)) return "greeting";
   if (customerAsksGeneralOfficeArea(value) || customerAsksAmmanLocation(value)) return "location";
   if (customerAsksReviewTiming(value)) return "review_time";
   if (customerAsksCurrentNextStep(value)) return "order_status";

@@ -395,7 +395,7 @@ function agentRoleValid(agent: ShadowAgentId, topics: ShadowTopic[]) {
 
 function explicitOperationalLinkRequest(customerText: string) {
   const text = normalized(customerText);
-  const hasLink = includesAny(text, ["رابط", "لينك", "link"]);
+  const hasLink = includesAny(text, ["رابط", "الرايط", "لينك", "link"]);
   const asks = includesAny(text, [
     "بدي", "ابعث", "ابعت", "ارسل", "أرسل", "هات", "اعطيني", "أعطيني", "وين", "راح", "ضاع", "مفقود",
   ]);
@@ -533,7 +533,8 @@ function customerAsksRefundPolicyInquiry(text: string) {
   if (!feeOrRefundContext) return false;
 
   const directRefundDemand = includesAny(text, [
-    "رجعولي الرسوم", "رجعوا الرسوم", "رجعولي فلوسي", "رجعوا فلوسي",
+    "رجعولي الرسوم", "رجعوا الرسوم", "رجعو الرسوم", "ردولي الرسوم", "ردوا الرسوم", "ردو الرسوم",
+    "رجعولي فلوسي", "رجعوا فلوسي", "رجعو فلوسي", "ردولي فلوسي", "ردوا فلوسي", "ردو فلوسي",
     "بدي استرداد", "بدي استرجاع", "بدي فلوسي", "استرداد الرسوم", "استرجاع الرسوم",
   ]);
   if (directRefundDemand) return false;
@@ -570,6 +571,8 @@ export function finalReplyLooksTruncated(reply: string) {
   if (previous === "يا" && last.length <= 2) return true;
   if (/^وال[\p{L}]{0,2}$/u.test(last) && !["والله"].includes(last)) return true;
   if (/^(?:بال|لل|وال|فال|كال)$/u.test(last)) return true;
+  if (["تحد", "الرسم", "الرس", "المطل", "الموافق", "التحد", "رقم"].includes(last)) return true;
+  if (/(?:^|\s)(?:وطلب|و طلب|ومسار|و مسار|وحالة|و حالة)\s+(?:الاسترداد|الدفع|التتبع)$/u.test(clean)) return true;
   return false;
 }
 

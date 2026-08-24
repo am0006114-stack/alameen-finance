@@ -152,7 +152,7 @@ export const dynamic = "force-dynamic";
 function isGreeting(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
-  if (["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الو", "اهلا", "هاي", "hi", "hello"].includes(t)) return true;
+  if (["مرحبا", "هلا", "السلام عليكم", "مساء الخير", "صباح الخير", "الخير", "صباح", "مساء", "الو", "اهلا", "هاي", "hi", "hello"].includes(t)) return true;
   return /^(?:مرحبا|هلا|السلام عليكم|مساء الخير|صباح الخير|اهلا|أهلا)(?:\s+|$)/i.test(t);
 }
 
@@ -1507,7 +1507,26 @@ function isLegalThreatText(text: string) {
 function isSocialMediaThreatText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
-  return hasAny(t, SOCIAL_MEDIA_THREAT_KEYWORDS);
+
+  // V1.6.4: a word fragment such as "متابعة" must never be mistaken for
+  // a social-media threat just because it contains "متابع". A real public
+  // escalation requires an explicit publication/review action plus a public channel/audience.
+  const publicationAction = hasAny(t, [
+    "رح انشر", "راح انشر", "بنشر", "بدي انشر", "رح انشر تجربتي", "راح انشر تجربتي",
+    "رح افضح", "راح افضح", "بفضح", "رح اكتب عنكم", "راح اكتب عنكم", "بكتب عنكم",
+    "رح احكي عنكم", "راح احكي عنكم", "بنزل بوست", "بنزل منشور", "بنزل سكرينات",
+    "بحذر الناس", "احذر الناس", "بكتب تقييم", "بحط تقييم", "بعمل review", "بعمل ريفيو",
+  ]);
+  const publicChannel = hasAny(t, [
+    "فيسبوك", "فيس بوك", "تيك توك", "انستغرام", "سوشال", "سوشيال",
+    "بوست", "منشور", "جروبات", "قروبات", "الناس", "متابعيني", "صفحه عندي", "صفحة عندي",
+    "review", "facebook", "instagram", "tiktok",
+  ]);
+  const explicitStandalone = hasAny(t, [
+    "رح احذر الناس", "راح احذر الناس", "رح أفضحكم", "راح أفضحكم", "بنشر تجربتي", "رح انزل سكرينات",
+  ]);
+
+  return explicitStandalone || (publicationAction && publicChannel);
 }
 
 function isScamAccusationText(text: string) {
@@ -2114,12 +2133,13 @@ function isTrackingLinkRequestText(text: string) {
   if (!t) return false;
 
   const asksForLink = hasAny(t, [
-    "ممكن الرابط", "ابعث الرابط", "ابعت الرابط", "ارسل الرابط", "وين الرابط", "هات الرابط",
-    "بدي الرابط", "رابط المتابعه", "لينك المتابعه", "الرابط لو سمحت", "link",
+    "ممكن الرابط", "ابعث الرابط", "ابعت الرابط", "ارسل الرابط", "وين الرابط", "اين الرابط", "أين الرابط", "هات الرابط",
+    "اين الرايط", "وين الرايط", "بدي الرايط",
+    "بدي الرابط", "رابط المتابعه", "لينك المتابعه", "الرابط لو سمحت", "وين اللينك", "بدي اللينك", "link",
   ]);
 
-  const hasLinkWord = hasAny(t, ["رابط", "لينك", "link"]);
-  const hasRequestWord = hasAny(t, ["ممكن", "ابعث", "ابعت", "ارسل", "هات", "اعطيني", "وين", "بدي"]);
+  const hasLinkWord = hasAny(t, ["رابط", "الرايط", "لينك", "link"]);
+  const hasRequestWord = hasAny(t, ["ممكن", "ابعث", "ابعت", "ارسل", "هات", "اعطيني", "وين", "اين", "أين", "بدي"]);
 
   return asksForLink || (hasLinkWord && hasRequestWord);
 }
@@ -2155,8 +2175,10 @@ function isExplicitRefundRequestText(text: string) {
   ])) return false;
 
   const strongRefundLanguage = hasAny(t, [
-    "استرداد", "استرجاع", "بدي استرد", "بدي استرجع", "رجعوا فلوسي",
-    "رجعولي فلوسي", "بدي فلوسي", "مصاريي رجعوها", "استرجاع الرسوم",
+    "استرداد", "استرجاع", "بدي استرد", "بدي استرجع",
+    "رجعوا فلوسي", "رجعولي فلوسي", "رجعو فلوسي", "ردولي فلوسي", "ردوا فلوسي", "ردو فلوسي",
+    "رجعوا الرسوم", "رجعولي الرسوم", "رجعو الرسوم", "ردولي الرسوم", "ردوا الرسوم", "ردو الرسوم",
+    "بدي فلوسي", "مصاريي رجعوها", "استرجاع الرسوم", "استرداد الرسوم",
     "رجعوا الخمسه", "رجعوا الخمسة", "رجعولي الخمسه", "رجعولي الخمسة",
     "بدي ارجع ال 5", "بدي أرجع ال 5", "بدي ارجع 5", "بدي أرجع 5",
     "بدي ارجع الخمس", "بدي أرجع الخمس", "بدي ارجع الرسوم", "بدي أرجع الرسوم",
@@ -2272,15 +2294,18 @@ function isSiteOrTrackingSystemIssueText(text: string) {
   if (!t) return false;
 
   const siteContext = hasAny(t, [
-    "الموقع", "السايت", "الرابط", "لينك", "تتبع", "التتبع", "صفحه التتبع", "صفحة التتبع",
+    "الموقع", "السايت", "الرابط", "الرايط", "لينك", "تتبع", "التتبع", "صفحه التتبع", "صفحة التتبع",
     "حاله الطلب", "حالة الطلب", "طلبي", "الطلب", "جلب الطلبات", "البحث عن الطلب", "عرض الطلب",
+    "اقدم الطلب", "أقدم الطلب", "التقديم", "اختار جهاز", "اختيار جهاز", "اكمل الاجراءات", "أكمل الإجراءات",
     "track", "tracking", "website", "site", "link",
   ]);
 
   const problemContext = hasAny(t, [
-    "مش شغال", "ما بشتغل", "ما بفتح", "ما فتح", "ما بطلع", "مش ظاهر", "ما ظهر", "ما بيظهر",
+    "مش شغال", "ما بشتغل", "ما بفتح", "ما فتح", "مو راضي يفتح", "مش راضي يفتح", "ما بطلع", "مش ظاهر", "ما ظهر", "ما بيظهر",
     "خطا", "خطأ", "ايرور", "error", "404", "not found", "تعطل", "واقع", "خربان", "معلق",
-    "حاول مره اخرى", "حاول مرة أخرى", "حدث خطا", "حدث خطأ", "ما بجيب", "ما جاب", "مش لاقي",
+    "حاول مره اخرى", "حاول مرة أخرى", "حدث خطا", "حدث خطأ", "خطا في الاتصال", "خطأ في الاتصال",
+    "لا يمكنني تتبع", "مش قادر اتتبع", "مش قادر أتتبع", "ما بقدر اتتبع", "ما بقدر أتتبع",
+    "ما بجيب", "ما جاب", "مش لاقي", "غير موجود",
     "لم يتم العثور", "could not be found", "page could not be found",
   ]);
 
@@ -2537,11 +2562,59 @@ function salaryValueIsReasonable(value: number | null): value is number {
   return value !== null && Number.isInteger(value) && value >= 100 && value <= 10000;
 }
 
+function isExplicitHumanAgentRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, [
+    "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي حدا يحكي معي", "بدي حد يحكي معي",
+    "بدي انسان", "بدي إنسان", "بدي بني ادم", "بدي بني آدم", "بدي بني تدم", "بدي بشر", "وين البشر",
+    "حدا حقيقي", "شخص حقيقي", "موظف حقيقي", "انت روبوت", "انت روبورت", "انتي روبوت", "انتي روبورت",
+    "talk to a human", "live agent", "real person",
+  ]);
+}
+
+function isPureNonTransactionalUtteranceText(text: string) {
+  const t = normalizeArabicText(text).replace(/[؟?!.,،؛:]+$/g, "").trim();
+  return [
+    "لا اله الا الله", "لا الاه الا الله", "لا إله إلا الله",
+    "ان شاء الله", "إن شاء الله", "الله كريم", "الله المستعان",
+  ].map((value) => normalizeArabicText(value)).includes(t);
+}
+
+function isClearlyExternalCommerceText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  const external = hasAny(t, ["شي ان", "شي إن", "shein", "طلبية شي", "طلبيه شي"]);
+  const alameen = hasAny(t, ["الامين", "الأمين", "تقسيط", "رقم التتبع", "am-"]);
+  return external && !alameen;
+}
+
+function isProductAvailabilityUiIssueText(text: string) {
+  const t = normalizeArabicText(text);
+  return hasAny(t, [
+    "مخزون محدود", "المخزون محدود", "ما لقينا جهاز مطابق", "ما لقينا جهازا مطابقا",
+    "ما لقيت الجهاز بالموقع", "مش لاقي الجهاز بالموقع",
+  ]);
+}
+
+function isInstallmentAndRequirementsQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  const installment = hasAny(t, ["نظام التقسيط", "كيف التقسيط", "تقسيط", "القسط", "الاقساط", "الأقساط"]);
+  const requirements = isGeneralDocumentsQuestionText(t) || hasAny(t, ["شو ارفق", "شو أرفق", "راتب بنك", "كمبيالات"]);
+  return installment && requirements;
+}
+
 function classifyIntent(text: string): CustomerIntent {
   const t = normalizeArabicText(text);
   const broadText = stripIdentifiersForIntent(t);
 
   if (!t) return "unknown";
+
+  // V1.6.4 CURRENT MESSAGE PRIORITY: a concrete site/tracking failure or product UI issue
+  // outranks stale complaint/social/payment context from previous turns.
+  if (isSiteOrTrackingSystemIssueText(t)) return "site_issue";
+  if (isProductAvailabilityUiIssueText(t)) return "products";
 
   // أسئلة هوية النشاط والوضع التنظيمي تُحسم قبل أي قالب متابعة أو تصعيد قانوني.
   if (isRegulatoryStatusQuestionText(t)) return "regulatory_status";
@@ -2704,7 +2777,7 @@ function classifyIntent(text: string): CustomerIntent {
     return "refund";
   }
 
-  if (hasAny(t, [
+  if (isExplicitHumanAgentRequestText(t) || hasAny(t, [
     "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي اتحدث مع موظف", "بدي أتحدث مع موظف",
     "اريد التحدث مع موظف", "أريد التحدث مع موظف", "موظف طبيعي", "موظف حقيقي", "حد يحكي معي",
     "بدي احكي مع حدا", "بدي حدا يحكي معي", "بدي اتواصل مع حدا", "بدي أتواصل مع حدا", "لازم اتواصل مع حدا",
@@ -3518,12 +3591,43 @@ ${baseUrl}/products`;
 }
 
 function requirementsReply(baseUrl: string, from: string) {
-  return `المستندات المطلوبة تختلف حسب حالة كل طلب، لذلك لا ترفع أي ورقة من نفسك.
+  void from;
+  return `بشكل عام: بيانات الطلب وصور الهوية بتتعبّى من نموذج التقديم.
 
-قدّم الطلب أولًا، وإذا احتاج ملفك مستندًا محددًا رح توصلك رسالة باسمه ورابط رفعه.
+بعدها المستندات الإضافية بتعتمد على دراسة كل ملف؛ إذا احتجنا كشف/شهادة راتب أو بيانات كفيل، بتوصلك رسالة واضحة باسم المطلوب ورابط الرفع الرسمي.
 
-رابط التقديم:
+لا ترفع مستند إضافي من نفسك، وتفاصيل مثل الكمبيالات أو طريقة سداد الأقساط ما بنثبتها من واتساب قبل اعتماد الاتفاق النهائي.
+
+رابط الأجهزة والتقديم:
 ${baseUrl}/products`;
+}
+
+function installmentAndRequirementsReply(baseUrl: string) {
+  return `نظام التقسيط باختصار: تختار الجهاز من الموقع وتقدم الطلب، وبعد المراجعة بتوصلك الخطوة المطلوبة حسب حالة الملف. القسط الأول يكون بعد الاستلام حسب الاتفاق، وما بنثبت قيمة أو مدة غير ظاهرة ضمن الجدول المعتمد.
+
+وبالنسبة للأوراق: بيانات الطلب وصور الهوية ضمن نموذج التقديم، وأي كشف/شهادة راتب أو كفيل إضافي بنطلبه فقط إذا احتاجته الدراسة وبنرسل رابط الرفع الرسمي. لا ترسل مستندات حساسة عبر واتساب.
+
+الأجهزة والتقديم:
+${baseUrl}/products`;
+}
+
+function guarantorRequirementQuestionReply(app: ApplicationRecord | null, customerText: string, baseUrl: string) {
+  const t = normalizeArabicText(customerText);
+  const asksHowToProvide = hasAny(t, ["كيف ارفع", "كيف أرفع", "وين ارفع", "وين أرفع", "رابط الكفيل", "وين الرابط"]);
+
+  if (app?.status === "needs_guarantor") {
+    const base = `على طلبك الحالي ظاهر متطلب كفيل لاستكمال الدراسة. هذا متطلب دراسة، وليس موافقة نهائية بحد ذاته.`;
+    return asksHowToProvide
+      ? `${base}
+
+بيانات الكفيل تُعبأ فقط من الرابط الرسمي المرتبط بالطلب:
+${guarantorUrl(baseUrl, app)}`
+      : `${base}
+
+إذا احتجت طريقة تعبئة بياناته احكيلي وبعطيك الرابط الرسمي.`;
+  }
+
+  return `الكفيل مش شرط ثابت على كل طلب. إذا دراسة ملفك احتاجت كفيل، بيظهر كمتطلب رسمي وبنرسل لك رابط تعبئة بياناته. ما في داعي ترفعه أو تعبّيه من نفسك قبل ما يظهر كمتطلب على الطلب.`;
 }
 
 function applyReply(baseUrl: string, from: string) {
@@ -4021,7 +4125,7 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
 function isGuarantorQuestionText(text: string) {
   const t = normalizeArabicText(text);
   if (!t || !hasAny(t, ["كفيل", "ضامن"])) return false;
-  return hasAny(t, ["لازم", "هل", "بحتاج", "بحتاج", "مطلوب", "ضروري", "ليش", "ليه", "؟"]);
+  return hasAny(t, ["لازم", "هل", "بحتاج", "بيحتاج", "مطلوب", "ضروري", "ليش", "ليه", "اذا", "إذا", "؟"]);
 }
 
 function isSalaryRequirementQuestionText(text: string) {
@@ -4036,9 +4140,9 @@ function isGeneralDocumentsQuestionText(text: string) {
   if (!t) return false;
 
   return hasAny(t, [
-    "شو اجهز اوراق", "شو أجهز أوراق", "شو الاوراق", "شو الأوراق",
-    "اي اوراق", "أي أوراق", "الاوراق المطلوبه", "الأوراق المطلوبة",
-    "شو الوثائق", "اي وثائق", "أي وثائق", "شو اجيب معي", "شو أجيب معي",
+    "شو اجهز اوراق", "شو أجهز أوراق", "شو الاوراق", "شو الأوراق", "شو الورق المطلوب",
+    "اي اوراق", "أي أوراق", "الاوراق المطلوبه", "الأوراق المطلوبة", "شو الاوراق المطلوبه", "شو الأوراق المطلوبة",
+    "شو الوثائق", "اي وثائق", "أي وثائق", "شو اجيب معي", "شو أجيب معي", "المستندات المطلوبه", "المستندات المطلوبة",
   ]);
 }
 
@@ -4631,6 +4735,11 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking, customerText, app);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
+    if (isProductAvailabilityUiIssueText(customerText)) {
+      return `إذا الموقع عم يعطيك «مخزون محدود» عند اختيار جهاز، هاي رسالة توفر من صفحة الأجهزة وليست رفضًا لطلبك.
+
+ارجع لقائمة الأجهزة واختَر جهازًا ظاهرًا كمتاح، ولا تعيد إنشاء أكثر من طلب لنفس المشكلة. إذا بقيت الرسالة على جهاز ظاهر كمتاح، ابعث اسم الجهاز ونص الرسالة فقط وبنراجع المشكلة.`;
+    }
     if (isAdditionalDeviceQuestionText(customerText)) {
       return `طلبك الحالي مرتبط بالجهاز المسجل عليه. ما عندي إجراء معتمد أقدر أوعدك من خلاله بإضافة جهاز ثاني على نفس الطلب وهو قيد الدراسة.
 
@@ -5076,6 +5185,27 @@ function reviewAndCallReply(app: ApplicationRecord | null, from: string, custome
 function unknownReply(_from: string, app?: ApplicationRecord | null, customerText = "") {
   const t = normalizeArabicText(customerText);
 
+  if (isPureNonTransactionalUtteranceText(customerText)) {
+    if (hasAny(t, ["ان شاء الله", "إن شاء الله"])) return "إن شاء الله 🌿";
+    return "الله يحييك 🌿";
+  }
+
+  if (isClearlyExternalCommerceText(customerText)) {
+    return "إذا قصدك طلبية شي إن، هاي مش مرتبطة بطلب الأمين للأقساط. إذا عندك سؤال عن طلب الأمين ابعث رقم التتبع أو سؤالك عنه مباشرة.";
+  }
+
+  if (isProductAvailabilityUiIssueText(customerText)) {
+    return "إذا ظهر لك «مخزون محدود» أو الجهاز ما ظهر بالبحث، لا تعيد تقديم الطلب أكثر من مرة. ارجع لقائمة الأجهزة وتأكد من الخيار المتاح؛ التوفر الظاهر بالموقع هو المعتمد حاليًا.";
+  }
+
+  if (isExplicitHumanAgentRequestText(customerText)) {
+    return `معك ${assignedStaffName(_from)} من فريق الأمين. احكيلي النقطة اللي بدك إياها وبجاوبك عليها مباشرة حسب حالة طلبك.`;
+  }
+
+  if (hasAny(t, ["الرقم صحيح", "مقدم بنفس الرقم", "مقدّم بنفس الرقم"])) {
+    return "تمام. إذا الرقم صحيح والطلب ما ظهر بصفحة التتبع، ابعث رقم التتبع AM- إن كان معك؛ وإذا ما ظهر رقم تتبع أصلًا وقت التقديم، احكيلي شو الرسالة اللي ظهرت بالموقع.";
+  }
+
   if (app && (app.status === "refund_requested" || app.payment_status === "refund_requested")) {
     if (isRefundStatePriorityFollowupText(customerText) || t.length <= 28) {
       return refundAlreadyRequestedReply(app, customerText);
@@ -5092,7 +5222,7 @@ function unknownReply(_from: string, app?: ApplicationRecord | null, customerTex
     return "تفضل، احكيلي سؤالك.";
   }
 
-  return "احكيلي شو بدك تعرف تحديدًا، وبجاوبك مباشرة.";
+  return "اكتب سؤالك نفسه بجملة واحدة، وبجاوبك على نفس النقطة مباشرة.";
 }
 
 function envFlag(name: string, defaultValue = true) {
@@ -6610,7 +6740,22 @@ function limitAndSuppressLinks(reply: string, input: AiReplyInput) {
   let clean = shortenTrackingLinks(String(reply || "").trim());
   if (!clean) return clean;
 
-  if (String(input.intent) === "tracking_link_request" || isExplicitOperationalLinkRequestText(input.customerText)) {
+  const actionableLinkIntents = new Set([
+    "tracking_link_request", "requirements", "document_followup", "receipt_upload_needed",
+    "payment", "payment_link_issue", "continue_decision", "apply", "products", "website",
+    "device_change", "device_change_confirmed",
+  ]);
+  const replyContainsActionLinkInstruction = /(?:رابط|لينك|ادخل|أدخل|استخدم|ارفع|أرفع|عبّي|عبي|تعبئة)[^\n]{0,120}/i.test(clean) && extractUrlsFromReply(clean).length > 0;
+
+  // V1.6.4 LINK INTEGRITY: a current action must carry its actual URL(s). Do not
+  // hide a link merely because it appeared in an older message. Multiple distinct
+  // links (e.g. guarantor + salary slip) are also preserved.
+  if (
+    actionableLinkIntents.has(String(input.intent)) ||
+    isTrackingLinkRequestText(input.customerText) ||
+    isExplicitOperationalLinkRequestText(input.customerText) ||
+    replyContainsActionLinkInstruction
+  ) {
     return clean;
   }
 
@@ -6841,6 +6986,8 @@ function isLikelyIncompleteReply(reply: string) {
   if (words.length >= 3 && words[words.length - 2] === "يا" && lastWord.length <= 2) return true;
   if (/^وال[\p{L}]{0,2}$/u.test(lastWord) && lastWord !== "والله") return true;
   if (/^(?:بال|لل|وال|فال|كال)$/u.test(lastWord)) return true;
+  if (["تحد", "الرسم", "الرس", "المطل", "الموافق", "التحد", "رقم"].includes(lastWord)) return true;
+  if (/(?:^|\s)(?:وطلب|و طلب|ومسار|و مسار|وحالة|و حالة)\s+(?:الاسترداد|الدفع|التتبع)$/u.test(normalized)) return true;
   if (/https?:\/\/\S*$/i.test(clean) && !/^https?:\/\/[^\s]+\.[^\s]+$/i.test(clean.split(/\s+/).pop() || "")) return true;
   if (/[:،,\-–]$/.test(clean)) return true;
 
@@ -6864,6 +7011,14 @@ function replyTooShortForIntent(reply: string, intent: CustomerIntent) {
   // V1.2.2 SEMANTIC COMPLETENESS: catches fragments such as "ما بق"
   // while allowing intentionally short social replies.
   return clean.length < 16 || words.length < 4;
+}
+
+function replySuspiciouslyCompressed(reply: string, deterministicReply: string, intent: CustomerIntent) {
+  if (["greeting", "thanks", "reaction"].includes(String(intent))) return false;
+  const clean = normalizeArabicText(String(reply || "")).replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim();
+  const baseline = normalizeArabicText(String(deterministicReply || "")).replace(/https?:\/\/\S+/gi, " ").replace(/\s+/g, " ").trim();
+  if (baseline.length < 180 || clean.length < 24) return false;
+  return clean.length < 95 && clean.length < baseline.length * 0.42;
 }
 
 function containsUnverifiedInterestOrReligiousClaim(reply: string) {
@@ -7007,13 +7162,22 @@ function finalizeHumanReply(reply: string, input: AiReplyInput) {
 
   clean = clean.replace(/الجمعة والسبت عطلة رسمية/gi, "الجمعة والسبت لا تُحسبان ضمن أيام العمل");
 
-  if (isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, input.intent)) {
+  if (
+    isLikelyIncompleteReply(clean) ||
+    replyTooShortForIntent(clean, input.intent) ||
+    replySuspiciouslyCompressed(clean, input.deterministicReply, input.intent)
+  ) {
     clean = incompleteReplyFallback(input);
   }
 
   clean = enforceApplicationTruth(clean, input);
 
-  if (!clean || isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, input.intent)) {
+  if (
+    !clean ||
+    isLikelyIncompleteReply(clean) ||
+    replyTooShortForIntent(clean, input.intent) ||
+    replySuspiciouslyCompressed(clean, input.deterministicReply, input.intent)
+  ) {
     return incompleteReplyFallback(input);
   }
 
@@ -8200,21 +8364,39 @@ ${input.deterministicReply}
 }
 
 
-function siteIssueReply(from: string, app?: ApplicationRecord | null, tracking?: string) {
+function siteIssueReply(baseUrl: string, from: string, app?: ApplicationRecord | null, tracking?: string, customerText = "") {
+  void from;
+  const t = normalizeArabicText(customerText);
   const requestRef = tracking || app?.tracking_id || app?.id || "";
-  const appLine = app
-    ? `\n\nالطلب مربوط عندنا على رقم التتبع:\n${app.tracking_id || app.id}\n\nالحالة الظاهرة حاليًا:\n${statusHumanLabel(app.status || "")}`
-    : requestRef
-      ? `\n\nرقم التتبع اللي وصلني:\n${requestRef}`
-      : "";
+  const applyingIssue = hasAny(t, [
+    "اقدم الطلب", "أقدم الطلب", "التقديم", "حدث خطا في الاتصال", "حدث خطأ في الاتصال",
+    "خطا في الاتصال", "خطأ في الاتصال", "اختار جهاز", "اختيار جهاز", "مخزون محدود",
+  ]);
 
-  return `وصلتني ملاحظتك بخصوص التتبع 🌿
+  if (applyingIssue) {
+    return `واضح إن المشكلة من صفحة التقديم/اختيار الجهاز، مش من أهلية الطلب.
 
-حاليًا في تعذر مؤقت بقراءة/عرض حالة الطلب من هذا المسار، لذلك ما رح أعطيك حالة أو موعد إصلاح غير مؤكد.
+إذا ما ظهر لك رقم تتبع بعد الإرسال، لا تعيد المحاولة عدة مرات بنفس اللحظة. حدّث الصفحة وافتح التقديم من جديد، وإذا استمر نفس الخطأ ابعث نص رسالة الخطأ أو لقطة شاشة بدون أي مستند حساس.
 
-هذا التعذر بحد ذاته ما يعني إن الطلب ملغي أو ضايع. بنعتمد فقط الحالة الموجودة على الطلب لما تكون القراءة متاحة بشكل مؤكد.${appLine}
+رابط التقديم:
+${baseUrl}/products`;
+  }
 
-إذا كان رقم التتبع أو رقم الهاتف المستخدم بالتقديم متوفر، يمكن إرساله هون وبنرجع للمعلومة المؤكدة فقط بدون تخمين.`;
+  if (app) {
+    return `صفحة التتبع عندك ما فتحت، لكن طلبك ظاهر عندي وموجود.
+
+الحالة الحالية: ${statusHumanLabel(app.status || "")}
+رقم التتبع: ${app.tracking_id || app.id}
+
+رابط المتابعة:
+${trackUrl(baseUrl, app)}`;
+  }
+
+  const refLine = requestRef ? `\n\nرقم التتبع اللي وصلني: ${requestRef}` : "";
+  return `إذا صفحة التتبع ما فتحت عندك، ابعث رقم التتبع AM- أو رقم الهاتف المستخدم بالتقديم حتى أراجع الطلب من السجل نفسه.${refLine}
+
+رابط المتابعة:
+${baseUrl}/track`;
 }
 
 function temporaryOrderLookupIssueReply(from: string, tracking?: string) {
@@ -8464,6 +8646,21 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return businessIndependenceReply();
   }
 
+  // V1.6.4 CURRENT MESSAGE TRUTH GATE: these messages are self-contained and
+  // must never be hijacked by payment/status memory from older turns.
+  if (isPureNonTransactionalUtteranceText(rawCustomerText)) {
+    const normalized = normalizeArabicText(rawCustomerText);
+    return hasAny(normalized, ["ان شاء الله", "إن شاء الله"]) ? "إن شاء الله 🌿" : "الله يحييك 🌿";
+  }
+
+  if (isClearlyExternalCommerceText(rawCustomerText)) {
+    return "إذا قصدك طلبية شي إن، هاي مش مرتبطة بطلب الأمين للأقساط. إذا عندك سؤال عن طلب الأمين ابعث رقم التتبع أو سؤالك عنه مباشرة.";
+  }
+
+  if (isInstallmentAndRequirementsQuestionText(rawCustomerText)) {
+    return installmentAndRequirementsReply(baseUrl);
+  }
+
   const directTracking = extractTracking(text);
   const typedPhone = extractJordanPhoneFromText(text);
 
@@ -8604,6 +8801,16 @@ async function buildReply(request: Request, from: string, text: string, messageT
     } else if (isRefundTimingOrDeliveryFollowupText(rawCustomerText)) {
       return refundActiveTimingReply(app);
     }
+  }
+
+  // V1.6.4: a question ABOUT whether a guarantor is required is informational.
+  // It must not be turned into an upload action unless the customer explicitly asks how to provide it.
+  if (isGuarantorQuestionText(rawCustomerText)) {
+    return guarantorRequirementQuestionReply(app, rawCustomerText, baseUrl);
+  }
+
+  if (isExplicitHumanAgentRequestText(rawCustomerText) && isFirstInstallmentQuestionText(rawCustomerText)) {
+    return `${paymentAmountReply(app, rawCustomerText)}\n\nمعك ${assignedStaffName(from)} من فريق الأمين.`;
   }
 
   // V1.4.3 HUMAN DECISION PLANE: saying the required guarantor is unavailable
@@ -9470,7 +9677,7 @@ ${paymentMessage(reopenedApp, baseUrl)}`;
   }
 
   if (String(intent) === "site_issue") {
-    deterministicReply = siteIssueReply(from, app, tracking);
+    deterministicReply = siteIssueReply(baseUrl, from, app, tracking, rawCustomerText);
 
     return humanizeReply({
       customerText: text,
@@ -9567,7 +9774,7 @@ ${BUSINESS_NAME}`;
   } else if (["order_status", "review_time"].includes(intent)) {
     deterministicReply = temporaryOrderLookupIssueReply(from, tracking || undefined);
   } else if (String(intent) === "site_issue") {
-    deterministicReply = siteIssueReply(from, null, tracking);
+    deterministicReply = siteIssueReply(baseUrl, from, null, tracking, rawCustomerText);
   } else if (String(intent) === "office_payment_request") {
     const recentAssistantReplies = conversationMemory.lastAssistantReplies || [];
     const policyAlreadyExplained = officeFeePaymentPolicyWasExplained(recentAssistantReplies);

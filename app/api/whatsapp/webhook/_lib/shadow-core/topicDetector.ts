@@ -102,6 +102,23 @@ export function detectShadowTopics(
   if (["document_upload", "document_followup"].includes(initialIntent)) add("document_upload");
   if (["apply", "products", "installment_info", "loan"].includes(initialIntent)) add("procedures");
 
+  // V1.6.4: current technical/link/refund wording outranks a stale initial intent.
+  const currentSiteIssue = containsAny(text, [
+    "حدث خطا في الاتصال", "حدث خطأ في الاتصال", "خطا في الاتصال", "خطأ في الاتصال",
+    "مو راضي يفتح", "مش راضي يفتح", "لا يمكنني تتبع", "ما بقدر اتتبع", "ما بقدر أتتبع",
+  ]) && containsAny(text, ["الموقع", "الرابط", "تتبع", "متابعة الطلب", "متابعه الطلب", "التقديم", "اقدم الطلب", "أقدم الطلب", "الطلب"]);
+  if (currentSiteIssue) {
+    add("order_status");
+    remove("complaint");
+    remove("trust");
+  }
+  const currentExplicitRefund = containsAny(text, [
+    "رجعولي الرسوم", "رجعوا الرسوم", "رجعو الرسوم", "ردولي الرسوم", "ردوا الرسوم", "ردو الرسوم",
+    "رجعولي فلوسي", "رجعوا فلوسي", "رجعو فلوسي", "بدي استرداد", "بدي استرجاع", "بدي فلوسي",
+  ]);
+  if (currentExplicitRefund) { add("refund"); remove("payment_method"); }
+  if (containsAny(text, ["شو الاوراق", "شو الأوراق", "الأوراق المطلوبة", "الاوراق المطلوبه", "المستندات المطلوبة"])) add("requirements");
+
   // V1.3.1: the literal current message outranks a stale/social initial intent.
   if (customerAsksReviewTiming(customerText)) add("review_time");
   if (customerAsksCurrentNextStep(customerText)) add("order_status");
