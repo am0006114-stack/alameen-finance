@@ -165,16 +165,29 @@ function getDeviceColorOptions(productName: string, brand: string): DeviceColorO
 const legalRegistrationText =
   "الاسم المعتمد في التعامل هو الأمين للأقساط، ونشاطنا تقسيط الأجهزة الإلكترونية والهواتف. الأمين للأقساط ليست بنكًا ولا شركة تمويل أو إقراض، ولا تمنح قروضًا.";
 
-const uploadTypes: { key: UploadKey; type: string; label: string }[] = [
+const uploadTypes: {
+  key: UploadKey;
+  type: string;
+  label: string;
+  shortLabel: string;
+  instruction: string;
+  marker: string;
+}[] = [
   {
     key: "applicantIdFront",
     type: "applicant_front",
     label: "هوية مقدم الطلب — الوجه الأمامي",
+    shortLabel: "الوجه الأمامي",
+    instruction: "صوّر أو اختر صورة الوجه الأمامي كاملة وبوضوح.",
+    marker: "1",
   },
   {
     key: "applicantIdBack",
     type: "applicant_back",
     label: "هوية مقدم الطلب — الوجه الخلفي",
+    shortLabel: "الوجه الخلفي",
+    instruction: "صوّر أو اختر صورة الوجه الخلفي كاملة وبوضوح.",
+    marker: "2",
   },
 ];
 
@@ -182,6 +195,14 @@ function safeNumber(value: string | null, fallback: number) {
   const parsed = Number(value);
 
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function formatUploadSize(bytes: number) {
+  if (bytes < 1024 * 1024) {
+    return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  }
+
+  return `${(bytes / 1024 / 1024).toFixed(2)} MB`;
 }
 
 function getWhatsAppFollowUpUrl(message: string) {
@@ -269,6 +290,7 @@ export default function ApplyPage() {
   const salaryRef = useRef<HTMLInputElement | null>(null);
   const colorSectionRef = useRef<HTMLDivElement | null>(null);
   const identityUploadRef = useRef<HTMLDivElement | null>(null);
+  const uploadCardRefs = useRef<Partial<Record<UploadKey, HTMLDivElement | null>>>({});
   const financialClearRef = useRef<HTMLLabelElement | null>(null);
   const termsAcceptedRef = useRef<HTMLLabelElement | null>(null);
 
@@ -302,6 +324,14 @@ export default function ApplyPage() {
     applicantIdFront: 0,
     applicantIdBack: 0,
   });
+
+  const [missingUploadKey, setMissingUploadKey] = useState<UploadKey | null>(null);
+
+  const selectedUploadCount = uploadTypes.reduce(
+    (count, item) => count + (files[item.key] ? 1 : 0),
+    0
+  );
+  const identityUploadsComplete = selectedUploadCount === uploadTypes.length;
 
 
 
@@ -440,12 +470,20 @@ export default function ApplyPage() {
     const maxSize = 5 * 1024 * 1024;
 
     if (!allowedTypes.includes(file.type)) {
-      focusAndScrollTo(identityUploadRef.current, "يُسمح فقط برفع صور JPG أو PNG.");
+      setMissingUploadKey(key);
+      focusAndScrollTo(
+        uploadCardRefs.current[key] || identityUploadRef.current,
+        "يُسمح فقط برفع صور JPG أو PNG."
+      );
       return;
     }
 
     if (file.size > maxSize) {
-      focusAndScrollTo(identityUploadRef.current, "حجم الصورة يجب ألا يتجاوز 5MB.");
+      setMissingUploadKey(key);
+      focusAndScrollTo(
+        uploadCardRefs.current[key] || identityUploadRef.current,
+        "حجم الصورة يجب ألا يتجاوز 5MB."
+      );
       return;
     }
 
@@ -462,6 +500,7 @@ export default function ApplyPage() {
 
     setFiles((prev) => ({ ...prev, [key]: file }));
     setProgress((prev) => ({ ...prev, [key]: 0 }));
+    if (missingUploadKey === key) setMissingUploadKey(null);
     clearStepError();
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
 
@@ -495,6 +534,7 @@ export default function ApplyPage() {
 
     setFiles((prev) => ({ ...prev, [key]: null }));
     setProgress((prev) => ({ ...prev, [key]: 0 }));
+    setMissingUploadKey(key);
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
   }
 
@@ -682,11 +722,16 @@ export default function ApplyPage() {
 
       for (const item of uploadTypes) {
         if (!files[item.key]) {
-          focusAndScrollTo(identityUploadRef.current, "يرجى رفع صورة هوية مقدم الطلب من الأمام والخلف.");
+          setMissingUploadKey(item.key);
+          focusAndScrollTo(
+            uploadCardRefs.current[item.key] || identityUploadRef.current,
+            `يرجى رفع ${item.shortLabel} للهوية قبل المتابعة.`
+          );
           return false;
         }
       }
 
+      setMissingUploadKey(null);
       return true;
     }
 
@@ -1608,26 +1653,91 @@ ${cleanDigits(phone)}
                 </section>
               )}
 
-              <section ref={identityUploadRef} className="glass-panel gold-outline rounded-3xl p-5 shadow-2xl">
-                <h2 className="mb-2 text-2xl font-bold">آخر خطوة للتحقق من الجدية</h2>
+              <section
+                ref={identityUploadRef}
+                className="glass-panel rounded-3xl border border-[rgba(214,181,107,0.28)] p-4 shadow-2xl sm:p-6"
+              >
+                <div
+                  className={`mb-5 overflow-hidden rounded-3xl border p-5 transition-all duration-300 ${
+                    identityUploadsComplete
+                      ? "border-emerald-400/55 bg-[linear-gradient(135deg,rgba(16,185,129,0.18),rgba(3,18,14,0.90))] shadow-[0_18px_55px_rgba(16,185,129,0.12)]"
+                      : "border-amber-300/60 bg-[linear-gradient(135deg,rgba(245,158,11,0.18),rgba(3,18,14,0.92))] shadow-[0_18px_55px_rgba(245,158,11,0.13)]"
+                  }`}
+                >
+                  <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-4">
+                      <div
+                        className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl border text-2xl shadow-lg ${
+                          identityUploadsComplete
+                            ? "border-emerald-300/50 bg-emerald-400/15 text-emerald-100"
+                            : "border-amber-200/50 bg-amber-300/15 text-amber-100"
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {identityUploadsComplete ? "✓" : "🪪"}
+                      </div>
 
-                <p className="mb-5 text-sm leading-7 text-[#d7ddd5]">
-                  نطلب الهوية فقط لأن طلبات التقسيط تحتاج تحقق أولي، ولمنع الطلبات الوهمية. لا يوجد دفع أثناء التقديم ولا كفيل في هذه المرحلة. ارفع الوجه الأمامي والخلفي فقط.
-                </p>
+                      <div>
+                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                          <span
+                            className={`rounded-full border px-3 py-1 text-xs font-black ${
+                              identityUploadsComplete
+                                ? "border-emerald-300/40 bg-emerald-400/15 text-emerald-100"
+                                : "border-amber-200/45 bg-amber-300/15 text-amber-100"
+                            }`}
+                          >
+                            {identityUploadsComplete ? "اكتملت صور الهوية" : "مطلوب الآن"}
+                          </span>
+                          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-black text-white">
+                            {selectedUploadCount} من {uploadTypes.length}
+                          </span>
+                        </div>
 
-                <div className="mb-5 grid gap-3 md:grid-cols-3">
-                  <TrustCard
-                    title="فلترة الطلبات الوهمية"
-                    text="نطلب الهوية لأن الطلبات الجدية فقط تُراجع."
-                  />
-                  <TrustCard
-                    title="استخدام محدود"
-                    text="لا يتم استخدام صور الهوية لأي إعلان أو تسويق أو عرض عام."
-                  />
-                  <TrustCard
-                    title="مراجعة داخلية فقط"
-                    text="الوثائق تظهر فقط للإدارة المخولة بمراجعة الطلبات."
-                  />
+                        <h2 className="text-2xl font-black text-white sm:text-3xl">
+                          {identityUploadsComplete
+                            ? "الهوية جاهزة للمتابعة"
+                            : "ارفع صور الهوية من هنا"}
+                        </h2>
+
+                        <p className="mt-2 max-w-2xl text-sm font-bold leading-7 text-[#e4e9e3]">
+                          نحتاج صورتين فقط: الوجه الأمامي والوجه الخلفي. اضغط على كل كرت بالأسفل لاختيار صورة محفوظة أو تصوير الهوية مباشرة.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div
+                      className={`shrink-0 rounded-2xl border px-4 py-3 text-center ${
+                        identityUploadsComplete
+                          ? "border-emerald-300/35 bg-emerald-400/10 text-emerald-100"
+                          : "border-amber-200/35 bg-amber-300/10 text-amber-100"
+                      }`}
+                      aria-live="polite"
+                    >
+                      <div className="text-2xl font-black">
+                        {selectedUploadCount}/{uploadTypes.length}
+                      </div>
+                      <div className="mt-1 text-xs font-black">
+                        {identityUploadsComplete ? "جاهز" : "صور مختارة"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-5 grid grid-cols-2 gap-2">
+                    {uploadTypes.map((item) => {
+                      const done = Boolean(files[item.key]);
+
+                      return (
+                        <div
+                          key={`identity-progress-${item.key}`}
+                          className={`h-2 rounded-full transition-all ${
+                            done
+                              ? "bg-emerald-400 shadow-[0_0_18px_rgba(52,211,153,0.45)]"
+                              : "bg-amber-200/20"
+                          }`}
+                        />
+                      );
+                    })}
+                  </div>
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
@@ -1635,42 +1745,111 @@ ${cleanDigits(phone)}
                     const file = files[item.key];
                     const percent = progress[item.key];
                     const previewUrl = previewUrls[item.key];
+                    const needsAttention = missingUploadKey === item.key && !file;
+
+                    const cardClass = file
+                      ? "border-emerald-400/65 bg-[linear-gradient(145deg,rgba(16,185,129,0.15),rgba(3,18,14,0.94))] shadow-[0_0_0_2px_rgba(52,211,153,0.09),0_22px_55px_rgba(16,185,129,0.13)]"
+                      : needsAttention
+                      ? "border-red-400/80 bg-[linear-gradient(145deg,rgba(239,68,68,0.17),rgba(3,18,14,0.94))] shadow-[0_0_0_3px_rgba(248,113,113,0.11),0_22px_55px_rgba(239,68,68,0.15)]"
+                      : "border-amber-300/60 bg-[linear-gradient(145deg,rgba(245,158,11,0.12),rgba(3,18,14,0.94))] shadow-[0_0_0_2px_rgba(251,191,36,0.07),0_22px_50px_rgba(245,158,11,0.10)]";
 
                     return (
                       <div
                         key={item.key}
-                        className="rounded-2xl border border-[rgba(214,181,107,0.16)] bg-[rgba(255,255,255,0.035)] p-4"
+                        ref={(node) => {
+                          uploadCardRefs.current[item.key] = node;
+                        }}
+                        className={`scroll-mt-28 rounded-3xl border p-4 transition-all duration-300 sm:p-5 ${cardClass}`}
+                        aria-invalid={needsAttention}
                       >
-                        <label className="mb-3 block font-bold">
-                          {item.label}
-                        </label>
+                        <div className="mb-4 flex items-start justify-between gap-3">
+                          <div className="flex items-center gap-3">
+                            <div
+                              className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl border text-lg font-black ${
+                                file
+                                  ? "border-emerald-300/45 bg-emerald-400/15 text-emerald-100"
+                                  : needsAttention
+                                  ? "border-red-300/50 bg-red-400/15 text-red-100"
+                                  : "border-amber-200/45 bg-amber-300/15 text-amber-100"
+                              }`}
+                            >
+                              {file ? "✓" : item.marker}
+                            </div>
 
-                        <label className="flex cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed border-[rgba(214,181,107,0.34)] bg-[rgba(3,18,14,0.50)] p-5 text-center transition hover:bg-[rgba(2,18,14,0.92)]">
-                          <span className="text-base font-black text-[#f3dfac]">
-                            اختيار صورة أو تصوير الهوية
+                            <div>
+                              <p className="text-lg font-black text-white">{item.shortLabel}</p>
+                              <p className="mt-1 text-xs font-bold text-[#c9d1ca]">
+                                {item.instruction}
+                              </p>
+                            </div>
+                          </div>
+
+                          <span
+                            className={`shrink-0 rounded-full border px-3 py-1 text-xs font-black ${
+                              file
+                                ? "border-emerald-300/45 bg-emerald-400/15 text-emerald-100"
+                                : needsAttention
+                                ? "border-red-300/50 bg-red-400/15 text-red-100"
+                                : "border-amber-200/45 bg-amber-300/15 text-amber-100"
+                            }`}
+                          >
+                            {file ? "تم الاختيار" : needsAttention ? "ناقص — مطلوب" : "مطلوب"}
                           </span>
+                        </div>
 
-                          <span className="mt-2 text-xs leading-6 text-[#aeb9af]">
-                            يمكنك اختيار صورة محفوظة من الجهاز أو تصوير الهوية.
-                          </span>
+                        {!file ? (
+                          <label
+                            className={`group flex min-h-44 cursor-pointer flex-col items-center justify-center rounded-3xl border-2 border-dashed p-5 text-center transition ${
+                              needsAttention
+                                ? "border-red-300/70 bg-red-400/10 hover:bg-red-400/12"
+                                : "border-amber-200/55 bg-amber-300/10 hover:border-amber-200/80 hover:bg-amber-300/12"
+                            }`}
+                          >
+                            <span
+                              className={`mb-3 flex h-14 w-14 items-center justify-center rounded-full border text-2xl transition group-hover:scale-105 ${
+                                needsAttention
+                                  ? "border-red-300/50 bg-red-400/15"
+                                  : "border-amber-200/45 bg-amber-300/15"
+                              }`}
+                              aria-hidden="true"
+                            >
+                              ↑
+                            </span>
 
-                          <input
-                            type="file"
-                            accept="image/png,image/jpeg"
-                            onChange={(e) =>
-                              handleFileChange(
-                                item.key,
-                                e.target.files?.[0] || null
-                              )
-                            }
-                            className="hidden"
-                          />
-                        </label>
+                            <span className="text-lg font-black text-white">
+                              اضغط هنا لرفع {item.shortLabel}
+                            </span>
 
-                        {file && (
-                          <div className="mt-4 space-y-3">
+                            <span className="mt-2 text-sm font-bold leading-6 text-[#d7ddd5]">
+                              اختر صورة من الجهاز أو استخدم الكاميرا
+                            </span>
+
+                            <span
+                              className={`mt-4 rounded-2xl px-5 py-3 text-sm font-black shadow-lg ${
+                                needsAttention
+                                  ? "bg-red-500 text-white shadow-red-950/30"
+                                  : "bg-amber-300 text-[#102018] shadow-amber-950/20"
+                              }`}
+                            >
+                              اختيار الصورة
+                            </span>
+
+                            <input
+                              type="file"
+                              accept="image/png,image/jpeg"
+                              onChange={(e) =>
+                                handleFileChange(
+                                  item.key,
+                                  e.target.files?.[0] || null
+                                )
+                              }
+                              className="hidden"
+                            />
+                          </label>
+                        ) : (
+                          <div className="space-y-4">
                             {previewUrl && (
-                              <div className="overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(2,18,14,0.92)]">
+                              <div className="overflow-hidden rounded-2xl border border-emerald-300/30 bg-[rgba(2,18,14,0.92)]">
                                 <img
                                   src={previewUrl}
                                   alt={item.label}
@@ -1679,35 +1858,87 @@ ${cleanDigits(phone)}
                               </div>
                             )}
 
-                            <p className="break-words text-sm text-[#d7ddd5]">
-                              {file.name} — {(file.size / 1024 / 1024).toFixed(2)} MB
-                            </p>
+                            <div className="rounded-2xl border border-emerald-300/25 bg-emerald-400/8 p-4">
+                              <div className="flex items-center gap-2 text-sm font-black text-emerald-100">
+                                <span aria-hidden="true">✓</span>
+                                <span>تم اختيار الصورة بنجاح</span>
+                              </div>
 
-                            <div className="h-3 w-full overflow-hidden rounded-full bg-[rgba(214,181,107,0.14)]">
-                              <div
-                                className="h-full bg-gradient-to-l from-[#d6b56b] to-[#69d97b] transition-all duration-300"
-                                style={{ width: `${percent}%` }}
-                              />
+                              <p className="mt-2 break-words text-xs font-bold leading-6 text-[#d7ddd5]">
+                                {file.name} — {formatUploadSize(file.size)}
+                              </p>
+
+                              <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-emerald-950/55">
+                                <div
+                                  className="h-full bg-emerald-400 transition-all duration-300"
+                                  style={{ width: `${percent}%` }}
+                                />
+                              </div>
+
+                              <p className="mt-2 text-xs font-black text-emerald-100">
+                                {percent < 100
+                                  ? `جارٍ تجهيز الملف... ${percent}%`
+                                  : "جاهزة للإرسال ✓"}
+                              </p>
                             </div>
 
-                            <p className="text-sm text-[#f3dfac]">
-                              {percent < 100
-                                ? `جارٍ تجهيز الملف... ${percent}%`
-                                : "اكتمل 100% ✅"}
-                            </p>
+                            <div className="grid grid-cols-2 gap-2">
+                              <label className="cursor-pointer rounded-2xl border border-emerald-300/30 bg-emerald-400/10 px-4 py-3 text-center text-sm font-black text-emerald-100 transition hover:bg-emerald-400/15">
+                                تغيير الصورة
+                                <input
+                                  type="file"
+                                  accept="image/png,image/jpeg"
+                                  onChange={(e) =>
+                                    handleFileChange(
+                                      item.key,
+                                      e.target.files?.[0] || null
+                                    )
+                                  }
+                                  className="hidden"
+                                />
+                              </label>
 
-                            <button
-                              type="button"
-                              onClick={() => removeFile(item.key)}
-                              className="rounded-xl border border-red-500/30 bg-red-950/30 px-4 py-2 text-sm font-black text-red-300 transition hover:bg-red-950"
-                            >
-                              حذف وإعادة التصوير / الرفع
-                            </button>
+                              <button
+                                type="button"
+                                onClick={() => removeFile(item.key)}
+                                className="rounded-2xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm font-black text-red-200 transition hover:bg-red-500/15"
+                              >
+                                حذف
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="mt-4 grid grid-cols-3 gap-2 text-center text-[11px] font-black text-[#c9d1ca]">
+                          <span className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                            كل الزوايا ظاهرة
+                          </span>
+                          <span className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                            بدون وهج
+                          </span>
+                          <span className="rounded-xl border border-white/10 bg-white/5 px-2 py-2">
+                            JPG/PNG حتى 5MB
+                          </span>
+                        </div>
+
+                        {needsAttention && (
+                          <div
+                            className="mt-4 rounded-2xl border border-red-300/45 bg-red-500/12 p-3 text-sm font-black text-red-100"
+                            role="alert"
+                          >
+                            هذا المستند مطلوب قبل المتابعة.
                           </div>
                         )}
                       </div>
                     );
                   })}
+                </div>
+
+                <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.20)] bg-[rgba(255,255,255,0.035)] p-4">
+                  <p className="text-sm font-black text-[#f3dfac]">ليش نطلب الهوية؟</p>
+                  <p className="mt-2 text-xs font-bold leading-6 text-[#c9d1ca]">
+                    للتحقق الأولي من جدية الطلب ومنع الطلبات الوهمية. لا يوجد دفع أثناء التقديم، وتُستخدم الوثائق فقط لمراجعة الطلب من الإدارة المخولة.
+                  </p>
                 </div>
               </section>
             </>
@@ -1798,6 +2029,28 @@ ${cleanDigits(phone)}
                 </div>
               </section>
             </>
+          )}
+
+          {currentStep === 3 && (
+            <div
+              className={`rounded-2xl border px-4 py-3 text-sm font-black ${
+                identityUploadsComplete
+                  ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-100"
+                  : "border-amber-300/40 bg-amber-400/10 text-amber-100"
+              }`}
+              aria-live="polite"
+            >
+              <div className="flex items-center justify-between gap-3">
+                <span>
+                  {identityUploadsComplete
+                    ? "✓ صور الهوية مكتملة — تقدر تنتقل للمراجعة"
+                    : `صور الهوية: ${selectedUploadCount} من ${uploadTypes.length} — ارفع الصورتين قبل المتابعة`}
+                </span>
+                <span className="shrink-0 rounded-full border border-white/20 px-3 py-1 text-xs">
+                  {identityUploadsComplete ? "مكتمل" : "مطلوب"}
+                </span>
+              </div>
+            </div>
           )}
 
           <div className="sticky bottom-4 z-30 grid gap-3 rounded-3xl border border-[rgba(214,181,107,0.18)] bg-[#03120e]/90 p-3 shadow-2xl backdrop-blur-xl sm:grid-cols-2">
