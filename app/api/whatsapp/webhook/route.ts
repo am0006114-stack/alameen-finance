@@ -2132,6 +2132,17 @@ function isTrackingLinkRequestText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
 
+  // V1.6.5: specific operational links must not be converted to /track.
+  const specificOperationalContext = hasAny(t, [
+    "هوية", "هويه", "الهوية", "الهويه",
+    "وصل", "ايصال", "إيصال", "حواله", "حوالة",
+    "كشف راتب", "شهادة راتب", "شهاده راتب",
+    "كفيل", "الضامن", "ضامن",
+    "استرداد", "استرجاع", "refund",
+    "اختيار الجهاز", "تغيير الجهاز", "تعديل الجهاز",
+  ]);
+  if (specificOperationalContext) return false;
+
   const asksForLink = hasAny(t, [
     "ممكن الرابط", "ابعث الرابط", "ابعت الرابط", "ارسل الرابط", "وين الرابط", "اين الرابط", "أين الرابط", "هات الرابط",
     "اين الرايط", "وين الرايط", "بدي الرايط",
@@ -2314,7 +2325,18 @@ function isSiteOrTrackingSystemIssueText(text: string) {
 
 function isOfficePickupPolicyText(text: string) {
   const t = normalizeArabicText(text);
-  if (!t || isOfficeLocationText(t)) return false;
+  if (!t) return false;
+
+  // V1.6.5: "بقدر أكمل الطلب بالفرع/المكتب؟" is an office-process question,
+  // not a payment/review follow-up. Customer-facing replies still use "المكتب" only.
+  const officeCompletionQuestion = hasAny(t, [
+    "اكمل الطلب بالفرع", "أكمل الطلب بالفرع", "اكمل بالفرع", "أكمل بالفرع",
+    "اكمل الطلب بالمكتب", "أكمل الطلب بالمكتب", "اكمل بالمكتب", "أكمل بالمكتب",
+    "اقدم بالمكتب", "أقدم بالمكتب", "اقدم بالفرع", "أقدم بالفرع",
+  ]);
+  if (officeCompletionQuestion) return true;
+
+  if (isOfficeLocationText(t)) return false;
 
   const aramexContext = hasAny(t, [
     "ارامكس", "أرامكس", "aramex", "ارامكسو", "ارمكس",
@@ -5185,6 +5207,12 @@ function reviewAndCallReply(app: ApplicationRecord | null, from: string, custome
 function unknownReply(_from: string, app?: ApplicationRecord | null, customerText = "") {
   const t = normalizeArabicText(customerText);
 
+  // V1.6.5: emoji-only acknowledgements must never ask the customer to rewrite a question.
+  const raw = String(customerText || "").trim();
+  if (raw && !/[\p{L}\p{N}]/u.test(raw)) {
+    return "الله يسعدك 🌿";
+  }
+
   if (isPureNonTransactionalUtteranceText(customerText)) {
     if (hasAny(t, ["ان شاء الله", "إن شاء الله"])) return "إن شاء الله 🌿";
     return "الله يحييك 🌿";
@@ -5830,6 +5858,9 @@ async function handleDocumentAutomation(input: {
   const submitted = isDocumentSubmittedText(text);
   const officialUploadConfirmed = isOfficialUploadConfirmationText(text);
   const linkRequest = isDocumentLinkRequestText(text);
+  const explicitTrackingLinkContext =
+    isTrackingLinkRequestText(text) &&
+    hasAny(normalizeArabicText(text), ["تتبع", "التتبع", "متابعه", "متابعة"]);
 
   // إذا قاعدة البيانات تؤكد أن المستند وصل، لا نطلب من العميل رفعه مرة ثانية.
   if (status === "guarantor_submitted" && (hasGuarantorContext || String(intent) === "requirements" || String(intent) === "order_status")) {
@@ -5882,7 +5913,7 @@ async function handleDocumentAutomation(input: {
   // never to /track and never to WhatsApp media upload.
   if (
     ["needs_identity", "identity_requested"].includes(status) &&
-    (hasIdentityContext || linkRequest || explicitRequirementsOverview)
+    (hasIdentityContext || (linkRequest && !explicitTrackingLinkContext) || explicitRequirementsOverview)
   ) {
     return `تفضل، هذا رابط رفع الهوية المرتبط بطلبك:
 ${identityUrl(baseUrl, app)}
@@ -7226,7 +7257,12 @@ function explicitLinkRecoveryReply(
   else if (hasAny(text, ["هويه", "هوية", "الهوية", "الهويه"])) url = identityUrl(baseUrl, app);
   else if (hasAny(text, ["كشف راتب", "شهادة راتب", "شهاده راتب", "راتب"])) url = salarySlipUrl(baseUrl, app);
   else if (hasAny(text, ["كفيل", "الضامن", "ضامن"])) url = guarantorUrl(baseUrl, app);
-  else if (hasAny(text, ["استرداد", "استرجاع", "تأخير", "تاخير"])) url = delayUrl(baseUrl, app);
+  else if (hasAny(text, ["استرداد", "استرجاع", "تأخير", "تاخير"])) {
+    // V1.6.5 CRITICAL: never expose the refund/delay-decision link unless
+    // confirmed payment evidence exists. The refund intent path owns any mutation.
+    if (!hasConfirmedRefundPayment(app)) return fallbackReply;
+    url = delayUrl(baseUrl, app);
+  }
   else if (hasAny(text, ["اختيار الجهاز", "اختيار جهاز"])) url = hasSpecificSelectedDevice(app.device_name)
     ? changeDeviceUrl(baseUrl, app)
     : selectDeviceUrl(baseUrl, app);
@@ -7600,6 +7636,20 @@ function finalizeLastMileDeliveryReply(reply: string, options: {
   }
 
   let clean = applyFinalSendGuard(String(reply || ""), app);
+
+  // V1.6.5: a direct refund-status/timing question must never collapse to the generic
+  // "rewrite your question" fallback. No mutation occurs here.
+  if (
+    app &&
+    hasAny(normalizeArabicText(options.text), ["متى الاسترداد", "وين الاسترداد", "شو صار بالاسترداد", "شو صار على الاسترداد"]) &&
+    normalizeArabicText(clean).includes(normalizeArabicText("اكتب سؤالك نفسه بجملة واحدة"))
+  ) {
+    clean = app.status === "refund_requested" || app.payment_status === "refund_requested"
+      ? refundAlreadyRequestedReply(app, options.text)
+      : `ما بدي أعطيك حالة استرداد غير موجودة على الملف. إذا قصدك تطلب استرداد رسوم فتح الملف اكتبها بشكل صريح، وبنطبق الإجراء فقط إذا كان الدفع مؤكدًا على الطلب.
+رقم الطلب: ${app.tracking_id || app.id}`;
+    clean = applyFinalSendGuard(clean, app);
+  }
 
   if (isLikelyIncompleteReply(clean) || replyTooShortForIntent(clean, options.intent)) {
     clean = incompleteReplyRecovery({

@@ -163,6 +163,19 @@ function isExplicitHumanRequest(value: string) {
 function isExplicitTrackingLinkRequest(value: string) {
   const text = n(value);
   if (!text) return false;
+
+  // V1.6.5: a specific operational link request is not a generic tracking-link request.
+  // Let the production route resolve identity / receipt / guarantor / salary / refund safely.
+  const specificOperationalContext = hasAny(text, [
+    "هوية", "هويه", "الهوية", "الهويه",
+    "وصل", "ايصال", "إيصال", "حواله", "حوالة",
+    "كشف راتب", "شهادة راتب", "شهاده راتب",
+    "كفيل", "الضامن", "ضامن",
+    "استرداد", "استرجاع", "refund",
+    "اختيار الجهاز", "تغيير الجهاز", "تعديل الجهاز",
+  ]);
+  if (specificOperationalContext) return false;
+
   const direct = hasAny(text, [
     "وين الرابط", "اين الرابط", "أين الرابط", "اين الرايط", "وين الرايط",
     "بدي الرابط", "ابعث الرابط", "ابعت الرابط", "ارسل الرابط", "أرسل الرابط",
