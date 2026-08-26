@@ -2611,12 +2611,28 @@ function isClearlyExternalCommerceText(text: string) {
   return external && !alameen;
 }
 
+function isLegacyLimitedStockUiMessageText(text: string) {
+  const t = normalizeArabicText(text);
+  return hasAny(t, ["مخزون محدود", "المخزون محدود"]);
+}
+
 function isProductAvailabilityUiIssueText(text: string) {
   const t = normalizeArabicText(text);
   return hasAny(t, [
     "مخزون محدود", "المخزون محدود", "ما لقينا جهاز مطابق", "ما لقينا جهازا مطابقا",
     "ما لقيت الجهاز بالموقع", "مش لاقي الجهاز بالموقع",
   ]);
+}
+
+function limitedStockUiCorrectionReply(baseUrl: string) {
+  return `الرسالة اللي كانت تظهر لك «مخزون محدود» كانت بسبب خطأ تقني بواجهة الموقع فقط، وما كانت تعني إن الجهاز غير متوفر.
+
+تم تصحيح المشكلة، وتقدر ترجع لقائمة الأجهزة وتختار الجهاز وتكمل تقديم الطلب بشكل طبيعي.
+
+رابط الأجهزة:
+${baseUrl}/products
+
+وبنعتذر منك عن اللخبطة اللي صارت.`;
 }
 
 function isInstallmentAndRequirementsQuestionText(text: string) {
@@ -4757,10 +4773,11 @@ function safeReply(app: ApplicationRecord, baseUrl: string, customerText = "", i
   if (String(intent) === "installment_info") return installmentInfoReply(baseUrl, app.phone || tracking, customerText, app);
   if (String(intent) === "requirements") return applicationDocumentsReply(app);
   if (String(intent) === "products") {
+    if (isLegacyLimitedStockUiMessageText(customerText)) {
+      return limitedStockUiCorrectionReply(baseUrl);
+    }
     if (isProductAvailabilityUiIssueText(customerText)) {
-      return `إذا الموقع عم يعطيك «مخزون محدود» عند اختيار جهاز، هاي رسالة توفر من صفحة الأجهزة وليست رفضًا لطلبك.
-
-ارجع لقائمة الأجهزة واختَر جهازًا ظاهرًا كمتاح، ولا تعيد إنشاء أكثر من طلب لنفس المشكلة. إذا بقيت الرسالة على جهاز ظاهر كمتاح، ابعث اسم الجهاز ونص الرسالة فقط وبنراجع المشكلة.`;
+      return `إذا جهاز معيّن ما ظهر عندك بالموقع، ابعثلي اسم الجهاز أو الموديل اللي بتدور عليه وبوضحلك الخطوة المناسبة بدون ما نفترض إنه غير متوفر.`;
     }
     if (isAdditionalDeviceQuestionText(customerText)) {
       return `طلبك الحالي مرتبط بالجهاز المسجل عليه. ما عندي إجراء معتمد أقدر أوعدك من خلاله بإضافة جهاز ثاني على نفس الطلب وهو قيد الدراسة.
@@ -5222,8 +5239,12 @@ function unknownReply(_from: string, app?: ApplicationRecord | null, customerTex
     return "إذا قصدك طلبية شي إن، هاي مش مرتبطة بطلب الأمين للأقساط. إذا عندك سؤال عن طلب الأمين ابعث رقم التتبع أو سؤالك عنه مباشرة.";
   }
 
+  if (isLegacyLimitedStockUiMessageText(customerText)) {
+    return limitedStockUiCorrectionReply("https://www.ameenfinance.co");
+  }
+
   if (isProductAvailabilityUiIssueText(customerText)) {
-    return "إذا ظهر لك «مخزون محدود» أو الجهاز ما ظهر بالبحث، لا تعيد تقديم الطلب أكثر من مرة. ارجع لقائمة الأجهزة وتأكد من الخيار المتاح؛ التوفر الظاهر بالموقع هو المعتمد حاليًا.";
+    return "إذا جهاز معيّن ما ظهر عندك بالموقع، ابعثلي اسم الجهاز أو الموديل اللي بتدور عليه وبوضحلك الخطوة المناسبة بدون ما نفترض إنه غير متوفر.";
   }
 
   if (isExplicitHumanAgentRequestText(customerText)) {
@@ -6933,6 +6954,12 @@ function enforceApplicationTruth(reply: string, input: AiReplyInput) {
     status === "customer_confirmed_continue" ||
     ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus);
 
+  // V1.6.4.2: the old “مخزون محدود” banner was a UI bug, not an availability signal.
+  // Never let AI reinterpret that historical banner as proof that a device is unavailable.
+  if (isLegacyLimitedStockUiMessageText(input.customerText || "")) {
+    return input.deterministicReply;
+  }
+
   const internalNarration = [
     "رح أجاوب على آخر سؤال",
     "رح أجاوب على نفس النقطة مباشرة",
@@ -8418,6 +8445,10 @@ function siteIssueReply(baseUrl: string, from: string, app?: ApplicationRecord |
   void from;
   const t = normalizeArabicText(customerText);
   const requestRef = tracking || app?.tracking_id || app?.id || "";
+
+  if (isLegacyLimitedStockUiMessageText(customerText)) {
+    return limitedStockUiCorrectionReply(baseUrl);
+  }
   const applyingIssue = hasAny(t, [
     "اقدم الطلب", "أقدم الطلب", "التقديم", "حدث خطا في الاتصال", "حدث خطأ في الاتصال",
     "خطا في الاتصال", "خطأ في الاتصال", "اختار جهاز", "اختيار جهاز", "مخزون محدود",
@@ -9777,6 +9808,10 @@ ${BUSINESS_NAME}`;
   if (app) {
     deterministicReply = safeReply(app, baseUrl, text, intent);
 
+    if (isLegacyLimitedStockUiMessageText(text)) {
+      return deterministicReply;
+    }
+
     if (shouldReturnExactCustomerReply(intent)) {
       return deterministicReply;
     }
@@ -9922,6 +9957,10 @@ ${POST_EID_DELIVERY_STRICT_TEXT}.
 بخدمتك بأي وقت.`;
   } else {
     deterministicReply = unknownReply(from, app, text);
+  }
+
+  if (isLegacyLimitedStockUiMessageText(text)) {
+    return deterministicReply;
   }
 
   const factualIntentNeedsExactReply = shouldReturnExactHumanFirstReply(intent);

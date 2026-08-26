@@ -1144,8 +1144,7 @@ ${cleanDigits(phone)}
                   </h3>
 
                   <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
-                    اختر اللون الأساسي، واكتب بدائل إذا عندك. توفر اللون يعتمد
-                    على المخزون وقت الموافقة والتجهيز.
+                    اختر اللون الأساسي، واكتب بدائل إذا عندك. ويتم تثبيت اللون النهائي معك عند التجهيز.
                   </p>
                 </div>
 
@@ -1538,10 +1537,6 @@ ${cleanDigits(phone)}
                         <p className="text-sm font-bold text-[#f3dfac]">
                           الجهاز المختار
                         </p>
-                        {/* 🚀 شارة المخزون المحدود في خطوة 3 أيضاً */}
-                        <span className="inline-flex items-center rounded-full bg-red-600/20 px-2 py-0.5 text-xs font-black text-red-300 border border-red-500/30">
-                          ⚠️ مخزون محدود
-                        </span>
                       </div>
 
                       <h2 className="mt-2 text-2xl font-black text-white">
@@ -1585,7 +1580,7 @@ ${cleanDigits(phone)}
                       </h3>
 
                       <p className="mt-2 text-sm font-bold leading-7 text-[#d7ddd5]">
-                        اختر اللون الأساسي، واكتب بدائل إذا عندك. توفر اللون يعتمد على المخزون وقت الموافقة والتجهيز.
+                        اختر اللون الأساسي، واكتب بدائل إذا عندك. ويتم تثبيت اللون النهائي معك عند التجهيز.
                       </p>
                     </div>
 
