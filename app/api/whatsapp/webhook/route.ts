@@ -1272,12 +1272,12 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
     if (isLongDelayComplaintText(customerText)) {
       return `معك حق، الانتظار طال أكثر من المعتاد.
 
-مدة المراجعة المعتادة من يومين إلى 3 أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+ما بدي أكرر عليك مدة تقديرية وأعطيك وعد مش مؤكد؛ المراجعة ماشية حسب الدور وضغط الملفات واكتمال البيانات.
 
 ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أعطيك الحالة الحالية بدقة.`;
     }
 
-    return `مدة دراسة الطلب عادةً من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.`;
+    return `ما في مدة ثابتة أقدر أوعدك فيها؛ دراسة الطلب ماشية حسب الدور وضغط المراجعات واكتمال البيانات. إذا عندك طلب مسجل ابعث رقم التتبع وبعطيك حالته الحالية بدون تخمين.`;
   }
 
   const status = app.status || "";
@@ -1286,10 +1286,7 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
 
   if (wantsOperationalPicture) {
     const approved = ["approved", "customer_accepts_delivery_delay"].includes(status);
-    const statusLine = approved
-      ? null
-      : `وبالنسبة لطلبك نفسه: ${stageCustomerStatusLine(app)}`;
-
+    const statusLine = approved ? null : `وبالنسبة لطلبك نفسه: ${stageCustomerStatusLine(app)}`;
     return `${buildOperationalTransparencyParagraph({
       seed: `${from}:${tracking}:${customerText}`,
       customerSpecificApproved: approved,
@@ -1301,70 +1298,58 @@ function reviewTimeReply(from: string, app?: ApplicationRecord | null, baseUrl?:
   }
 
   if (isLongDelayComplaintText(customerText)) {
-    return `معك حق، الطلب طال أكثر من المدة المعتادة.
+    return `معك حق، الطلب طال أكثر من المعتاد.
 
 الحالة الظاهرة حاليًا: ${statusHumanLabel(status)}.
-حاليًا في ضغط كبير على مراجعة الملفات، والطلبات ماشية حسب ترتيبها، وهذا أثر على سرعة الرد.
+الملفات ماشية حسب الدور وفي ضغط على المراجعات، وما بدي أعطيك موعد جديد غير مؤكد.
 
-ما بدي أعطيك موعد غير مؤكد، وأول ما يظهر قرار فعلي رح يصلك تحديث.
+${currentCustomerActionLine(app, baseUrl)}
 رقم الطلب: ${tracking}`;
   }
 
   if (status === "approved" || status === "customer_accepts_delivery_delay") {
-    return `طلبك عليه موافقة نهائية. سؤال المدة هنا صار متعلق بموعد الاستلام، وما في موعد استلام مؤكد حاليًا.
+    return `طلبك عليه موافقة نهائية. اللي باقي هو ترتيب موعد الاستلام، وما في موعد مؤكد ظاهر حاليًا.
 
 أول ما يتم اعتماد الموعد رح يصلك تحديث.
 رقم الطلب: ${tracking}`;
   }
 
-  if (status === "rejected") {
-    return `الطلب غير موافق عليه، وما في دراسة جديدة أو قرار آخر بانتظاره على نفس الطلب.
+  if (status === "rejected") return `الطلب غير موافق عليه، وما في دراسة جديدة أو قرار آخر بانتظاره على نفس الطلب.
 
 رقم الطلب: ${tracking}`;
-  }
-
-  if (status === "cancelled") {
-    return `الطلب ملغي، لذلك ما في دراسة جارية عليه حاليًا.
+  if (status === "cancelled") return `الطلب ملغي، لذلك ما في دراسة جارية عليه حاليًا.
 
 رقم الطلب: ${tracking}`;
-  }
-
-  if (status === "refund_requested" || paymentStatus === "refund_requested") {
-    return `طلب الاسترداد مسجل وقيد المراجعة، وما في مدة دراسة موافقة جارية على الطلب حاليًا.
+  if (status === "refund_requested" || paymentStatus === "refund_requested") return `طلب الاسترداد مسجل وقيد المراجعة، وما في مدة موافقة جارية على الطلب حاليًا.
 
 رقم الطلب: ${tracking}`;
-  }
 
   if (paymentStatus === "customer_claimed_paid") {
     return `الوصل حاليًا بانتظار التأكيد، فلا تعيد الدفع.
 
-بعد تأكيد الوصل تُستكمل دراسة الملف، والنتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.
-
+بعد تأكيده بتستكمل دراسة الملف حسب الدور وضغط المراجعات، وما بدي أعطيك مدة غير مؤكدة.
 رقم الطلب: ${tracking}`;
   }
 
   if (paymentStatus === "confirmed" || status === "under_review" || ["needs_guarantor", "needs_salary_slip", "needs_identity", "identity_requested", "salary_slip_uploaded", "guarantor_submitted"].includes(status)) {
-    return `دراسة الملف عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال المتطلبات، والجمعة والسبت ما بتنحسب.
+    return `ملفك حاليًا ${statusHumanLabel(status)}، والمراجعة ماشية حسب الدور وضغط الملفات.
 
-حالة طلبك الحالية: ${statusHumanLabel(status)}.
 ${currentCustomerActionLine(app, baseUrl)}
+ما بدي أوعدك بمدة غير مؤكدة، وأول ما يظهر قرار فعلي رح يصلك تحديث.
 رقم الطلب: ${tracking}`;
   }
 
-  if (
-    status === "preliminary_qualified" ||
-    status === "customer_confirmed_continue" ||
-    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus)
-  ) {
-    return `المدة المعتادة للدراسة من يومين إلى 3 أيام عمل، وتبدأ بعد رفع وصل رسوم فتح الملف وتأكيده. الجمعة والسبت ما بتنحسب.
+  if (status === "preliminary_qualified" || status === "customer_confirmed_continue" || ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus)) {
+    return `الدراسة الفعلية بتكمل بعد استكمال الخطوة المطلوبة على الملف وتأكيدها.
 
 ${currentCustomerActionLine(app, baseUrl)}
+بعدها الملف بيمشي حسب الدور وضغط المراجعات، بدون موعد ثابت أقدر أوعدك فيه.
 رقم الطلب: ${tracking}`;
   }
 
-  return `مدة دراسة الطلب عادةً من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+  return `حالة طلبك الحالية: ${statusHumanLabel(status)}.
+المراجعة ماشية حسب الدور وضغط الملفات، وما بدي أعطيك مدة غير مؤكدة.
 
-حالة طلبك الحالية: ${statusHumanLabel(status)}.
 رقم الطلب: ${tracking}`;
 }
 
@@ -2588,10 +2573,14 @@ function isExplicitHumanAgentRequestText(text: string) {
   const t = normalizeArabicText(text);
   if (!t) return false;
   return hasAny(t, [
-    "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "بدي حدا يحكي معي", "بدي حد يحكي معي",
-    "بدي انسان", "بدي إنسان", "بدي بني ادم", "بدي بني آدم", "بدي بني تدم", "بدي بشر", "وين البشر",
-    "حدا حقيقي", "شخص حقيقي", "موظف حقيقي", "انت روبوت", "انت روبورت", "انتي روبوت", "انتي روبورت",
-    "talk to a human", "live agent", "real person",
+    "بدي موظف", "احكي مع موظف", "بدي احكي مع موظف", "ممكن اتواصل مع موظف", "ممكن أتواصل مع موظف",
+    "بدي اتواصل مع موظف", "بدي أتواصل مع موظف", "بدي اتواصل مع حدا من الموظفين", "بدي أتواصل مع حدا من الموظفين",
+    "بدي حدا يحكي معي", "بدي حد يحكي معي", "بدي شخص احكي معه", "بدي شخص أحكي معه",
+    "بدي انسان", "بدي إنسان", "بدي بني ادم", "بدي بني آدم", "بدي بني تدم", "بدي بشر", "بدي بشرر",
+    "بدي اتواصل مع بشر", "بدي أتواصل مع بشر", "وين البشر", "حدا حقيقي", "شخص حقيقي", "موظف حقيقي",
+    "رد آلي", "رد الي", "رد ألي", "مش رد آلي", "ما بدي رد آلي", "ما بدي رد الي",
+    "انت روبوت", "انت روبورت", "انتي روبوت", "انتي روبورت", "اللي بيحكي معي ai", "اللي بحكي معي ai",
+    "ما بدي احكي مع ai", "ما بدي أحكي مع ai", "talk to a human", "live agent", "real person",
   ]);
 }
 
@@ -2599,8 +2588,45 @@ function isPureNonTransactionalUtteranceText(text: string) {
   const t = normalizeArabicText(text).replace(/[؟?!.,،؛:]+$/g, "").trim();
   return [
     "لا اله الا الله", "لا الاه الا الله", "لا إله إلا الله",
+    "لا حول الله", "لا حول ولا قوه الا بالله", "لا حول ولا قوة الا بالله", "لا حول ولا قوة إلا بالله",
     "ان شاء الله", "إن شاء الله", "الله كريم", "الله المستعان",
   ].map((value) => normalizeArabicText(value)).includes(t);
+}
+
+function isExplicitIdentityUploadLinkRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t || !hasAny(t, ["هويه", "هوية", "الهويه", "الهوية"])) return false;
+  return hasAny(t, ["رابط", "لينك", "وين ارفع", "وين أرفع", "احط فيه", "أحط فيه", "ارفع من وين", "أرفع من وين"]);
+}
+
+function isMinimumSalaryQuestionText(text: string) {
+  const t = normalizeArabicText(text);
+  if (!t) return false;
+  return hasAny(t, [
+    "ادنى حد للراتب", "أدنى حد للراتب", "اقل راتب", "أقل راتب", "كم لازم يكون راتبي",
+    "كم الراتب المطلوب", "راتب للقبول", "راتب عشان انقبل", "راتب عشان أنقبل",
+  ]);
+}
+
+function minimumSalaryReply(app?: ApplicationRecord | null) {
+  const statusLine = app ? `\n\nوبالنسبة لطلبك الحالي: ${statusHumanLabel(app.status || "")}.` : "";
+  return `ما في رقم ثابت أقدر أوعدك إن القبول مرتبط فيه. بنراجع الطلب حسب البيانات والمستندات المقدمة ومصدر الدخل أو العمل، والقرار النهائي بيطلع بعد دراسة الملف.${statusLine}`;
+}
+
+function isExplicitAppointmentRequestText(text: string) {
+  const t = normalizeArabicText(text);
+  return hasAny(t, ["بدي موعد", "اريد موعد", "أريد موعد", "موعد استلام", "متى موعدي", "اعطيني موعد", "أعطيني موعد"]);
+}
+
+function appointmentRequestReply(app?: ApplicationRecord | null) {
+  if (!app) return "إذا قصدك موعد الاستلام، الموعد بيتحدد فقط بعد الموافقة النهائية. ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب وبشوفلك الحالة الحالية.";
+  if (["approved", "customer_accepts_delivery_delay"].includes(app.status || "")) return deliveryDateReply(app, "");
+  return `إذا قصدك موعد الاستلام، لسه ما بنثبت موعد قبل الموافقة النهائية. حالة طلبك الحالية: ${statusHumanLabel(app.status || "")}.\nرقم الطلب: ${app.tracking_id || app.id}`;
+}
+
+function isFreshApplicationSubmissionFollowupText(text: string) {
+  const t = normalizeArabicText(text);
+  return hasAny(t, ["سجلت من اول جديد", "سجلت من أول جديد", "رجعت قدمت", "قدمت من جديد", "سجلت من الرقم", "قدمت من الرقم"]);
 }
 
 function isClearlyExternalCommerceText(text: string) {
@@ -3463,6 +3489,14 @@ function refundDeescalationReply(app: ApplicationRecord, customerText = "") {
     ? `${name}، معك حق تكون منزعج، وبنعتذر منك بصدق لأن مدة الانتظار سببت لك ضغطًا وعدم ثقة.`
     : `${name}، فاهمين قلقك وحقك تعرف وين وصل طلب الاسترداد.`;
 
+  const terseFollowup = normalizeArabicText(customerText);
+  if (!urgent && terseFollowup.length > 0 && terseFollowup.length <= 45 && isRefundMoneyFollowupText(customerText)) {
+    return `${name}، فاهمك. طلب الاسترداد نفسه مسجل ولسه ما ظهر تنفيذ جديد.
+
+ما في خطوة مطلوبة منك، وما بدي أوعدك بوقت غير مؤكد. أول ما يظهر تنفيذ فعلي رح يصلك تحديث.
+رقم الطلب: ${tracking}`;
+  }
+
   return `${opening}
 
 طلب الاسترداد مسجل ومحفوظ على رقم طلبك، وما تم إلغاؤه أو تجاهله، ولا تحتاج تعيد تقديمه أو ترسل بياناتك مرة ثانية.
@@ -3841,7 +3875,7 @@ ${paymentDestinationBlock()}
 بعد التحويل ارفع الوصل فقط من الرابط الرسمي:
 ${receiptUrl(baseUrl, app)}
 
-بعد تأكيد الوصل بتستكمل دراسة الملف، وعادةً النتيجة تحتاج من يومين إلى 3 أيام عمل بعد اكتمال المتطلبات، والجمعة والسبت ما بتنحسب.`;
+بعد تأكيد الوصل بتستكمل دراسة الملف حسب الدور وضغط المراجعات. ما بدي أعطيك مدة غير مؤكدة، وأول ما يظهر قرار فعلي رح يصلك تحديث.`;
 }
 
 function paymentAlreadyHandledReply(app: ApplicationRecord) {
@@ -3909,7 +3943,7 @@ ${paymentDestinationBlock()}
 بعد التحويل ارفع الوصل من رابط طلبك:
 ${receiptUrl(baseUrl, app)}
 
-بعد تأكيد الوصل تبدأ متابعة الدراسة، وعادةً تحتاج النتيجة من يومين إلى 3 أيام عمل حسب الضغط واكتمال المتطلبات.`;
+بعد تأكيد الوصل تبدأ متابعة الدراسة حسب الدور وضغط المراجعات، وما بنثبت مدة غير مؤكدة.`;
 }
 
 function paymentNextStepReply(app: ApplicationRecord, baseUrl: string) {
@@ -3920,7 +3954,7 @@ function paymentNextStepReply(app: ApplicationRecord, baseUrl: string) {
 
 ${paymentDestinationBlock()}
 
-النتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال الملف، والجمعة والسبت ما بتنحسب.
+بعد تأكيد الدفع واكتمال الملف، الدراسة بتمشي حسب الدور وضغط المراجعات، وأول ما يظهر قرار فعلي رح يصلك تحديث.
 
 رابط رفع الوصل:
 ${receiptUrl(baseUrl, app)}`;
@@ -3931,12 +3965,12 @@ function paymentReviewTimeReply(app: ApplicationRecord) {
   if (handled) {
     return `${handled}
 
-بعد تأكيد الدفع واكتمال المتطلبات، الدراسة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات، والجمعة والسبت ما بتنحسب.`;
+بعد تأكيد الدفع واكتمال المتطلبات، الدراسة بتمشي حسب الدور وضغط المراجعات، بدون مدة ثابتة نقدر نوعدك فيها.`;
   }
 
   return `بعد دفع رسوم فتح الملف ورفع الوصل، يتم تأكيد الدفع واستكمال دراسة الطلب.
 
-النتيجة عادةً تحتاج من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+المراجعة بتمشي حسب الدور وضغط الملفات واكتمال البيانات. ما بنعطي موعد غير مؤكد، وأول ما يصدر القرار رح يصلك تحديث.
 
 الملفات ماشية حسب ترتيبها، لذلك ما بنعطي موعدًا غير مؤكد، وأول ما يصدر قرار بالموافقة أو عدمها رح يصلك تحديث مباشرة.`;
 }
@@ -4298,11 +4332,11 @@ function reviewAndProcedureReply(app: ApplicationRecord) {
   if (status === "preliminary_qualified" || status === "customer_confirmed_continue") {
     return `بعد دفع رسوم فتح الملف ورفع الوصل، ما عليك أي خطوة ثانية إلا إذا وصلك طلب محدد.
 
-مدة المراجعة عادةً من يومين إلى ثلاث أيام عمل، والجمعة والسبت ما بتنحسب.
+مدة المراجعة بتختلف حسب الدور وضغط الملفات واكتمال البيانات، وما بنعطي موعد غير مؤكد.
 ${action}`;
   }
 
-  return `مدة المراجعة عادةً من يومين إلى ثلاث أيام عمل حسب ضغط الطلبات واكتمال البيانات، والجمعة والسبت ما بتنحسب.
+  return `مدة المراجعة بتختلف حسب الدور وضغط الطلبات واكتمال البيانات، وما بنعطي موعد غير مؤكد.
 
 ${action}`;
 }
@@ -4716,13 +4750,11 @@ ${url}
 
 function repeatedReplyRecoveryReply(intent: CustomerIntent) {
   if (String(intent) === "review_time" || String(intent) === "payment_review_time") {
-    return `مدة دراسة الطلب عادةً من يومين إلى 3 أيام عمل حسب ضغط المراجعات واكتمال البيانات، والجمعة والسبت ما بتنحسب.`;
+    return `بعرف إنك منتظر. ما في مدة جديدة مؤكدة أقدر أعطيك إياها؛ المراجعة ماشية حسب الدور وضغط الملفات، وأول ما يظهر تحديث فعلي رح يوصلك.`;
   }
 
   if (["order_status", "delivery"].includes(String(intent))) {
-    return `فاهم إنك بتتابع لأنك منتظر، لكن ما في تحديث جديد مختلف عن آخر حالة ظاهرة حاليًا.
-
-إذا سؤالك عن نقطة محددة مثل الموافقة أو القسط أو المطلوب منك، اكتبها وبجاوبك عليها مباشرة.`;
+    return `لسه ما ظهر تحديث جديد على الطلب، وبعرف إن الانتظار مزعج. ما في خطوة ناقصة منك حاليًا، وأول ما تتغير الحالة رح يصلك التحديث.`;
   }
 
   return "";
@@ -5248,7 +5280,40 @@ function unknownReply(_from: string, app?: ApplicationRecord | null, customerTex
   }
 
   if (isExplicitHumanAgentRequestText(customerText)) {
-    return `معك ${assignedStaffName(_from)} من فريق الأمين. احكيلي النقطة اللي بدك إياها وبجاوبك عليها مباشرة حسب حالة طلبك.`;
+    return `معك ${assignedStaffName(_from)} من فريق الأمين. شايف إن الردود ضايقتك؛ احكيلي المشكلة نفسها وأنا بكمل معك من هون بدون لف ودوران.`;
+  }
+
+  if (isMinimumSalaryQuestionText(customerText)) {
+    return minimumSalaryReply(app);
+  }
+
+  if (isExplicitIdentityUploadLinkRequestText(customerText)) {
+    if (app) {
+      return `أكيد، هذا رابط رفع الهوية المرتبط بطلبك:
+${identityUrl("https://www.ameenfinance.co", app)}
+
+ارفع الوجه الأمامي والخلفي من الرابط نفسه، ولا ترسل الهوية عبر واتساب.
+رقم الطلب: ${app.tracking_id || app.id}`;
+    }
+    return "أكيد. ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أعطيك رابط رفع الهوية المرتبط بملفك، ولا ترسل الهوية عبر واتساب.";
+  }
+
+  if (isExplicitAppointmentRequestText(customerText)) {
+    return appointmentRequestReply(app);
+  }
+
+  if (app && (isLongDelayComplaintText(customerText) || hasAny(t, ["تاخر كثير", "تأخر كثير", "مهو الو اسبوع", "مهو إلو أسبوع", "اليوم الرابع", "هي اليوم الرابع", "صرلو", "صارلو"]))) {
+    return reviewTimeReply(_from, app, undefined, customerText);
+  }
+
+  if (isFreshApplicationSubmissionFollowupText(customerText)) {
+    return app
+      ? `تمام، وصلتني إنك رجعت قدمت. الطلب الظاهر عندي حاليًا رقمه ${app.tracking_id || app.id} وحالته ${statusHumanLabel(app.status || "")}. إذا طلع لك رقم تتبع جديد مختلف ابعته هون حتى ما نخلط بين الطلبين.`
+      : "تمام، وصلتني إنك رجعت قدمت. إذا ظهر لك رقم تتبع جديد ابعته هون وبنتابع عليه؛ ما بدي أقول إنه وصل قبل ما يظهر عندي بشكل مؤكد.";
+  }
+
+  if (hasAny(t, ["رنيت عالرقم", "رنيت على الرقم", "ما حد برد", "ما حدا برد", "رد علي واحد نايم", "رد علي شخص نايم"])) {
+    return `فاهم ليش هالشي أعطاك انطباع سيئ. التواصل الأساسي للطلبات والمتابعة عبر واتساب، وهون بقدر أراجع معك الطلب حسب المعلومات الظاهرة. إذا الموضوع متعلق بطلبك ابعث رقم التتبع وبكمل معك مباشرة.`;
   }
 
   if (hasAny(t, ["الرقم صحيح", "مقدم بنفس الرقم", "مقدّم بنفس الرقم"])) {
@@ -5271,7 +5336,11 @@ function unknownReply(_from: string, app?: ApplicationRecord | null, customerTex
     return "تفضل، احكيلي سؤالك.";
   }
 
-  return "اكتب سؤالك نفسه بجملة واحدة، وبجاوبك على نفس النقطة مباشرة.";
+  if (app) {
+    return `فاهم عليك. إذا قصدك الطلب الحالي، احكيلي شو النقطة اللي مقلقتك فيه وأنا بجاوبك من الحالة الظاهرة عندي بدون تخمين.`;
+  }
+
+  return "أكيد، احكيلي شو اللي بدك تعرفه وأنا معك.";
 }
 
 function envFlag(name: string, defaultValue = true) {
@@ -7611,7 +7680,11 @@ function applyFinalSendGuard(reply: string, app?: ApplicationRecord | null) {
     compacted.push(clean);
   }
 
-  return compacted.join("\n").trim();
+  let customerFacing = compacted.join("\n").trim();
+  customerFacing = customerFacing
+    .replace(/الفروع/g, "المكتب")
+    .replace(/الفرع/g, "المكتب");
+  return customerFacing;
 }
 
 function finalizeLastMileDeliveryReply(reply: string, options: {
@@ -7621,6 +7694,42 @@ function finalizeLastMileDeliveryReply(reply: string, options: {
   application?: ApplicationRecord | null;
 }) {
   const app = options.application || null;
+
+  // V1.6.4.3 CURRENT-MESSAGE HUMAN CONTINUITY: explicit present-message needs
+  // outrank stale intent labels and generic fallback text.
+  if (isExplicitHumanAgentRequestText(options.text)) {
+    return applyFinalSendGuard(`معك ${assignedStaffName(options.from)} من فريق الأمين. شايف إن الردود ضايقتك؛ احكيلي المشكلة نفسها وأنا بكمل معك من هون بدون لف ودوران.`, app);
+  }
+
+  if (isMinimumSalaryQuestionText(options.text)) {
+    return applyFinalSendGuard(minimumSalaryReply(app), app);
+  }
+
+  if (isExplicitIdentityUploadLinkRequestText(options.text)) {
+    const identityReply = app
+      ? `أكيد، هذا رابط رفع الهوية المرتبط بطلبك:
+${identityUrl("https://www.ameenfinance.co", app)}
+
+ارفع الوجه الأمامي والخلفي من الرابط نفسه، ولا ترسل الهوية عبر واتساب.
+رقم الطلب: ${app.tracking_id || app.id}`
+      : "أكيد. ابعث رقم التتبع أو رقم الهاتف المستخدم بالطلب حتى أعطيك رابط رفع الهوية المرتبط بملفك، ولا ترسل الهوية عبر واتساب.";
+    return applyFinalSendGuard(identityReply, app);
+  }
+
+  if (isExplicitAppointmentRequestText(options.text)) {
+    return applyFinalSendGuard(appointmentRequestReply(app), app);
+  }
+
+  if (app && (isLongDelayComplaintText(options.text) || hasAny(normalizeArabicText(options.text), ["تاخر كثير", "تأخر كثير", "مهو الو اسبوع", "مهو إلو أسبوع", "اليوم الرابع", "هي اليوم الرابع", "صرلو", "صارلو"]))) {
+    return applyFinalSendGuard(reviewTimeReply(options.from, app, undefined, options.text), app);
+  }
+
+  if (isFreshApplicationSubmissionFollowupText(options.text)) {
+    const submissionReply = app
+      ? `تمام، وصلتني إنك رجعت قدمت. الطلب الظاهر عندي حاليًا رقمه ${app.tracking_id || app.id} وحالته ${statusHumanLabel(app.status || "")}. إذا طلع لك رقم تتبع جديد مختلف ابعته هون حتى ما نخلط بين الطلبين.`
+      : "تمام، وصلتني إنك رجعت قدمت. إذا ظهر لك رقم تتبع جديد ابعته هون وبنتابع عليه؛ ما بدي أقول إنه وصل قبل ما يظهر عندي بشكل مؤكد.";
+    return applyFinalSendGuard(submissionReply, app);
+  }
 
   if (isOfficeLocationText(options.text) && hasAny(options.text, [
     "ممكن ازور", "ممكن أزور", "بقدر ازور", "بقدر أزور", "بدي ازور", "بدي أزور", "بدي اجي عالمكتب", "بدي أجي عالمكتب",
@@ -8204,7 +8313,7 @@ ${customerFacingPolicyInstructions()}
 منطق المحادثة الآمنة البشرية:
 - لا ترد كقالب ثابت. اقرأ رسالة العميل ورد على نفس المعنى.
 - إذا قال العميل "كيفك؟" أو "شخبارك؟" أو سأل سؤالًا خفيفًا، جاوبه طبيعيًا باختصار ثم اسأله كيف تساعده.
-- إذا سأل عن مدة الطلب، اذكر: من يومين إلى ثلاث أيام عمل حسب الضغط واكتمال البيانات، والجمعة والسبت لا تُحسبان ضمن أيام العمل.
+- إذا سأل عن مدة الطلب، لا تعطِ رقم أيام ثابتًا أو وعدًا زمنيًا غير مؤكد. اشرح أن المراجعة حسب الدور وضغط الملفات واكتمال البيانات، وإذا طال الانتظار اعترف بذلك واذكر الحالة الفعلية فقط.
 - إذا كانت رسالة العميل فيها سؤالان أو أكثر، جاوبهم كلهم برد واحد وبنفس الترتيب، ولا ترسل ردًا منفصلًا لكل سطر.
 - ابدأ بجواب السؤال نفسه، ثم اذكر الحالة أو الخطوة المطلوبة عند الحاجة. ممنوع تكرار حالة الطلب بدل الإجابة عن السؤال.
 - فرّق بوضوح بين الموافقة المبدئية والموافقة النهائية. عبارة "مؤهل مبدئيًا" لا تعني موافقة نهائية.
