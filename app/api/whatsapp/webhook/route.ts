@@ -144,6 +144,12 @@ import {
   findExplicitlyNamedApplication,
   isApplicationSpecificIntent,
 } from "./_lib/applicationIdentity";
+import {
+  analyzeConversationTurn,
+  applyConversationKernelReplyGuard,
+  buildConversationKernelActionReply,
+  resolveConversationKernelIntent,
+} from "./_lib/conversationKernel";
 
 export const dynamic = "force-dynamic";
 
@@ -770,6 +776,16 @@ function resolveConversationInput(
   ) {
     intent = "continue_decision";
   }
+
+  // V1.7.0 CONVERSATION KERNEL: resolve self-contained semantic goals before
+  // a stale lexical intent can control the rest of the request lifecycle.
+  intent = resolveConversationKernelIntent({
+    customerText: rawCurrentText,
+    messageType,
+    currentIntent: intent,
+    application: null,
+    memory,
+  });
 
   return { effectiveText, intent };
 }
@@ -8979,6 +8995,43 @@ async function buildReply(request: Request, from: string, text: string, messageT
     return integrityReply;
   }
 
+  // V1.7.0 CONVERSATION KERNEL: bind the current turn to the resolved application
+  // before action routing. Hard transaction integrity above remains authoritative.
+  const kernelTurn = analyzeConversationTurn({
+    customerText: rawCustomerText,
+    messageType,
+    currentIntent: intent,
+    application: app,
+    memory: conversationMemory,
+  });
+  intent = kernelTurn.intentOverride || intent;
+
+  if (app && kernelTurn.actionRequestType) {
+    const actionRequest = await recordApplicationActionRequest(
+      app,
+      kernelTurn.actionRequestType,
+      kernelTurn.requestedChange || rawCustomerText,
+    );
+    const kernelActionReply = buildConversationKernelActionReply(kernelTurn, app, actionRequest);
+    if (actionRequest.ok && !actionRequest.duplicate) {
+      await sendDiscordNotification({
+        title: "Conversation Kernel - application change review",
+        description: `Action request: ${kernelTurn.actionRequestType}`,
+        color: 0xfee75c,
+        app,
+        customerPhone: from,
+        customerMessage: rawCustomerText,
+        systemReply: kernelActionReply,
+        baseUrl,
+      });
+    }
+    return kernelActionReply;
+  }
+
+  if (kernelTurn.immediateReply) {
+    return kernelTurn.immediateReply;
+  }
+
   // V1.4.4.1 CONTEXT INTEGRITY: an active refund state outranks generic payment/review/delivery wording.
   if (app && (app.status === "refund_requested" || app.payment_status === "refund_requested")) {
     if (isRefundResumeFollowupText(rawCustomerText)) {
@@ -10673,6 +10726,16 @@ export async function POST(request: Request) {
         // so every final policy decision must be based on a fresh post-reply read.
         const preReplyApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
 
+        // V1.7.0 CONVERSATION KERNEL: synchronize Final Truth, logs and Shadow
+        // with the same application-aware semantic decision used by buildReply.
+        processingIntent = resolveConversationKernelIntent({
+          customerText: replyInputText,
+          messageType: processingMessageType,
+          currentIntent: processingIntent,
+          application: preReplyApplication,
+          memory: preReplyMemory,
+        });
+        needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
         const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
         const outgoingMemory = await getConversationMemory(from);
         const refreshedApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, outgoingMemory);
@@ -10798,6 +10861,17 @@ export async function POST(request: Request) {
           intent: processingIntent,
           application: finalApplication,
         });
+        // V1.7.0 CONVERSATION KERNEL FINAL COVERAGE GATE: semantic invariants
+        // run after Final Truth and immediately before the outgoing send lock.
+        reply = applyConversationKernelReplyGuard({
+          customerText: replyInputText,
+          messageType: processingMessageType,
+          currentIntent: processingIntent,
+          application: finalApplication,
+          memory: outgoingMemory,
+          reply,
+        });
+        reply = applyFinalSendGuard(reply, finalApplication);
 
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
