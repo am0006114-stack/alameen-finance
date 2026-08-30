@@ -136,7 +136,7 @@ export async function interpretWithProvider(input: {
   openLoops?: Array<{ topic: string; owedBy: string; question?: string | null }>;
   knownFacts?: Array<{ key: string; value: string; topic: string }>;
 }): Promise<V2InterpreterProviderResult> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
+  const apiKey = process.env.DEEPSEEK_V2_API_KEY;
   const model = String(process.env.ALAMEEN_V2_INTERPRETER_MODEL || process.env.DEEPSEEK_PRO_MODEL || "deepseek-v4-pro").trim();
   const baseUrl = String(process.env.DEEPSEEK_BASE_URL || "https://api.deepseek.com").replace(/\/+$/, "");
   const timeoutRaw = Number(process.env.ALAMEEN_V2_INTERPRETER_TIMEOUT_MS || "18000");
@@ -146,7 +146,7 @@ export async function interpretWithProvider(input: {
   if (!apiKey) {
     return {
       ok: false, turn: null, model, latencyMs: 0,
-      errorCode: "missing_api_key", errorMessage: "DEEPSEEK_API_KEY is missing", rawResponse: null,
+      errorCode: "missing_api_key", errorMessage: "DEEPSEEK_V2_API_KEY is missing", rawResponse: null,
     };
   }
 

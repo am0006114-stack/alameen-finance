@@ -206,6 +206,9 @@ async function processJob(job: ShadowJob, workerId: string) {
 }
 
 async function runWorker(request: NextRequest) {
+  if (String(process.env.ALAMEEN_LEGACY_SHADOW_ENABLED || "false").toLowerCase() !== "true") {
+    return NextResponse.json({ error: "Legacy shadow is disabled by default in V2 Phase 2 Archive Lab." }, { status: 423 });
+  }
   if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }

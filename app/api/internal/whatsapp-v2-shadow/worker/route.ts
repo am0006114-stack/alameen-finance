@@ -182,6 +182,9 @@ async function processJob(job: V2ShadowJob, workerId: string) {
 }
 
 async function runWorker(request: NextRequest) {
+  if (String(process.env.ALAMEEN_V2_LIVE_SHADOW_ENABLED || "false").toLowerCase() !== "true") {
+    return NextResponse.json({ error: "V2 live shadow is disabled by default in V2 Phase 2 Archive Lab." }, { status: 423 });
+  }
   if (!(await isAuthorized(request))) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
