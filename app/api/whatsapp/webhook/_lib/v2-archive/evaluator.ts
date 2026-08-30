@@ -2,7 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { deterministicInterpret } from "../v2-conversation/deterministicInterpreter";
 import { contextAsText, loadArchiveContext, loadHistoricalActionRequests } from "./history";
 import { runDeepSeekArchiveReplay, runOpenAiAdjudicator, runOpenAiJudge, V2BudgetBlockedError } from "./providers";
-import { archiveReplyPolicyViolations, isLowValueArchiveNoise, isSimpleSocialArchiveTurn } from "./policyVerifier";
+import { archiveConversationPolicyViolations, archiveReplyPolicyViolations, archiveTruthPolicyViolations, isLowValueArchiveNoise, isSimpleSocialArchiveTurn } from "./policyVerifier";
 import type { ArchiveCase, ArchiveJudgeResult } from "./types";
 
 function uniq(values: string[]) {
@@ -108,8 +108,16 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
     deepseekCost += Number(deepseek.costUsd || 0);
 
     const localFindings = {
-      actual: archiveReplyPolicyViolations(item.actual_reply || ""),
-      candidate: archiveReplyPolicyViolations(deepseek.result.candidate_reply || ""),
+      actual: uniq([
+        ...archiveReplyPolicyViolations(item.actual_reply || ""),
+        ...archiveConversationPolicyViolations(item, item.actual_reply || ""),
+        ...archiveTruthPolicyViolations(item, item.actual_reply || ""),
+      ]),
+      candidate: uniq([
+        ...archiveReplyPolicyViolations(deepseek.result.candidate_reply || ""),
+        ...archiveConversationPolicyViolations(item, deepseek.result.candidate_reply || ""),
+        ...archiveTruthPolicyViolations(item, deepseek.result.candidate_reply || ""),
+      ]),
     };
 
     const primaryJudgeRaw = await runOpenAiJudge({ item, contextText, deepSeek: deepseek.result, localFindings });

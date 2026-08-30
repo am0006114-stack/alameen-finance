@@ -45,7 +45,9 @@ export function ArchiveLabActions({ enabled }: { enabled: boolean }) {
     <button disabled={busy} onClick={() => void control(enabled ? "disable" : "enable")} className={`rounded-xl px-4 py-2 text-sm font-black ${enabled ? "bg-red-700 text-white" : "bg-emerald-600 text-white"}`}>{enabled ? "STOP ALL ARCHIVE AI" : "تشغيل المختبر"}</button>
     <button disabled={busy} onClick={() => void control("seed")} className="rounded-xl border border-white/15 bg-white/5 px-4 py-2 text-sm font-black">تحميل الأرشيف</button>
     <button disabled={busy || !enabled} onClick={() => void runTarget(3)} className="rounded-xl border border-cyan-300/30 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-100">تقييم 3</button>
-    <button disabled={busy || !enabled} onClick={() => void runTarget(20)} className="rounded-xl border border-cyan-300/30 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-100">تقييم 20</button>
+    <button disabled={busy || !enabled} onClick={() => void runTarget(20)} className="rounded-xl border border-cyan-300/30 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-100">تقييم 20 Risk</button>
+    <button disabled={busy || !enabled} onClick={() => void runTarget(100)} className="rounded-xl border border-cyan-300/30 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-100">تقييم 100 Risk</button>
+    <button disabled={busy || !enabled} onClick={() => void runTarget(300)} className="rounded-xl border border-amber-300/30 bg-amber-950/30 px-4 py-2 text-sm font-black text-amber-100">تقييم 300 Risk</button>
     {message ? <span className="w-full text-xs font-bold text-[#b8c2bc]">{message}</span> : null}
   </div>;
 }

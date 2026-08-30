@@ -1,5 +1,6 @@
 import { normalizeArabicText } from "../text";
 import { hasInternalCustomerFacingLanguage } from "../customerFacingPolicy";
+import type { ArchiveCase } from "./types";
 
 function n(value: string | null | undefined) {
   return normalizeArabicText(String(value || ""))
@@ -11,12 +12,48 @@ function uniq(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function includesAny(text: string, needles: string[]) {
+  return needles.some((needle) => text.includes(n(needle)));
+}
+
+function sentenceLooksNegated(sentence: string) {
+  return includesAny(sentence, [
+    "لسنا", "ليست", "ليس", "مش", "غير مرخص", "غير مرخصة", "غير مرخصه",
+    "لا ندعي", "لا تدعي", "لا نقدم", "لا نوفر", "لا نمنح", "لا نقرض",
+    "لا توجد علاقة", "لا يوجد علاقة", "مستقلة تماما", "مستقله تماما",
+  ]);
+}
+
+function truthValue(item: ArchiveCase, key: string) {
+  return item.historical_truth && Object.prototype.hasOwnProperty.call(item.historical_truth, key)
+    ? item.historical_truth[key]
+    : null;
+}
+
+function truthStatus(item: ArchiveCase) {
+  return String(truthValue(item, "status") || "").trim().toLowerCase();
+}
+
+function truthPaymentStatus(item: ArchiveCase) {
+  return String(truthValue(item, "payment_status") || "").trim().toLowerCase();
+}
+
+function isConditionalStatePhrase(text: string, phrase: string) {
+  const idx = text.indexOf(phrase);
+  if (idx < 0) return false;
+  const before = text.slice(Math.max(0, idx - 28), idx);
+  return includesAny(before, ["اذا", "إذا", "في حال", "لو", "بعد", "عند", "لما"]);
+}
+
 export function isLowValueArchiveNoise(value: string | null | undefined, messageType?: string | null) {
   const raw = String(value || "").trim();
   const text = n(raw);
   if (!text) return true;
 
   if (String(messageType || "").toLowerCase() === "unsupported") return true;
+
+  // Punctuation-only archive artifacts such as ".", "..", "...", "؟؟" should cost zero AI.
+  if (raw.replace(/[\s.،,؛;:!؟?…_~\-–—]+/g, "").length === 0) return true;
 
   return [
     "this is a text message",
@@ -56,28 +93,114 @@ export function archiveReplyPolicyViolations(value: string | null | undefined) {
     violations.push("internal_system_language_leak");
   }
 
-  const claimsLicensed = [
-    "مرخص من البنك المركزي", "مرخصه من البنك المركزي", "مرخصة من البنك المركزي",
-    "خاضع لرقابه البنك المركزي", "خاضعه لرقابه البنك المركزي", "خاضعة لرقابة البنك المركزي",
-  ].some((needle) => text.includes(n(needle)));
-  const explicitNegation = [
-    "لسنا مرخصين", "ليست مرخصه", "ليست مرخصة", "لا ندعي", "لا تدعي",
-    "لسنا خاضعين", "ليست خاضعه", "ليست خاضعة",
-  ].some((needle) => text.includes(n(needle)));
-  if (claimsLicensed && !explicitNegation) violations.push("unsupported_central_bank_claim");
+  // Any positive licensing/regulatory claim is forbidden unless the same sentence clearly negates it.
+  const sentences = text.split(/[.!؟?\n]+/).map((x) => x.trim()).filter(Boolean);
+  for (const sentence of sentences) {
+    const mentionsLicense = /مرخص|ترخيص|مرخصه|مرخصة|مرخصين/.test(sentence);
+    const mentionsCentralBank = includesAny(sentence, ["البنك المركزي", "رقابه البنك المركزي", "رقابة البنك المركزي"]);
+    if ((mentionsLicense || mentionsCentralBank) && !sentenceLooksNegated(sentence)) {
+      violations.push(mentionsCentralBank ? "unsupported_central_bank_claim" : "unsupported_license_claim");
+    }
 
-  const financePositiveClaim = [
-    "نحن شركه تمويل", "نحن شركة تمويل", "الأمين شركه تمويل", "الأمين شركة تمويل",
-    "الامين شركه تمويل", "الامين شركة تمويل",
-  ].some((needle) => text.includes(n(needle)));
-  if (financePositiveClaim) violations.push("unsupported_finance_company_claim");
+    // Broad positive financing/lending claims, not just "شركة تمويل".
+    const positiveFinancePhrase = includesAny(sentence, [
+      "نقدم تمويل", "نوفر تمويل", "خدمه تمويل", "خدمة تمويل", "تمويل اجهزه", "تمويل أجهزة",
+      "تمويل الاجهزه", "تمويل الأجهزة", "شركه تمويل", "شركة تمويل", "جهه تمويل", "جهة تمويل",
+      "مؤسسه تمويل", "مؤسسة تمويل", "نمول", "نمنح قروض", "نقدم قروض", "خدمه اقراض", "خدمة إقراض",
+    ]);
+    if (positiveFinancePhrase && !sentenceLooksNegated(sentence)) {
+      violations.push("unsupported_financing_or_lending_claim");
+    }
+  }
 
-  const sendsSensitiveOnWhatsapp = [
-    "ابعث الهويه هون", "ابعث الهوية هون", "ارسل الهويه هون", "أرسل الهوية هون",
-    "ابعث كشف الراتب هون", "ارسل كشف الراتب هون", "ابعث الوصل هون", "ارسل الوصل هون",
-    "ابعث الهويه عالواتساب", "ابعث الهوية عالواتساب", "ارسل الهويه عالواتساب", "أرسل الهوية عالواتساب",
-  ].some((needle) => text.includes(n(needle)));
-  if (sendsSensitiveOnWhatsapp) violations.push("sensitive_document_requested_on_whatsapp");
+  // Sensitive documents/data may only be requested through the official secure link.
+  const asksToSend = includesAny(text, ["ابعث", "ابعت", "ارسل", "أرسل", "زودني", "اعطيني", "أعطيني", "ابعثلنا", "ارسلنا"]);
+  const mentionsSensitive = includesAny(text, [
+    "الهويه", "الهوية", "كشف الراتب", "شهاده الراتب", "شهادة الراتب",
+    "بيانات الكفيل", "معلومات الكفيل", "رقم الكفيل", "هويه الكفيل", "هوية الكفيل",
+  ]);
+  const secureLinkMentioned = includesAny(text, ["الرابط الرسمي", "الرابط الامن", "الرابط الآمن", "رابط الطلب"]);
+  if (asksToSend && mentionsSensitive && !secureLinkMentioned) {
+    violations.push("sensitive_data_requested_outside_official_link");
+  }
+
+  return uniq(violations);
+}
+
+export function archiveConversationPolicyViolations(item: ArchiveCase, reply: string | null | undefined) {
+  const customer = n(item.customer_message);
+  const text = n(reply);
+  if (!customer || !text) return [] as string[];
+  const violations: string[] = [];
+
+  const asksHuman = includesAny(customer, ["بدي موظف", "بدي موضف", "موظف", "موضف", "احكي مع موظف", "احكي مع حدا"]);
+  const acknowledgesHuman = includesAny(text, ["موظف", "موضف", "زميل", "الفريق", "المتابعه البشريه", "المتابعة البشرية", "التصعيد"]);
+  if (asksHuman && !acknowledgesHuman) violations.push("explicit_human_handoff_missed");
+
+  if (item.tracking_id && includesAny(text, ["رقم الطلب", "رقم التتبع"]) && includesAny(text, ["ابعث", "ارسل", "أرسل", "زودني", "اعطيني", "أعطيني", "شو رقم"])) {
+    violations.push("known_tracking_id_reasked");
+  }
+
+  // wa_id is already known to the WhatsApp system; asking for the phone again is unnecessary continuity loss.
+  if (item.wa_id && includesAny(text, ["رقم الهاتف", "رقم تلفون", "رقم الموبايل"]) && includesAny(text, ["ابعث", "ارسل", "أرسل", "زودني", "اعطيني", "أعطيني", "شو رقم"])) {
+    violations.push("known_whatsapp_number_reasked");
+  }
+
+  return uniq(violations);
+}
+
+export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | null | undefined) {
+  const text = n(reply);
+  if (!text) return [] as string[];
+
+  const violations: string[] = [];
+  const confidence = String(item.historical_truth_confidence || "none").toLowerCase();
+  const status = truthStatus(item);
+  const paymentStatus = truthPaymentStatus(item);
+  const paymentConfirmedAt = truthValue(item, "payment_confirmed_at");
+  const reliable = confidence === "high" || confidence === "medium";
+
+  const hasAssertive = (phrases: string[]) => phrases.some((phrase) => text.includes(n(phrase)) && !isConditionalStatePhrase(text, n(phrase)));
+
+  const finalApprovalClaim = hasAssertive(["تمت الموافقه", "تمت الموافقة", "صدرت الموافقه", "صدرت الموافقة", "موافقه نهائيه", "موافقة نهائية", "طلبك موافق"]);
+  const preliminaryApprovalClaim = hasAssertive(["الموافقه المبدئيه تمت", "الموافقة المبدئية تمت", "تمت الموافقه المبدئيه", "تمت الموافقة المبدئية", "مؤهل مبدئيا", "مؤهل مبدئيًا"]);
+  const rejectedClaim = hasAssertive(["تم رفض الطلب", "طلبك مرفوض", "لم تتم الموافقه", "لم تتم الموافقة", "غير موافق عليه"]);
+  const cancelledClaim = hasAssertive(["تم الغاء الطلب", "تم إلغاء الطلب", "الطلب ملغي", "طلبك ملغي"]);
+  const refundRequestedClaim = hasAssertive(["طلب الاسترداد مسجل", "الاسترداد قيد المراجعه", "الاسترداد قيد المراجعة", "قيد الاسترداد"]);
+  const refundCompletedClaim = hasAssertive(["تم تنفيذ الاسترداد", "تم الاسترداد", "اكتمل الاسترداد"]);
+  const paymentConfirmedClaim = hasAssertive(["تم تأكيد الدفع", "الدفع مؤكد", "تم تأكيد الوصل"]);
+  const needsGuarantorClaim = hasAssertive(["مطلوب كفيل", "يحتاج كفيل", "بحاجه لكفيل", "بحاجة لكفيل"]);
+  const guarantorReceivedClaim = hasAssertive(["تم استلام بيانات الكفيل", "استلمنا بيانات الكفيل"]);
+  const needsSalaryClaim = hasAssertive(["مطلوب كشف راتب", "يحتاج كشف راتب", "بحاجه لكشف راتب", "بحاجة لكشف راتب"]);
+  const salaryReceivedClaim = hasAssertive(["تم استلام كشف الراتب", "استلمنا كشف الراتب"]);
+  const needsIdentityClaim = hasAssertive(["مطلوب الهويه", "مطلوب الهوية", "يحتاج رفع الهويه", "يحتاج رفع الهوية"]);
+  const appointmentClaim = hasAssertive(["تم تحديد الموعد", "موعدك محدد", "تم حجز موعد", "موعد الاستلام محدد"]);
+
+  const anyStateClaim = finalApprovalClaim || preliminaryApprovalClaim || rejectedClaim || cancelledClaim || refundRequestedClaim || refundCompletedClaim || paymentConfirmedClaim || needsGuarantorClaim || guarantorReceivedClaim || needsSalaryClaim || salaryReceivedClaim || needsIdentityClaim || appointmentClaim;
+  if (!reliable && anyStateClaim) {
+    violations.push("unsupported_application_state_claim_low_truth");
+    return uniq(violations);
+  }
+
+  if (finalApprovalClaim && !["approved", "customer_accepts_delivery_delay"].includes(status)) violations.push("unsupported_final_approval_claim");
+  if (preliminaryApprovalClaim && ![
+    "preliminary_qualified", "customer_confirmed_continue", "pending_payment", "pending_payment_confirmation",
+    "payment_info_sent", "needs_guarantor", "needs_salary_slip", "needs_identity", "identity_requested",
+    "salary_slip_uploaded", "guarantor_submitted", "under_review", "approved", "customer_accepts_delivery_delay",
+  ].includes(status)) violations.push("unsupported_preliminary_approval_claim");
+  if (rejectedClaim && !["rejected", "not_approved"].includes(status)) violations.push("unsupported_rejection_claim");
+  if (cancelledClaim && status !== "cancelled") violations.push("unsupported_cancellation_claim");
+  if (refundRequestedClaim && !["refund_requested", "refund_completed"].includes(status) && paymentStatus !== "refund_requested") violations.push("unsupported_refund_state_claim");
+  if (refundCompletedClaim && status !== "refund_completed") violations.push("unsupported_refund_completed_claim");
+  if (paymentConfirmedClaim && paymentStatus !== "confirmed" && !paymentConfirmedAt) violations.push("unsupported_payment_confirmed_claim");
+  if (needsGuarantorClaim && status !== "needs_guarantor") violations.push("unsupported_guarantor_requirement_claim");
+  if (guarantorReceivedClaim && status !== "guarantor_submitted") violations.push("unsupported_guarantor_received_claim");
+  if (needsSalaryClaim && status !== "needs_salary_slip") violations.push("unsupported_salary_requirement_claim");
+  if (salaryReceivedClaim && status !== "salary_slip_uploaded") violations.push("unsupported_salary_received_claim");
+  if (needsIdentityClaim && !["needs_identity", "identity_requested"].includes(status)) violations.push("unsupported_identity_requirement_claim");
+
+  // Appointment truth is not reconstructed in archive historical_truth; do not allow invented confirmed appointments.
+  if (appointmentClaim) violations.push("unsupported_appointment_claim");
 
   return uniq(violations);
 }

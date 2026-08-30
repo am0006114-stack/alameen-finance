@@ -75,6 +75,11 @@ function replaySystemPrompt() {
 - إذا قال العميل معلومة قبل لحظات، لا تسأله عنها مرة ثانية.
 - إذا الرسالة فيها سؤالان أو أكثر، يجب أن تغطيهما جميعًا.
 - historical_truth أدناه هو مصدر الحقيقة المتاح لحظة الرسالة. إذا ثقته limited/none، لا تختلق حقيقة مفقودة.
+- لا تقل «تمت الموافقة» أو «الموافقة المبدئية تمت» أو «مطلوب كفيل» أو «تم تأكيد الدفع» أو «تم تحديد موعد» إلا إذا historical_truth يدعمها صراحة. عند نقص الحقيقة استخدم صياغة لا تدعي حالة غير معروفة.
+- عند شكوى مثل «نصب/نصابين/احتيال»: لا تدافع بادعاء أننا مرخصون ولا تقل «نعمل بشكل قانوني». اعترف بالمشكلة واسأل ما الذي حصل تحديدًا أو تابع من السياق المتاح، بدون اختراع حقائق.
+- لا تصف الخدمة كـ«تمويل أجهزة» أو «خدمة تمويل» أو قرض. الوصف الصحيح: بيع أجهزة بالتقسيط / أقساط أجهزة.
+- رقم واتساب العميل معروف للنظام أصلًا؛ لا تطلب رقم الهاتف. وإذا tracking_id معروف أدناه فلا تطلب رقم الطلب/التتبع مرة ثانية.
+- لو الرسالة عامة جدًا مثل «الأقساط» أو «بدي تلفون»، جاوب طبيعيًا بسؤال توضيحي واحد مفيد بدل القفز لمسار متابعة طلب غير مطلوب.
 - لا تنقل أسماء حالات داخلية أو لغة نظام للعميل.
 
 أخرج JSON فقط بالشكل:
@@ -114,7 +119,7 @@ export async function runDeepSeekArchiveReplay(input: {
         model,
         messages: [
           { role: "system", content: replaySystemPrompt() },
-          { role: "user", content: `وقت الرسالة: ${input.item.source_created_at}\nدرجة إعادة بناء الحقيقة: ${input.item.historical_truth_confidence || "none"}\nمصدر الحقيقة: ${input.item.historical_truth_source || "—"}\n\nالسياق السابق:\n${input.contextText || "لا يوجد"}\n\nالرسالة الحالية:\n${input.item.customer_message}\n\nالحقيقة التاريخية المتاحة:\n${JSON.stringify(input.item.historical_truth || {})}\n\nطلبات/إجراءات تاريخية كانت موجودة قبل الرسالة:\n${JSON.stringify(input.historicalActions || [])}\n\nDeterministic safety anchor:\n${JSON.stringify(input.deterministicAnchor || {})}` },
+          { role: "user", content: `وقت الرسالة: ${input.item.source_created_at}\nدرجة إعادة بناء الحقيقة: ${input.item.historical_truth_confidence || "none"}\nمصدر الحقيقة: ${input.item.historical_truth_source || "—"}\n\nالسياق السابق:\n${input.contextText || "لا يوجد"}\n\nالرسالة الحالية:\n${input.item.customer_message}\n\nمعرّفات معروفة للنظام (لا تطلبها مجددًا):\ntracking_id: ${input.item.tracking_id || "غير متوفر"}\nwhatsapp_number_known: ${input.item.wa_id ? "نعم" : "لا"}\n\nالحقيقة التاريخية المتاحة:\n${JSON.stringify(input.item.historical_truth || {})}\n\nطلبات/إجراءات تاريخية كانت موجودة قبل الرسالة:\n${JSON.stringify(input.historicalActions || [])}\n\nDeterministic safety anchor:\n${JSON.stringify(input.deterministicAnchor || {})}` },
         ],
         temperature: 0.1,
         max_tokens: 1200,
@@ -192,6 +197,10 @@ function judgeInstructions() {
 - PAYAMEN اسم دفع ممنوع؛ الأسماء المعتمدة فقط AMEEENPAY وAMENPAY.
 - إذا طلب العميل موظفًا، تجاهل طلبه والاستمرار بسلسلة أسئلة عامة خطأ حرج.
 - إذا قال العميل معلومة قبل لحظات، طلبها منه مرة أخرى خطأ استمرارية.
+- أي ادعاء إيجابي عام بأن الجهة «مرخصة» أو «تعمل بشكل قانوني» بلا حقيقة موثقة خطأ.
+- «تمويل أجهزة/خدمة تمويل/نقدم تمويل/نوفر تمويل» وصف ممنوع؛ الصحيح بيع أجهزة بالتقسيط.
+- لا يجوز اختراع موافقة/رفض/كفيل/تأكيد دفع/استرداد/موعد إذا historical_truth لا يدعمها.
+- رقم واتساب العميل معروف للنظام، وإذا tracking_id متوفر فلا يعاد طلبه دون سبب.
 
 ركز على: فهم قصد العميل، تغطية كل النقاط، الاستمرارية مع السياق، عدم اختلاق حقائق، أمان الإلغاء/الدفع/الاسترداد، والأسلوب البشري الطبيعي.
 أي قلب واضح للإلغاء إلى استمرار/دفع، تجاهل طلب موظف، ادعاء حالة غير مثبتة، اسم تجاري ممنوع، رابط/تعليمات غير مرتبطة بالسؤال، أو تجاهل سؤال صريح = critical failure.
@@ -222,7 +231,7 @@ async function callOpenAiJudge(input: {
       body: JSON.stringify({
         model: input.model,
         instructions: judgeInstructions(),
-        input: `وقت الرسالة: ${input.item.source_created_at}\ntruth confidence: ${input.item.historical_truth_confidence || "none"}\n\nالسياق السابق:\n${input.contextText || "لا يوجد"}\n\nرسالة العميل:\n${input.item.customer_message}\n\nالحقيقة التاريخية:\n${JSON.stringify(input.item.historical_truth || {})}\n\nالرد الفعلي التاريخي:\n${input.item.actual_reply || "[لا يوجد رد فعلي محفوظ]"}\n\nفهم وخطة V2:\n${JSON.stringify({ interpretation: input.deepSeek.interpretation, plan: input.deepSeek.plan, safety_flags: input.deepSeek.safety_flags })}\n\nرد V2 المرشح:\n${input.deepSeek.candidate_reply}`,
+        input: `وقت الرسالة: ${input.item.source_created_at}\ntruth confidence: ${input.item.historical_truth_confidence || "none"}\n\nالسياق السابق:\n${input.contextText || "لا يوجد"}\n\nرسالة العميل:\n${input.item.customer_message}\n\nالحقيقة التاريخية:\n${JSON.stringify(input.item.historical_truth || {})}\n\nالرد الفعلي التاريخي:\n${input.item.actual_reply || "[لا يوجد رد فعلي محفوظ]"}\n\nفهم وخطة V2:\n${JSON.stringify({ interpretation: input.deepSeek.interpretation, plan: input.deepSeek.plan, safety_flags: input.deepSeek.safety_flags })}\n\nرد V2 المرشح:\n${input.deepSeek.candidate_reply}\n\nنتائج الحراس الحتمية (اعتبرها حقائق تقييم وليست اقتراحات):\n${JSON.stringify(input.localFindings || { actual: [], candidate: [] })}`,
         reasoning: { effort: input.effort },
         text: { format: { type: "json_schema", name: "alameen_archive_judge", strict: true, schema: judgeSchema }, verbosity: "low" },
         max_output_tokens: 950,
