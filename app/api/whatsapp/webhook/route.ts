@@ -63,6 +63,7 @@ import {
   isPositiveContinueDecisionText,
 } from "./_lib/stateIntegrity";
 import { enqueueShadowJob } from "./_lib/shadow-core";
+import { enqueueConversationOsShadowJob } from "./_lib/v2-conversation";
 import { buildShadowFacts } from "./_lib/shadow-core/policyRegistry";
 import { detectShadowTopics } from "./_lib/shadow-core/topicDetector";
 import { validateFinalActualReply } from "./_lib/shadow-core/validator";
@@ -10941,6 +10942,34 @@ export async function POST(request: Request) {
               waId: from,
               messageId: message.id || null,
               error: shadowQueueError,
+            });
+          }
+
+          // V2.0 CONVERSATION OS PHASE 0+1 — SHADOW ONLY.
+          // This queue never writes customer-facing replies and never mutates application/payment/refund state.
+          try {
+            await enqueueConversationOsShadowJob({
+              incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+              waId: from,
+              customerName: contactName || null,
+              customerMessage: processingText,
+              messageType: processingMessageType,
+              actualReply: reply,
+              initialIntent: processingIntent,
+              trackingId: shadowTrackingId,
+              application: finalApplication,
+              conversationSnapshot: {
+                conversationContext: outgoingMemory.conversationContext,
+                lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+                lastCustomerMessages: outgoingMemory.lastCustomerMessages,
+              },
+            });
+          } catch (v2ShadowQueueError) {
+            // Additive shadow path: failure is observable but must never affect the real WhatsApp reply.
+            console.error("V2 conversation shadow queue insert failed", {
+              waId: from,
+              messageId: message.id || null,
+              error: v2ShadowQueueError,
             });
           }
         } else {

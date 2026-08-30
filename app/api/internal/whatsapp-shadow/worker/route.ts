@@ -37,17 +37,23 @@ function secureEqual(left: string, right: string) {
 
 async function isAuthorized(request: NextRequest) {
   if (await isAdminLoggedIn()) return true;
+
   const supplied = String(request.headers.get("x-shadow-worker-token") || "");
-  if (!supplied) return false;
+  if (supplied) {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_shadow_settings")
+      .select("value")
+      .eq("key", "worker_token")
+      .maybeSingle();
 
-  const { data, error } = await supabaseAdmin
-    .from("whatsapp_shadow_settings")
-    .select("value")
-    .eq("key", "worker_token")
-    .maybeSingle();
+    if (!error && data?.value && secureEqual(supplied, String(data.value))) return true;
+  }
 
-  if (error || !data?.value) return false;
-  return secureEqual(supplied, String(data.value));
+  const cronSecret = String(process.env.CRON_SECRET || "").trim();
+  const authorization = String(request.headers.get("authorization") || "");
+  if (cronSecret && authorization === `Bearer ${cronSecret}`) return true;
+
+  return false;
 }
 
 function retryAt(attemptCount: number) {
@@ -122,6 +128,18 @@ function evaluationColumns(evaluation: Awaited<ReturnType<typeof evaluateShadowR
   };
 }
 
+
+async function recordLegacyWorkerHeartbeat(key: string, value: string) {
+  const { error } = await supabaseAdmin
+    .from("whatsapp_shadow_settings")
+    .upsert({
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: "key" });
+  if (error) console.error("Legacy shadow worker heartbeat failed", { key, error: error.message });
+}
+
 async function processJob(job: ShadowJob, workerId: string) {
   try {
     const evaluation = await evaluateShadowReply({
@@ -193,15 +211,31 @@ async function runWorker(request: NextRequest) {
   }
 
   const workerId = `shadow:${randomUUID()}`;
+  await recordLegacyWorkerHeartbeat("legacy_worker_last_seen_at", new Date().toISOString());
   await supabaseAdmin.rpc("requeue_stale_whatsapp_shadow_jobs", { p_stale_minutes: 10 });
   const { data, error } = await supabaseAdmin.rpc("claim_whatsapp_shadow_jobs", {
     p_worker_id: workerId,
     p_limit: 2,
   });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    await recordLegacyWorkerHeartbeat("legacy_worker_last_result", JSON.stringify({
+      ok: false,
+      at: new Date().toISOString(),
+      error: error.message,
+    }));
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   const jobs = (data || []) as ShadowJob[];
   const results = await Promise.all(jobs.map((job) => processJob(job, workerId)));
+
+  await recordLegacyWorkerHeartbeat("legacy_worker_last_result", JSON.stringify({
+    ok: true,
+    at: new Date().toISOString(),
+    claimed: jobs.length,
+    succeeded: results.filter((item) => item.status === "succeeded").length,
+    blocked: results.filter((item) => item.status === "blocked").length,
+  }));
 
   return NextResponse.json({ ok: true, workerId, claimed: jobs.length, results });
 }
