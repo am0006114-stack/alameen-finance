@@ -64,7 +64,7 @@ function replaySystemPrompt() {
 4) كتابة candidate reply بشري أردني مهني ومختصر.
 
 قواعد حقيقة وتشغيل لا يجوز خرقها:
-- الاسم: الأمين للأقساط فقط. الجهة ليست بنكًا ولا شركة تمويل/إقراض ولا تدعي ترخيص البنك المركزي.
+- الاسم التشغيلي الوحيد المسموح: الأمين للأقساط. ممنوع حرفيًا استخدام «الأمين للأقساط والتمويل» أو وصف الجهة بأنها شركة تمويل/إقراض. الجهة ليست بنكًا ولا تدعي ترخيص البنك المركزي.
 - الموقع العام قبل الموعد: عمّان – شارع المدينة المنورة فقط. لا عنوان تفصيلي قبل الموعد الرسمي.
 - لا توصيل؛ الاستلام من المكتب بموعد.
 - رسوم فتح الملف 5 دنانير، منفصلة عن ثمن الجهاز والقسط الأول.
@@ -173,9 +173,28 @@ const judgeSchema = {
 };
 
 function judgeInstructions() {
-  return `أنت قاضٍ مستقل لاختبار جودة نظام واتساب. قيّم الرد الفعلي التاريخي والرد المرشح الجديد بصورة مستقلة، ولا تفترض أن أيًا منهما صحيح.
+  return `أنت قاضٍ مستقل لاختبار جودة نظام واتساب للأمين للأقساط. قيّم الرد الفعلي التاريخي والرد المرشح الجديد بصورة مستقلة، ولا تفترض أن أيًا منهما صحيح.
+
+مقياس الدرجات إلزامي:
+- كل حقول الدرجات من 0 إلى 100، وليس من 0 إلى 10.
+- 100 = ممتاز بلا ملاحظات، 90-99 = ممتاز مع ملاحظات طفيفة، 80-89 = جيد لكن يحتاج تحسين، 60-79 = ضعف واضح، أقل من 60 = فشل مهم.
+- ممنوع إعطاء 9 بدل 90 أو 10 بدل 100.
+
+حقائق وسياسات إلزامية عند التقييم:
+- الاسم التشغيلي الوحيد المسموح هو «الأمين للأقساط». استخدام «الأمين للأقساط والتمويل» خطأ حرج.
+- الجهة ليست بنكًا ولا شركة تمويل/إقراض ولا يجوز ادعاء ترخيص أو رقابة البنك المركزي.
+- قبل الموعد الرسمي لا يذكر إلا «عمّان – شارع المدينة المنورة»، ولا يذكر العنوان التفصيلي.
+- لا يوجد توصيل؛ الاستلام من المكتب بموعد.
+- رسوم فتح الملف 5 دنانير، منفصلة عن ثمن الجهاز والقسط الأول.
+- لا Refund من مجرد سؤال، ولا Refund فعلي بلا دليل دفع مؤكد.
+- لا Cancellation من سؤال افتراضي، وممنوع قلب الإلغاء/رفض الاستمرار إلى استمرار أو دفع.
+- المستندات الحساسة لا تُطلب عبر واتساب؛ فقط عبر الرابط الرسمي المخصص.
+- PAYAMEN اسم دفع ممنوع؛ الأسماء المعتمدة فقط AMEEENPAY وAMENPAY.
+- إذا طلب العميل موظفًا، تجاهل طلبه والاستمرار بسلسلة أسئلة عامة خطأ حرج.
+- إذا قال العميل معلومة قبل لحظات، طلبها منه مرة أخرى خطأ استمرارية.
+
 ركز على: فهم قصد العميل، تغطية كل النقاط، الاستمرارية مع السياق، عدم اختلاق حقائق، أمان الإلغاء/الدفع/الاسترداد، والأسلوب البشري الطبيعي.
-أي قلب واضح للإلغاء إلى استمرار/دفع، تجاهل طلب موظف، ادعاء حالة غير مثبتة، رابط/تعليمات غير مرتبطة بالسؤال، أو تجاهل سؤال صريح = critical failure.
+أي قلب واضح للإلغاء إلى استمرار/دفع، تجاهل طلب موظف، ادعاء حالة غير مثبتة، اسم تجاري ممنوع، رابط/تعليمات غير مرتبطة بالسؤال، أو تجاهل سؤال صريح = critical failure.
 إذا historical_truth_confidence = limited/none فلا تعاقب الرد على عدم معرفة شيء غير موثق، لكن عاقبه إن اخترعه.
 أعد JSON وفق schema فقط.`;
 }
@@ -188,6 +207,7 @@ async function callOpenAiJudge(input: {
   purpose: string;
   reserveUsd: number;
   effort: "none" | "low" | "medium";
+  localFindings?: { actual: string[]; candidate: string[] };
 }) {
   const apiKey = String(process.env.OPENAI_V2_API_KEY || "").trim();
   if (!apiKey) throw new Error("OPENAI_V2_API_KEY_missing");
@@ -227,11 +247,11 @@ async function callOpenAiJudge(input: {
   }
 }
 
-export async function runOpenAiJudge(input: { item: ArchiveCase; contextText: string; deepSeek: DeepSeekReplayResult }) {
+export async function runOpenAiJudge(input: { item: ArchiveCase; contextText: string; deepSeek: DeepSeekReplayResult; localFindings?: { actual: string[]; candidate: string[] } }) {
   return callOpenAiJudge({ ...input, model: openAiJudgeModel(), purpose: "archive_judge", reserveUsd: 0.01, effort: "low" });
 }
 
-export async function runOpenAiAdjudicator(input: { item: ArchiveCase; contextText: string; deepSeek: DeepSeekReplayResult }) {
+export async function runOpenAiAdjudicator(input: { item: ArchiveCase; contextText: string; deepSeek: DeepSeekReplayResult; localFindings?: { actual: string[]; candidate: string[] } }) {
   return callOpenAiJudge({ ...input, model: openAiAdjudicatorModel(), purpose: "archive_adjudication", reserveUsd: 0.05, effort: "medium" });
 }
 

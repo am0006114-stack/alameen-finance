@@ -2,27 +2,97 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { deterministicInterpret } from "../v2-conversation/deterministicInterpreter";
 import { contextAsText, loadArchiveContext, loadHistoricalActionRequests } from "./history";
 import { runDeepSeekArchiveReplay, runOpenAiAdjudicator, runOpenAiJudge, V2BudgetBlockedError } from "./providers";
+import { archiveReplyPolicyViolations, isLowValueArchiveNoise, isSimpleSocialArchiveTurn } from "./policyVerifier";
 import type { ArchiveCase, ArchiveJudgeResult } from "./types";
 
 function uniq(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
-function shouldAdjudicate(judge: ArchiveJudgeResult) {
-  const close = Math.abs(Number(judge.candidate?.overall || 0) - Number(judge.actual?.overall || 0)) <= 6;
-  return Boolean(
-    judge.needs_adjudication ||
-    Number(judge.confidence || 0) < 0.84 ||
-    close ||
-    (judge.critical_failures_candidate || []).length > 0
-  );
+const SCORE_KEYS = [
+  "intent_alignment",
+  "multi_topic_coverage",
+  "continuity",
+  "factual_grounding",
+  "action_safety",
+  "human_tone",
+  "overall",
+] as const;
+
+type ScoreSide = ArchiveJudgeResult["actual"];
+
+function normalizeJudgeScoreScale(judge: ArchiveJudgeResult) {
+  const allValues = [judge.actual, judge.candidate]
+    .flatMap((side) => SCORE_KEYS.map((key) => Number(side?.[key] ?? 0)))
+    .filter((value) => Number.isFinite(value));
+
+  // OpenAI occasionally interpreted the rubric as a 0-10 scale even though the
+  // JSON schema allowed 0-100. Only repair when every score is <= 10, so genuine
+  // low 0-100 scores are never multiplied accidentally.
+  const looksLikeTenPointScale = allValues.length === SCORE_KEYS.length * 2 && allValues.every((value) => value >= 0 && value <= 10);
+  if (!looksLikeTenPointScale) return { result: judge, repaired: false };
+
+  const scale = (side: ScoreSide): ScoreSide => {
+    const next = { ...side } as ScoreSide;
+    for (const key of SCORE_KEYS) next[key] = Math.max(0, Math.min(100, Math.round(Number(side[key] || 0) * 10)));
+    return next;
+  };
+
+  return {
+    result: { ...judge, actual: scale(judge.actual), candidate: scale(judge.candidate) },
+    repaired: true,
+  };
+}
+
+function shouldAdjudicate(judge: ArchiveJudgeResult, item: ArchiveCase, localCandidateCritical: string[]) {
+  // A deterministic policy violation cannot be rescued by a more expensive judge.
+  if (localCandidateCritical.length > 0) return false;
+
+  // Greetings/thanks are intentionally cheap. Luna is sufficient for the first pass.
+  if (isSimpleSocialArchiveTurn(item.customer_message)) return false;
+
+  const gap = Math.abs(Number(judge.candidate?.overall || 0) - Number(judge.actual?.overall || 0));
+  const lowConfidence = Number(judge.confidence || 0) < 0.80;
+  const trulyClose = gap <= 5;
+  const explicitUncertainty = Boolean(judge.needs_adjudication) && gap <= 8;
+
+  return Boolean(lowConfidence || judge.winner === "tie" || trulyClose || explicitUncertainty);
 }
 
 function selectFinalJudge(primary: ArchiveJudgeResult, adjudication: ArchiveJudgeResult | null) {
   return adjudication || primary;
 }
 
+async function skipNoiseCase(item: ArchiveCase, workerId: string) {
+  const { error } = await supabaseAdmin
+    .from("whatsapp_v2_archive_cases")
+    .update({
+      status: "skipped",
+      failure_tags: ["archive_noise_skipped"],
+      candidate_reply: null,
+      actual_score: null,
+      candidate_score: null,
+      score_delta: null,
+      winner: null,
+      completed_at: new Date().toISOString(),
+      next_attempt_at: null,
+      locked_at: null,
+      locked_by: null,
+      updated_at: new Date().toISOString(),
+      last_error_code: null,
+      last_error_message: null,
+    })
+    .eq("id", item.id)
+    .eq("locked_by", workerId);
+  if (error) throw error;
+  return { id: item.id, status: "skipped", reason: "archive_noise" };
+}
+
 export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
+  if (isLowValueArchiveNoise(item.customer_message, item.message_type)) {
+    return skipNoiseCase(item, workerId);
+  }
+
   const contextRows = await loadArchiveContext(item);
   const contextText = contextAsText(contextRows);
   const historicalActions = await loadHistoricalActionRequests(item);
@@ -37,8 +107,15 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
     const deepseek = await runDeepSeekArchiveReplay({ item, contextText, historicalActions, deterministicAnchor });
     deepseekCost += Number(deepseek.costUsd || 0);
 
-    const primaryJudge = await runOpenAiJudge({ item, contextText, deepSeek: deepseek.result });
-    openaiCost += Number(primaryJudge.costUsd || 0);
+    const localFindings = {
+      actual: archiveReplyPolicyViolations(item.actual_reply || ""),
+      candidate: archiveReplyPolicyViolations(deepseek.result.candidate_reply || ""),
+    };
+
+    const primaryJudgeRaw = await runOpenAiJudge({ item, contextText, deepSeek: deepseek.result, localFindings });
+    openaiCost += Number(primaryJudgeRaw.costUsd || 0);
+    const normalizedPrimary = normalizeJudgeScoreScale(primaryJudgeRaw.result);
+    const primaryJudge = { ...primaryJudgeRaw, result: normalizedPrimary.result };
 
     let adjudication: Awaited<ReturnType<typeof runOpenAiAdjudicator>> | null = null;
     const { data: terraSetting } = await supabaseAdmin
@@ -48,24 +125,38 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
       .maybeSingle();
     const terraEnabled = String(terraSetting?.value || "true").toLowerCase() !== "false";
 
-    if (terraEnabled && shouldAdjudicate(primaryJudge.result)) {
-      adjudication = await runOpenAiAdjudicator({ item, contextText, deepSeek: deepseek.result });
-      openaiCost += Number(adjudication.costUsd || 0);
+    if (terraEnabled && shouldAdjudicate(primaryJudge.result, item, localFindings.candidate)) {
+      const adjudicationRaw = await runOpenAiAdjudicator({ item, contextText, deepSeek: deepseek.result, localFindings });
+      openaiCost += Number(adjudicationRaw.costUsd || 0);
+      const normalizedAdjudication = normalizeJudgeScoreScale(adjudicationRaw.result);
+      adjudication = { ...adjudicationRaw, result: normalizedAdjudication.result };
     }
 
     const finalJudge = selectFinalJudge(primaryJudge.result, adjudication?.result || null);
-    const actualScore = Math.round(Number(finalJudge.actual?.overall || 0));
-    const candidateScore = Math.round(Number(finalJudge.candidate?.overall || 0));
-    const criticalActual = uniq(finalJudge.critical_failures_actual || []);
-    const criticalCandidate = uniq(finalJudge.critical_failures_candidate || []);
+    const localActual = uniq(localFindings.actual);
+    const localCandidate = uniq(localFindings.candidate);
+    const criticalActual = uniq([...(finalJudge.critical_failures_actual || []), ...localActual]);
+    const criticalCandidate = uniq([...(finalJudge.critical_failures_candidate || []), ...localCandidate]);
+
+    let actualScore = Math.round(Number(finalJudge.actual?.overall || 0));
+    let candidateScore = Math.round(Number(finalJudge.candidate?.overall || 0));
+    if (criticalActual.length > 0) actualScore = Math.min(actualScore, 49);
+    if (criticalCandidate.length > 0) candidateScore = Math.min(candidateScore, 49);
+
+    let winner = finalJudge.winner;
+    if (criticalCandidate.length > 0 && criticalActual.length === 0) winner = "actual";
+    else if (criticalActual.length > 0 && criticalCandidate.length === 0) winner = "candidate";
+    else if (candidateScore > actualScore && winner === "actual") winner = "candidate";
+    else if (actualScore > candidateScore && winner === "candidate") winner = "actual";
+
     const failureTags = uniq([
       ...criticalCandidate,
       ...(candidateScore < 90 ? ["candidate_below_90"] : []),
-      ...(finalJudge.winner === "actual" ? ["v1_beats_v2"] : []),
+      ...(winner === "actual" ? ["v1_beats_v2"] : []),
       ...(deterministicAnchor.warnings || []).filter((x) => x.includes("non_continuation")),
       ...(item.historical_truth_confidence === "limited" ? ["limited_historical_truth"] : []),
     ]);
-    const needsReview = criticalCandidate.length > 0 || candidateScore < 90 || finalJudge.winner === "actual";
+    const needsReview = criticalCandidate.length > 0 || candidateScore < 90 || winner === "actual";
 
     const { error } = await supabaseAdmin
       .from("whatsapp_v2_archive_cases")
@@ -80,7 +171,7 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
         actual_score: actualScore,
         candidate_score: candidateScore,
         score_delta: candidateScore - actualScore,
-        winner: finalJudge.winner,
+        winner,
         judge_confidence: finalJudge.confidence,
         critical_actual: criticalActual,
         critical_candidate: criticalCandidate,
@@ -105,7 +196,7 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
       status: needsReview ? "needs_review" : "succeeded",
       actualScore,
       candidateScore,
-      winner: finalJudge.winner,
+      winner,
       criticalCandidate,
       deepseekCost,
       openaiCost,
