@@ -41,8 +41,40 @@ function truthPaymentStatus(item: ArchiveCase) {
 function isConditionalStatePhrase(text: string, phrase: string) {
   const idx = text.indexOf(phrase);
   if (idx < 0) return false;
-  const before = text.slice(Math.max(0, idx - 28), idx);
-  return includesAny(before, ["اذا", "إذا", "في حال", "لو", "بعد", "عند", "لما"]);
+  const before = text.slice(Math.max(0, idx - 90), idx);
+  return includesAny(before, [
+    "اذا", "إذا", "في حال", "لو", "بعد ما", "عندما", "لما",
+    "اذا ظهر", "إذا ظهر", "اذا وصل", "إذا وصل", "اذا كانت", "إذا كانت",
+    "حسب اللي ذكرت", "حسب ما ذكرت", "حسب كلامك", "مثل ما ذكرت",
+  ]);
+}
+
+function phraseLooksNegated(sentence: string, phrase: string) {
+  const target = n(phrase);
+  const idx = sentence.indexOf(target);
+  if (idx < 0) return false;
+  const around = sentence.slice(Math.max(0, idx - 46), Math.min(sentence.length, idx + target.length + 20));
+  return includesAny(around, [
+    "ليس", "ليست", "وليس", "مش", "مو", "ما بتندفع", "ما بندفع", "ما بتدفع",
+    "لا تدفع", "لا تُدفع", "غير متاح", "غير متاحه", "غير متاحة",
+    "ممنوع", "مش في", "مو في", "ليس في", "مش عند", "مو عند", "ليس عند",
+    "ما في", "لا يوجد", "لا توجد", "ما صدرت", "ما صدر",
+  ]);
+}
+
+function feeTimingAffirmativeViolation(sentence: string, phrases: string[]) {
+  return phrases.some((phrase) => sentence.includes(n(phrase)) && !phraseLooksNegated(sentence, phrase));
+}
+
+function statePhraseIsGuarded(text: string, phrase: string) {
+  if (isConditionalStatePhrase(text, phrase)) return true;
+  const idx = text.indexOf(phrase);
+  if (idx < 0) return false;
+  const before = text.slice(Math.max(0, idx - 100), idx);
+  return includesAny(before, [
+    "حسب اللي ذكرت", "حسب ما ذكرت", "حسب كلامك", "إنت ذكرت", "انت ذكرت",
+    "اذا اللي وصلك", "إذا اللي وصلك", "إذا كانت الرساله", "إذا كانت الرسالة",
+  ]);
 }
 
 export function isLowValueArchiveNoise(value: string | null | undefined, messageType?: string | null) {
@@ -136,7 +168,9 @@ export function archiveReplyPolicyViolations(value: string | null | undefined) {
   // Stable commercial-policy invariants. These are not application-state claims.
   for (const sentence of sentences) {
     const mentionsFee = includesAny(sentence, ["رسوم فتح الملف", "الخمس دنانير", "5 دنانير", "٥ دنانير"]);
-    if (mentionsFee && includesAny(sentence, ["عند الاستلام", "وقت الاستلام", "عند الزياره", "عند الزيارة", "في المكتب", "بالمكتب"])) {
+    if (mentionsFee && feeTimingAffirmativeViolation(sentence, [
+      "عند الاستلام", "وقت الاستلام", "عند الزياره", "عند الزيارة", "في المكتب", "بالمكتب",
+    ])) {
       violations.push("wrong_file_fee_timing_or_office_payment_claim");
     }
     if (mentionsFee && includesAny(sentence, ["اذا قررت تقدم الطلب", "إذا قررت تقدم الطلب", "عند تقديم الطلب", "وقت تقديم الطلب"])) {
@@ -203,21 +237,28 @@ export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | 
   const paymentConfirmedAt = truthValue(item, "payment_confirmed_at");
   const reliable = confidence === "high" || confidence === "medium";
 
-  const hasAssertive = (phrases: string[]) => phrases.some((phrase) => text.includes(n(phrase)) && !isConditionalStatePhrase(text, n(phrase)));
+  const hasAssertive = (phrases: string[]) => phrases.some((phrase) => {
+    const normalized = n(phrase);
+    return text.includes(normalized) && !statePhraseIsGuarded(text, normalized);
+  });
+  const hasPositiveAssertive = (phrases: string[]) => phrases.some((phrase) => {
+    const normalized = n(phrase);
+    return text.includes(normalized) && !statePhraseIsGuarded(text, normalized) && !phraseLooksNegated(text, normalized);
+  });
 
-  const finalApprovalClaim = hasAssertive(["تمت الموافقه", "تمت الموافقة", "صدرت الموافقه", "صدرت الموافقة", "موافقه نهائيه", "موافقة نهائية", "طلبك موافق"]);
-  const preliminaryApprovalClaim = hasAssertive(["الموافقه المبدئيه تمت", "الموافقة المبدئية تمت", "تمت الموافقه المبدئيه", "تمت الموافقة المبدئية", "مؤهل مبدئيا", "مؤهل مبدئيًا"]);
+  const finalApprovalClaim = hasPositiveAssertive(["تمت الموافقه", "تمت الموافقة", "صدرت الموافقه", "صدرت الموافقة", "عليه موافقه نهائيه", "عليه موافقة نهائية", "طلبك موافق"]);
+  const preliminaryApprovalClaim = hasPositiveAssertive(["الموافقه المبدئيه تمت", "الموافقة المبدئية تمت", "تمت الموافقه المبدئيه", "تمت الموافقة المبدئية", "مؤهل مبدئيا", "مؤهل مبدئيًا"]);
   const rejectedClaim = hasAssertive(["تم رفض الطلب", "طلبك مرفوض", "لم تتم الموافقه", "لم تتم الموافقة", "غير موافق عليه"]);
-  const cancelledClaim = hasAssertive(["تم الغاء الطلب", "تم إلغاء الطلب", "الطلب ملغي", "طلبك ملغي"]);
-  const refundRequestedClaim = hasAssertive(["طلب الاسترداد مسجل", "الاسترداد قيد المراجعه", "الاسترداد قيد المراجعة", "قيد الاسترداد"]);
-  const refundCompletedClaim = hasAssertive(["تم تنفيذ الاسترداد", "تم الاسترداد", "اكتمل الاسترداد"]);
-  const paymentConfirmedClaim = hasAssertive(["تم تأكيد الدفع", "الدفع مؤكد", "تم تأكيد الوصل"]);
-  const needsGuarantorClaim = hasAssertive(["مطلوب كفيل", "يحتاج كفيل", "بحاجه لكفيل", "بحاجة لكفيل"]);
-  const guarantorReceivedClaim = hasAssertive(["تم استلام بيانات الكفيل", "استلمنا بيانات الكفيل"]);
-  const needsSalaryClaim = hasAssertive(["مطلوب كشف راتب", "يحتاج كشف راتب", "بحاجه لكشف راتب", "بحاجة لكشف راتب"]);
-  const salaryReceivedClaim = hasAssertive(["تم استلام كشف الراتب", "استلمنا كشف الراتب"]);
-  const needsIdentityClaim = hasAssertive(["مطلوب الهويه", "مطلوب الهوية", "يحتاج رفع الهويه", "يحتاج رفع الهوية"]);
-  const appointmentClaim = hasAssertive(["تم تحديد الموعد", "موعدك محدد", "تم حجز موعد", "موعد الاستلام محدد"]);
+  const cancelledClaim = hasPositiveAssertive(["تم الغاء الطلب", "تم إلغاء الطلب", "الطلب ملغي", "طلبك ملغي"]);
+  const refundRequestedClaim = hasPositiveAssertive(["طلب الاسترداد مسجل", "الاسترداد قيد المراجعه", "الاسترداد قيد المراجعة", "قيد الاسترداد"]);
+  const refundCompletedClaim = hasPositiveAssertive(["تم تنفيذ الاسترداد", "تم الاسترداد", "اكتمل الاسترداد"]);
+  const paymentConfirmedClaim = hasPositiveAssertive(["تم تأكيد الدفع", "الدفع مؤكد", "تم تأكيد الوصل"]);
+  const needsGuarantorClaim = hasPositiveAssertive(["مطلوب كفيل", "يحتاج كفيل", "بحاجه لكفيل", "بحاجة لكفيل"]);
+  const guarantorReceivedClaim = hasPositiveAssertive(["تم استلام بيانات الكفيل", "استلمنا بيانات الكفيل"]);
+  const needsSalaryClaim = hasPositiveAssertive(["مطلوب كشف راتب", "يحتاج كشف راتب", "بحاجه لكشف راتب", "بحاجة لكشف راتب"]);
+  const salaryReceivedClaim = hasPositiveAssertive(["تم استلام كشف الراتب", "استلمنا كشف الراتب"]);
+  const needsIdentityClaim = hasPositiveAssertive(["مطلوب الهويه", "مطلوب الهوية", "يحتاج رفع الهويه", "يحتاج رفع الهوية"]);
+  const appointmentClaim = hasPositiveAssertive(["تم تحديد الموعد", "موعدك محدد", "تم حجز موعد", "موعد الاستلام محدد"]);
 
   const anyStateClaim = finalApprovalClaim || preliminaryApprovalClaim || rejectedClaim || cancelledClaim || refundRequestedClaim || refundCompletedClaim || paymentConfirmedClaim || needsGuarantorClaim || guarantorReceivedClaim || needsSalaryClaim || salaryReceivedClaim || needsIdentityClaim || appointmentClaim;
   if (!reliable && anyStateClaim) {
@@ -244,6 +285,75 @@ export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | 
 
   // Appointment truth is not reconstructed in archive historical_truth; do not allow invented confirmed appointments.
   if (appointmentClaim) violations.push("unsupported_appointment_claim");
+
+  const paymentActionable =
+    ["preliminary_qualified", "customer_confirmed_continue"].includes(status) ||
+    ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus);
+
+  // Negative/current-state assertions are still state claims. With weak archive truth,
+  // do not invent that approval is absent or that no payment is due.
+  const noFinalApprovalClaim = hasAssertive([
+    "حاليا ما في موافقه نهائيه", "حاليًا ما في موافقة نهائية", "ما في موافقه نهائيه",
+    "ما في موافقة نهائية", "لا توجد موافقه نهائيه", "لا توجد موافقة نهائية",
+    "الموافقه النهائيه ما صدرت", "الموافقة النهائية ما صدرت",
+  ]);
+  if (noFinalApprovalClaim && !reliable) violations.push("unsupported_no_final_approval_claim_low_truth");
+
+  const noPaymentDueClaim = hasAssertive([
+    "لا يوجد اي دفع مطلوب", "لا يوجد أي دفع مطلوب", "ما في دفع مطلوب", "ما في أي دفع مطلوب",
+    "ما في اي دفع هلا", "ما في أي دفع هلا", "هلا ما عليك اي مبلغ", "هلا ما عليك أي مبلغ",
+    "حاليا ما في دفع مطلوب", "حاليًا ما في دفع مطلوب",
+  ]);
+  if (noPaymentDueClaim && (!reliable || paymentActionable)) violations.push("unsupported_no_payment_due_claim");
+
+  // A direct "pay now / required now" instruction is application-state dependent.
+  const currentFeeDueClaim = includesAny(text, [
+    "رسوم فتح الملف تدفع الان", "رسوم فتح الملف تُدفع الآن", "ادفع الرسوم الان", "ادفع الرسوم الآن",
+    "المطلوب حاليا دفع رسوم فتح الملف", "المطلوب حاليًا دفع رسوم فتح الملف",
+    "المطلوب منك فقط رسوم فتح الملف", "جاهز تدفع الرسوم الان", "جاهز تدفع الرسوم الآن",
+  ]);
+  if (currentFeeDueClaim && !paymentActionable) violations.push("unsupported_current_fee_due_claim");
+
+  // Do not fabricate that an application is suspended/pending on the fee without reliable state.
+  if (includesAny(text, [
+    "طلبك معلق على دفع الرسوم", "طلبك معلّق على دفع الرسوم", "طلبك بانتظار دفع الرسوم",
+    "طلبك واقف على دفع الرسوم",
+  ]) && !reliable) {
+    violations.push("unsupported_application_fee_pending_claim");
+  }
+
+  // Payment verification requires the official receipt/payment flow; never invent an automatic verifier.
+  if (includesAny(text, [
+    "النظام بيتحقق من العمليه تلقائيا", "النظام بيتحقق من العملية تلقائيًا",
+    "النظام يتحقق من العمليه تلقائيا", "النظام يتحقق من العملية تلقائيًا",
+    "الدفع بيتأكد تلقائيا", "الدفع بيتأكد تلقائيًا", "التحقق تلقائي",
+  ])) {
+    violations.push("unsupported_automatic_payment_verification_claim");
+  }
+
+  // There is no generic promise that a due payment can simply be postponed to a chosen date.
+  if (includesAny(text, [
+    "ممكن تأجيل الدفع", "يمكن تأجيل الدفع", "بنقدر نأجل الدفع", "بتقدر تأجل الدفع",
+    "تأجيل الدفع حسب الترتيب", "اكد الموعد معهم كتابيا", "أكد الموعد معهم كتابيًا",
+  ])) {
+    violations.push("unsupported_payment_deferral_policy");
+  }
+
+  // Weak historical truth cannot support a definitive claim that no installment application exists.
+  if (!reliable && includesAny(text, [
+    "ما عندنا طلب تقسيط مسجل", "لا يوجد طلب تقسيط مسجل", "ما في طلب تقسيط مسجل",
+    "ما عندك طلب تقسيط مسجل", "لا يظهر عندنا طلب تقسيط",
+  ])) {
+    violations.push("unsupported_no_application_exists_claim");
+  }
+
+  // Replay candidates cannot promise that they themselves will send a payment link later.
+  if (includesAny(text, [
+    "بوصلك الرابط الرسمي للدفع", "رح ابعتلك رابط الدفع", "رح أبعثلك رابط الدفع",
+    "رح ارسل لك رابط الدفع", "رح أرسل لك رابط الدفع", "برسلك رابط الدفع",
+  ])) {
+    violations.push("unexecuted_payment_link_delivery_promise");
+  }
 
   // Do not fabricate operational review ETAs from thin historical truth.
   const reviewEtaClaim = includesAny(text, [

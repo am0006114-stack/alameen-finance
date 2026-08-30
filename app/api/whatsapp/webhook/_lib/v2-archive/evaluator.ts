@@ -143,8 +143,14 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
     const finalJudge = selectFinalJudge(primaryJudge.result, adjudication?.result || null);
     const localActual = uniq(localFindings.actual);
     const localCandidate = uniq(localFindings.candidate);
-    const criticalActual = uniq([...(finalJudge.critical_failures_actual || []), ...localActual]);
-    const criticalCandidate = uniq([...(finalJudge.critical_failures_candidate || []), ...localCandidate]);
+
+    // Phase 2.4: deterministic policy/truth findings are the authoritative hard-critical layer.
+    // The semantic judge can still surface novel issues, but those become review tags rather
+    // than silently overriding deterministic truth with a free-form critical description.
+    const judgeCriticalActual = uniq(finalJudge.critical_failures_actual || []);
+    const judgeCriticalCandidate = uniq(finalJudge.critical_failures_candidate || []);
+    const criticalActual = localActual;
+    const criticalCandidate = localCandidate;
 
     let actualScore = Math.round(Number(finalJudge.actual?.overall || 0));
     let candidateScore = Math.round(Number(finalJudge.candidate?.overall || 0));
@@ -159,12 +165,17 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
 
     const failureTags = uniq([
       ...criticalCandidate,
+      ...judgeCriticalCandidate.map((x) => `judge_review:${x}`),
       ...(candidateScore < 90 ? ["candidate_below_90"] : []),
       ...(winner === "actual" ? ["v1_beats_v2"] : []),
       ...(deterministicAnchor.warnings || []).filter((x) => x.includes("non_continuation")),
       ...(item.historical_truth_confidence === "limited" ? ["limited_historical_truth"] : []),
     ]);
-    const needsReview = criticalCandidate.length > 0 || candidateScore < 90 || winner === "actual";
+    const needsReview =
+      criticalCandidate.length > 0 ||
+      judgeCriticalCandidate.length > 0 ||
+      candidateScore < 90 ||
+      winner === "actual";
 
     const { error } = await supabaseAdmin
       .from("whatsapp_v2_archive_cases")
