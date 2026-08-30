@@ -124,6 +124,32 @@ export function archiveReplyPolicyViolations(value: string | null | undefined) {
     violations.push("sensitive_data_requested_outside_official_link");
   }
 
+  // Payment receipts / transaction screenshots are also sensitive transaction evidence.
+  const mentionsPaymentProof = includesAny(text, [
+    "اثبات الدفع", "إثبات الدفع", "وصل الدفع", "صوره التحويل", "صورة التحويل",
+    "لقطه شاشه", "لقطة شاشة", "رقم العمليه", "رقم العملية", "ايصال الدفع", "إيصال الدفع",
+  ]);
+  if (asksToSend && mentionsPaymentProof && !secureLinkMentioned) {
+    violations.push("payment_proof_requested_outside_official_link");
+  }
+
+  // Stable commercial-policy invariants. These are not application-state claims.
+  for (const sentence of sentences) {
+    const mentionsFee = includesAny(sentence, ["رسوم فتح الملف", "الخمس دنانير", "5 دنانير", "٥ دنانير"]);
+    if (mentionsFee && includesAny(sentence, ["عند الاستلام", "وقت الاستلام", "عند الزياره", "عند الزيارة", "في المكتب", "بالمكتب"])) {
+      violations.push("wrong_file_fee_timing_or_office_payment_claim");
+    }
+    if (mentionsFee && includesAny(sentence, ["اذا قررت تقدم الطلب", "إذا قررت تقدم الطلب", "عند تقديم الطلب", "وقت تقديم الطلب"])) {
+      violations.push("wrong_file_fee_timing_before_preliminary_qualification");
+    }
+    if (includesAny(sentence, ["بدون فوائد", "ما في فوائد", "لا يوجد فوائد", "لا توجد فوائد", "بدون فوائد ربويه", "بدون فوائد ربوية"])) {
+      violations.push("unsupported_interest_or_religious_claim");
+    }
+    if (includesAny(sentence, ["سعر الجهاز عندك", "اذا عندك سعر", "إذا عندك سعر", "من وين ناوي تشتري", "من وين بدك تشتري"])) {
+      violations.push("external_purchase_price_assumption");
+    }
+  }
+
   return uniq(violations);
 }
 
@@ -145,6 +171,23 @@ export function archiveConversationPolicyViolations(item: ArchiveCase, reply: st
   if (item.wa_id && includesAny(text, ["رقم الهاتف", "رقم تلفون", "رقم الموبايل"]) && includesAny(text, ["ابعث", "ارسل", "أرسل", "زودني", "اعطيني", "أعطيني", "شو رقم"])) {
     violations.push("known_whatsapp_number_reasked");
   }
+
+  const asksStateMutation = includesAny(customer, [
+    "الغاء الطلب", "إلغاء الطلب", "الغي الطلب", "ألغي الطلب", "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد",
+    "بدي استرداد", "بدي استرجاع", "استرجاع المصاري", "استرداد الرسوم",
+  ]);
+  const asksHumanContact = includesAny(customer, ["حدا يتواصل معي", "بدي موظف", "بدي موضف", "احكي مع موظف", "احكي مع حدا"]);
+  const claimsExecution = includesAny(text, [
+    "تم تسجيل طلبك", "تم تسجيل طلب", "تم تسجيل الإلغاء", "تم تسجيل الغاء", "تم إلغاء الطلب", "تم الغاء الطلب",
+    "تم إلغاء الاسترداد", "تم الغاء الاسترداد", "تم رفع طلبك", "رح نرفع طلبك", "سأرفع طلبك",
+    "سنقوم بمعالجته", "سنقوم بإلغائه", "سيتم إلغاء الطلب", "سيتم الغاء الطلب", "سيتم إلغاء الاسترداد", "سيتم الغاء الاسترداد",
+  ]);
+  const claimsHandoffExecution = includesAny(text, [
+    "رح أحول طلبك لموظف", "رح احول طلبك لموظف", "سأحول طلبك لموظف", "سيتم تحويل طلبك لموظف",
+    "رح أحولك لموظف", "رح احولك لموظف", "سيتواصل معك موظف", "موظف مختص يتواصل معك",
+  ]);
+  if (asksStateMutation && claimsExecution) violations.push("unexecuted_state_action_claim");
+  if (asksHumanContact && claimsHandoffExecution) violations.push("unexecuted_handoff_claim");
 
   return uniq(violations);
 }
@@ -201,6 +244,29 @@ export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | 
 
   // Appointment truth is not reconstructed in archive historical_truth; do not allow invented confirmed appointments.
   if (appointmentClaim) violations.push("unsupported_appointment_claim");
+
+  // Do not fabricate operational review ETAs from thin historical truth.
+  const reviewEtaClaim = includesAny(text, [
+    "خلال يوم عمل", "يوم عمل تقريبا", "يوم عمل تقريباً", "خلال يومين", "خلال 24 ساعه", "خلال 24 ساعة",
+    "خلال 48 ساعه", "خلال 48 ساعة", "بيوم عمل", "بحدود يوم عمل",
+  ]);
+  if (reviewEtaClaim) violations.push("unsupported_review_eta_claim");
+
+  // Offering to schedule an office visit is a stateful promise unless the archived state supports an approved/appointment stage.
+  const schedulingPromise = includesAny(text, ["نحدد موعد", "حدد موعد", "بنرتب موعد", "نرتب الموعد", "بترتب موعد", "احكيلي الوقت المناسب"]);
+  if (schedulingPromise && !["approved", "customer_accepts_delivery_delay"].includes(status)) {
+    violations.push("unsupported_appointment_scheduling_promise");
+  }
+
+  // There is no generic variable device down-payment rule. The fixed fee is separate, and the first installment follows receipt/contract.
+  if (includesAny(text, ["دفعة أولى تختلف", "دفعه اولى تختلف", "بنحتاج دفعة أولى", "بنحتاج دفعه اولى"])) {
+    violations.push("unsupported_variable_down_payment_claim");
+  }
+
+  // Expand refund-state detection for natural phrasings such as "طلب الاسترداد ما زال قيد المراجعة".
+  if (includesAny(text, ["طلب الاسترداد ما زال قيد المراجعه", "طلب الاسترداد ما زال قيد المراجعة", "طلب الاسترداد لسا قيد المراجعه", "طلب الاسترداد لسا قيد المراجعة"]) && !reliable) {
+    violations.push("unsupported_refund_state_claim_low_truth");
+  }
 
   return uniq(violations);
 }
