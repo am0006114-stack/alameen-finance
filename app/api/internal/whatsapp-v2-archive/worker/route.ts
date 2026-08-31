@@ -6,7 +6,7 @@ import { evaluateArchiveCase } from "@/app/api/whatsapp/webhook/_lib/v2-archive"
 import type { ArchiveCase } from "@/app/api/whatsapp/webhook/_lib/v2-archive";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 async function readSetting(key: string, fallback: string) {
   const { data } = await supabaseAdmin.from("whatsapp_v2_archive_settings").select("value").eq("key", key).maybeSingle();

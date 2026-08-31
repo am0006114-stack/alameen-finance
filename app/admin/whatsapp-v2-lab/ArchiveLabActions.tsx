@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+const PARALLEL_LANES = 6;
 
 export function ArchiveLabActions({ enabled }: { enabled: boolean }) {
   const router = useRouter();
@@ -102,18 +103,48 @@ export function ArchiveLabActions({ enabled }: { enabled: boolean }) {
   async function runTarget(target: number) {
     stopRequested.current = false;
     setBusy(true);
-    setMessage(`بدء تقييم حتى ${target} حالة — طلب واحد لكل حالة لمنع 504...`);
+    setMessage(`بدء تقييم حتى ${target} حالة عبر ${PARALLEL_LANES} مسارات متوازية — كل طلب يعالج حالة واحدة...`);
+
+    let issued = 0;
     let processed = 0;
-    try {
-      while (processed < target && !stopRequested.current) {
-        const result = await workerOnce();
-        if (result.stopped) break;
-        processed += result.processed;
-        setMessage(`تم تقييم ${processed}/${target} حالة...`);
-        if (result.blocked || result.processed === 0) break;
-        await sleep(250);
+    let blocked = false;
+    let noWork = false;
+    let fatal: Error | null = null;
+
+    async function lane() {
+      while (!stopRequested.current && !blocked && !noWork && !fatal) {
+        if (issued >= target) return;
+        issued += 1;
+        try {
+          const result = await workerOnce();
+          if (result.stopped) {
+            stopRequested.current = true;
+            return;
+          }
+          processed += result.processed;
+          setMessage(`تم تقييم ${processed}/${target} حالة — ${PARALLEL_LANES} مسارات متوازية...`);
+          if (result.blocked) {
+            blocked = true;
+            return;
+          }
+          if (result.processed === 0) {
+            noWork = true;
+            return;
+          }
+        } catch (e) {
+          fatal = e instanceof Error ? e : new Error(String(e));
+          return;
+        }
+        await sleep(100);
       }
-      setMessage(stopRequested.current ? `تم الإيقاف بعد ${processed} حالة.` : `انتهت الجولة: تمت معالجة ${processed} حالة.`);
+    }
+
+    try {
+      await Promise.all(Array.from({ length: PARALLEL_LANES }, () => lane()));
+      if (fatal) throw fatal;
+      if (blocked) setMessage(`توقف الحارس المالي بعد ${processed} حالة.`);
+      else if (noWork) setMessage(`لا توجد حالة قابلة للمعالجة الآن. تمت معالجة ${processed} حالة.`);
+      else setMessage(stopRequested.current ? `تم الإيقاف بعد ${processed} حالة.` : `انتهت الجولة: تمت معالجة ${processed} حالة.`);
       router.refresh();
     } catch (e) {
       setMessage(`توقف التشغيل بعد ${processed} حالة: ${e instanceof Error ? e.message : String(e)}`);
@@ -127,30 +158,49 @@ export function ArchiveLabActions({ enabled }: { enabled: boolean }) {
     setBusy(true);
     const deadline = Date.now() + hours * 60 * 60 * 1000;
     let processed = 0;
+    let blocked = false;
+    let noWork = false;
+    let fatal: Error | null = null;
 
     try {
-      await postControl("enable_for", { minutes: hours * 60 });
-      router.refresh();
-      setMessage(`تشغيل متواصل لمدة ${hours} ساعات — 0 حالة حتى الآن...`);
+      const enabledRun = await postControl("enable_for", { minutes: hours * 60 });
+      const runUntil = String(enabledRun?.runUntil || new Date(deadline).toISOString());
+      setMessage(`تشغيل متواصل ${hours} ساعات عبر ${PARALLEL_LANES} مسارات — حتى ${runUntil}...`);
 
-      while (Date.now() < deadline && !stopRequested.current) {
-        const result = await workerOnce();
-        if (result.stopped) break;
-        processed += result.processed;
-
-        const minsLeft = Math.max(0, Math.ceil((deadline - Date.now()) / 60000));
-        setMessage(`تشغيل ${hours} ساعات: ${processed} حالة — متبقي تقريبًا ${minsLeft} دقيقة...`);
-
-        if (result.blocked) {
-          setMessage(`توقف الحارس المالي بعد ${processed} حالة.`);
-          break;
+      async function lane() {
+        while (Date.now() < deadline && !stopRequested.current && !blocked && !noWork && !fatal) {
+          try {
+            const result = await workerOnce();
+            if (result.stopped) {
+              stopRequested.current = true;
+              return;
+            }
+            processed += result.processed;
+            const minsLeft = Math.max(0, Math.ceil((deadline - Date.now()) / 60000));
+            setMessage(`تشغيل ${hours} ساعات: ${processed} حالة — ${PARALLEL_LANES} مسارات — متبقي تقريبًا ${minsLeft} دقيقة...`);
+            if (result.blocked) {
+              blocked = true;
+              return;
+            }
+            if (result.processed === 0) {
+              noWork = true;
+              return;
+            }
+          } catch (e) {
+            fatal = e instanceof Error ? e : new Error(String(e));
+            return;
+          }
+          await sleep(100);
         }
-        if (result.processed === 0) {
-          setMessage(`لا توجد حالة قابلة للمعالجة الآن. تمت معالجة ${processed} حالة.`);
-          break;
-        }
-        await sleep(250);
       }
+
+      await Promise.all(Array.from({ length: PARALLEL_LANES }, () => lane()));
+      if (fatal) throw fatal;
+
+      if (blocked) setMessage(`توقف الحارس المالي بعد ${processed} حالة.`);
+      else if (noWork) setMessage(`لا توجد حالة قابلة للمعالجة الآن. تمت معالجة ${processed} حالة.`);
+      else if (Date.now() >= deadline) setMessage(`انتهت مدة ${hours} ساعات. تمت معالجة ${processed} حالة.`);
+      else if (stopRequested.current) setMessage(`تم الإيقاف بعد ${processed} حالة.`);
     } catch (e) {
       setMessage(`توقف التشغيل بعد ${processed} حالة: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
@@ -158,7 +208,6 @@ export function ArchiveLabActions({ enabled }: { enabled: boolean }) {
       stopRequested.current = true;
       setBusy(false);
       router.refresh();
-      if (Date.now() >= deadline) setMessage(`انتهت مدة ${hours} ساعات. تمت معالجة ${processed} حالة وتم إيقاف المختبر.`);
     }
   }
 
@@ -176,8 +225,8 @@ export function ArchiveLabActions({ enabled }: { enabled: boolean }) {
     <button disabled={busy || stopping || !enabled} onClick={() => void runTarget(20)} className="rounded-xl border border-cyan-300/30 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-100">تقييم 20 Risk</button>
     <button disabled={busy || stopping || !enabled} onClick={() => void runTarget(100)} className="rounded-xl border border-cyan-300/30 bg-cyan-950/30 px-4 py-2 text-sm font-black text-cyan-100">تقييم 100 Risk</button>
     <button disabled={busy || stopping || !enabled} onClick={() => void runTarget(300)} className="rounded-xl border border-amber-300/30 bg-amber-950/30 px-4 py-2 text-sm font-black text-amber-100">تقييم 300 Risk</button>
-    <button disabled={busy || stopping} onClick={() => void runTimed(2)} className="rounded-xl border border-fuchsia-300/30 bg-fuchsia-950/30 px-4 py-2 text-sm font-black text-fuchsia-100">تشغيل متواصل ساعتين</button>
-    <button disabled={busy || stopping} onClick={() => void runTimed(3)} className="rounded-xl border border-fuchsia-300/30 bg-fuchsia-950/30 px-4 py-2 text-sm font-black text-fuchsia-100">تشغيل متواصل 3 ساعات</button>
+    <button disabled={busy || stopping} onClick={() => void runTimed(2)} className="rounded-xl border border-fuchsia-300/30 bg-fuchsia-950/30 px-4 py-2 text-sm font-black text-fuchsia-100">تشغيل متواصل ساعتين ×6</button>
+    <button disabled={busy || stopping} onClick={() => void runTimed(3)} className="rounded-xl border border-fuchsia-300/30 bg-fuchsia-950/30 px-4 py-2 text-sm font-black text-fuchsia-100">تشغيل متواصل 3 ساعات ×6</button>
 
     {message ? <span className="w-full text-xs font-bold text-[#b8c2bc]">{message}</span> : null}
   </div>;
