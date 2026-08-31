@@ -18,11 +18,20 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === "enable") {
+      await setSetting("lab_run_until", "");
       await setSetting("lab_enabled", "true");
       return NextResponse.json({ ok: true, enabled: true });
     }
+    if (action === "enable_for") {
+      const minutes = Math.max(1, Math.min(180, Number(body?.minutes || 120) || 120));
+      const runUntil = new Date(Date.now() + minutes * 60 * 1000).toISOString();
+      await setSetting("lab_run_until", runUntil);
+      await setSetting("lab_enabled", "true");
+      return NextResponse.json({ ok: true, enabled: true, runUntil, minutes });
+    }
     if (action === "disable") {
       await setSetting("lab_enabled", "false");
+      await setSetting("lab_run_until", "");
       return NextResponse.json({ ok: true, enabled: false });
     }
     if (action === "seed") {

@@ -10,18 +10,39 @@ export const maxDuration = 60;
 
 async function readSetting(key: string, fallback: string) {
   const { data } = await supabaseAdmin.from("whatsapp_v2_archive_settings").select("value").eq("key", key).maybeSingle();
-  return String(data?.value || fallback);
+  return String(data?.value ?? fallback);
+}
+
+async function disableExpiredTimedRun() {
+  const runUntilRaw = await readSetting("lab_run_until", "");
+  if (!runUntilRaw) return false;
+
+  const runUntilMs = Date.parse(runUntilRaw);
+  if (!Number.isFinite(runUntilMs) || Date.now() < runUntilMs) return false;
+
+  await supabaseAdmin
+    .from("whatsapp_v2_archive_settings")
+    .upsert({ key: "lab_enabled", value: "false", updated_at: new Date().toISOString() }, { onConflict: "key" });
+  await supabaseAdmin
+    .from("whatsapp_v2_archive_settings")
+    .upsert({ key: "lab_run_until", value: "", updated_at: new Date().toISOString() }, { onConflict: "key" });
+
+  return true;
 }
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminLoggedIn())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
+  if (await disableExpiredTimedRun()) {
+    return NextResponse.json({ error: "Archive timed run expired and was disabled." }, { status: 423 });
+  }
+
   const enabled = (await readSetting("lab_enabled", "false")).toLowerCase() === "true";
   if (!enabled) return NextResponse.json({ error: "Archive lab is disabled. Enable it from the admin lab first." }, { status: 423 });
 
   const body = await request.json().catch(() => ({}));
-  const configuredMax = Math.max(1, Math.min(3, Number(await readSetting("max_cases_per_worker", "3")) || 3));
-  const requested = Math.max(1, Math.min(configuredMax, Number(body?.limit || configuredMax) || configuredMax));
+  void body; // burn-in hotfix intentionally processes one case per request to stay below Vercel timeout.
+  const requested = 1;
   const workerId = `v2-archive:${randomUUID()}`;
 
   await supabaseAdmin.rpc("requeue_stale_whatsapp_v2_archive_cases", { p_stale_minutes: 10 });
