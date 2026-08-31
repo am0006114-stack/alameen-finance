@@ -63,6 +63,91 @@ function selectFinalJudge(primary: ArchiveJudgeResult, adjudication: ArchiveJudg
   return adjudication || primary;
 }
 
+function normalizeLoose(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/[ى]/g, "ي")
+    .replace(/[ة]/g, "ه")
+    .replace(/[ؤ]/g, "و")
+    .replace(/[ئ]/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function customerHas(text: string, phrases: string[]) {
+  const n = normalizeLoose(text);
+  return phrases.some((phrase) => n.includes(normalizeLoose(phrase)));
+}
+
+function buildFailClosedArchiveReply(item: ArchiveCase) {
+  const customer = item.customer_message || "";
+  const parts: string[] = [];
+
+  const asksHuman = customerHas(customer, [
+    "بدي موظف", "بدي موضف", "اريد موظف", "أريد موظف", "وصلني لموظف", "وصلني لحدا",
+    "حولني لموظف", "حوّلني لموظف", "بدي حدا اتواصل", "ممكن اتوصلوني للاداره", "ممكن اتوصلوني للإدارة",
+  ]);
+  const asksCancel = customerHas(customer, ["الغاء الطلب", "إلغاء الطلب", "الغي الطلب", "ألغي الطلب", "الغاء الطبب", "الالغاء الطلب"]);
+  const asksRefund = customerHas(customer, ["استرداد", "استرجاع", "ارجاع المبلغ", "إرجاع المبلغ", "الرسوم اللي دفعتها", "المبلغ المدفوع"]);
+  const asksPayment = customerHas(customer, ["الدفع", "ادفع", "أدفع", "رسوم", "5 دنانير", "٥ دنانير", "الخمس دنانير", "تحويل", "كليك", "cliq"]);
+  const asksReceipt = customerHas(customer, ["وصل", "اثبات الدفع", "إثبات الدفع", "صوره التحويل", "صورة التحويل"]);
+  const asksInstallment = customerHas(customer, ["القسط", "الاقساط", "الأقساط", "دفعة اولى", "دفعة أولى", "دفعه اولى", "دفعه أولى"]);
+  const asksDelivery = customerHas(customer, ["تسليم", "استلام", "توصيل", "الاجهزه", "الأجهزة", "الجهاز متى", "متى بوصل"]);
+  const asksStatus = customerHas(customer, ["حاله الطلب", "حالة الطلب", "شو صار بطلبي", "وين طلبي", "متابعه طلبي", "متابعة طلبي", "اخر تحديث", "آخر تحديث", "شو صار"]);
+
+  if (asksHuman) {
+    parts.push("فهمت إنك بدك تتواصل مع موظف. ما بقدر أأكد إنه تم تحويلك أو إنه حدا رح يتواصل معك إلا بعد ما يتم هالإجراء فعليًا.");
+  }
+
+  if (asksCancel) {
+    if (customerHas(customer, ["هل يمكن", "بقدر", "ممكن", "كيف يمكنني عدم الغاء", "كيف يمكنني عدم إلغاء"])) {
+      parts.push("إذا سؤالك عن الإلغاء: تقدر تطلب إلغاء الطلب، لكن ما بعتبره ملغي إلا بعد تنفيذ الإلغاء فعليًا.");
+    } else {
+      parts.push("فهمت إنك بدك تلغي الطلب. ما بقدر أقول إنه انلغى إلا بعد تنفيذ الإلغاء فعليًا.");
+    }
+  }
+
+  if (asksRefund) {
+    parts.push("إذا كان في رسوم فتح ملف مدفوعة، الاسترداد يعتمد على التحقق من الدفع وحالة الطلب. ما بقدر أأكد إن الاسترداد بدأ أو تم بدون حالة موثقة.");
+  }
+
+  if (asksPayment) {
+    parts.push("رسوم فتح الملف 5 دنانير، وتُطلب بعد التأهيل المبدئي إذا قررت الاستمرار. ما بقدر أأكد إن الدفع مطلوب منك الآن بدون حالة طلب موثقة.");
+  }
+
+  if (asksReceipt) {
+    parts.push("إثبات الدفع يُرفع فقط من خلال الرابط الرسمي الآمن المرتبط بالطلب، وليس عبر واتساب.");
+  }
+
+  if (asksInstallment) {
+    parts.push("القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد.");
+  }
+
+  if (asksDelivery) {
+    parts.push("الاستلام من المكتب بموعد، وما في توصيل. وبالنسبة للموعد نفسه، ما بقدر أأكد موعد غير موثق.");
+  }
+
+  if (asksStatus) {
+    parts.push("بالنسبة لحالة الطلب الحالية، ما بدي أخمّن أو أكرر حالة غير موثقة؛ بعطيك فقط الحالة المؤكدة من بيانات الطلب.");
+  }
+
+  if (!parts.length) {
+    parts.push("فهمت سؤالك. ما بدي أعطيك معلومة غير مؤكدة عن حالة طلبك أو أحكيلك إن إجراء تم وهو ما تم فعليًا. وضّحلي النقطة اللي بدك إياها وبجاوبك بالمؤكد فقط.");
+  }
+
+  return uniq(parts).join("\n\n");
+}
+
+function verifyCandidate(item: ArchiveCase, reply: string) {
+  return uniq([
+    ...archiveReplyPolicyViolations(reply || ""),
+    ...archiveConversationPolicyViolations(item, reply || ""),
+    ...archiveTruthPolicyViolations(item, reply || ""),
+  ]);
+}
+
 async function skipNoiseCase(item: ArchiveCase, workerId: string) {
   const { error } = await supabaseAdmin
     .from("whatsapp_v2_archive_cases")
@@ -114,11 +199,7 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
     ]);
 
     let finalDeepSeek = deepseek.result;
-    let candidateFindings = uniq([
-      ...archiveReplyPolicyViolations(finalDeepSeek.candidate_reply || ""),
-      ...archiveConversationPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
-      ...archiveTruthPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
-    ]);
+    let candidateFindings = verifyCandidate(item, finalDeepSeek.candidate_reply || "");
     const preRepairFindings = [...candidateFindings];
     let repairApplied = false;
 
@@ -143,11 +224,38 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
           ...preRepairFindings.map((x) => `self_repaired:${x}`),
         ]),
       };
-      candidateFindings = uniq([
-        ...archiveReplyPolicyViolations(finalDeepSeek.candidate_reply || ""),
-        ...archiveConversationPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
-        ...archiveTruthPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
-      ]);
+      candidateFindings = verifyCandidate(item, finalDeepSeek.candidate_reply || "");
+    }
+
+    // FINAL DELIVERY GATE: self-repair is best-effort, not a safety boundary.
+    // If the model remains hard-critical after repair, the unsafe draft is never treated
+    // as deliverable. Replace it with a deterministic truth-only response, verify again,
+    // and use an ultra-safe universal fallback if needed.
+    let deliveryGateApplied = false;
+    const postRepairFindings = [...candidateFindings];
+    if (candidateFindings.length > 0) {
+      deliveryGateApplied = true;
+      finalDeepSeek = {
+        ...finalDeepSeek,
+        candidate_reply: buildFailClosedArchiveReply(item),
+        confidence: Math.min(Number(finalDeepSeek.confidence || 0), 0.74),
+        safety_flags: uniq([
+          ...(finalDeepSeek.safety_flags || []),
+          ...candidateFindings.map((x) => `fail_closed:${x}`),
+          "final_delivery_gate_applied",
+        ]),
+      };
+      candidateFindings = verifyCandidate(item, finalDeepSeek.candidate_reply || "");
+
+      if (candidateFindings.length > 0) {
+        finalDeepSeek = {
+          ...finalDeepSeek,
+          candidate_reply: "فهمت سؤالك. ما بدي أعطيك معلومة غير مؤكدة عن حالة طلبك، ولا أأكد أي إجراء إلا إذا كان منفذ فعليًا. بقدر أجاوبك بالمعلومة الموثقة فقط.",
+          confidence: Math.min(Number(finalDeepSeek.confidence || 0), 0.60),
+          safety_flags: uniq([...(finalDeepSeek.safety_flags || []), "universal_fail_closed_fallback"]),
+        };
+        candidateFindings = verifyCandidate(item, finalDeepSeek.candidate_reply || "");
+      }
     }
 
     const localFindings = { actual: actualFindings, candidate: candidateFindings };
@@ -202,7 +310,9 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
       ...(winner === "actual" ? ["v1_beats_v2"] : []),
       ...(deterministicAnchor.warnings || []).filter((x) => x.includes("non_continuation")),
       ...(item.historical_truth_confidence === "limited" ? ["limited_historical_truth"] : []),
-      ...(repairApplied && candidateFindings.length > 0 ? ["self_repair_still_critical"] : []),
+      ...(repairApplied && postRepairFindings.length > 0 ? ["self_repair_needed"] : []),
+      ...(deliveryGateApplied ? ["final_delivery_gate_applied"] : []),
+      ...(deliveryGateApplied && candidateFindings.length > 0 ? ["final_delivery_gate_failed"] : []),
     ]);
     const needsReview =
       criticalCandidate.length > 0 ||
@@ -255,6 +365,8 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
       adjudicated: Boolean(adjudication),
       repairApplied,
       repairedFrom: preRepairFindings,
+      deliveryGateApplied,
+      deliveryGateFrom: postRepairFindings,
     };
   } catch (error) {
     if (error instanceof V2BudgetBlockedError) {

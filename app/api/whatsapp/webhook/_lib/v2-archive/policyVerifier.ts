@@ -62,8 +62,19 @@ function phraseLooksNegated(sentence: string, phrase: string) {
   ]);
 }
 
+function phraseLooksCustomerAttributed(sentence: string, phrase: string) {
+  const target = n(phrase);
+  const idx = sentence.indexOf(target);
+  if (idx < 0) return false;
+  const before = sentence.slice(Math.max(0, idx - 110), idx);
+  return includesAny(before, [
+    "فهمت انك", "فهمت إنك", "انت قلت", "إنت قلت", "انت حكيت", "إنت حكيت",
+    "حسب كلامك", "حسب اللي ذكرت", "حسب ما ذكرت", "بدك", "حاب تدفع", "حابب تدفع",
+  ]);
+}
+
 function feeTimingAffirmativeViolation(sentence: string, phrases: string[]) {
-  return phrases.some((phrase) => sentence.includes(n(phrase)) && !phraseLooksNegated(sentence, phrase));
+  return phrases.some((phrase) => sentence.includes(n(phrase)) && !phraseLooksNegated(sentence, phrase) && !phraseLooksCustomerAttributed(sentence, phrase));
 }
 
 function statePhraseIsGuarded(text: string, phrase: string) {
@@ -117,7 +128,8 @@ export function archiveReplyPolicyViolations(value: string | null | undefined) {
     violations.push("forbidden_business_name_alameen_installments_and_finance");
   }
 
-  if (/\b(?:PAYAMEN|PAYAMEEN|AMEENPAY)\b/i.test(raw)) {
+  const upperRaw = raw.toUpperCase();
+  if (["PAYAMEN", "PAYAMEEN", "AMEENPAY"].some((alias) => upperRaw.includes(alias))) {
     violations.push("forbidden_payment_alias_noncanonical");
   }
 
@@ -163,6 +175,9 @@ export function archiveReplyPolicyViolations(value: string | null | undefined) {
   ]);
   if (asksToSend && mentionsPaymentProof && !secureLinkMentioned) {
     violations.push("payment_proof_requested_outside_official_link");
+  }
+  if (asksToSend && mentionsPaymentProof && includesAny(text, ["هنا", "هون", "على الواتساب", "عبر واتساب", "بالواتساب", "بالواتس"])) {
+    violations.push("payment_proof_requested_over_whatsapp");
   }
 
   // Stable commercial-policy invariants. These are not application-state claims.
@@ -405,17 +420,21 @@ export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | 
     "سيصلك تحديث", "سيتم ارسال تحديث", "سيتم إرسال تحديث", "بتوصلك الموافقه", "بتوصلك الموافقة",
     "رح توصلك الموافقه", "رح توصلك الموافقة", "الفريق سيتواصل معك", "الفريق رح يتواصل معك",
     "رح يتواصلوا معك", "سيتواصلوا معك", "سيتم التواصل معك", "الحاله رح تظهر تلقائيا", "الحالة رح تظهر تلقائيًا",
-    "ستظهر الحاله تلقائيا", "ستظهر الحالة تلقائيًا", "رح تظهر لك تعليمات الدفع", "رح توصلك تعليمات الدفع"
+    "ستظهر الحاله تلقائيا", "ستظهر الحالة تلقائيًا", "رح تظهر لك تعليمات الدفع", "رح توصلك تعليمات الدفع",
+    "رح ارجعلك", "رح أرجعلك", "برجعلك", "بنبعتلك", "بنتواصل معك", "حنواصل معك", "رح نتواصل معك",
+    "رح يتم التواصل", "سيتم التواصل", "بمجرد ما يكون في تحديث", "اول ما يصير في تحديث", "أول ما يصير في تحديث",
+    "بمجرد وصول", "فور وصول", "رح نوافيك", "بنوافيك", "سوف نوافيك", "رح اوصل طلبك للاداره", "رح أوصل طلبك للإدارة"
   ])) {
     violations.push("unsupported_future_notification_or_contact_promise");
   }
 
   // Exact first-installment invariant: one month after device receipt AND contract signing.
   const firstInstallmentSentence = sentences.find((sentence) => includesAny(sentence, ["القسط الاول", "القسط الأول"]));
-  if (firstInstallmentSentence && includesAny(firstInstallmentSentence, ["بعد الاستلام", "بعد استلام الجهاز"])) {
-    const hasMonth = includesAny(firstInstallmentSentence, ["بعد شهر", "بعد شهر من"]);
+  if (firstInstallmentSentence && includesAny(firstInstallmentSentence, ["بعد الاستلام", "بعد استلام الجهاز", "استلام الجهاز"])) {
+    const hasMonth = includesAny(firstInstallmentSentence, ["بعد شهر", "بعد شهر من", "بشهر"]);
+    const hasReceipt = includesAny(firstInstallmentSentence, ["استلام الجهاز", "استلامه"]);
     const hasContract = includesAny(firstInstallmentSentence, ["توقيع العقد", "وتوقيع العقد", "بعد توقيع العقد"]);
-    if (!hasMonth || !hasContract) violations.push("wrong_first_installment_policy_claim");
+    if (!hasMonth || !hasReceipt || !hasContract) violations.push("wrong_first_installment_policy_claim");
   }
 
   return uniq(violations);
