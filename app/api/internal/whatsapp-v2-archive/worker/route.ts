@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -11,6 +11,31 @@ export const maxDuration = 300;
 async function readSetting(key: string, fallback: string) {
   const { data } = await supabaseAdmin.from("whatsapp_v2_archive_settings").select("value").eq("key", key).maybeSingle();
   return String(data?.value ?? fallback);
+}
+
+function tokenDigest(token: string) {
+  return createHash("sha256").update(token, "utf8").digest();
+}
+
+async function validWorkerToken(request: NextRequest) {
+  const auth = String(request.headers.get("authorization") || "");
+  const match = auth.match(/^Bearer\s+(.+)$/i);
+  const token = String(match?.[1] || "").trim();
+  if (!token) return false;
+
+  const expectedHex = await readSetting("archive_worker_token_sha256", "");
+  const expiresRaw = await readSetting("archive_worker_token_expires_at", "");
+  const expiresMs = Date.parse(expiresRaw);
+  if (!/^[0-9a-f]{64}$/i.test(expectedHex) || !Number.isFinite(expiresMs) || Date.now() >= expiresMs) return false;
+
+  const actual = tokenDigest(token);
+  const expected = Buffer.from(expectedHex, "hex");
+  return actual.length === expected.length && timingSafeEqual(actual, expected);
+}
+
+async function authorizedForWorker(request: NextRequest) {
+  if (await isAdminLoggedIn()) return true;
+  return validWorkerToken(request);
 }
 
 async function disableExpiredTimedRun() {
@@ -31,7 +56,7 @@ async function disableExpiredTimedRun() {
 }
 
 export async function POST(request: NextRequest) {
-  if (!(await isAdminLoggedIn())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!(await authorizedForWorker(request))) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   if (await disableExpiredTimedRun()) {
     return NextResponse.json({ error: "Archive timed run expired and was disabled." }, { status: 423 });
@@ -41,7 +66,7 @@ export async function POST(request: NextRequest) {
   if (!enabled) return NextResponse.json({ error: "Archive lab is disabled. Enable it from the admin lab first." }, { status: 423 });
 
   const body = await request.json().catch(() => ({}));
-  void body; // burn-in hotfix intentionally processes one case per request to stay below Vercel timeout.
+  void body;
   const requested = 1;
   const workerId = `v2-archive:${randomUUID()}`;
 
