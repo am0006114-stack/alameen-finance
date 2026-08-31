@@ -117,8 +117,8 @@ export function archiveReplyPolicyViolations(value: string | null | undefined) {
     violations.push("forbidden_business_name_alameen_installments_and_finance");
   }
 
-  if (/\bpayamen\b/i.test(raw)) {
-    violations.push("forbidden_payment_alias_payamen");
+  if (/\b(?:PAYAMEN|PAYAMEEN|AMEENPAY)\b/i.test(raw)) {
+    violations.push("forbidden_payment_alias_noncanonical");
   }
 
   if (hasInternalCustomerFacingLanguage(raw)) {
@@ -193,7 +193,13 @@ export function archiveConversationPolicyViolations(item: ArchiveCase, reply: st
   if (!customer || !text) return [] as string[];
   const violations: string[] = [];
 
-  const asksHuman = includesAny(customer, ["بدي موظف", "بدي موضف", "موظف", "موضف", "احكي مع موظف", "احكي مع حدا"]);
+  // "موظف" can be an occupation (e.g. "موظف حكومي") and must not be mistaken for a handoff request.
+  const asksHuman = includesAny(customer, [
+    "بدي موظف", "بدي موضف", "اريد موظف", "أريد موظف", "بدي احكي مع موظف", "بدي أحكي مع موظف",
+    "احكي مع موظف", "أحكي مع موظف", "موظف من عندكم", "موظف عندكم", "موظف اتواصل", "موظف أتواصل",
+    "وصلني لموظف", "وصلني لحدا", "حولني لموظف", "حوّلني لموظف", "بدي حدا اتواصل", "بدي حدا أتواصل",
+    "حدا يتواصل معي", "حد يتواصل معي"
+  ]);
   const acknowledgesHuman = includesAny(text, ["موظف", "موضف", "زميل", "الفريق", "المتابعه البشريه", "المتابعة البشرية", "التصعيد"]);
   if (asksHuman && !acknowledgesHuman) violations.push("explicit_human_handoff_missed");
 
@@ -210,7 +216,7 @@ export function archiveConversationPolicyViolations(item: ArchiveCase, reply: st
     "الغاء الطلب", "إلغاء الطلب", "الغي الطلب", "ألغي الطلب", "الغاء طلب الاسترداد", "إلغاء طلب الاسترداد",
     "بدي استرداد", "بدي استرجاع", "استرجاع المصاري", "استرداد الرسوم",
   ]);
-  const asksHumanContact = includesAny(customer, ["حدا يتواصل معي", "بدي موظف", "بدي موضف", "احكي مع موظف", "احكي مع حدا"]);
+  const asksHumanContact = asksHuman;
   const claimsExecution = includesAny(text, [
     "تم تسجيل طلبك", "تم تسجيل طلب", "تم تسجيل الإلغاء", "تم تسجيل الغاء", "تم إلغاء الطلب", "تم الغاء الطلب",
     "تم إلغاء الاسترداد", "تم الغاء الاسترداد", "تم رفع طلبك", "رح نرفع طلبك", "سأرفع طلبك",
@@ -218,7 +224,9 @@ export function archiveConversationPolicyViolations(item: ArchiveCase, reply: st
   ]);
   const claimsHandoffExecution = includesAny(text, [
     "رح أحول طلبك لموظف", "رح احول طلبك لموظف", "سأحول طلبك لموظف", "سيتم تحويل طلبك لموظف",
-    "رح أحولك لموظف", "رح احولك لموظف", "سيتواصل معك موظف", "موظف مختص يتواصل معك",
+    "رح أحولك لموظف", "رح احولك لموظف", "رح أوصل طلبك للفريق", "رح اوصل طلبك للفريق",
+    "سأوصل طلبك للفريق", "رح أوصلهم", "رح اوصلهم", "سيتواصل معك موظف", "موظف مختص يتواصل معك",
+    "الفريق سيتواصل معك", "الفريق رح يتواصل معك", "رح يتواصلوا معك", "سيتواصلوا معك"
   ]);
   if (asksStateMutation && claimsExecution) violations.push("unexecuted_state_action_claim");
   if (asksHumanContact && claimsHandoffExecution) violations.push("unexecuted_handoff_claim");
@@ -231,6 +239,7 @@ export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | 
   if (!text) return [] as string[];
 
   const violations: string[] = [];
+  const sentences = text.split(/[.!؟?\n]+/).map((x) => x.trim()).filter(Boolean);
   const confidence = String(item.historical_truth_confidence || "none").toLowerCase();
   const status = truthStatus(item);
   const paymentStatus = truthPaymentStatus(item);
@@ -376,6 +385,37 @@ export function archiveTruthPolicyViolations(item: ArchiveCase, reply: string | 
   // Expand refund-state detection for natural phrasings such as "طلب الاسترداد ما زال قيد المراجعة".
   if (includesAny(text, ["طلب الاسترداد ما زال قيد المراجعه", "طلب الاسترداد ما زال قيد المراجعة", "طلب الاسترداد لسا قيد المراجعه", "طلب الاسترداد لسا قيد المراجعة"]) && !reliable) {
     violations.push("unsupported_refund_state_claim_low_truth");
+  }
+
+  // Weak historical truth cannot be promoted into a generic current-state assertion.
+  // This catches the dominant failure family found in the 200-case final gate without
+  // punishing customer-attributed or conditional wording.
+  const genericCurrentStateClaim = hasPositiveAssertive([
+    "طلبك قيد المتابعه", "طلبك قيد المتابعة", "حاله طلبك قيد المتابعه", "حالة طلبك قيد المتابعة",
+    "طلبك قيد الدراسه", "طلبك قيد الدراسة", "قيد الدراسه النهائيه", "قيد الدراسة النهائية",
+    "طلبك موجود وقيد المراجعه", "طلبك موجود وقيد المراجعة", "طلبك بانتظار تأكيد الاداره", "طلبك بانتظار تأكيد الإدارة",
+    "بانتظار وصول الاجهزه", "بانتظار وصول الأجهزة", "اختيارك بالانتظار مسجل", "اختياركم بالانتظار مسجل"
+  ]);
+  if (!reliable && genericCurrentStateClaim) violations.push("unsupported_generic_current_state_claim_low_truth");
+
+  // Do not promise future outbound notifications, staff contact, automatic status display,
+  // or an approval outcome unless an executed action explicitly supports it.
+  if (includesAny(text, [
+    "رح يوصلك تحديث", "رح يصلك تحديث", "بنبعتلك تحديث", "رح نبعتلك تحديث", "رح نبعثلك تحديث",
+    "سيصلك تحديث", "سيتم ارسال تحديث", "سيتم إرسال تحديث", "بتوصلك الموافقه", "بتوصلك الموافقة",
+    "رح توصلك الموافقه", "رح توصلك الموافقة", "الفريق سيتواصل معك", "الفريق رح يتواصل معك",
+    "رح يتواصلوا معك", "سيتواصلوا معك", "سيتم التواصل معك", "الحاله رح تظهر تلقائيا", "الحالة رح تظهر تلقائيًا",
+    "ستظهر الحاله تلقائيا", "ستظهر الحالة تلقائيًا", "رح تظهر لك تعليمات الدفع", "رح توصلك تعليمات الدفع"
+  ])) {
+    violations.push("unsupported_future_notification_or_contact_promise");
+  }
+
+  // Exact first-installment invariant: one month after device receipt AND contract signing.
+  const firstInstallmentSentence = sentences.find((sentence) => includesAny(sentence, ["القسط الاول", "القسط الأول"]));
+  if (firstInstallmentSentence && includesAny(firstInstallmentSentence, ["بعد الاستلام", "بعد استلام الجهاز"])) {
+    const hasMonth = includesAny(firstInstallmentSentence, ["بعد شهر", "بعد شهر من"]);
+    const hasContract = includesAny(firstInstallmentSentence, ["توقيع العقد", "وتوقيع العقد", "بعد توقيع العقد"]);
+    if (!hasMonth || !hasContract) violations.push("wrong_first_installment_policy_claim");
   }
 
   return uniq(violations);

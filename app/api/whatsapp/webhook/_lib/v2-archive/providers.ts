@@ -76,6 +76,7 @@ function replaySystemPrompt() {
 - إذا العميل قال «دفعت/تم الدفع»، اعترف بالمعلومة فقط ولا تقل إن الدفع «مؤكد» أو «تم تسجيله» ما لم تدعم الحقيقة ذلك. إذا احتاج إثباتًا فالتوجيه للرابط الرسمي فقط، لا صورة على واتساب.
 - إذا العميل طلب إلغاء/استرداد/إلغاء استرداد أو موظفًا، افهم الفعل المطلوب بدقة، لكن لا تدّع تنفيذ action لم يحدث. ممنوع «تم تسجيل طلبك»، «تم إلغاء»، «رح أحولك لموظف»، أو وعود تنفيذ مشابهة ما لم يوجد تنفيذ موثق. صغ الرد كفهم واضح للطلب واترك التنفيذ لمسار action منفصل.
 - إذا العميل طلب موظفًا، افهم ذلك كطلب handoff ولا تستمر بسلسلة أسئلة عامة.
+- كلمة «موظف» وحدها ليست طلب handoff دائمًا؛ مثل «موظف حكومي» أو «أنا موظف» هي صفة للعميل. اعتبر handoff فقط إذا طلب صراحة التواصل/التحويل لموظف أو شخص.
 - إذا قال العميل معلومة قبل لحظات، لا تسأله عنها مرة ثانية.
 - إذا الرسالة فيها سؤالان أو أكثر، يجب أن تغطيهما جميعًا.
 - historical_truth أدناه هو مصدر الحقيقة المتاح لحظة الرسالة. إذا ثقته limited/none، لا تختلق حقيقة مفقودة.
@@ -86,12 +87,15 @@ function replaySystemPrompt() {
 - لا تصف الخدمة كـ«تمويل أجهزة» أو «خدمة تمويل» أو قرض. الوصف الصحيح: بيع أجهزة بالتقسيط / أقساط أجهزة.
 - ممنوع اختراع «بدون فوائد/ما في فوائد» أو حكم ربوي/شرعي غير موثق. السعر وجدول الأقساط يؤخذان من بيانات الجهاز/الطلب المعتمدة فقط.
 - إذا سأل عن سعر جهاز أو قسطه ولا توجد أرقام معتمدة في الحقيقة، لا تطلب منه «سعر الجهاز عندك» ولا تسأله من أين سيشتريه؛ الأمين هو جهة بيع الأجهزة بالتقسيط. قل إن الرقم الدقيق يحتاج السعر/الخطة المعتمدة من النظام.
+- لا تطلب من العميل تزويدك بسعر الجهاز حتى بصيغة «إذا عندك سعر محدد». إذا السعر غير متاح، قل فقط إن السعر والقسط الدقيقين يحتاجان السعر والخطة المعتمدين لدى الأمين.
 - ممنوع اختراع مدة مراجعة مثل «يوم عمل» أو «24/48 ساعة». استخدم «حسب الدور وضغط المراجعات» أو الظروف التشغيلية المعتمدة عند الحاجة بدون موعد غير مؤكد.
 - لا تقل إن «النظام يتحقق من الدفع تلقائيًا». إذا احتاج الدفع إثباتًا، الوصل يُرفع من الرابط الرسمي المرتبط بالطلب.
 - لا تعد العميل بأنك أنت سترسل/توصّل رابط دفع لاحقًا ما لم يوجد action منفذ؛ استخدم «تظهر/تتوفر تعليمات الدفع الرسمية المرتبطة بطلبك عند وصوله لهذه المرحلة».
 - لا تخترع إمكانية تأجيل دفع مستحق إلى «بعد العيد» أو تاريخ يختاره العميل. إذا لا توجد حقيقة تسمح بالتمديد، قل إنك لا تقدر تثبت موعد تأجيل من دون حالة الطلب.
 - إذا سأل عن طريقة الدفع بشكل عام والحقيقة لا تثبت أن الدفع مطلوب الآن: جاوب عن الطريقة بصيغة شرطية فقط، ولا تقل «لا يوجد دفع مطلوب الآن» ولا «ادفع الآن». الصيغة الآمنة: عند وصول الطلب لمرحلة الرسوم وقرار العميل الاستمرار، التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط محفظة Orange Money، وتعليمات الدفع الرسمية تكون مرتبطة بالطلب.
-- إذا الحقيقة تثبت أن رسوم فتح الملف مطلوبة فعليًا الآن (status preliminary_qualified/customer_confirmed_continue أو payment_status pending/pending_payment/payment_info_sent)، يمكن إعطاء بيانات الدفع المعتمدة: CliQ أو محفظة إلكترونية إلى محفظة Orange Money، بالاسم AMEEENPAY أو AMENPAY فقط، مع التحقق من اسم المستفيد ABDUL RAHMAN ALHARAHSHEH قبل التأكيد، ورفع الوصل عبر الرابط الرسمي. غير ذلك لا ترسل أسماء التحويل كطلب دفع.
+- قاعدة حاسمة: إذا historical_truth_confidence = limited أو none، ممنوع تمامًا كتابة أي صيغة من «لا يوجد دفع مطلوب الآن/حاليًا»، «ما في دفع مطلوب»، «ما عليك مبلغ الآن»، حتى لو وردت في رد سابق. عدم المعرفة لا يتحول إلى نفي. أجب عن سياسة/طريقة الدفع فقط بصيغة عامة أو شرطية.
+- ممنوع الوعد بإشعار أو تواصل مستقبلي غير منفذ: لا تقل «رح يوصلك تحديث»، «بنبعتلك تحديث»، «الفريق رح يتواصل»، «رح تظهر الحالة تلقائيًا»، أو «رح توصلك تعليمات الدفع». اشرح ما هو ثابت فقط.
+- إذا الحقيقة تثبت أن رسوم فتح الملف مطلوبة فعليًا الآن (status preliminary_qualified/customer_confirmed_continue أو payment_status pending/pending_payment/payment_info_sent)، يمكن إعطاء بيانات الدفع المعتمدة: CliQ أو محفظة إلكترونية إلى محفظة Orange Money، بالاسم AMEEENPAY أو AMENPAY فقط. PAYAMEN وPAYAMEEN وAMEENPAY ممنوعة وليست aliases معتمدة، مع التحقق من اسم المستفيد ABDUL RAHMAN ALHARAHSHEH قبل التأكيد، ورفع الوصل عبر الرابط الرسمي. غير ذلك لا ترسل أسماء التحويل كطلب دفع.
 - إذا سأل «ممكن أدفع بالمكتب؟» فالجواب المباشر: دفع رسوم فتح الملف بالمكتب غير متاح؛ لا تعطه عنوان المكتب ولا تعيد إرسال تعليمات التحويل في نفس الرد.
 - إذا قال «بدفع الـ5 عند الاستلام» أو سأل عنها: وضّح أن رسوم فتح الملف ليست عند الاستلام؛ تُطلب بعد التأهيل المبدئي إذا قرر الاستمرار. لا تعتبر مجرد ذكر «عند الاستلام» مخالفة إذا كنت تنفيها بوضوح.
 - لا تعرض ترتيب موعد مكتب من عندك. الحضور فقط بموعد رسمي بعد الموافقة النهائية، إلا إذا الحقيقة التاريخية تثبت أن الموعد/المرحلة تسمح بذلك.
@@ -162,6 +166,81 @@ export async function runDeepSeekArchiveReplay(input: {
   }
 }
 
+
+function repairSystemPrompt() {
+  return `أنت طبقة Final Self-Repair داخل V2 Conversation OS للأمين للأقساط. أمامك رد مرشح فشل حراس حقيقة حتمية.
+مهمتك الوحيدة: إعادة كتابة الرد ليبقى طبيعيًا ومفيدًا ويزيل جميع المخالفات المذكورة، بدون اختراع حقيقة بديلة.
+
+قواعد إلزامية:
+- إذا الحقيقة limited/none: لا تقل أبدًا «لا يوجد دفع مطلوب الآن/حاليًا» أو أي نفي لحالة دفع حالية. استخدم سياسة عامة أو شرطية فقط.
+- لا تقل «ادفع الآن» إلا إذا الحقيقة تثبت أن الرسوم مطلوبة الآن.
+- لا تؤكد حالة طلب/موافقة/رفض/كفيل/دفع/استرداد/موعد إلا إذا historical_truth يدعمها.
+- لا تعد بتحديث/إشعار/تواصل موظف/ظهور حالة تلقائيًا أو إرسال رابط مستقبلًا إذا لم يوجد تنفيذ موثق.
+- إذا العميل طلب موظفًا صراحة: اعترف بالطلب بوضوح، لكن لا تقل إن التحويل تم أو أن الفريق سيتواصل. كلمة «موظف حكومي» ليست طلب موظف.
+- إذا سأل عن جهاز وسعره غير موجود في الحقيقة: لا تطلب سعر الجهاز من العميل ولا تفترض شراءً خارجيًا.
+- الأسماء الوحيدة للدفع: AMEEENPAY وAMENPAY. ممنوع PAYAMEN/PAYAMEEN/AMEENPAY.
+- القسط الأول: بعد شهر من استلام الجهاز وتوقيع العقد، لا تختصرها إلى «بعد الاستلام» فقط.
+- الاستلام من المكتب بموعد رسمي بعد الموافقة النهائية؛ لا تعد بأنك ستحدد الموعد.
+- لا تستخدم لغة داخلية أو تشرح الحراس أو سبب الإصلاح.
+- أجب على سؤال العميل نفسه ولا تتحول لرسالة سياسات طويلة.
+
+أخرج JSON فقط:
+{"candidate_reply":"string","confidence":0.0,"safety_flags":["string"]}`;
+}
+
+type DeepSeekRepairResult = { candidate_reply: string; confidence: number; safety_flags: string[] };
+
+export async function runDeepSeekArchiveRepair(input: {
+  item: ArchiveCase;
+  contextText: string;
+  historicalActions: unknown[];
+  deterministicAnchor: unknown;
+  original: DeepSeekReplayResult;
+  violations: string[];
+}) {
+  const apiKey = String(process.env.DEEPSEEK_V2_API_KEY || "").trim();
+  if (!apiKey) throw new Error("DEEPSEEK_V2_API_KEY_missing");
+  const model = deepSeekModel();
+  const reservationId = await reserveAiBudget({ provider: "deepseek", model, purpose: "archive_repair", caseId: input.item.id, reserveUsd: 0.03 });
+  const started = Date.now();
+  let usage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0 };
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 28000);
+    const response = await fetch("https://api.deepseek.com/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: repairSystemPrompt() },
+          { role: "user", content: `رسالة العميل:\n${input.item.customer_message}\n\nالسياق السابق:\n${input.contextText || "لا يوجد"}\n\ntruth confidence: ${input.item.historical_truth_confidence || "none"}\nالحقيقة التاريخية:\n${JSON.stringify(input.item.historical_truth || {})}\n\nالإجراءات التاريخية السابقة:\n${JSON.stringify(input.historicalActions || [])}\n\nDeterministic anchor:\n${JSON.stringify(input.deterministicAnchor || {})}\n\nالرد المرشح الذي فشل:\n${input.original.candidate_reply}\n\nالمخالفات الحتمية المطلوب إزالتها كلها:\n${JSON.stringify(input.violations)}` },
+        ],
+        temperature: 0,
+        max_tokens: 650,
+        response_format: { type: "json_object" },
+        thinking: { type: "disabled" },
+      }),
+      signal: controller.signal,
+    }).finally(() => clearTimeout(timer));
+    const body = await response.text();
+    let decoded: any = null;
+    try { decoded = JSON.parse(body); } catch { decoded = null; }
+    usage = deepSeekUsage(decoded);
+    if (!response.ok) throw new Error(`deepseek_repair_http_${response.status}:${body.slice(0, 700)}`);
+    const raw = decoded?.choices?.[0]?.message?.content;
+    if (typeof raw !== "string") throw new Error("deepseek_repair_empty_content");
+    const result = parseJson<DeepSeekRepairResult>(raw);
+    if (!String(result?.candidate_reply || "").trim()) throw new Error("deepseek_repair_empty_candidate");
+    const cost = await finalizeAiUsage({ reservationId, provider: "deepseek", model, ...usage, requestId: decoded?.id || null });
+    return { result, model, latencyMs: Date.now() - started, costUsd: cost || 0, usage };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    await finalizeAiUsage({ reservationId, provider: "deepseek", model, ...usage, errorCode: "archive_repair_failed", errorMessage: message });
+    throw error;
+  }
+}
+
 const judgeSchema = {
   type: "object",
   additionalProperties: false,
@@ -221,6 +300,8 @@ function judgeInstructions() {
 - «بدون فوائد/ما في فوائد» أو أي حكم ربوي/شرعي غير موثق ممنوع.
 - لا يجوز اختراع موافقة/رفض/كفيل/تأكيد دفع/استرداد/موعد أو مدة مراجعة إذا historical_truth لا يدعمها.
 - لا يجوز اختراع أن «لا يوجد دفع مطلوب الآن» أو أن «الموافقة النهائية غير موجودة» إذا historical_truth لا يثبت ذلك؛ النفي لحالة حالية يحتاج حقيقة مثل الإثبات.
+- إذا truth confidence = limited/none فصياغة «لا يوجد دفع مطلوب الآن/حاليًا» خطأ حرج حتى لو ظهرت في رسالة تاريخية سابقة غير موثقة.
+- وعود «رح يوصلك تحديث/الفريق سيتواصل/الحالة ستظهر تلقائيًا/رح توصلك تعليمات الدفع» غير مسموحة بلا تنفيذ موثق.
 - لا يجوز القول إن النظام سيتحقق من الدفع تلقائيًا، ولا اختراع إمكانية تأجيل دفع مستحق إلى تاريخ يختاره العميل.
 - إذا طلب العميل action مثل إلغاء/استرداد/إلغاء استرداد/handoff، لا يجوز للرد الادعاء أن action تم تسجيله/تنفيذه/تحويله ما لم يوجد تنفيذ موثق. فهم الطلب شيء وتنفيذه شيء آخر.
 - لا يُطلب إثبات الدفع بصورة أو لقطة شاشة على واتساب؛ التوجيه يكون للرابط الرسمي المرتبط بالطلب.

@@ -1,7 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { deterministicInterpret } from "../v2-conversation/deterministicInterpreter";
 import { contextAsText, loadArchiveContext, loadHistoricalActionRequests } from "./history";
-import { runDeepSeekArchiveReplay, runOpenAiAdjudicator, runOpenAiJudge, V2BudgetBlockedError } from "./providers";
+import { runDeepSeekArchiveReplay, runDeepSeekArchiveRepair, runOpenAiAdjudicator, runOpenAiJudge, V2BudgetBlockedError } from "./providers";
 import { archiveConversationPolicyViolations, archiveReplyPolicyViolations, archiveTruthPolicyViolations, isLowValueArchiveNoise, isSimpleSocialArchiveTurn } from "./policyVerifier";
 import type { ArchiveCase, ArchiveJudgeResult } from "./types";
 
@@ -107,20 +107,52 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
     const deepseek = await runDeepSeekArchiveReplay({ item, contextText, historicalActions, deterministicAnchor });
     deepseekCost += Number(deepseek.costUsd || 0);
 
-    const localFindings = {
-      actual: uniq([
-        ...archiveReplyPolicyViolations(item.actual_reply || ""),
-        ...archiveConversationPolicyViolations(item, item.actual_reply || ""),
-        ...archiveTruthPolicyViolations(item, item.actual_reply || ""),
-      ]),
-      candidate: uniq([
-        ...archiveReplyPolicyViolations(deepseek.result.candidate_reply || ""),
-        ...archiveConversationPolicyViolations(item, deepseek.result.candidate_reply || ""),
-        ...archiveTruthPolicyViolations(item, deepseek.result.candidate_reply || ""),
-      ]),
-    };
+    const actualFindings = uniq([
+      ...archiveReplyPolicyViolations(item.actual_reply || ""),
+      ...archiveConversationPolicyViolations(item, item.actual_reply || ""),
+      ...archiveTruthPolicyViolations(item, item.actual_reply || ""),
+    ]);
 
-    const primaryJudgeRaw = await runOpenAiJudge({ item, contextText, deepSeek: deepseek.result, localFindings });
+    let finalDeepSeek = deepseek.result;
+    let candidateFindings = uniq([
+      ...archiveReplyPolicyViolations(finalDeepSeek.candidate_reply || ""),
+      ...archiveConversationPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
+      ...archiveTruthPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
+    ]);
+    const preRepairFindings = [...candidateFindings];
+    let repairApplied = false;
+
+    // Phase 2.5 FINAL GATE: Generate -> deterministic verify -> one focused repair -> verify again.
+    // The judge only sees the post-repair candidate. This makes hard truth/policy failures
+    // self-correcting without allowing the repair model to override deterministic truth.
+    if (candidateFindings.length > 0) {
+      const repair = await runDeepSeekArchiveRepair({
+        item, contextText, historicalActions, deterministicAnchor,
+        original: finalDeepSeek,
+        violations: candidateFindings,
+      });
+      deepseekCost += Number(repair.costUsd || 0);
+      repairApplied = true;
+      finalDeepSeek = {
+        ...finalDeepSeek,
+        candidate_reply: repair.result.candidate_reply,
+        confidence: Math.min(Number(finalDeepSeek.confidence || 0), Number(repair.result.confidence || finalDeepSeek.confidence || 0)),
+        safety_flags: uniq([
+          ...(finalDeepSeek.safety_flags || []),
+          ...(repair.result.safety_flags || []),
+          ...preRepairFindings.map((x) => `self_repaired:${x}`),
+        ]),
+      };
+      candidateFindings = uniq([
+        ...archiveReplyPolicyViolations(finalDeepSeek.candidate_reply || ""),
+        ...archiveConversationPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
+        ...archiveTruthPolicyViolations(item, finalDeepSeek.candidate_reply || ""),
+      ]);
+    }
+
+    const localFindings = { actual: actualFindings, candidate: candidateFindings };
+
+    const primaryJudgeRaw = await runOpenAiJudge({ item, contextText, deepSeek: finalDeepSeek, localFindings });
     openaiCost += Number(primaryJudgeRaw.costUsd || 0);
     const normalizedPrimary = normalizeJudgeScoreScale(primaryJudgeRaw.result);
     const primaryJudge = { ...primaryJudgeRaw, result: normalizedPrimary.result };
@@ -134,7 +166,7 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
     const terraEnabled = String(terraSetting?.value || "true").toLowerCase() !== "false";
 
     if (terraEnabled && shouldAdjudicate(primaryJudge.result, item, localFindings.candidate)) {
-      const adjudicationRaw = await runOpenAiAdjudicator({ item, contextText, deepSeek: deepseek.result, localFindings });
+      const adjudicationRaw = await runOpenAiAdjudicator({ item, contextText, deepSeek: finalDeepSeek, localFindings });
       openaiCost += Number(adjudicationRaw.costUsd || 0);
       const normalizedAdjudication = normalizeJudgeScoreScale(adjudicationRaw.result);
       adjudication = { ...adjudicationRaw, result: normalizedAdjudication.result };
@@ -170,6 +202,7 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
       ...(winner === "actual" ? ["v1_beats_v2"] : []),
       ...(deterministicAnchor.warnings || []).filter((x) => x.includes("non_continuation")),
       ...(item.historical_truth_confidence === "limited" ? ["limited_historical_truth"] : []),
+      ...(repairApplied && candidateFindings.length > 0 ? ["self_repair_still_critical"] : []),
     ]);
     const needsReview =
       criticalCandidate.length > 0 ||
@@ -183,8 +216,8 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
         status: needsReview ? "needs_review" : "succeeded",
         context_snapshot: contextRows,
         deterministic_anchor: deterministicAnchor,
-        deepseek_result: deepseek.result,
-        candidate_reply: deepseek.result.candidate_reply,
+        deepseek_result: finalDeepSeek,
+        candidate_reply: finalDeepSeek.candidate_reply,
         openai_judge: primaryJudge.result,
         openai_adjudication: adjudication?.result || null,
         actual_score: actualScore,
@@ -220,6 +253,8 @@ export async function evaluateArchiveCase(item: ArchiveCase, workerId: string) {
       deepseekCost,
       openaiCost,
       adjudicated: Boolean(adjudication),
+      repairApplied,
+      repairedFrom: preRepairFindings,
     };
   } catch (error) {
     if (error instanceof V2BudgetBlockedError) {
