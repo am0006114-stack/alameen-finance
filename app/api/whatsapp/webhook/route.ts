@@ -64,6 +64,7 @@ import {
 } from "./_lib/stateIntegrity";
 import { enqueueShadowJob } from "./_lib/shadow-core";
 import { enqueueConversationOsShadowJob } from "./_lib/v2-conversation";
+import { prepareV2ProductionTurn, writeV2ProductionReply, commitV2ProductionState, type V2ProductionWriteResult } from "./_lib/v2-production";
 import { buildShadowFacts } from "./_lib/shadow-core/policyRegistry";
 import { detectShadowTopics } from "./_lib/shadow-core/topicDetector";
 import { validateFinalActualReply } from "./_lib/shadow-core/validator";
@@ -153,6 +154,7 @@ import {
 } from "./_lib/conversationKernel";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 
 
@@ -8803,7 +8805,7 @@ async function resolveApplicationForConversation(input: {
   return { app: latest, ambiguousChoices: [], source: latest ? "latest_unambiguous_context" : "none" };
 }
 
-async function buildReply(request: Request, from: string, text: string, messageType = "text") {
+async function buildReply(request: Request, from: string, text: string, messageType = "text", options?: { forcedIntent?: CustomerIntent | null; disableLegacyAi?: boolean }) {
   const baseUrl = getBaseUrl(request);
   const rawCustomerText = String(text || "").trim();
   // سياق قريب فقط: يمنع الردود القديمة السيئة من السيطرة على DeepSeek.
@@ -8918,7 +8920,9 @@ async function buildReply(request: Request, from: string, text: string, messageT
   const sensitive = looksSensitive(text) || (Boolean(conversationMemory.conversationContext) && isTinyContextFollowupText(text));
 
   const humanizeReply = (input: AiReplyInput) =>
-    generateAiReply({
+    options?.disableLegacyAi
+      ? Promise.resolve(input.deterministicReply)
+      : generateAiReply({
       ...input,
       conversationContext: conversationMemory.conversationContext,
       lastAssistantReplies: conversationMemory.lastAssistantReplies,
@@ -9005,9 +9009,9 @@ async function buildReply(request: Request, from: string, text: string, messageT
     application: app,
     memory: conversationMemory,
   });
-  intent = kernelTurn.intentOverride || intent;
+  intent = options?.forcedIntent || kernelTurn.intentOverride || intent;
 
-  if (app && kernelTurn.actionRequestType) {
+  if (app && kernelTurn.actionRequestType && !options?.forcedIntent) {
     const actionRequest = await recordApplicationActionRequest(
       app,
       kernelTurn.actionRequestType,
@@ -10723,6 +10727,21 @@ export async function POST(request: Request) {
           return;
         }
 
+        // V2 PRODUCTION CONVERSATION OS: fail-closed runtime selection and multi-act interpretation.
+        // OFF/kill-switch/outside-canary/budget/provider failures fall back to the existing V1 path.
+        const v2Production = await prepareV2ProductionTurn({
+          waId: from,
+          incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+          customerText: replyInputText,
+          messageType: processingMessageType,
+          conversationContext: preReplyMemory.conversationContext,
+          lastCustomerMessages: preReplyMemory.lastCustomerMessages,
+          lastAssistantReplies: preReplyMemory.lastAssistantReplies,
+        });
+        if (v2Production.active && v2Production.forcedIntent) {
+          processingIntent = v2Production.forcedIntent;
+        }
+
         // Capture the pre-reply state for diagnostics only. buildReply may mutate the application,
         // so every final policy decision must be based on a fresh post-reply read.
         const preReplyApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
@@ -10737,7 +10756,15 @@ export async function POST(request: Request) {
           memory: preReplyMemory,
         });
         needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
-        const rawReply = await buildReply(request, from, replyInputText, processingMessageType);
+        let rawReply = await buildReply(
+          request,
+          from,
+          replyInputText,
+          processingMessageType,
+          v2Production.active
+            ? { forcedIntent: v2Production.forcedIntent, disableLegacyAi: true }
+            : undefined,
+        );
         const outgoingMemory = await getConversationMemory(from);
         const refreshedApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, outgoingMemory);
         const finalApplication = refreshedApplication || preReplyApplication;
@@ -10746,6 +10773,20 @@ export async function POST(request: Request) {
           incomingTracking ||
           finalApplication?.tracking_id ||
           null;
+
+        let v2WriterResult: V2ProductionWriteResult | null = null;
+        if (v2Production.active && v2Production.turn) {
+          v2WriterResult = await writeV2ProductionReply({
+            preparation: v2Production,
+            waId: from,
+            customerText: replyInputText,
+            deterministicReply: rawReply,
+            application: finalApplication,
+            conversationContext: outgoingMemory.conversationContext,
+            lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+          });
+          rawReply = v2WriterResult.reply;
+        }
 
         let reply = finalizeReplyBeforeSend(rawReply, {
           from,
@@ -10917,6 +10958,18 @@ export async function POST(request: Request) {
             intent: processingIntent,
             applicationStatus: aiMemoryApp?.status || null,
           });
+
+          if (v2Production.turn && v2Production.state) {
+            await commitV2ProductionState({
+              preparation: v2Production,
+              waId: from,
+              incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+              customerText: replyInputText,
+              finalReply: reply,
+              application: finalApplication,
+              writerResult: v2WriterResult,
+            });
+          }
 
           // Enqueue the comparison only after the real reply is successfully sent and logged.
           // This insert is idempotent and uses a dedicated table; it never delays on an LLM call.
