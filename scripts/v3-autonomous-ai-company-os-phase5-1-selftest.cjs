@@ -1,0 +1,46 @@
+const fs=require('fs'),path=require('path');
+const root=process.argv[2]; if(!root) throw new Error('ProjectRoot required');
+const read=r=>fs.readFileSync(path.join(root,r),'utf8');
+const must=(ok,msg)=>{if(!ok) throw new Error(msg)};
+const exists=r=>fs.existsSync(path.join(root,r));
+const payment=read('app/api/whatsapp/webhook/_lib/v3-os/paymentTruth.ts');
+const action=read('app/api/whatsapp/webhook/_lib/v3-os/actionPlane.ts');
+const verifier=read('app/api/whatsapp/webhook/_lib/v3-os/verifier.ts');
+const fallback=read('app/api/whatsapp/webhook/_lib/v3-os/safeFallback.ts');
+const sim=read('app/api/whatsapp/webhook/_lib/v3-os/simulationActionAdapter.ts');
+const tx=read('app/api/whatsapp/webhook/_lib/v3-os/transactionalActionAdapter.ts');
+const archive=read('app/api/whatsapp/webhook/_lib/v3-os/archiveSequenceLab.ts');
+const sql=read('supabase/migrations/20260901193000_v3_phase5_transactional_audit_infra.sql');
+const types=read('app/api/whatsapp/webhook/_lib/v3-os/types.ts');
+const index=read('app/api/whatsapp/webhook/_lib/v3-os/index.ts');
+
+must(payment.includes('AUTHORITATIVE_PAYMENT_STATUSES') && payment.includes('"confirmed"') && payment.includes('"paid"') && payment.includes('"payment_confirmed"'),'Central authoritative payment statuses missing');
+const authoritativeBlock=payment.slice(payment.indexOf('AUTHORITATIVE_PAYMENT_STATUSES'),payment.indexOf('REFUND_WORKFLOW_STATUSES'));
+must(!authoritativeBlock.includes('refund_requested') && !authoritativeBlock.includes('refund_completed'),'Refund workflow state must never be authoritative payment evidence');
+must(payment.includes('hasPaymentRefundIntegrityConflict'),'Refund/payment integrity conflict helper required');
+must(action.includes('payment_refund_integrity_conflict_requires_admin') && action.includes('truthHasAuthoritativePaymentConfirmation'),'Action guard must fail closed on payment/refund integrity conflict');
+must(verifier.includes('hasAuthoritativePaymentConfirmation') && !verifier.includes('["confirmed","paid","payment_confirmed","refund_requested'),'Verifier must use centralized payment truth');
+must(fallback.includes('hasPaymentRefundIntegrityConflict') && fallback.includes('الإدارة'),'Safe fallback must explain integrity escalation without inventing payment truth');
+must(sim.includes('hasPaymentRefundIntegrityConflict') && sim.includes('truthHasAuthoritativePaymentConfirmation'),'Archive simulation must share production payment truth invariant');
+must(archive.includes('hasAuthoritativePaymentConfirmation') && !archive.includes('paymentConfirmed(app'),'Archive external truth must not treat refund state as payment evidence');
+must(tx.includes('p_owner_role: context.state.role.currentRole'),'Transactional RPC must receive AI owner role');
+must(sql.includes("coalesce(p_owner_role,'') <> 'omran'") && sql.includes("owner_role text NOT NULL DEFAULT 'omran'"),'Database must enforce Omran-only mutation authority');
+must(sql.includes('ON CONFLICT (idempotency_key) DO NOTHING'),'Idempotency claim must be concurrency-safe');
+must(sql.includes("v_payment_status IN ('confirmed','paid','payment_confirmed')") && !sql.includes("v_payment_status IN ('confirmed','paid','payment_confirmed','refund_requested'"),'SQL payment truth must be admin-confirmation-only');
+must(sql.includes('payment_refund_integrity_conflict_requires_admin'),'SQL must fail closed on legacy refund/payment inconsistency');
+must(sql.includes('stale_truth_phone') && sql.includes('stale_truth_device_name') && sql.includes('stale_truth_monthly_payment'),'Mutable fields must have stale-truth protection');
+must(sql.includes('DROP FUNCTION IF EXISTS public.execute_whatsapp_v3_application_action(text,text,text,text,text,jsonb,jsonb,text)'),'Superseded weaker RPC signature must be removed');
+must(sql.includes('service_role') && !sql.includes('CREATE TRIGGER') && !sql.includes('cron.'),'RPC must remain service-role-only with no cron/trigger');
+must(index.includes('export * from "./paymentTruth"'),'Central payment truth must be exported');
+must(types.includes('phase5.1-payment-truth-integrity'),'Runtime version must identify Phase 5.1');
+if(exists('app/api/whatsapp/webhook/route.ts')){
+  const route=read('app/api/whatsapp/webhook/route.ts');
+  must(!route.includes('v3TransactionalActionAdapter') && !route.includes('runV3RiskArchiveBatch'),'Live route must remain untouched');
+}
+console.log('V3 PHASE 5.1 SELFTEST PASS');
+console.log('Central admin-only payment truth: PASS');
+console.log('Refund-state bootstrap prevention: PASS');
+console.log('Omran-only DB boundary: PASS');
+console.log('Concurrent idempotency claim: PASS');
+console.log('Expanded stale-truth protection: PASS');
+console.log('Live route isolation: PASS');

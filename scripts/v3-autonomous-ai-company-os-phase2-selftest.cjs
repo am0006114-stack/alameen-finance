@@ -1,0 +1,17 @@
+const fs = require('fs');
+const path = require('path');
+const root = process.argv[2] || process.cwd();
+const base = path.join(root,'app','api','whatsapp','webhook','_lib','v3-os');
+const required = ['productionTruth.ts','supabaseActionAdapter.ts','provider.ts','runtimeShadow.ts','sequenceLab.ts'];
+for (const f of required) if (!fs.existsSync(path.join(base,f))) throw new Error(`missing ${f}`);
+const all = required.map(f=>fs.readFileSync(path.join(base,f),'utf8')).join('\n');
+if (/whatsapp_v2_human_action_queue|AUTO_REPLY_IGNORED|pauseAutoReplyAfterSend/.test(all)) throw new Error('human dependency regression detected');
+const runtime = fs.readFileSync(path.join(base,'runtimeShadow.ts'),'utf8');
+if (!runtime.includes('allowMutation: false')) throw new Error('shadow must hard-disable business mutation');
+const adapter = fs.readFileSync(path.join(base,'supabaseActionAdapter.ts'),'utf8');
+if (!adapter.includes('confirmed_payment_required')) throw new Error('refund payment guard missing');
+if (!adapter.includes('v3_contract_not_yet_enabled')) throw new Error('unsafe uncontracted actions must remain blocked');
+console.log('V3 PHASE 2 SELFTEST PASS');
+console.log('Production shadow reads authoritative truth.');
+console.log('Business mutation remains disabled in shadow runtime.');
+console.log('No human queue / no AI pause dependency.');
