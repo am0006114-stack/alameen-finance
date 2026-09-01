@@ -49,10 +49,25 @@ export function buildV3EmergencySafeReply(input: {
   if (topics.has("office_location")) parts.push(`${p.generalLocation}، والحضور بموعد رسمي فقط.`);
   if (topics.has("delivery")) parts.push(p.pickupRule);
   if (topics.has("receipt_upload")) {
-    if (officialLinks.relevant.receipt) parts.push(`${p.secureDocumentsRule} رابط رفع الوصل الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
+    if (hasAuthoritativePaymentConfirmation(input.truth.application)) parts.push("الدفع مؤكد على الطلب، فما في داعي ترفع الوصل مرة ثانية.");
+    else if (officialLinks.relevant.receipt) parts.push(`${p.secureDocumentsRule} رابط رفع الوصل الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
     else parts.push("حتى أعطيك رابط رفع الوصل الرسمي المرتبط بطلبك، ابعث رقم التتبع أو رقم الطلب أولًا.");
   }
-  if (topics.has("requirements")) parts.push(p.secureDocumentsRule);
+  if (topics.has("requirements")) {
+    const docs = input.truth.application?.documents;
+    if (docs?.loaded) {
+      const received: string[] = [];
+      if (docs.identityComplete) received.push("الهوية");
+      if (docs.salarySlipUploaded) received.push("كشف/شهادة الراتب");
+      if (docs.guarantorDataComplete) received.push("بيانات الكفيل");
+      if (docs.guarantorIdentityComplete) received.push("هوية الكفيل");
+      if (received.length) parts.push(`الموجود على ملفك حاليًا: ${received.join("، ")}. ما رح أطلب منك تعيد مستند وصلنا.`);
+      else parts.push(p.secureDocumentsRule);
+      if (officialLinks.relevant.identity) parts.push(`رابط رفع الهوية المطلوب حاليًا: ${officialLinks.relevant.identity}`);
+      if (officialLinks.relevant.salarySlip) parts.push(`رابط رفع كشف/شهادة الراتب المطلوب حاليًا: ${officialLinks.relevant.salarySlip}`);
+      if (officialLinks.relevant.guarantor) parts.push(`رابط استكمال بيانات الكفيل المطلوب حاليًا: ${officialLinks.relevant.guarantor}`);
+    } else parts.push(p.secureDocumentsRule);
+  }
   if (topics.has("website") && officialLinks.relevant.website) parts.push(`موقع الأمين الرسمي: ${officialLinks.relevant.website}`);
   if (topics.has("tracking") && officialLinks.relevant.tracking) parts.push(`رابط التتبع الرسمي: ${officialLinks.relevant.tracking}`);
   if (topics.has("products") && officialLinks.relevant.products) parts.push(`الأجهزة المتاحة موجودة هنا: ${officialLinks.relevant.products}`);
@@ -64,7 +79,12 @@ export function buildV3EmergencySafeReply(input: {
   }
 
   if (topics.has("application_status")) {
-    if (input.truth.application) parts.push(`حالة الطلب المسجلة حاليًا: ${input.truth.application.status || "غير محددة"}.`);
+    if (input.truth.application) {
+      const app = input.truth.application;
+      const name = String(app.fullName || "").trim().split(/\s+/).filter(Boolean).slice(0,2).join(" ");
+      const paid = hasAuthoritativePaymentConfirmation(app);
+      parts.push(`${name ? `${name}، ` : ""}حالة طلبك المسجلة حاليًا: ${app.status || "غير محددة"}.${paid ? " والدفع مؤكد على الملف." : ""}`);
+    }
     else if (input.truth.ambiguousApplications.length) parts.push("عندي أكثر من طلب مرتبط بالمحادثة، وبدي أحدد أي طلب تقصد قبل ما أعطيك حالة تخص طلب بعينه.");
     else parts.push("ما عندي حاليًا حقيقة كافية أربط فيها حالة طلب محدد بدون ما أخمّن.");
   }

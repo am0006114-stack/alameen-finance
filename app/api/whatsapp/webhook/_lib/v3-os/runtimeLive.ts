@@ -109,6 +109,8 @@ export async function runV3ProductionLive(input: {
     waId: input.waId,
     customerText: input.customerText,
     state: preliminaryState,
+    recentTurns: safeRecentTurns,
+    topics: turn.topics,
   });
 
   const boundState: ConversationState = truthBeforeActions.application
@@ -134,6 +136,8 @@ export async function runV3ProductionLive(input: {
       waId: input.waId,
       customerText: input.customerText,
       state: boundState,
+      recentTurns: safeRecentTurns,
+      topics: turn.topics,
     });
   }
 

@@ -70,6 +70,8 @@ export async function runV3ProductionShadow(input: {
     waId: input.waId,
     customerText: input.customerText,
     state: preliminaryState,
+    recentTurns: safeRecentTurns,
+    topics: turn.topics,
   });
   const boundState = truthBeforeActions.application
     ? { ...preliminaryState, activeApplicationId: truthBeforeActions.application.id, activeTrackingId: truthBeforeActions.application.trackingId }

@@ -116,8 +116,19 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     if (!asksConfirmation) policyViolations.push(`pending_action_confirmation_not_requested:${waitingConfirmation.action}`);
   }
 
+  const docs = input.truth.application?.documents;
+  const asksIdentityAgain = /(?:ارفع|رفع|ابعث|ارسل|أرسل)[^\n]{0,50}(?:الهويه|الهوية|صوره الهويه|صورة الهوية)/.test(t);
+  const asksSalaryAgain = /(?:ارفع|رفع|ابعث|ارسل|أرسل)[^\n]{0,60}(?:كشف راتب|شهاده راتب|شهادة راتب)/.test(t);
+  const asksGuarantorAgain = /(?:عب[يئ]|ارفع|رفع|ابعث|ارسل|أرسل)[^\n]{0,60}(?:بيانات الكفيل|هويه الكفيل|هوية الكفيل)/.test(t);
+  if (docs?.loaded && docs.identityComplete === true && asksIdentityAgain) truthContradictions.push("identity_already_uploaded_re_requested");
+  if (docs?.loaded && docs.salarySlipUploaded === true && asksSalaryAgain) truthContradictions.push("salary_document_already_uploaded_re_requested");
+  if (docs?.loaded && (docs.guarantorDataComplete === true || docs.guarantorIdentityComplete === true) && asksGuarantorAgain) truthContradictions.push("guarantor_data_already_present_re_requested");
+
   const paymentConfirmed = hasAuthoritativePaymentConfirmation(input.truth.application);
   if (!paymentConfirmed && /(?:تم|صار|ظاهر|عندي).*?(?:تاكيد|تأكيد|مؤكد).*?الدفع|الدفع.*?(?:مؤكد|متاكد|متأكد)/.test(t)) truthContradictions.push("chat_cannot_confirm_payment");
+  if (paymentConfirmed && /(?:ارفع|رفع|ابعث|ارسل|أرسل)[^\n]{0,60}(?:وصل الدفع|اثبات الدفع|إثبات الدفع)/.test(t)) truthContradictions.push("payment_already_confirmed_receipt_re_requested");
+  if (paymentConfirmed && /(?:بانتظار الدفع|لازم تدفع|ادفع الرسوم|ادفع 5|ادفع ٥)/.test(t)) truthContradictions.push("payment_already_confirmed_but_reply_requests_payment");
+  if (/\/track(?:\?|\b)/i.test(reply) && /(?:ارفع|رفع)[^\n]{0,80}(?:مستند|الهويه|الهوية|وصل|راتب|كفيل)/.test(t)) policyViolations.push("tracking_link_misrepresented_as_upload_link");
   if (/ابعث(?:لي)?[^\n]{0,50}(?:وصل|اثبات|إثبات|صوره|صورة)[^\n]{0,50}(?:واتساب|هون|هنا)|ارسل(?:لي)?[^\n]{0,50}(?:وصل|اثبات|إثبات)[^\n]{0,50}(?:واتساب|هون|هنا)/.test(t)) policyViolations.push("sensitive_payment_proof_requested_on_whatsapp");
 
   if (reviewWindowViolation(reply,input.turn)) policyViolations.push("review_window_or_pressure_missing");

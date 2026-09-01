@@ -108,8 +108,19 @@ export type ConversationState = {
 
 export type TruthConfidence = "none" | "low" | "medium" | "high" | "authoritative";
 
+export type DocumentTruth = {
+  loaded: boolean;
+  types: string[];
+  identityComplete: boolean | null;
+  salarySlipUploaded: boolean | null;
+  guarantorIdentityComplete: boolean | null;
+  guarantorDataComplete: boolean | null;
+  paymentReceiptUploaded: boolean | null;
+};
+
 export type ApplicationTruth = {
   id: string;
+  createdAt?: string | null;
   trackingId: string | null;
   fullName: string | null;
   phone: string | null;
@@ -128,13 +139,19 @@ export type ApplicationTruth = {
   totalWithInterest: number | null;
   salary: number | null;
   deliveryDelayUntil: string | null;
+  guarantorName?: string | null;
+  guarantorPhone?: string | null;
+  guarantorNationalId?: string | null;
+  preliminaryQualifiedAt?: string | null;
+  paidClickedAt?: string | null;
+  documents?: DocumentTruth | null;
 };
 
 export type TruthBundle = {
   confidence: TruthConfidence;
-  source: "current_message_tracking" | "conversation_binding" | "unique_phone_match" | "archive_historical_truth" | "none";
+  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "archive_historical_truth" | "none";
   application: ApplicationTruth | null;
-  ambiguousApplications: Array<{ id: string; trackingId: string | null; deviceName: string | null; status: string | null }>;
+  ambiguousApplications: Array<{ id: string; trackingId: string | null; deviceName: string | null; status: string | null; paymentStatus?: string | null }>;
   policy: PolicyTruth;
   fetchedAt: string;
 };

@@ -1,33 +1,83 @@
 import { actionRequiresOmran } from "./hierarchy";
 import { mutationAuthorization } from "./actionAuthority";
+import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, PlannedAnswer, ReplyPlan, TruthBundle } from "./types";
 
 function truthNeeded(topic: string) {
-  return ["application_status","payment_status","payment_confirmation","refund","review_timing","device_change","device_recalculation","application_correction","cancellation","continuation","reopen"].includes(topic);
+  return ["application_status","payment_status","payment_confirmation","refund","review_timing","device_change","device_recalculation","application_correction","cancellation","continuation","reopen","requirements","guarantor","tracking"].includes(topic);
+}
+
+function requirementsInstruction(truth: TruthBundle) {
+  const app = truth.application;
+  const p = truth.policy;
+  if (!app) return `${p.secureDocumentsRule} لا تخصص مستندات ناقصة لعميل بعينه بدون ربط الطلب الصحيح.`;
+  const docs = app.documents;
+  const status = String(app.status || "").toLowerCase();
+  if (!docs?.loaded) return `${p.secureDocumentsRule} حالة المستندات التفصيلية غير متاحة الآن؛ لا تقل إن مستندًا ناقص أو مرفوع بدون دليل.`;
+
+  const received: string[] = [];
+  if (docs.identityComplete) received.push("الهوية أمامي وخلفي");
+  if (docs.salarySlipUploaded) received.push("كشف/شهادة الراتب");
+  if (docs.guarantorDataComplete) received.push("بيانات الكفيل");
+  if (docs.guarantorIdentityComplete) received.push("هوية الكفيل");
+  if (docs.paymentReceiptUploaded) received.push("وصل الدفع");
+
+  const missing: string[] = [];
+  if (["needs_identity","identity_requested"].includes(status) && !docs.identityComplete) missing.push("الهوية");
+  if (["needs_salary_slip","salary_slip_link_sent"].includes(status) && !docs.salarySlipUploaded) missing.push("كشف/شهادة الراتب");
+  if (status === "needs_guarantor" && !docs.guarantorDataComplete) missing.push("بيانات الكفيل");
+
+  if (!missing.length) {
+    return `المستندات الموجودة فعليًا على الملف: ${received.length ? received.join("، ") : "لا توجد مستندات موثقة في جدول المستندات"}. لا تطلب إعادة رفع أي مستند ظاهر كمستلم. إذا حالة الطلب قديمة وتتناقض مع المستندات، اذكر أن المستند موجود واترك الحالة كما هي بدون اختراع تحديث.`;
+  }
+  return `المستندات الموجودة فعليًا على الملف: ${received.length ? received.join("، ") : "لا يوجد مستند مكتمل ظاهر"}. المطلوب حسب الحالة الحالية فقط: ${missing.join("، ")}. استخدم فقط الرابط المطابق الموجود في OFFICIAL_LINKS ولا تستخدم رابط /track كأنه رابط رفع.`;
+}
+
+function paymentStatusInstruction(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app) return "لا يوجد طلب موثوق مربوط الآن؛ لا تخصص حالة دفع.";
+  if (hasAuthoritativePaymentConfirmation(app)) return "الدفع مؤكد إداريًا على هذا الطلب. قل ذلك بوضوح، ولا تطلب إعادة الدفع أو رفع وصل جديد ولا ترسل رابط receipt.";
+  const ps = String(app.paymentStatus || "").toLowerCase();
+  if (["customer_claimed_paid","pending_payment_confirmation"].includes(ps)) return "وصل الدفع/ادعاء الدفع مسجل لكنه بانتظار اعتماد الإدارة. لا تقل إن الدفع مؤكد ولا تطلب دفعًا جديدًا.";
+  return `حالة الدفع المسجلة هي ${app.paymentStatus || "غير محددة"}. اشرحها دون تحويلها إلى تأكيد أو نفي غير موجود.`;
+}
+
+function applicationStatusInstruction(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app) return "أجب فقط من application truth الموثوق. إذا الحقيقة غير محسومة لا تخصص حالة لطلب بعينه واطلب معلومة ضيقة للتمييز.";
+  const paid = hasAuthoritativePaymentConfirmation(app);
+  return `الطلب المربوط موثوق. استخدم الاسم الحقيقي ${app.fullName || "غير متوفر"} بشكل طبيعي عند الحاجة، ورقم التتبع ${app.trackingId || "غير متوفر"}. الحالة الخام ${app.status || "غير محددة"}، والدفع ${paid ? "مؤكد إداريًا" : app.paymentStatus || "غير محدد"}. لا تطلب مستندات أو دفعًا لمجرد أن الحالة اسمها قديم؛ راجع DOCUMENT_TRUTH أولًا.`;
 }
 
 function instructionFor(topic: string, truth: TruthBundle) {
   const p = truth.policy;
   const map: Record<string,string> = {
     payment_fee: `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}.`,
+    payment_status: paymentStatusInstruction(truth),
     payment_confirmation: truth.application
-      ? `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا كان TRUTH يؤكد الدفع، قل إنه مؤكد. غير ذلك اعتبره بانتظار اعتماد الإدارة، وإذا احتاج رفع الإثبات استخدم رابط receipt الموجود حرفيًا في OFFICIAL_LINKS فقط.`
+      ? `${paymentStatusInstruction(truth)} تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا احتاج رفع الإثبات ولم يكن الدفع مؤكدًا استخدم رابط receipt الموجود حرفيًا في OFFICIAL_LINKS فقط.`
       : `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. لا يوجد طلب موثوق مربوط الآن؛ إذا احتاج العميل رابط رفع الوصل اطلب رقم التتبع/الطلب أولًا ولا تضع أي URL.`,
     first_installment: `اشرح القاعدة بالمعنى: ${p.firstInstallmentRule}.`,
     office_location: `اذكر فقط ${p.generalLocation}، ووضح أن الحضور بموعد رسمي فقط.`,
     appointment: "لا تدّعِ إنشاء موعد. وضح أن الحضور يكون بموعد رسمي وأن الموعد يعتمد على حالة الطلب الفعلية.",
     delivery: p.pickupRule,
     receipt_upload: truth.application
-      ? `${p.secureDocumentsRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS، ووضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`
+      ? hasAuthoritativePaymentConfirmation(truth.application)
+        ? "الدفع مؤكد إداريًا على الطلب، لذلك لا ترسل رابط رفع وصل ولا تطلب إعادة الرفع. وضح أن الخطوة منتهية."
+        : `${p.secureDocumentsRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS إذا كان موجودًا، ووضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`
       : `لا يوجد طلب موثوق مربوط بالمحادثة الآن. اطلب رقم التتبع أو رقم الطلب حتى يتم توليد رابط رفع الوصل الرسمي. ممنوع إعطاء أي URL قبل ربط الطلب.`,
-    requirements: p.secureDocumentsRule,
+    requirements: requirementsInstruction(truth),
+    guarantor: requirementsInstruction(truth),
+    tracking: truth.application
+      ? `أعطِ رابط tracking المربوط بالطلب الموجود حرفيًا في OFFICIAL_LINKS. هذا رابط تتبع فقط وليس رابط رفع مستندات. استخدم اسم العميل طبيعيًا إذا كان متوفرًا.`
+      : "إذا طلب رابط التتبع ولم يتم ربط طلب موثوق، أعطِ رابط التتبع العام من OFFICIAL_LINKS فقط بدون اختراع معلومات طلب.",
     trust: `استخدم اسم ${p.businessName} فقط، وإذا كان السؤال عن الجهة المشابهة استخدم بيان الاستقلالية الرسمي.`,
     human_request: "العميل طلب موظفًا: أنت الموظف الرسمي داخل نفس المحادثة. عرّف بنفسك فقط إذا لزم ولم يسبق التعريف، ثم حل المشكلة مباشرة. لا تقل تم التحويل ولا تنتظر إنسانًا.",
     manager_request: "عمران هو المسؤول عن الحالة الآن. إذا لم يسبق أن عرّف بنفسه، يكفي أن يقول: معك عمران. بعدها يدخل بالمشكلة مباشرة. لا يشرح أي مستوى أو تحويل أو بنية داخلية.",
     call_request: "اعترف بتفضيل المكالمة لكن لا تعد بمكالمة غير منفذة؛ استمر بحل الموضوع على واتساب الآن.",
     review_timing: `اذكر أن ${p.normalReviewWindow}. وضّح أيضًا أن ${p.severePressureRule} لا تعطِ يومًا أو ساعة محددة إذا لم يوجد ETA موثق. غيّر الصياغة حسب سياق العميل ولا تكرر قالبًا ثابتًا.`,
     operational_pressure: `اشرح الظروف التشغيلية بوضوح وبأسلوب إنساني: ${p.severePressureRule} لا تستخدم نفس الجملة حرفيًا كل مرة ولا تحوّل الضغط إلى عذر فارغ.`,
-    application_status: "أجب فقط من application truth الموثوق. إذا الحقيقة غير محسومة لا تخصص حالة لطلب بعينه واطلب معلومة ضيقة للتمييز.",
+    application_status: applicationStatusInstruction(truth),
     refund: `افصل بين سياسة الاسترداد العامة والحالة الخاصة. إذا الدفع مؤكد وطلب العميل الاسترداد صراحةً فالتنفيذ من عمران. ${p.refundPressureRule} لا تقل تم الاسترداد إلا بعد ActionResult منفذ.`,
     cancellation: "طلب الإلغاء الصريح عملية تنفيذية مستقلة ويملكها عمران فقط. لا تربطه بالدفع أو الاستمرار. إذا الدفع مؤكد يفتح مسار الاسترداد آليًا، وإذا غير مؤكد يكون إلغاء فقط.",
     continuation: "قرار الاستمرار مستقل. إذا الطلب ملغي/في استرداد فالتراجع وإعادة الفتح يملكهما عمران، ولا تعد العميل بتحويل لشخص آخر.",
@@ -68,9 +118,6 @@ export function buildReplyPlan(input: { turn: InterpretedTurn; state: Conversati
       actions.push({
         action: act.action,
         sourceActId: act.id,
-        // Direct deterministic/resolved instructions execute automatically. A
-        // model-only mutation interpretation must be confirmed once; the model
-        // is allowed to understand intent, not to manufacture authorization.
         requiresConfirmation: authorization === "confirmation_required",
         authority: "ai_planned",
         requiredRole: actionRequiresOmran(act.action) ? "omran" : input.state.role.currentRole,
@@ -87,7 +134,7 @@ export function buildReplyPlan(input: { turn: InterpretedTurn; state: Conversati
   }
   const risk = input.turn.sentiment === "angry" || input.turn.topics.some((t) => ["legal","social_threat","complaint"].includes(t));
   return {
-    objective: "حل كل أجزاء رسالة العميل داخل نفس المحادثة، مع امتلاك عمران لكل تغيير فعلي على الطلب، وتأكيد الدفع يدويًا من الإدارة فقط، ومنع الوعود بتحويلات أو تواصل غير منفذ.",
+    objective: "حل كل أجزاء رسالة العميل داخل نفس المحادثة، مع امتلاك عمران لكل تغيير فعلي على الطلب، وتأكيد الدفع يدويًا من الإدارة فقط، ومنع إعادة طلب مستندات وصلت فعليًا أو استخدام رابط تتبع كرابط رفع.",
     role: input.state.role.currentRole,
     answerItems,
     actions,

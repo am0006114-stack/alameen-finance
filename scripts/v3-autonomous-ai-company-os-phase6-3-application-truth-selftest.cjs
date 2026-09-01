@@ -1,0 +1,34 @@
+const fs=require('fs'); const path=require('path');
+const root=process.argv[2]; if(!root) throw new Error('ProjectRoot required');
+function read(rel){return fs.readFileSync(path.join(root,rel),'utf8')}
+const base='app/api/whatsapp/webhook/_lib/v3-os/';
+const prod=read(base+'productionTruth.ts');
+const types=read(base+'types.ts');
+const links=read(base+'linkIntegrity.ts');
+const planner=read(base+'planner.ts');
+const writer=read(base+'writerContract.ts');
+const verifier=read(base+'verifier.ts');
+const live=read(base+'runtimeLive.ts');
+const shadow=read(base+'runtimeShadow.ts');
+const fallback=read(base+'safeFallback.ts');
+function must(ok,msg){if(!ok) throw new Error(msg)}
+must(/from\("documents"\)[\s\S]*select\("document_type,type"\)/.test(prod),'document truth not loaded');
+must(/trackingFromRecentTurns/.test(prod),'recent tracking resolution missing');
+must(/phoneFromRecentCustomerTurns/.test(prod),'registered-phone evidence resolution missing');
+must(/unique_relevant_phone_match/.test(prod),'multi-application relevant resolution missing');
+must(/paymentQuestion[\s\S]*confirmed\.length === 1/.test(prod),'unique paid application selection missing');
+must(/identityComplete/.test(types) && /salarySlipUploaded/.test(types) && /paymentReceiptUploaded/.test(types),'document truth type incomplete');
+must(/\/track\?tracking=/.test(links) || /boundApplicationUrl\("\/track"/.test(links),'bound tracking link missing');
+must(/\/identity/.test(links) && /\/salary-slip/.test(links) && /\/guarantor/.test(links),'stage-specific secure links missing');
+must(/payment_already_confirmed/.test(links),'confirmed payment receipt suppression missing');
+must(/CUSTOMER_NAME/.test(writer),'customer name not passed to writer');
+must(/DOCUMENT_TRUTH/.test(writer),'document truth writer contract missing');
+must(/identity_already_uploaded_re_requested/.test(verifier),'identity re-request guard missing');
+must(/payment_already_confirmed_receipt_re_requested/.test(verifier),'paid receipt re-request guard missing');
+must(/tracking_link_misrepresented_as_upload_link/.test(verifier),'track/upload confusion guard missing');
+must(/recentTurns: safeRecentTurns/.test(live) && /topics: turn\.topics/.test(live),'live truth resolver context missing');
+must(/recentTurns: safeRecentTurns/.test(shadow) && /topics: turn\.topics/.test(shadow),'shadow truth resolver context missing');
+must(/الموجود على ملفك حاليًا/.test(fallback),'document-aware fallback missing');
+must(!prod.includes('orangmoney.com') && !writer.includes('orangmoney.com'),'cross-project literal must not exist');
+console.log('V3 PHASE 6.3 SELFTEST PASS');
+console.log('Customer/application identity + paid resolution + document truth + stage-specific links: PASS');

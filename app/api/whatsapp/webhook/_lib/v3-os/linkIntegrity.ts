@@ -1,17 +1,18 @@
 import { BUSINESS_WEBSITE } from "../constants";
+import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "./types";
 
 const HTTP_URL_RE = /https?:\/\/[^\s<>{}\[\]"']+/gi;
 const DOMAIN_TOKEN_RE = /\b(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>{}\[\]"']*)?/gi;
 
-export type OfficialLinkKind = "website" | "products" | "tracking" | "receipt";
+export type OfficialLinkKind = "website" | "products" | "tracking" | "receipt" | "identity" | "salarySlip" | "guarantor";
 
 export type OfficialLinkContext = {
   baseUrl: string;
   relevant: Partial<Record<OfficialLinkKind, string>>;
   allowedUrls: string[];
   currentCustomerUrls: Array<{ officialHost: boolean }>;
-  receiptLinkUnavailableReason: "application_not_resolved" | null;
+  receiptLinkUnavailableReason: "application_not_resolved" | "payment_already_confirmed" | null;
 };
 
 function canonicalBaseUrl() {
@@ -27,11 +28,7 @@ export function extractHttpUrls(value: string | null | undefined) {
 }
 
 function safeUrl(value: string) {
-  try {
-    return new URL(value);
-  } catch {
-    return null;
-  }
+  try { return new URL(value); } catch { return null; }
 }
 
 function normalizedHttpUrl(value: string) {
@@ -52,16 +49,37 @@ export function isOfficialAmeenHost(host: string | null | undefined) {
   return officialHostnames().has(String(host).toLowerCase());
 }
 
-function applicationReceiptUrl(truth: TruthBundle) {
+function boundApplicationUrl(path: string, truth: TruthBundle) {
   const app = truth.application;
-  if (!app?.id) return null;
-  const tracking = app.trackingId || app.id;
-  const phone = app.phone || "";
-  return `${canonicalBaseUrl()}/receipt?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`;
+  if (!app?.id || !app.trackingId || !app.phone) return null;
+  return `${canonicalBaseUrl()}${path}?tracking=${encodeURIComponent(app.trackingId)}&phone=${encodeURIComponent(app.phone)}`;
 }
 
 function turnNeeds(topic: TopicKey, topics: TopicKey[]) {
   return topics.includes(topic);
+}
+
+function requirementLinks(turn: InterpretedTurn, truth: TruthBundle) {
+  const result: Partial<Record<OfficialLinkKind, string>> = {};
+  if (!turnNeeds("requirements", turn.topics) && !turnNeeds("guarantor", turn.topics)) return result;
+  const app = truth.application;
+  if (!app) return result;
+  const docs = app.documents;
+  const status = String(app.status || "").toLowerCase();
+
+  if (["needs_identity", "identity_requested"].includes(status) && docs?.identityComplete !== true) {
+    const url = boundApplicationUrl("/identity", truth);
+    if (url) result.identity = url;
+  }
+  if (["needs_salary_slip", "salary_slip_link_sent"].includes(status) && docs?.salarySlipUploaded !== true) {
+    const url = boundApplicationUrl("/salary-slip", truth);
+    if (url) result.salarySlip = url;
+  }
+  if (status === "needs_guarantor" && docs?.guarantorDataComplete !== true) {
+    const url = boundApplicationUrl("/guarantor", truth);
+    if (url) result.guarantor = url;
+  }
+  return result;
 }
 
 export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBundle): OfficialLinkContext {
@@ -70,10 +88,13 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
 
   if (turnNeeds("website", turn.topics) || turnNeeds("trust", turn.topics)) relevant.website = baseUrl;
   if (turnNeeds("products", turn.topics)) relevant.products = `${baseUrl}/products`;
-  if (turnNeeds("tracking", turn.topics)) relevant.tracking = `${baseUrl}/track`;
+  if (turnNeeds("tracking", turn.topics)) relevant.tracking = boundApplicationUrl("/track", truth) || `${baseUrl}/track`;
+
+  Object.assign(relevant, requirementLinks(turn, truth));
 
   const receiptRequested = turnNeeds("receipt_upload", turn.topics) || turnNeeds("payment_confirmation", turn.topics);
-  const receipt = receiptRequested ? applicationReceiptUrl(truth) : null;
+  const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
+  const receipt = receiptRequested && !paymentConfirmed ? boundApplicationUrl("/receipt", truth) : null;
   if (receipt) relevant.receipt = receipt;
 
   const currentCustomerUrls = extractHttpUrls(turn.rawText).map((value) => {
@@ -81,16 +102,14 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
     return { officialHost: isOfficialAmeenHost(parsed?.hostname) };
   });
 
-  // Current customer-supplied URLs are evidence, never an operational link source.
-  // Even an Ameen-looking URL must be regenerated deterministically before we send it.
-  const allowedUrls = Object.values(relevant).filter(Boolean) as string[];
-
   return {
     baseUrl,
     relevant,
-    allowedUrls,
+    allowedUrls: Object.values(relevant).filter(Boolean) as string[],
     currentCustomerUrls,
-    receiptLinkUnavailableReason: receiptRequested && !receipt ? "application_not_resolved" : null,
+    receiptLinkUnavailableReason: receiptRequested
+      ? paymentConfirmed ? "payment_already_confirmed" : receipt ? null : "application_not_resolved"
+      : null,
   };
 }
 
@@ -101,7 +120,6 @@ export function sanitizeRecentTurnsForModel(recentTurns?: string[]) {
     return "[رابط سابق أرسله العميل أو ظهر في السياق — غير موثوق ولا يجوز إعادة استخدامه]";
   }));
 }
-
 
 export function sanitizeStateForWriter(state: ConversationState) {
   const redact = (value: string | null | undefined) => String(value || "").replace(HTTP_URL_RE, "[URL_REDACTED_FROM_STATE]");
@@ -147,15 +165,11 @@ export function detectReplyLinkViolations(input: { reply: string; turn: Interpre
   for (const raw of replyUrls) {
     const parsed = safeUrl(raw);
     const normalized = normalizedHttpUrl(raw);
-    if (!parsed || !normalized) {
-      violations.push("malformed_url_in_reply");
-      continue;
-    }
+    if (!parsed || !normalized) { violations.push("malformed_url_in_reply"); continue; }
     if (!isOfficialAmeenHost(parsed.hostname)) violations.push(`foreign_domain_url:${parsed.hostname.toLowerCase()}`);
     if (!allowed.has(normalized)) violations.push(`url_not_issued_by_v3_truth:${parsed.hostname.toLowerCase()}${parsed.pathname}`);
   }
 
-  // Also catch domain/path text without an http(s) scheme.
   const domainTokens = String(input.reply || "").match(DOMAIN_TOKEN_RE) || [];
   for (const token of domainTokens) {
     const host = token.split("/")[0].toLowerCase();
@@ -163,7 +177,9 @@ export function detectReplyLinkViolations(input: { reply: string; turn: Interpre
   }
 
   if (input.turn.topics.includes("receipt_upload")) {
-    if (context.relevant.receipt) {
+    if (context.receiptLinkUnavailableReason === "payment_already_confirmed") {
+      if (replyUrls.length) violations.push("receipt_link_sent_after_payment_confirmed");
+    } else if (context.relevant.receipt) {
       const expected = normalizedHttpUrl(context.relevant.receipt);
       if (!replyUrls.some((url) => normalizedHttpUrl(url) === expected)) violations.push("required_receipt_url_missing");
     } else {
