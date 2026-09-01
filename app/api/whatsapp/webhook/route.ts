@@ -64,7 +64,16 @@ import {
 } from "./_lib/stateIntegrity";
 import { enqueueShadowJob } from "./_lib/shadow-core";
 import { enqueueConversationOsShadowJob } from "./_lib/v2-conversation";
-import { prepareV2ProductionTurn, writeV2ProductionReply, commitV2ProductionState, type V2ProductionWriteResult } from "./_lib/v2-production";
+import {
+  prepareV2ProductionTurn,
+  resolveV2Truth,
+  writeV2ProductionReply,
+  commitV2ProductionState,
+  shouldUseLegacyActionExecutor,
+  type V2ProductionWriteResult,
+  type V2ResolvedTruth,
+  type V2ActionExecution,
+} from "./_lib/v2-production";
 import { buildShadowFacts } from "./_lib/shadow-core/policyRegistry";
 import { detectShadowTopics } from "./_lib/shadow-core/topicDetector";
 import { validateFinalActualReply } from "./_lib/shadow-core/validator";
@@ -10734,14 +10743,111 @@ export async function POST(request: Request) {
           incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
           customerText: replyInputText,
           messageType: processingMessageType,
-          conversationContext: preReplyMemory.conversationContext,
           lastCustomerMessages: preReplyMemory.lastCustomerMessages,
-          lastAssistantReplies: preReplyMemory.lastAssistantReplies,
         });
         if (v2Production.active && v2Production.forcedIntent) {
           processingIntent = v2Production.forcedIntent;
         }
 
+        let outgoingMemory = preReplyMemory;
+        let finalApplication: ApplicationRecord | null = null;
+        let shadowTrackingId: string | null = null;
+        let v2WriterResult: V2ProductionWriteResult | null = null;
+        let v2Truth: V2ResolvedTruth | null = null;
+        let v2ActionExecution: V2ActionExecution | null = null;
+        let reply = "";
+
+        if (v2Production.active && v2Production.turn) {
+          // FINAL TRUE OS CUTOVER: V2 resolves Supabase truth directly. Legacy assistant
+          // replies are not used as truth, and no legacy reply guard may rewrite V2 output.
+          v2Truth = await resolveV2Truth({
+            waId: from,
+            customerText: replyInputText,
+            preparation: v2Production,
+          });
+          finalApplication = v2Truth.application;
+          if (v2Production.forcedIntent) processingIntent = v2Production.forcedIntent;
+          needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
+
+          if (shouldUseLegacyActionExecutor(v2Production)) {
+            // The legacy deterministic layer is retained ONLY as an execution engine for
+            // guarded state mutations. Its customer-facing text is discarded and never
+            // enters the V2 writer prompt or final response.
+            const before = finalApplication;
+            await buildReply(
+              request,
+              from,
+              replyInputText,
+              processingMessageType,
+              { forcedIntent: v2Production.forcedIntent, disableLegacyAi: true },
+            );
+
+            v2Truth = await resolveV2Truth({
+              waId: from,
+              customerText: replyInputText,
+              preparation: v2Production,
+            });
+            finalApplication = v2Truth.application || before;
+            const beforeStatus = before?.status || null;
+            const afterStatus = finalApplication?.status || null;
+            const beforePaymentStatus = before?.payment_status || null;
+            const afterPaymentStatus = finalApplication?.payment_status || null;
+            const changed = Boolean(
+              before?.id && finalApplication?.id === before.id && (
+                beforeStatus !== afterStatus ||
+                beforePaymentStatus !== afterPaymentStatus ||
+                before?.device_name !== finalApplication?.device_name
+              )
+            );
+            const intent = v2Production.forcedIntent;
+            let executed = changed;
+            let summary: string | null = null;
+            if (intent === "cancel_confirmed" && afterStatus === "cancelled") {
+              executed = true;
+              summary = "تم تنفيذ إلغاء الطلب فعليًا.";
+            } else if (intent === "refund" && (afterStatus === "refund_requested" || afterPaymentStatus === "refund_requested")) {
+              executed = true;
+              summary = "تم تسجيل طلب الاسترداد فعليًا.";
+            } else if (intent === "continue_decision" && changed) {
+              summary = "تم تسجيل قرار الاستمرار فعليًا على الطلب.";
+            } else if (intent === "cancel_request") {
+              summary = "طلب الإلغاء مفهوم لكنه لم يُنفذ كإلغاء نهائي دون التأكيد المطلوب.";
+            } else if (intent === "refund" && !executed) {
+              summary = "طلب الاسترداد مفهوم لكنه لم يُنفذ؛ لا يوجد تنفيذ موثق للاسترداد في هذه اللحظة.";
+            }
+            v2ActionExecution = {
+              usedLegacyExecutor: true,
+              requested: true,
+              executed,
+              intent,
+              beforeStatus,
+              afterStatus,
+              beforePaymentStatus,
+              afterPaymentStatus,
+              summary,
+            };
+          }
+
+          shadowTrackingId =
+            extractTracking(replyInputText) ||
+            incomingTracking ||
+            finalApplication?.tracking_id ||
+            null;
+
+          v2WriterResult = await writeV2ProductionReply({
+            preparation: v2Production,
+            waId: from,
+            incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+            customerText: replyInputText,
+            truth: v2Truth,
+            actionExecution: v2ActionExecution,
+            lastCustomerMessages: preReplyMemory.lastCustomerMessages,
+          });
+          reply = v2WriterResult.reply;
+
+          // LAST WRITER WINS: after this point V1 does not rewrite V2. Only the send lock,
+          // human-like delay, WhatsApp send, and logging are permitted to touch the flow.
+        } else {
         // Capture the pre-reply state for diagnostics only. buildReply may mutate the application,
         // so every final policy decision must be based on a fresh post-reply read.
         const preReplyApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
@@ -10765,30 +10871,16 @@ export async function POST(request: Request) {
             ? { forcedIntent: v2Production.forcedIntent, disableLegacyAi: true }
             : undefined,
         );
-        const outgoingMemory = await getConversationMemory(from);
+        outgoingMemory = await getConversationMemory(from);
         const refreshedApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, outgoingMemory);
-        const finalApplication = refreshedApplication || preReplyApplication;
-        const shadowTrackingId =
+        finalApplication = refreshedApplication || preReplyApplication;
+        shadowTrackingId =
           extractTracking(replyInputText) ||
           incomingTracking ||
           finalApplication?.tracking_id ||
           null;
 
-        let v2WriterResult: V2ProductionWriteResult | null = null;
-        if (v2Production.active && v2Production.turn) {
-          v2WriterResult = await writeV2ProductionReply({
-            preparation: v2Production,
-            waId: from,
-            customerText: replyInputText,
-            deterministicReply: rawReply,
-            application: finalApplication,
-            conversationContext: outgoingMemory.conversationContext,
-            lastAssistantReplies: outgoingMemory.lastAssistantReplies,
-          });
-          rawReply = v2WriterResult.reply;
-        }
-
-        let reply = finalizeReplyBeforeSend(rawReply, {
+        reply = finalizeReplyBeforeSend(rawReply, {
           from,
           text: replyInputText,
           intent: processingIntent,
@@ -10915,6 +11007,8 @@ export async function POST(request: Request) {
         });
         reply = applyFinalSendGuard(reply, finalApplication);
 
+        }
+
         const outgoingClaim = await claimOutgoingReplyLock({
           waId: from,
           incomingMessageId: message.id,
@@ -10959,14 +11053,15 @@ export async function POST(request: Request) {
             applicationStatus: aiMemoryApp?.status || null,
           });
 
-          if (v2Production.turn && v2Production.state) {
+          if (v2Production.active && v2Production.turn && v2Production.state && v2Truth) {
             await commitV2ProductionState({
               preparation: v2Production,
               waId: from,
               incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
               customerText: replyInputText,
               finalReply: reply,
-              application: finalApplication,
+              truth: v2Truth,
+              actionExecution: v2ActionExecution,
               writerResult: v2WriterResult,
             });
           }
