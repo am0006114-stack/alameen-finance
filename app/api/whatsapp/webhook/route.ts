@@ -163,6 +163,10 @@ import {
   buildConversationKernelActionReply,
   resolveConversationKernelIntent,
 } from "./_lib/conversationKernel";
+import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
+import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
+import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
+import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -10622,12 +10626,17 @@ export async function POST(request: Request) {
           createdAt: incomingCreatedAt,
         });
 
+        // V3 production control is fail-safe: if the settings table is absent or unreadable,
+        // V3 stays inactive and the currently deployed safe route continues unchanged.
+        const v3ProductionControl = await getV3ProductionControl();
+        const v3LiveActive = isV3ProductionActive(v3ProductionControl);
+
         if (type === "reaction") {
           await markIncomingWhatsAppMessageProcessed(message.id);
           return;
         }
 
-        if (await isAutoReplyIgnored(from)) {
+        if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
           console.log("WhatsApp automatic reply skipped for ignored customer:", {
             waId: from,
             messageId: message.id,
@@ -10664,7 +10673,7 @@ export async function POST(request: Request) {
         needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
 
         // إعادة الفحص بعد تجميع الرسائل؛ يمكن للإدارة ضغط زر التجاهل أثناء نافذة الانتظار.
-        if (await isAutoReplyIgnored(from)) {
+        if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
           console.log("WhatsApp automatic reply skipped after burst for ignored customer:", {
             waId: from,
             messageId: message.id,
@@ -10708,7 +10717,7 @@ export async function POST(request: Request) {
           if (outgoingClaim.shouldSend && !(await hasRecentlySentSameReply(from, reply, 30))) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
 
-            if (await isAutoReplyIgnored(from)) {
+            if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
               console.log("WhatsApp OTP safety reply skipped because customer was ignored before send:", {
                 waId: from,
                 messageId: message.id,
@@ -10735,8 +10744,130 @@ export async function POST(request: Request) {
           return;
         }
 
-        // V2.1 PRODUCTION CONVERSATION OS: no legacy escape.
-        // OFF/kill-switch/outside-rollout/preparation failures mean NO automated reply, never V1.
+        // V3 PHASE 6 LIVE CUTOVER. When explicitly activated in DB, V3 owns the
+        // customer turn end-to-end. Legacy AUTO_REPLY_IGNORED markers are intentionally
+        // bypassed so conversations previously "handed off" do not remain abandoned.
+        if (v3LiveActive) {
+          const v3TurnId = message.id || `fallback:${from}:${message.timestamp || Date.now()}`;
+          const v3RecentTurns = String(preReplyMemory.conversationContext || "")
+            .split(/\n+/)
+            .map((line) => line.trim())
+            .filter(Boolean)
+            .slice(-24);
+
+          let v3Run: Awaited<ReturnType<typeof runV3ProductionLive>> | null = null;
+          let reply = "";
+
+          try {
+            v3Run = await runV3ProductionLive({
+              waId: from,
+              turnId: v3TurnId,
+              customerText: replyInputText,
+              recentTurns: v3RecentTurns,
+              realActionsEnabled: v3ProductionControl.realActionsEnabled,
+            });
+            reply = v3Run.reply || buildV3LastResortReply();
+          } catch (v3RuntimeError) {
+            console.error("V3 live runtime failed", { waId: from, messageId: message.id || null, error: v3RuntimeError });
+            reply = buildV3LastResortReply();
+            try {
+              await notifyV3Discord({
+                event: "final_safety_fail_closed",
+                waId: from,
+                title: "V3 — Runtime failure",
+                description: "فشل Runtime المباشر وتم إرسال رد احتياطي لا يدعي أي إجراء.",
+                details: { messageId: message.id || null, error: v3RuntimeError instanceof Error ? v3RuntimeError.message : String(v3RuntimeError) },
+              });
+            } catch (v3NotifyError) {
+              console.error("V3 runtime failure notification failed", v3NotifyError);
+            }
+          }
+
+          const outgoingClaim = await claimOutgoingReplyLock({
+            waId: from,
+            incomingMessageId: message.id,
+            reply,
+            windowSeconds: 20,
+          });
+          const alreadySentSameReply = !outgoingClaim.shouldSend || (
+            outgoingClaim.reason !== "outgoing_lock_claimed" &&
+            await hasRecentlySentSameReply(from, reply, 30)
+          );
+
+          if (!alreadySentSameReply) {
+            await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
+
+            // Do NOT honor legacy AUTO_REPLY_IGNORED here. V3 has no human-handoff pause.
+            let outgoingMessageId = await sendWhatsAppText(from, reply);
+            if (!outgoingMessageId) {
+              await new Promise((resolve) => setTimeout(resolve, 700));
+              outgoingMessageId = await sendWhatsAppText(from, reply);
+            }
+
+            if (!outgoingMessageId) {
+              try {
+                await notifyV3Discord({
+                  event: "final_safety_fail_closed",
+                  applicationId: v3Run?.truthAfterActions.application?.id || null,
+                  trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
+                  waId: from,
+                  title: "V3 — WhatsApp send failed",
+                  description: "فشل إرسال الرد مرتين بعد إنتاج رد آمن.",
+                  details: { messageId: message.id || null },
+                });
+              } catch (v3SendNotifyError) {
+                console.error("V3 send failure notification failed", v3SendNotifyError);
+              }
+            }
+
+            await logMessage({
+              waId: from,
+              direction: "outgoing",
+              body: reply,
+              messageId: outgoingMessageId || undefined,
+              intent: processingIntent,
+              trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
+              needsHumanReview: false,
+              handledByAi: true,
+            });
+
+            await logAiConversation({
+              phone: from,
+              customerMessage: processingText,
+              aiReply: reply,
+              intent: processingIntent,
+              applicationStatus: v3Run?.truthAfterActions.application?.status || null,
+            });
+
+            // Commit conversation state only after the customer-facing send path completed.
+            if (v3Run && outgoingMessageId) {
+              try {
+                await saveV3ConversationState(v3Run.stateAfter);
+              } catch (v3StateError) {
+                console.error("V3 state save failed after send", { waId: from, messageId: message.id || null, error: v3StateError });
+                try {
+                  await notifyV3Discord({
+                    event: "truth_integrity_failure",
+                    applicationId: v3Run.truthAfterActions.application?.id || null,
+                    trackingId: v3Run.truthAfterActions.application?.trackingId || null,
+                    waId: from,
+                    title: "V3 — Conversation state save failed",
+                    description: "تم إرسال الرد لكن تعذر حفظ حالة المحادثة الدائمة.",
+                    details: { messageId: message.id || null },
+                  });
+                } catch {}
+              }
+            }
+          } else {
+            console.log("Skipped duplicate V3 outgoing reply", { waId: from, messageId: message.id, reason: outgoingClaim.reason });
+          }
+
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          return;
+        }
+
+        // V2.1 PRODUCTION CONVERSATION OS: current safe route remains available only
+        // when V3 is not explicitly active or its emergency kill switch is engaged.
         const v2Production = await prepareV2ProductionTurn({
           waId: from,
           incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
@@ -10839,7 +10970,7 @@ export async function POST(request: Request) {
         if (!alreadySentSameReply) {
           await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
 
-          if (await isAutoReplyIgnored(from)) {
+          if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
             console.log("WhatsApp automatic reply skipped because customer was ignored before send:", {
               waId: from,
               messageId: message.id,

@@ -3,6 +3,7 @@ import type { ActionExecutorAdapter } from "./actionPlane";
 import { calculateRequestedDeviceChange, extractApplicationPatch } from "./commercialOperations";
 import type { ApplicationTruth, PlannedAction, TruthBundle } from "./types";
 import { truthHasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { canV3ExecuteRealActions, getV3ProductionControl } from "./productionControl";
 
 const MUTATIONS = new Set([
   "cancel_application",
@@ -63,12 +64,10 @@ function firstRpcRow(data: unknown) {
 }
 
 /**
- * Real V3 transactional adapter. It is deliberately double-gated:
- * 1) this adapter is NOT wired to the live WhatsApp route;
- * 2) even if imported accidentally, ALAMEEN_V3_REAL_ACTIONS_ENABLED must be true.
- *
- * The SQL RPC performs row locking, stale-truth checks, idempotency and audit
- * ledger persistence in the same database transaction as the application change.
+ * Real V3 transactional adapter. It is deliberately double-gated by the
+ * production-control row: V3 must be live, kill-switch must be off, and
+ * real_actions_enabled must be true. The SQL RPC then enforces Omran ownership,
+ * row locking, stale-truth checks, idempotency and the audit ledger atomically.
  */
 export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
   async execute(planned, context) {
@@ -79,8 +78,9 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
       return { success: false, blocker: `unsupported_transactional_action:${planned.action}` };
     }
 
-    if (process.env.ALAMEEN_V3_REAL_ACTIONS_ENABLED !== "true") {
-      return { success: false, blocker: "v3_real_actions_env_gate_disabled" };
+    const productionControl = await getV3ProductionControl();
+    if (!canV3ExecuteRealActions(productionControl)) {
+      return { success: false, blocker: "v3_real_actions_production_gate_disabled" };
     }
 
     const app = context.truth.application;

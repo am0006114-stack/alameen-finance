@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { ConversationState } from "./types";
+import { V3_OS_VERSION, type ConversationState } from "./types";
 
 const TABLE = "whatsapp_v3_conversation_state";
 
@@ -39,7 +39,7 @@ export async function saveV3ConversationState(state: ConversationState): Promise
       active_application_id: safe.activeApplicationId,
       active_tracking_id: safe.activeTrackingId,
       ai_role: safe.role.currentRole,
-      runtime_version: "v3.0.0-phase4-autonomous-operations-human-voice",
+      runtime_version: V3_OS_VERSION,
       updated_at: new Date().toISOString(),
     }, { onConflict: "wa_id" });
   if (error) throw new Error(`v3_state_save:${error.message}`);
