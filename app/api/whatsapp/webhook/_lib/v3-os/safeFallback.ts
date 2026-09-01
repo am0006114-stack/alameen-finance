@@ -1,6 +1,7 @@
 import { roleDisplayName } from "./hierarchy";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
 import { hasAuthoritativePaymentConfirmation, hasPaymentRefundIntegrityConflict } from "./paymentTruth";
+import { buildOfficialLinkContext } from "./linkIntegrity";
 
 function executed(actions: ActionResult[], action: string) {
   return actions.find(x=>x.action===action && x.executed && ["executed","already_done"].includes(x.outcome));
@@ -16,6 +17,7 @@ export function buildV3EmergencySafeReply(input: {
   const parts: string[] = [];
   const topics = new Set(input.turn.topics);
   const p = input.truth.policy;
+  const officialLinks = buildOfficialLinkContext(input.turn, input.truth);
 
   if (topics.has("manager_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName("omran")}.`);
   else if (topics.has("human_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName(input.state.role.currentRole)} من الأمين.`);
@@ -39,13 +41,21 @@ export function buildV3EmergencySafeReply(input: {
     if (hasAuthoritativePaymentConfirmation(input.truth.application)) {
       parts.push("الدفع ظاهر مؤكد على الطلب، فلا تعيد الدفع.");
     } else {
-      parts.push("رسالتك وصلت، لكن تأكيد الدفع النهائي يتم من الإدارة بعد مراجعة الإثبات المرفوع من الرابط الرسمي؛ ما بعتبر الدفع مؤكد من رسالة واتساب لحالها.");
+      if (officialLinks.relevant.receipt) parts.push(`رسالتك وصلت، لكن تأكيد الدفع النهائي يتم من الإدارة بعد مراجعة الإثبات. ارفع الوصل من الرابط الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
+      else parts.push("رسالتك وصلت، لكن تأكيد الدفع النهائي يتم من الإدارة بعد مراجعة الإثبات. ابعث رقم التتبع حتى أعطيك رابط رفع الوصل المرتبط بطلبك؛ رسالة واتساب لحالها ما بتأكد الدفع.");
     }
   }
   if (topics.has("first_installment")) parts.push(p.firstInstallmentRule);
   if (topics.has("office_location")) parts.push(`${p.generalLocation}، والحضور بموعد رسمي فقط.`);
   if (topics.has("delivery")) parts.push(p.pickupRule);
-  if (topics.has("receipt_upload") || topics.has("requirements")) parts.push(p.secureDocumentsRule);
+  if (topics.has("receipt_upload")) {
+    if (officialLinks.relevant.receipt) parts.push(`${p.secureDocumentsRule} رابط رفع الوصل الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
+    else parts.push("حتى أعطيك رابط رفع الوصل الرسمي المرتبط بطلبك، ابعث رقم التتبع أو رقم الطلب أولًا.");
+  }
+  if (topics.has("requirements")) parts.push(p.secureDocumentsRule);
+  if (topics.has("website") && officialLinks.relevant.website) parts.push(`موقع الأمين الرسمي: ${officialLinks.relevant.website}`);
+  if (topics.has("tracking") && officialLinks.relevant.tracking) parts.push(`رابط التتبع الرسمي: ${officialLinks.relevant.tracking}`);
+  if (topics.has("products") && officialLinks.relevant.products) parts.push(`الأجهزة المتاحة موجودة هنا: ${officialLinks.relevant.products}`);
   if (topics.has("review_timing") || topics.has("operational_pressure")) parts.push(`المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل، لكن الضغط حاليًا شديد جدًا وبعض الملفات تتجاوز هذا المعدل؛ ما بعطيك موعد غير مؤكد.`);
 
   for (const action of ["cancel_application","request_refund","stop_refund","reopen_application","continue_application","change_device","change_application_data"] as const) {

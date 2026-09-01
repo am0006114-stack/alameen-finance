@@ -10,6 +10,7 @@ import { buildV3EmergencySafeReply } from "./safeFallback";
 import { interpretTurnWithAi } from "./modelInterpreter";
 import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { applySimulatedActionTruth, v3SimulationActionAdapter } from "./simulationActionAdapter";
+import { sanitizeRecentTurnsForModel } from "./linkIntegrity";
 
 const PASS: VerificationReport = { pass: true, missingTopics: [], unsupportedClaims: [], truthContradictions: [], actionClaimViolations: [], policyViolations: [], hierarchyViolations: [], repetitionFlags: [] };
 
@@ -50,15 +51,16 @@ export async function runV3ProductionShadow(input: {
   actionMode?: V3ActionMode;
 }): Promise<V3ShadowResult> {
   const actionMode: V3ActionMode = input.actionMode || "dry_run";
+  const safeRecentTurns = sanitizeRecentTurnsForModel(input.recentTurns);
   const loadedState = input.state || (input.persistState ? await loadV3ConversationState(input.waId) : null);
-  const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), input.recentTurns);
+  const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), safeRecentTurns);
 
   const interpreter = input.interpreter === undefined ? v3InterpreterProviderFromEnv() : input.interpreter;
   const interpreted = await interpretTurnWithAi({
     turnId: input.turnId,
     customerText: input.customerText,
     state: stateBefore,
-    recentTurns: input.recentTurns,
+    recentTurns: safeRecentTurns,
     provider: interpreter,
   });
   const turn = interpreted.turn;
@@ -99,7 +101,7 @@ export async function runV3ProductionShadow(input: {
 
   if (plan.shouldRespond) {
     if (writer) {
-      const basePrompt = buildWriterPrompt({ turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: input.recentTurns });
+      const basePrompt = buildWriterPrompt({ turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: safeRecentTurns });
       try {
         replyAttempts++;
         reply = await writer.generate({
@@ -108,7 +110,7 @@ export async function runV3ProductionShadow(input: {
           temperature: 0.22,
           maxTokens: 800,
         });
-        verification = verifyReply({ reply, turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: input.recentTurns });
+        verification = verifyReply({ reply, turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: safeRecentTurns });
 
         if (!verification.pass) {
           replyAttempts++;
@@ -118,7 +120,7 @@ export async function runV3ProductionShadow(input: {
             temperature: 0.08,
             maxTokens: 850,
           });
-          verification = verifyReply({ reply, turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: input.recentTurns });
+          verification = verifyReply({ reply, turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: safeRecentTurns });
         }
       } catch {
         reply = null;
@@ -129,7 +131,7 @@ export async function runV3ProductionShadow(input: {
       fallbackUsed = true;
       replyAttempts++;
       const fallback = buildV3EmergencySafeReply({ turn, state: boundState, truth: truthAfterActions, plan, actions });
-      const fallbackVerification = verifyReply({ reply: fallback, turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: input.recentTurns });
+      const fallbackVerification = verifyReply({ reply: fallback, turn, state: boundState, truth: truthAfterActions, plan, actions, recentTurns: safeRecentTurns });
       if (fallbackVerification.pass) {
         reply = fallback;
         verification = fallbackVerification;

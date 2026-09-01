@@ -3,6 +3,7 @@ import { actionRequiresOmran, roleDisplayName } from "./hierarchy";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
+import { detectReplyLinkViolations } from "./linkIntegrity";
 
 function claimExecuted(text: string, action: string[]) {
   const t = normalizeArabic(text);
@@ -95,6 +96,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   const policyViolations: string[] = [];
   const hierarchyViolations: string[] = [];
   const repetitionFlags: string[] = detectHumanityViolations(reply,input.recentTurns);
+  policyViolations.push(...detectReplyLinkViolations({ reply, turn: input.turn, truth: input.truth }).map((x) => `link_integrity:${x}`));
 
   for (const forbidden of input.truth.policy.forbiddenClaims) if (t.includes(normalizeArabic(forbidden))) policyViolations.push(`forbidden_claim:${forbidden}`);
   if (/\b3\s*(?:دنانير|دينار)\b/.test(reply) || /\b٣\s*(?:دنانير|دينار)\b/.test(reply)) policyViolations.push("forbidden_3_jod");

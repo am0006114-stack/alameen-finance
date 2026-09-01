@@ -10,12 +10,16 @@ function instructionFor(topic: string, truth: TruthBundle) {
   const p = truth.policy;
   const map: Record<string,string> = {
     payment_fee: `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}.`,
-    payment_confirmation: `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا كان TRUTH يؤكد الدفع، قل إنه مؤكد. غير ذلك اعتبره بانتظار اعتماد الإدارة ووجّه للرابط الرسمي إذا احتاج رفع الإثبات.`,
+    payment_confirmation: truth.application
+      ? `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا كان TRUTH يؤكد الدفع، قل إنه مؤكد. غير ذلك اعتبره بانتظار اعتماد الإدارة، وإذا احتاج رفع الإثبات استخدم رابط receipt الموجود حرفيًا في OFFICIAL_LINKS فقط.`
+      : `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. لا يوجد طلب موثوق مربوط الآن؛ إذا احتاج العميل رابط رفع الوصل اطلب رقم التتبع/الطلب أولًا ولا تضع أي URL.`,
     first_installment: `اشرح القاعدة بالمعنى: ${p.firstInstallmentRule}.`,
     office_location: `اذكر فقط ${p.generalLocation}، ووضح أن الحضور بموعد رسمي فقط.`,
     appointment: "لا تدّعِ إنشاء موعد. وضح أن الحضور يكون بموعد رسمي وأن الموعد يعتمد على حالة الطلب الفعلية.",
     delivery: p.pickupRule,
-    receipt_upload: `${p.secureDocumentsRule} وضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`,
+    receipt_upload: truth.application
+      ? `${p.secureDocumentsRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS، ووضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`
+      : `لا يوجد طلب موثوق مربوط بالمحادثة الآن. اطلب رقم التتبع أو رقم الطلب حتى يتم توليد رابط رفع الوصل الرسمي. ممنوع إعطاء أي URL قبل ربط الطلب.`,
     requirements: p.secureDocumentsRule,
     trust: `استخدم اسم ${p.businessName} فقط، وإذا كان السؤال عن الجهة المشابهة استخدم بيان الاستقلالية الرسمي.`,
     human_request: "العميل طلب موظفًا: أنت الموظف الرسمي داخل نفس المحادثة. عرّف بنفسك فقط إذا لزم ولم يسبق التعريف، ثم حل المشكلة مباشرة. لا تقل تم التحويل ولا تنتظر إنسانًا.",

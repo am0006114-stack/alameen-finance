@@ -11,6 +11,7 @@ import { interpretTurnWithAi } from "./modelInterpreter";
 import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { notifyV3Discord } from "./discordNotifier";
+import { sanitizeRecentTurnsForModel } from "./linkIntegrity";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -89,15 +90,16 @@ export async function runV3ProductionLive(input: {
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
 }): Promise<V3LiveResult> {
+  const safeRecentTurns = sanitizeRecentTurnsForModel(input.recentTurns);
   const loadedState = await loadV3ConversationState(input.waId);
-  const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), input.recentTurns);
+  const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), safeRecentTurns);
 
   const interpreter = input.interpreter === undefined ? v3InterpreterProviderFromEnv() : input.interpreter;
   const interpreted = await interpretTurnWithAi({
     turnId: input.turnId,
     customerText: input.customerText,
     state: stateBefore,
-    recentTurns: input.recentTurns,
+    recentTurns: safeRecentTurns,
     provider: interpreter,
   });
   const turn = interpreted.turn;
@@ -156,7 +158,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: input.recentTurns,
+        recentTurns: safeRecentTurns,
       });
       try {
         replyAttempts++;
@@ -173,7 +175,7 @@ export async function runV3ProductionLive(input: {
           truth: truthAfterActions,
           plan,
           actions,
-          recentTurns: input.recentTurns,
+          recentTurns: safeRecentTurns,
         });
 
         if (!verification.pass) {
@@ -191,7 +193,7 @@ export async function runV3ProductionLive(input: {
             truth: truthAfterActions,
             plan,
             actions,
-            recentTurns: input.recentTurns,
+            recentTurns: safeRecentTurns,
           });
         }
       } catch (error) {
@@ -217,7 +219,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: input.recentTurns,
+        recentTurns: safeRecentTurns,
       });
       if (fallbackVerification.pass) {
         reply = fallback;
