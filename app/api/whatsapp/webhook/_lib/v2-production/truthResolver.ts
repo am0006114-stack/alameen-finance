@@ -95,8 +95,9 @@ async function recentTrackingForWaId(waId: string) {
     .from("whatsapp_messages")
     .select("tracking_id,body,created_at")
     .eq("wa_id", waId)
+    .eq("direction", "incoming")
     .order("created_at", { ascending: false })
-    .limit(24);
+    .limit(80);
   if (error) {
     console.error("V2 recent message tracking lookup failed", error.message);
     return "";
@@ -110,6 +111,25 @@ async function recentTrackingForWaId(waId: string) {
   return "";
 }
 
+function verifiedStateBinding(state?: V2ConversationState | null) {
+  const facts = state?.facts || [];
+  const activeId = String(state?.activeApplicationId || "").trim();
+  const activeTracking = String(state?.activeTrackingId || "").trim().toUpperCase();
+  const idVerified = Boolean(activeId && facts.some((fact) => fact.source === "system" && fact.key === "v2_verified_application_id" && String(fact.value) === activeId));
+  const trackingVerified = Boolean(activeTracking && facts.some((fact) => fact.source === "system" && fact.key === "v2_verified_tracking_id" && String(fact.value).toUpperCase() === activeTracking));
+  return {
+    applicationId: idVerified ? activeId : "",
+    trackingId: trackingVerified ? activeTracking : "",
+  };
+}
+
+function applicationBelongsToWaId(app: ApplicationRecord | null, waId: string) {
+  if (!app) return false;
+  const variants = new Set(phoneVariants(waId).map((x) => String(x).replace(/\D/g, "")));
+  const appVariants = phoneVariants(app.phone || "").map((x) => String(x).replace(/\D/g, ""));
+  return appVariants.some((value) => variants.has(value));
+}
+
 function trustedLinks(app: ApplicationRecord | null) {
   const links = new Set<string>([V2_POLICY.website, `${V2_POLICY.website}/products`, `${V2_POLICY.website}/track`]);
   const tracking = String(app?.tracking_id || "").trim();
@@ -117,6 +137,11 @@ function trustedLinks(app: ApplicationRecord | null) {
   if (tracking && phone) {
     links.add(`${V2_POLICY.website}/track?phone=${encodeURIComponent(phone)}&tracking=${encodeURIComponent(tracking)}`);
     links.add(`${V2_POLICY.website}/receipt?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`);
+    links.add(`${V2_POLICY.website}/identity?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`);
+    links.add(`${V2_POLICY.website}/guarantor?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`);
+    links.add(`${V2_POLICY.website}/salary-slip?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`);
+    links.add(`${V2_POLICY.website}/refund?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`);
+    links.add(`${V2_POLICY.website}/change-device?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(phone)}`);
   }
   return Array.from(links);
 }
@@ -140,33 +165,35 @@ export async function resolveV2ProductionTruth(input: {
   const currentTracking = trackingFromText(input.customerText);
   if (currentTracking) {
     const app = await byTracking(currentTracking);
-    if (app) return result(app, "high", "current_tracking");
+    if (app && applicationBelongsToWaId(app, input.waId)) return result(app, "high", "current_tracking");
   }
 
-  // Prefer tracking actually present in recent WhatsApp records over persisted V2 state.
-  // This prevents a bad application lock from an older runtime from contaminating the cutover.
+  // Only customer-originated WhatsApp messages are allowed to provide historical tracking truth.
+  // Outgoing assistant messages are narrative history and can never bind an application.
   const recentTracking = await recentTrackingForWaId(input.waId);
   if (recentTracking) {
     const app = await byTracking(recentTracking);
-    if (app) return result(app, "high", "recent_message_tracking");
+    if (app && applicationBelongsToWaId(app, input.waId)) return result(app, "high", "recent_message_tracking");
   }
 
-  if (input.state?.activeApplicationId) {
-    const app = await byId(input.state.activeApplicationId);
-    if (app) return result(app, "high", "state_application_id");
+  // Persisted state is trusted only after this V2.1 runtime itself recorded a verified
+  // binding from live Supabase truth. Pre-cutover state can therefore never bind a file.
+  const verifiedState = verifiedStateBinding(input.state);
+  if (verifiedState.applicationId) {
+    const app = await byId(verifiedState.applicationId);
+    if (app && applicationBelongsToWaId(app, input.waId)) return result(app, "high", "state_application_id");
   }
-
-  if (input.state?.activeTrackingId) {
-    const app = await byTracking(input.state.activeTrackingId);
-    if (app) return result(app, "high", "state_tracking");
+  if (verifiedState.trackingId) {
+    const app = await byTracking(verifiedState.trackingId);
+    if (app && applicationBelongsToWaId(app, input.waId)) return result(app, "high", "state_tracking");
   }
 
   const candidates = await applicationsByPhone(input.waId);
   if (candidates.length === 1) return result(candidates[0], "high", "single_phone_application", 1);
   if (candidates.length > 1) {
-    // With no explicit historical pointer, the newest application is useful context but must
-    // be treated as medium confidence by the writer. We never manufacture a state from memory.
-    return result(candidates[0], "medium", "latest_phone_application", candidates.length);
+    // Never personalize from "latest application" when more than one application exists.
+    // A strong customer-originated pointer is required before exposing application-specific truth.
+    return result(null, "medium", "ambiguous_phone_applications", candidates.length);
   }
 
   return result(null, "none", "none", 0);

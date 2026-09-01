@@ -1,15 +1,23 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { ApplicationRecord, CustomerIntent } from "../types";
 import {
+  evaluateUnderstanding,
   interpretConversationTurn,
   loadConversationState,
   reduceConversationState,
   saveConversationState,
   type V2InterpretedTurn,
+  type V2UnderstandingQuality,
 } from "../v2-conversation";
 import { v2PolicyViolations, policyTruthForPrompt } from "./policyRegistry";
 import { applicationTruthForPrompt, resolveV2ProductionTruth, type V2ResolvedTruth } from "./truthResolver";
 import { composeV2TruthOnlyReply } from "./safeComposer";
+import {
+  V2_RUNTIME_VERSION,
+  actionResultSucceeded,
+  primaryV2ActionIntent,
+  type V2ActionExecution,
+} from "./actionExecutor";
 
 export type V2ProductionMode = "off" | "canary" | "broad" | "full";
 
@@ -31,19 +39,10 @@ export type V2ProductionPreparation = {
   reservationId: string | null;
   fallbackReason: string | null;
   state: Awaited<ReturnType<typeof loadConversationState>> | null;
+  understanding: V2UnderstandingQuality | null;
 };
 
-export type V2ActionExecution = {
-  usedLegacyExecutor: boolean;
-  requested: boolean;
-  executed: boolean;
-  intent: CustomerIntent | null;
-  beforeStatus?: string | null;
-  afterStatus?: string | null;
-  beforePaymentStatus?: string | null;
-  afterPaymentStatus?: string | null;
-  summary?: string | null;
-};
+export type { V2ActionExecution } from "./actionExecutor";
 
 export type V2ProductionWriteResult = {
   reply: string;
@@ -161,38 +160,10 @@ async function finalizeBudget(reservationId: string | null, status: "completed" 
 }
 
 function forcedIntentFromTurn(turn: V2InterpretedTurn): CustomerIntent | null {
-  const actionActs = turn.acts
-    .filter((act) => act.confidence >= 0.78 && act.action && act.action !== "none")
-    .map((act) => String(act.action));
-  const unique = Array.from(new Set(actionActs));
-  if (unique.length !== 1) return null;
-  const map: Record<string, CustomerIntent> = {
-    continue_application: "continue_decision",
-    decline_application: "decline_decision",
-    request_refund: "refund",
-    upload_receipt: "receipt_upload_needed",
-    human_handoff: "human_agent",
-    request_call: "call_request",
-    change_application: "application_data_correction",
-  };
-  const action = unique[0];
-  if (action === "cancel_application") {
-    const confirm = turn.acts.some((act) => act.action === "cancel_application" && act.type === "confirm" && act.confidence >= 0.78);
-    return confirm ? "cancel_confirmed" : "cancel_request";
-  }
-  return map[action] || null;
-}
-
-export function shouldUseLegacyActionExecutor(preparation: V2ProductionPreparation) {
-  if (!preparation.active || !preparation.turn || !preparation.forcedIntent) return false;
-  return new Set<CustomerIntent>([
-    "cancel_request",
-    "cancel_confirmed",
-    "continue_decision",
-    "decline_decision",
-    "refund",
-    "application_data_correction",
-  ]).has(preparation.forcedIntent);
+  // Multi-act turns keep every act in TURN_PLAN, while the primary intent is selected
+  // deterministically for routing/telemetry. The action executor still processes all
+  // compatible requested actions and fail-closes conflicting transactional decisions.
+  return primaryV2ActionIntent(turn);
 }
 
 export async function prepareV2ProductionTurn(input: {
@@ -203,10 +174,10 @@ export async function prepareV2ProductionTurn(input: {
   lastCustomerMessages?: string[];
 }): Promise<V2ProductionPreparation> {
   const settings = await readSettings();
-  if (!settings) return { active: false, mode: "off", turn: null, forcedIntent: null, reservationId: null, fallbackReason: "settings_unavailable", state: null };
-  if (settings.killSwitch || settings.mode === "off") return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: settings.killSwitch ? "kill_switch" : "mode_off", state: null };
-  if (!messageTypeEligible(input.messageType)) return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: "message_type_not_enabled", state: null };
-  if (stableBucket(input.waId) >= modePercent(settings)) return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: "outside_canary", state: null };
+  if (!settings) return { active: false, mode: "off", turn: null, forcedIntent: null, reservationId: null, fallbackReason: "settings_unavailable", state: null, understanding: null };
+  if (settings.killSwitch || settings.mode === "off") return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: settings.killSwitch ? "kill_switch" : "mode_off", state: null, understanding: null };
+  if (!messageTypeEligible(input.messageType)) return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: "message_type_not_enabled", state: null, understanding: null };
+  if (stableBucket(input.waId) >= modePercent(settings)) return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: "outside_canary", state: null, understanding: null };
 
   const reservation = await reserveDeepSeek({ waId: input.waId, incomingMessageId: input.incomingMessageId, reserveUsd: settings.reserveUsdPerTurn });
 
@@ -225,8 +196,13 @@ export async function prepareV2ProductionTurn(input: {
     });
     if (!interpreted.turn) {
       if (reservation) await finalizeBudget(reservation.id, "failed", "interpreter_failed");
-      return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: "interpreter_failed", state };
+      return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: "interpreter_failed", state, understanding: null };
     }
+    const understanding = evaluateUnderstanding({
+      customerText: input.customerText,
+      messageType: input.messageType,
+      turn: interpreted.turn,
+    });
     return {
       active: true,
       mode: settings.mode,
@@ -235,11 +211,12 @@ export async function prepareV2ProductionTurn(input: {
       reservationId: reservation?.id || null,
       fallbackReason: reservation ? (interpreted.providerError ? "interpreter_provider_fallback" : null) : "budget_blocked_truth_only",
       state,
+      understanding,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (reservation) await finalizeBudget(reservation.id, "failed", message);
-    return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: `prepare_failed:${message}`, state: null };
+    return { active: false, mode: settings.mode, turn: null, forcedIntent: null, reservationId: null, fallbackReason: `prepare_failed:${message}`, state: null, understanding: null };
   }
 }
 
@@ -297,13 +274,14 @@ async function callWriter(input: {
 - طلب إجراء لا يعني أنه نُفذ. ACTION_RESULT وحده يثبت التنفيذ.
 - رسوم فتح الملف 5 دنانير فقط، بعد التأهيل المبدئي إذا اختار العميل الاستمرار. أي رقم قديم آخر مرفوض.
 - القسط الأول: بعد شهر من استلام الجهاز وتوقيع العقد.
-- لا توصيل؛ الاستلام من المكتب بموعد.
+- لا توصيل؛ الاستلام من المكتب بموعد. الحضور للمكتب ليس متاحًا بدون موعد رسمي، ولا تقل للعميل إنه يقدر يزور المكتب ثم يحجز لاحقًا.
+- إذا CONVERSATION_STATE فيه human_handoff requested/queued أو open loop للموظف، اعتبر طلب الموظف مستمرًا حتى يُغلق، ولا تعد العميل باتصال أو متابعة مستقبلية إلا إذا ACTION_RESULT يثبت التسجيل/التحويل.
 - إثباتات الدفع والمستندات الحساسة لا تُطلب على واتساب.
 - لا تخترع رابطًا؛ استخدم فقط trusted_links.
 - لا تذكر AI أو النظام الداخلي أو الحراس.
 ${repair ? "هذه محاولة إصلاح نهائية. عالج كل ISSUE حرفيًا ولا تعيد أي مخالفة." : ""}`;
 
-  const user = `CURRENT_CUSTOMER_MESSAGE:\n${input.customerText}\n\nTURN_PLAN:\n${JSON.stringify(input.preparation.turn)}\n\nCONVERSATION_STATE:\n${JSON.stringify(currentStatePrompt(input.preparation))}\n\nRECENT_CUSTOMER_MESSAGES_ONLY:\n${JSON.stringify((input.lastCustomerMessages || []).slice(0, 8))}\n\nAPPLICATION_TRUTH:\n${JSON.stringify(applicationTruthForPrompt(input.truth))}\n\nPOLICY_TRUTH:\n${JSON.stringify(policyTruthForPrompt())}\n\nACTION_RESULT:\n${JSON.stringify(input.actionExecution || null)}${repair ? `\n\nREJECTED_DRAFT:\n${input.priorDraft || ""}\n\nISSUES_TO_FIX:\n${JSON.stringify(input.repairIssues || [])}` : ""}\n\nاكتب الرد النهائي فقط.`;
+  const user = `CURRENT_CUSTOMER_MESSAGE:\n${input.customerText}\n\nTURN_PLAN:\n${JSON.stringify(input.preparation.turn)}\n\nCONVERSATION_STATE:\n${JSON.stringify(currentStatePrompt(input.preparation))}\n\nUNDERSTANDING_QUALITY:\n${JSON.stringify(input.preparation.understanding)}\n\nRECENT_CUSTOMER_MESSAGES_ONLY:\n${JSON.stringify((input.lastCustomerMessages || []).slice(0, 8))}\n\nAPPLICATION_TRUTH:\n${JSON.stringify(applicationTruthForPrompt(input.truth))}\n\nPOLICY_TRUTH:\n${JSON.stringify(policyTruthForPrompt())}\n\nACTION_RESULT:\n${JSON.stringify(input.actionExecution || null)}${repair ? `\n\nREJECTED_DRAFT:\n${input.priorDraft || ""}\n\nISSUES_TO_FIX:\n${JSON.stringify(input.repairIssues || [])}` : ""}\n\nاكتب الرد النهائي فقط.`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), repair ? 20000 : 24000);
@@ -356,6 +334,14 @@ function stateContradictionViolations(reply: string, truth: V2ResolvedTruth) {
     if (status === "cancelled" && /(?:قيد\s*(?:الدراسة|المراجعة)|مؤهل\s*مبدئي|موافق)/i.test(text)) violations.add("application_status_contradiction");
     if (status !== "cancelled" && /(?:طلبك|الطلب)[^\n]{0,30}(?:ملغي|تم\s*إلغاؤه)/i.test(text) && !/إذا|لو/.test(text)) violations.add("application_status_contradiction");
     if (paymentStatus !== "confirmed" && /(?:الدفع|الرسوم|الوصل)[^\n]{0,35}(?:مؤكد|تم\s*تأكيد|مسجل\s*ومؤكد)/i.test(text)) violations.add("payment_status_contradiction");
+
+    const passedPreliminary = !["", "new", "submitted", "preliminary_qualified"].includes(status);
+    if (passedPreliminary && /(?:بعد|لما|إذا|اذا)[^\n]{0,35}(?:التأهيل\s*المبدئي|تتأهل\s*مبدئي|تاهيلك\s*المبدئي|تأهيلك\s*المبدئي)/i.test(text)) {
+      violations.add("stage_regression_to_preliminary");
+    }
+    if (paymentStatus === "confirmed" && /(?:بعد|لما|إذا|اذا)[^\n]{0,55}(?:تدفع|دفع\s*الرسوم|تأكيد\s*الدفع)[^\n]{0,55}(?:نبدأ|تبدأ|الدراسة|المراجعة)/i.test(text)) {
+      violations.add("stage_regression_before_confirmed_payment");
+    }
   }
 
   return Array.from(violations);
@@ -374,13 +360,35 @@ function turnCoverageViolations(reply: string, preparation: V2ProductionPreparat
   }
 
   const coverage: Array<[string, RegExp]> = [
-    ["payment_fee", /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف/i],
-    ["first_installment", /القسط\s*(?:الأول|الاول)|الدفعة\s*(?:الأولى|الاولى)/i],
-    ["office_location", /عمان|عمّان|شارع\s*المدينة/i],
-    ["human_handoff", /موظف|الإدارة|الادارة|مسؤول/i],
-    ["application_status", /طلبك|الطلب|الحالة/i],
+    ["application_status", /طلبك|الطلب|الحالة|حاله/i],
+    ["review_timing", /(?:مراجعة|دراسة|دور|ضغط|وقت|مدة|موعد|تحديث)/i],
+    ["cancellation", /إلغاء|الغاء|ملغي|تأكيد/i],
+    ["continuation", /استمرار|تكمل|نكمل|مستمر/i],
     ["refund", /استرداد|استرجاع|المبلغ|الرسوم/i],
+    ["payment_fee", /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف/i],
+    ["payment_method", /AMEEENPAY|AMENPAY|CliQ|كليك|طريقة\s*الدفع/i],
+    ["payment_timing", /متى|بعد\s*التأهيل|مرحلة\s*الدفع|الدفع\s*(?:مطلوب|غير\s*مطلوب)/i],
+    ["payment_recipient", /المستفيد|ABDUL\s+RAHMAN|AMEEENPAY|AMENPAY/i],
+    ["receipt_upload", /الوصل|إثبات\s*الدفع|الرابط\s*الرسمي/i],
+    ["first_installment", /القسط\s*(?:الأول|الاول)|الدفعة\s*(?:الأولى|الاولى)|بعد\s*شهر/i],
+    ["installment_amount", /قيمة\s*القسط|القسط|الدفعة/i],
+    ["installment_duration", /شهر|مدة\s*التقسيط|عدد\s*الأقساط|عدد\s*الاقساط/i],
+    ["product_price", /السعر|سعر\s*الجهاز|المنتجات/i],
+    ["products", /الأجهزة|الاجهزه|المنتجات|الموقع\s*الرسمي/i],
+    ["office_location", /عمان|عمّان|شارع\s*المدينة|المكتب|موعد/i],
     ["delivery", /استلام|توصيل|المكتب/i],
+    ["requirements", /المطلوب|المتطلبات|الهوية|الكفيل|الراتب|مستند/i],
+    ["identity", /الهوية|الهويه|الرابط\s*الرسمي/i],
+    ["salary", /الراتب|كشف\s*راتب|شهادة\s*راتب/i],
+    ["guarantor", /كفيل|الكفيل|ضامن/i],
+    ["site_issue", /الموقع|الرابط|مشكلة|مش\s*شغال|خطأ|خطا/i],
+    ["human_handoff", /موظف|الإدارة|الادارة|مسؤول|تحويل\s*المحادثة/i],
+    ["call_request", /مكالمة|اتصال|رن|طلب\s*المكالمة/i],
+    ["trust", /ثقة|موثوق|رسمي|نصب|احتيال|ضمان/i],
+    ["business_identity", /الأمين\s*للأقساط|الاسم\s*المعتمد|مستقلة/i],
+    ["business_website", /ameenfinance\.co|الموقع\s*الرسمي/i],
+    ["correction", /تصحيح|تعديل|المراجعة/i],
+    ["repair", /يعني|توضيح|أوضح|شرح/i],
   ];
   for (const [topic, regex] of coverage) {
     if (topics.has(topic as any) && !regex.test(text)) violations.add(`missing_topic:${topic}`);
@@ -401,8 +409,28 @@ function linkViolations(reply: string, truth: V2ResolvedTruth) {
 
 function actionViolations(reply: string, actionExecution?: V2ActionExecution | null) {
   const violations = new Set<string>();
-  const executionClaim = /(?:تم|جرى|سجلت|سجلنا|حولت|حوّلت)[^\n]{0,45}(?:إلغاء|الغاء|استرداد|تحويل|تصعيد|الطلب|الموظف|الإدارة|الادارة)/i.test(reply);
-  if (executionClaim && !actionExecution?.executed) violations.add("unverified_action_execution_claim");
+  const text = String(reply || "");
+  const generalExecutionClaim = /(?:تم|جرى|سجلت|سجلنا|حولت|حوّلت)[^\n]{0,45}(?:إلغاء|الغاء|استرداد|تحويل|تصعيد|الطلب|الموظف|الإدارة|الادارة|مكالمة|اتصال|تصحيح|تعديل)/i.test(text);
+  if (generalExecutionClaim && !actionExecution?.executed) violations.add("unverified_action_execution_claim");
+
+  if (/(?:تم|جرى|صار)[^\n]{0,35}(?:تحويل|تصعيد)[^\n]{0,35}(?:موظف|الإدارة|الادارة|مسؤول)/i.test(text) && !actionResultSucceeded(actionExecution, "human_agent")) {
+    violations.add("unverified_human_handoff_claim");
+  }
+  if (/(?:تم|جرى|سجلنا|سجلت)[^\n]{0,35}(?:طلب\s*)?(?:مكالمة|اتصال)/i.test(text) && !actionResultSucceeded(actionExecution, "call_request")) {
+    violations.add("unverified_call_request_claim");
+  }
+  if (/(?:تم|جرى)[^\n]{0,35}(?:إلغاء|الغاء)[^\n]{0,25}(?:الطلب|طلبك)/i.test(text) && !actionResultSucceeded(actionExecution, "cancel_confirmed")) {
+    violations.add("unverified_cancel_execution_claim");
+  }
+  if (/(?:تم|جرى|سجلنا|سجلت)[^\n]{0,35}(?:استرداد|استرجاع)/i.test(text) && !(actionResultSucceeded(actionExecution, "refund") || actionResultSucceeded(actionExecution, "cancel_confirmed"))) {
+    violations.add("unverified_refund_execution_claim");
+  }
+  if (/(?:تم|جرى|سجلنا|سجلت)[^\n]{0,35}(?:الاستمرار|رغبتك\s+بالاستمرار)/i.test(text) && !actionResultSucceeded(actionExecution, "continue_decision")) {
+    violations.add("unverified_continue_execution_claim");
+  }
+  if (/(?:تم|جرى|سجلنا|سجلت)[^\n]{0,35}(?:تصحيح|تعديل)[^\n]{0,25}(?:البيانات|بياناتك)/i.test(text) && !actionResultSucceeded(actionExecution, "application_data_correction")) {
+    violations.add("unverified_data_correction_claim");
+  }
   return Array.from(violations);
 }
 
@@ -412,7 +440,14 @@ function allViolations(input: {
   truth: V2ResolvedTruth;
   actionExecution?: V2ActionExecution | null;
 }) {
+  const understandingIssues = input.preparation.understanding && !input.preparation.understanding.pass
+    ? [
+        ...input.preparation.understanding.criticalFlags.map((x) => `understanding:${x}`),
+        ...input.preparation.understanding.missingTopics.map((x) => `understanding_missing_topic:${x}`),
+      ]
+    : [];
   return Array.from(new Set([
+    ...understandingIssues,
     ...v2PolicyViolations(input.reply),
     ...stateContradictionViolations(input.reply, input.truth),
     ...turnCoverageViolations(input.reply, input.preparation, input.truth),
@@ -423,11 +458,13 @@ function allViolations(input: {
 
 function isHighRisk(preparation: V2ProductionPreparation) {
   const topics = new Set(preparation.turn?.topics || []);
-  return [
-    "application_status", "cancellation", "continuation", "refund", "payment_fee", "payment_method",
-    "payment_timing", "payment_recipient", "receipt_upload", "first_installment", "delivery", "requirements",
-    "identity", "salary", "guarantor", "human_handoff", "call_request", "trust",
-  ].some((topic) => topics.has(topic as any)) || Boolean(preparation.forcedIntent);
+  const businessTopic = Array.from(topics).some((topic) => !["greeting", "acknowledgement"].includes(String(topic)));
+  const openStaffLoop = Boolean(preparation.state?.openLoops?.some((loop) => loop.state === "open" && loop.owedBy === "staff"));
+  const activeHandoff = Boolean(
+    preparation.state?.humanHandoff?.requested &&
+    ["requested", "queued", "accepted", null, undefined].includes(preparation.state?.humanHandoff?.status as any)
+  );
+  return businessTopic || openStaffLoop || activeHandoff || Boolean(preparation.forcedIntent);
 }
 
 function openAiText(payload: any) {
@@ -473,8 +510,8 @@ async function auditWithOpenAi(input: {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model,
-        instructions: `أنت مدقق مستقل للرد النهائي في الأمين للأقساط. لا تعيد كتابة الرد. افحص فقط: فهم كل مواضيع رسالة العميل، الاستمرارية، عدم إعادة سؤال حُسم، عدم اختلاق حالة/دفع/استرداد/موعد/تواصل، صحة رسوم 5 دنانير وتوقيتها، القسط الأول بعد شهر من الاستلام والتوقيع، عدم التوصيل، عدم ادعاء تنفيذ action بلا ACTION_RESULT، وأن الأسلوب بشري وغير آلي. APPLICATION_TRUTH وPOLICY_TRUTH هما الحقيقة الوحيدة. أعط pass=false لأي خطأ قد يضلل العميل أو يجعله يبدو كبوت فاقد للسياق.`,
-        input: `CUSTOMER_MESSAGE:\n${input.customerText}\n\nTURN_PLAN:\n${JSON.stringify(input.preparation.turn)}\n\nAPPLICATION_TRUTH:\n${JSON.stringify(applicationTruthForPrompt(input.truth))}\n\nACTION_RESULT:\n${JSON.stringify(input.actionExecution || null)}\n\nCANDIDATE_REPLY:\n${input.reply}`,
+        instructions: `أنت مدقق مستقل للرد النهائي في الأمين للأقساط. لا تعيد كتابة الرد. افحص: كل مواضيع رسالة العميل، UNDERSTANDING_QUALITY، الاستمرارية وCONVERSATION_STATE، عدم إعادة سؤال حُسم، عدم اختلاق حالة/مرحلة/دفع/استرداد/موعد/تواصل، الحضور للمكتب بموعد فقط، صحة رسوم 5 دنانير وتوقيتها، القسط الأول بعد شهر من الاستلام والتوقيع، عدم التوصيل، عدم ادعاء تنفيذ action بلا ACTION_RESULT، وعدم الرجوع لمرحلة أقدم من APPLICATION_TRUTH. إذا كان handoff مفتوحًا في الحالة يجب عدم تجاهله أو اختراع وعد اتصال. APPLICATION_TRUTH وPOLICY_TRUTH وACTION_RESULT هي الحقيقة الوحيدة. أعط pass=false لأي خطأ قد يضلل العميل أو يجعله يبدو كبوت فاقد للسياق.`,
+        input: `CUSTOMER_MESSAGE:\n${input.customerText}\n\nTURN_PLAN:\n${JSON.stringify(input.preparation.turn)}\n\nUNDERSTANDING_QUALITY:\n${JSON.stringify(input.preparation.understanding)}\n\nCONVERSATION_STATE:\n${JSON.stringify(currentStatePrompt(input.preparation))}\n\nAPPLICATION_TRUTH:\n${JSON.stringify(applicationTruthForPrompt(input.truth))}\n\nACTION_RESULT:\n${JSON.stringify(input.actionExecution || null)}\n\nCANDIDATE_REPLY:\n${input.reply}`,
         reasoning: { effort: "low" },
         text: { format: { type: "json_schema", name: "alameen_live_audit", strict: true, schema }, verbosity: "low" },
         max_output_tokens: 500,
@@ -514,8 +551,7 @@ export async function writeV2ProductionReply(input: {
     customerText: input.customerText,
     turn: input.preparation.turn!,
     truth: input.truth,
-    actionExecuted: Boolean(input.actionExecution?.executed),
-    actionSummary: input.actionExecution?.summary || null,
+    actionExecution: input.actionExecution || null,
   });
 
   if (!input.preparation.active || !input.preparation.turn) {
@@ -661,6 +697,39 @@ export async function writeV2ProductionReply(input: {
   }
 }
 
+export async function logV2ProductionNoReply(input: {
+  preparation: V2ProductionPreparation;
+  waId: string;
+  incomingMessageId: string;
+  customerText: string;
+}) {
+  try {
+    const { error } = await supabaseAdmin.from("whatsapp_v2_production_runs").insert({
+      incoming_message_id: input.incomingMessageId,
+      wa_id: input.waId,
+      mode: input.preparation.mode,
+      customer_message: input.customerText,
+      interpreted_turn: input.preparation.turn || null,
+      forced_intent: input.preparation.forcedIntent || null,
+      final_reply: null,
+      used_v2_writer: false,
+      self_repair_applied: false,
+      fail_closed_applied: false,
+      violations: [],
+      writer_error: null,
+      runtime_version: V2_RUNTIME_VERSION,
+      understanding_quality: input.preparation.understanding || null,
+      action_result: null,
+      route_outcome: "silent_no_reply",
+      fallback_reason: input.preparation.fallbackReason || "inactive",
+      created_at: new Date().toISOString(),
+    });
+    if (error && (error as any).code !== "23505") console.error("V2.1 no-reply telemetry failed", error.message);
+  } catch (error) {
+    console.error("V2.1 no-reply telemetry exception", error);
+  }
+}
+
 export async function commitV2ProductionState(input: {
   preparation: V2ProductionPreparation;
   waId: string;
@@ -683,6 +752,39 @@ export async function commitV2ProductionState(input: {
       applicationId: app?.id || null,
       trackingId: app?.tracking_id || null,
     });
+    if (actionResultSucceeded(input.actionExecution, "human_agent")) {
+      next.humanHandoff = {
+        requested: true,
+        requestedAt: next.humanHandoff.requestedAt || new Date().toISOString(),
+        status: "queued",
+      };
+    }
+    if (app && input.truth.confidence === "high") {
+      const bindingStamp = new Date().toISOString();
+      const bindingKeys = new Set(["v2_verified_application_id", "v2_verified_tracking_id"]);
+      next.facts = (next.facts || []).filter((fact) => !bindingKeys.has(fact.key));
+      next.facts.push({
+        key: "v2_verified_application_id",
+        value: String(app.id),
+        source: "system",
+        topic: "application_status",
+        confidence: 1,
+        turnId: input.incomingMessageId,
+        updatedAt: bindingStamp,
+      });
+      if (app.tracking_id) {
+        next.facts.push({
+          key: "v2_verified_tracking_id",
+          value: String(app.tracking_id).toUpperCase(),
+          source: "system",
+          topic: "application_status",
+          confidence: 1,
+          turnId: input.incomingMessageId,
+          updatedAt: bindingStamp,
+        });
+      }
+      next.facts = next.facts.slice(-80);
+    }
     await saveConversationState(next);
 
     const { error } = await supabaseAdmin.from("whatsapp_v2_production_runs").insert({
@@ -704,7 +806,12 @@ export async function commitV2ProductionState(input: {
       auditor_used: Boolean(input.writerResult?.auditorUsed),
       auditor_passed: input.writerResult?.auditorPassed ?? null,
       safe_composer_applied: Boolean(input.writerResult?.safeComposerApplied),
-      legacy_action_executor_used: Boolean(input.actionExecution?.usedLegacyExecutor),
+      legacy_action_executor_used: false,
+      runtime_version: V2_RUNTIME_VERSION,
+      understanding_quality: input.preparation.understanding || null,
+      action_result: input.actionExecution || null,
+      route_outcome: "replied",
+      fallback_reason: input.preparation.fallbackReason || null,
       created_at: new Date().toISOString(),
     });
     if (error) console.error("V2 production run log failed", error.message);

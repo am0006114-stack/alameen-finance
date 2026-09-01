@@ -3,8 +3,13 @@ export {
   resolveV2Truth,
   writeV2ProductionReply,
   commitV2ProductionState,
-  shouldUseLegacyActionExecutor,
+  logV2ProductionNoReply,
 } from "./runtime";
+export {
+  executeV2Action,
+  applyV2PostSendAction,
+  V2_RUNTIME_VERSION,
+} from "./actionExecutor";
 export type {
   V2ProductionMode,
   V2ProductionPreparation,

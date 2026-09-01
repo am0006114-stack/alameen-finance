@@ -182,6 +182,32 @@ export function reduceConversationState(input: {
       });
     }
 
+    if (act.type === "handoff_request" && act.topic === "call_request") {
+      next.openLoops = addLoop(next.openLoops || [], {
+        id: `${input.turnId}:call`,
+        topic: "call_request",
+        owedBy: "staff",
+        state: "open",
+        question: "customer_requested_call",
+        sourceTurnId: input.turnId,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+    }
+
+    if (act.action === "change_application" || (act.topic === "correction" && act.type === "request_action")) {
+      next.openLoops = addLoop(next.openLoops || [], {
+        id: `${input.turnId}:application_data_correction`,
+        topic: "correction",
+        owedBy: "staff",
+        state: "open",
+        question: "customer_requested_application_data_correction",
+        sourceTurnId: input.turnId,
+        createdAt: stamp,
+        updatedAt: stamp,
+      });
+    }
+
     if (act.type === "repair_request") {
       next.currentGoal = `repair:${act.topic}`;
     }

@@ -1,4 +1,4 @@
-export const V2_POLICY_VERSION = "2026-09-01-final-os";
+export const V2_POLICY_VERSION = "2026-09-01-v2.1-no-legacy";
 
 export const V2_POLICY = {
   businessName: "الأمين للأقساط",
@@ -62,7 +62,17 @@ export function v2PolicyViolations(reply: string) {
   if (/(?:توصيل|مندوب)[^\n]{0,60}(?:الجهاز|الهاتف|الموبايل)/i.test(text) && !/(?:لا\s*(?:يوجد|في)|ما\s*في)[^\n]{0,35}(?:توصيل)/i.test(text)) {
     violations.add("delivery_policy_violation");
   }
-  if (/(?:رح|سوف|سيتم|بمجرد|أول\s*ما)[^\n]{0,80}(?:نتواصل|يتواصل|يصلك|نرجعلك|أرجعلك|نبلغك|إشعار|اشعار)/i.test(text)) {
+
+  const permissiveOfficeVisit = /(?:بتقدر|تقدر|بإمكانك|بامكانك|ممكن|عادي)[^\n]{0,45}(?:تيجي|تجي|تزور|تحضر)[^\n]{0,45}(?:المكتب|عنا|إلنا|الينا)/i.test(text);
+  const mandatoryAppointment = /(?:فقط\s*)?(?:بموعد|موعد\s*مسبق|بعد\s*(?:تحديد|تأكيد|اعتماد)\s*موعد|لازم\s*موعد|الحضور[^\n]{0,25}بموعد)/i.test(text);
+  if (permissiveOfficeVisit && !mandatoryAppointment) {
+    violations.add("office_visit_without_mandatory_appointment");
+  }
+  if (/(?:الأفضل|يفضل|يفضّل)[^\n]{0,35}(?:تحجز|موعد)/i.test(text) && permissiveOfficeVisit) {
+    violations.add("appointment_presented_as_optional");
+  }
+
+  if (/(?:رح|سوف|سيتم|بمجرد|أول\s*ما|هنحاول|بنحاول|رح\s*نحاول)[^\n]{0,90}(?:نتواصل|يتواصل|يصلك|نرجعلك|أرجعلك|نبلغك|نوصل(?:ك|لك)|نرن|نتصل|إشعار|اشعار)/i.test(text)) {
     violations.add("unsupported_future_contact_promise");
   }
 

@@ -69,7 +69,9 @@ import {
   resolveV2Truth,
   writeV2ProductionReply,
   commitV2ProductionState,
-  shouldUseLegacyActionExecutor,
+  logV2ProductionNoReply,
+  executeV2Action,
+  applyV2PostSendAction,
   type V2ProductionWriteResult,
   type V2ResolvedTruth,
   type V2ActionExecution,
@@ -10655,13 +10657,10 @@ export async function POST(request: Request) {
         }
 
         const preReplyMemory = await getConversationMemory(from, 18);
-        const resolvedProcessingInput = resolveConversationInput(
-          processingText,
-          processingMessageType,
-          preReplyMemory,
-        );
-        const replyInputText = resolvedProcessingInput.effectiveText;
-        processingIntent = resolvedProcessingInput.intent;
+        // V2.1 CUSTOMER-ONLY PREPROCESSING: legacy assistant history never rewrites the
+        // customer's current text or intent before the Conversation OS sees it.
+        const replyInputText = processingText;
+        processingIntent = classifyIncomingIntent(replyInputText, processingMessageType);
         needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
 
         // إعادة الفحص بعد تجميع الرسائل؛ يمكن للإدارة ضغط زر التجاهل أثناء نافذة الانتظار.
@@ -10736,8 +10735,8 @@ export async function POST(request: Request) {
           return;
         }
 
-        // V2 PRODUCTION CONVERSATION OS: fail-closed runtime selection and multi-act interpretation.
-        // OFF/kill-switch/outside-canary/budget/provider failures fall back to the existing V1 path.
+        // V2.1 PRODUCTION CONVERSATION OS: no legacy escape.
+        // OFF/kill-switch/outside-rollout/preparation failures mean NO automated reply, never V1.
         const v2Production = await prepareV2ProductionTurn({
           waId: from,
           incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
@@ -10747,6 +10746,23 @@ export async function POST(request: Request) {
         });
         if (v2Production.active && v2Production.forcedIntent) {
           processingIntent = v2Production.forcedIntent;
+        }
+
+        if (!v2Production.active || !v2Production.turn) {
+          await logV2ProductionNoReply({
+            preparation: v2Production,
+            waId: from,
+            incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+            customerText: replyInputText,
+          });
+          console.warn("V2.1 no-auto-reply route", {
+            waId: from,
+            messageId: message.id || null,
+            reason: v2Production.fallbackReason || "inactive",
+            mode: v2Production.mode,
+          });
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          return;
         }
 
         let outgoingMemory = preReplyMemory;
@@ -10769,63 +10785,23 @@ export async function POST(request: Request) {
           if (v2Production.forcedIntent) processingIntent = v2Production.forcedIntent;
           needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
 
-          if (shouldUseLegacyActionExecutor(v2Production)) {
-            // The legacy deterministic layer is retained ONLY as an execution engine for
-            // guarded state mutations. Its customer-facing text is discarded and never
-            // enters the V2 writer prompt or final response.
-            const before = finalApplication;
-            await buildReply(
-              request,
-              from,
-              replyInputText,
-              processingMessageType,
-              { forcedIntent: v2Production.forcedIntent, disableLegacyAi: true },
-            );
+          v2ActionExecution = await executeV2Action({
+            waId: from,
+            incomingMessageId: message.id || `fallback:${from}:${message.timestamp || Date.now()}`,
+            customerText: replyInputText,
+            forcedIntent: v2Production.forcedIntent,
+            turn: v2Production.turn,
+            application: finalApplication,
+          });
 
+          // Any state-changing action is re-read from Supabase before writing the customer reply.
+          if (v2ActionExecution.requested) {
             v2Truth = await resolveV2Truth({
               waId: from,
-              customerText: replyInputText,
+              customerText: finalApplication?.tracking_id ? `${replyInputText}\n${finalApplication.tracking_id}` : replyInputText,
               preparation: v2Production,
             });
-            finalApplication = v2Truth.application || before;
-            const beforeStatus = before?.status || null;
-            const afterStatus = finalApplication?.status || null;
-            const beforePaymentStatus = before?.payment_status || null;
-            const afterPaymentStatus = finalApplication?.payment_status || null;
-            const changed = Boolean(
-              before?.id && finalApplication?.id === before.id && (
-                beforeStatus !== afterStatus ||
-                beforePaymentStatus !== afterPaymentStatus ||
-                before?.device_name !== finalApplication?.device_name
-              )
-            );
-            const intent = v2Production.forcedIntent;
-            let executed = changed;
-            let summary: string | null = null;
-            if (intent === "cancel_confirmed" && afterStatus === "cancelled") {
-              executed = true;
-              summary = "تم تنفيذ إلغاء الطلب فعليًا.";
-            } else if (intent === "refund" && (afterStatus === "refund_requested" || afterPaymentStatus === "refund_requested")) {
-              executed = true;
-              summary = "تم تسجيل طلب الاسترداد فعليًا.";
-            } else if (intent === "continue_decision" && changed) {
-              summary = "تم تسجيل قرار الاستمرار فعليًا على الطلب.";
-            } else if (intent === "cancel_request") {
-              summary = "طلب الإلغاء مفهوم لكنه لم يُنفذ كإلغاء نهائي دون التأكيد المطلوب.";
-            } else if (intent === "refund" && !executed) {
-              summary = "طلب الاسترداد مفهوم لكنه لم يُنفذ؛ لا يوجد تنفيذ موثق للاسترداد في هذه اللحظة.";
-            }
-            v2ActionExecution = {
-              usedLegacyExecutor: true,
-              requested: true,
-              executed,
-              intent,
-              beforeStatus,
-              afterStatus,
-              beforePaymentStatus,
-              afterPaymentStatus,
-              summary,
-            };
+            finalApplication = v2Truth.application || finalApplication;
           }
 
           shadowTrackingId =
@@ -10847,166 +10823,6 @@ export async function POST(request: Request) {
 
           // LAST WRITER WINS: after this point V1 does not rewrite V2. Only the send lock,
           // human-like delay, WhatsApp send, and logging are permitted to touch the flow.
-        } else {
-        // Capture the pre-reply state for diagnostics only. buildReply may mutate the application,
-        // so every final policy decision must be based on a fresh post-reply read.
-        const preReplyApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
-
-        // V1.7.0 CONVERSATION KERNEL: synchronize Final Truth, logs and Shadow
-        // with the same application-aware semantic decision used by buildReply.
-        processingIntent = resolveConversationKernelIntent({
-          customerText: replyInputText,
-          messageType: processingMessageType,
-          currentIntent: processingIntent,
-          application: preReplyApplication,
-          memory: preReplyMemory,
-        });
-        needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
-        let rawReply = await buildReply(
-          request,
-          from,
-          replyInputText,
-          processingMessageType,
-          v2Production.active
-            ? { forcedIntent: v2Production.forcedIntent, disableLegacyAi: true }
-            : undefined,
-        );
-        outgoingMemory = await getConversationMemory(from);
-        const refreshedApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, outgoingMemory);
-        finalApplication = refreshedApplication || preReplyApplication;
-        shadowTrackingId =
-          extractTracking(replyInputText) ||
-          incomingTracking ||
-          finalApplication?.tracking_id ||
-          null;
-
-        reply = finalizeReplyBeforeSend(rawReply, {
-          from,
-          text: replyInputText,
-          intent: processingIntent,
-          memory: outgoingMemory,
-          application: finalApplication,
-        });
-
-        if (isNearDuplicateAssistantReply(reply, outgoingMemory, processingIntent)) {
-          const recoveryReply = repeatedReplyRecoveryReply(processingIntent);
-
-          // في متابعة الحالة فقط نختصر الرد إلى "لا يوجد تحديث جديد".
-          // أما الأسئلة الأخرى فلا نطلب من العميل إعادة سؤاله ولا نستبدل الجواب بقالب عام.
-          if (recoveryReply) {
-            reply = recoveryReply;
-          }
-
-          await sendDiscordNotification({
-            title: "🔁 تم اكتشاف رد قريب من رد سابق",
-            description: recoveryReply
-              ? "تم اختصار رد متابعة الحالة لأن الحالة لم تتغير."
-              : "تم رصد التشابه دون استبدال جواب العميل بقالب عام.",
-            color: 0xfee75c,
-            customerPhone: from,
-            customerMessage: processingText,
-            systemReply: reply,
-            baseUrl: getBaseUrl(request),
-          });
-        }
-
-        reply = applyFinalSendGuard(reply, finalApplication);
-
-        const finalTruthResult = await applyProductionFinalTruthGate({
-          request,
-          from,
-          customerName: contactName || null,
-          customerText: processingText,
-          messageType: processingMessageType,
-          initialIntent: processingIntent,
-          application: finalApplication,
-          reply,
-          conversationContext: outgoingMemory.conversationContext,
-          lastAssistantReplies: outgoingMemory.lastAssistantReplies,
-          lastCustomerMessages: outgoingMemory.lastCustomerMessages,
-          hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
-        });
-        reply = finalTruthResult.reply;
-
-        // V1.4.1 CUSTOMER-FACING FIREWALL: internal guard/debug language is never
-        // allowed to reach the customer, even if an upstream recovery path regresses.
-        if (hasInternalCustomerFacingLanguage(reply)) {
-          const beforeFirewall = reply;
-          if (String(processingIntent) === "location") {
-            reply = locationReply(from, finalApplication);
-          } else if (String(processingIntent) === "payment_amount") {
-            reply = paymentAmountReply(finalApplication, replyInputText);
-          } else if (String(processingIntent) === "review_time") {
-            reply = finalApplication
-              ? reviewTimeReply(from, finalApplication, finalApplication.tracking_id || finalApplication.id, replyInputText)
-              : generalReviewTimeReply(from, replyInputText);
-          } else if (String(processingIntent) === "voluntary_opt_out") {
-            reply = voluntaryOptOutReply(finalApplication, true);
-          } else if (String(processingIntent) === "office_payment_request") {
-            reply = officeFeePaymentReply(finalApplication, true);
-          } else if (finalApplication) {
-            // V1.6.0 SEMANTIC FIREWALL: recover on the same customer topic instead
-            // of collapsing a valid question into the generic unknown fallback.
-            reply = safeReply(finalApplication, getBaseUrl(request), replyInputText, processingIntent);
-          } else {
-            reply = unknownReply(from, null, replyInputText);
-          }
-          reply = applyFinalSendGuard(reply, finalApplication);
-          await sendDiscordNotification({
-            title: "🧹 CUSTOMER-FACING FIREWALL — تم منع لغة داخلية",
-            description: "تم استبدال رد احتوى لغة داخلية/تقنية قبل الإرسال للعميل.",
-            color: 0xfee75c,
-            app: finalApplication || undefined,
-            customerPhone: from,
-            customerMessage: processingText,
-            systemReply: reply,
-            baseUrl: getBaseUrl(request),
-          });
-          console.warn("Customer-facing firewall replaced internal narration", { beforeFirewall, reply });
-        }
-
-        // V1.4.2 FINAL DELIVERY INTEGRITY: the final customer text is checked
-        // after Final Truth, human recovery and Customer-Facing Firewall. Nothing
-        // may modify the reply after this gate except the send lock itself.
-        reply = finalizeLastMileDeliveryReply(reply, {
-          from,
-          text: replyInputText,
-          intent: processingIntent,
-          application: finalApplication,
-        });
-
-        const deliveryTruthResult = await applyProductionFinalTruthGate({
-          request,
-          from,
-          customerName: contactName || null,
-          customerText: processingText,
-          messageType: processingMessageType,
-          initialIntent: processingIntent,
-          application: finalApplication,
-          reply,
-          conversationContext: outgoingMemory.conversationContext,
-          lastAssistantReplies: outgoingMemory.lastAssistantReplies,
-          lastCustomerMessages: outgoingMemory.lastCustomerMessages,
-          hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
-        });
-        reply = finalizeLastMileDeliveryReply(deliveryTruthResult.reply, {
-          from,
-          text: replyInputText,
-          intent: processingIntent,
-          application: finalApplication,
-        });
-        // V1.7.0 CONVERSATION KERNEL FINAL COVERAGE GATE: semantic invariants
-        // run after Final Truth and immediately before the outgoing send lock.
-        reply = applyConversationKernelReplyGuard({
-          customerText: replyInputText,
-          messageType: processingMessageType,
-          currentIntent: processingIntent,
-          application: finalApplication,
-          memory: outgoingMemory,
-          reply,
-        });
-        reply = applyFinalSendGuard(reply, finalApplication);
-
         }
 
         const outgoingClaim = await claimOutgoingReplyLock({
@@ -11064,6 +10880,11 @@ export async function POST(request: Request) {
               actionExecution: v2ActionExecution,
               writerResult: v2WriterResult,
             });
+            try {
+              await applyV2PostSendAction({ waId: from, actionExecution: v2ActionExecution });
+            } catch (postSendActionError) {
+              console.error("V2.1 post-send action failed", { waId: from, messageId: message.id || null, error: postSendActionError });
+            }
           }
 
           // Enqueue the comparison only after the real reply is successfully sent and logged.
