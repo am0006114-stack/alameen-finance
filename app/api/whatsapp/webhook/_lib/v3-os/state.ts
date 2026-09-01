@@ -1,5 +1,6 @@
-import { actionRequiresOmran, initialRoleState, resolveAiRole } from "./hierarchy";
+import { actionRequiresOmran, initialRoleState, resolveAiRole, roleDisplayName } from "./hierarchy";
 import { V3_OS_VERSION, type ConversationState, type InterpretedTurn, type OpenLoop } from "./types";
+import { normalizeArabic } from "./text";
 
 function now() { return new Date().toISOString(); }
 
@@ -86,4 +87,25 @@ export function closeAnsweredLoops(state: ConversationState, topics: string[]): 
     openLoops: state.openLoops.map((loop) => topics.includes(loop.topic) && loop.state === "open" ? { ...loop, state: "answered", updatedAt: stamp } : loop),
     updatedAt: stamp,
   };
+}
+
+
+export function markRoleIntroducedFromReply(state: ConversationState, reply: string | null | undefined): ConversationState {
+  if (!reply || state.role.introduced) return state;
+  const name = roleDisplayName(state.role.currentRole);
+  const n = normalizeArabic(reply);
+  const introduced = n.includes(normalizeArabic(`معك ${name}`)) || n.includes(normalizeArabic(`انا ${name}`)) || n.includes(normalizeArabic(`أنا ${name}`));
+  if (!introduced) return state;
+  return { ...state, role: { ...state.role, introduced: true } };
+}
+
+
+export function inferRoleIntroducedFromRecentTurns(state: ConversationState, recentTurns?: string[]): ConversationState {
+  if (state.role.introduced || !recentTurns?.length) return state;
+  const name = roleDisplayName(state.role.currentRole);
+  const found = recentTurns.some(turn => {
+    const n = normalizeArabic(String(turn || "").replace(/^\s*(?:الامين|الأمين)\s*:\s*/i, ""));
+    return n.includes(normalizeArabic(`معك ${name}`)) || n.includes(normalizeArabic(`انا ${name}`)) || n.includes(normalizeArabic(`أنا ${name}`));
+  });
+  return found ? { ...state, role: { ...state.role, introduced: true } } : state;
 }

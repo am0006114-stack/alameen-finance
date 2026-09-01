@@ -1,7 +1,7 @@
 import { executeActions } from "./actionPlane";
 import { buildReplyPlan } from "./planner";
 import { resolveV3ProductionTruth } from "./productionTruth";
-import { closeAnsweredLoops, emptyState, reduceState } from "./state";
+import { closeAnsweredLoops, emptyState, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
 import type { ActionResult, ConversationState, OsRunResult, TruthBundle, VerificationReport } from "./types";
 import { verifyReply } from "./verifier";
@@ -90,7 +90,7 @@ export async function runV3ProductionLive(input: {
   realActionsEnabled: boolean;
 }): Promise<V3LiveResult> {
   const loadedState = await loadV3ConversationState(input.waId);
-  const stateBefore = loadedState || emptyState(input.waId);
+  const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), input.recentTurns);
 
   const interpreter = input.interpreter === undefined ? v3InterpreterProviderFromEnv() : input.interpreter;
   const interpreted = await interpretTurnWithAi({
@@ -253,9 +253,10 @@ export async function runV3ProductionLive(input: {
       ? (waitingPlan?.payload || boundState.pendingActionPayload)
       : (plan.actions.length ? null : boundState.pendingActionPayload),
   };
-  const stateAfter = answeredTopics.length
+  const answeredState = answeredTopics.length
     ? closeAnsweredLoops({ ...actionAdjustedState, lastAssistantText: reply }, answeredTopics)
     : { ...actionAdjustedState, lastAssistantText: reply || actionAdjustedState.lastAssistantText };
+  const stateAfter = markRoleIntroducedFromReply(answeredState, reply);
 
   return {
     version: stateAfter.version,

@@ -17,8 +17,8 @@ export function buildV3EmergencySafeReply(input: {
   const topics = new Set(input.turn.topics);
   const p = input.truth.policy;
 
-  if (topics.has("manager_request")) parts.push(`معك ${roleDisplayName("omran")}، وبكمل معك نفس الموضوع هون.`);
-  else if (topics.has("human_request")) parts.push(`معك ${roleDisplayName(input.state.role.currentRole)} من فريق الأمين، وبكمل معك هون.`);
+  if (topics.has("manager_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName("omran")}.`);
+  else if (topics.has("human_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName(input.state.role.currentRole)} من الأمين.`);
 
   const pendingConfirmation = input.actions.find(x => x.outcome === "needs_confirmation");
   if (pendingConfirmation) {
@@ -73,11 +73,13 @@ export function buildV3EmergencySafeReply(input: {
     } else {
       const paid = hasAuthoritativePaymentConfirmation(input.truth.application);
       parts.push(paid
-        ? "إذا ما بدك تكمل، الإلغاء متاح والاسترداد يمشي على الدفع المؤكد. حقك ما بضيع، لكن معالجة الاسترداد إلها دورها وما بعطيك موعد وهمي."
-        : "إذا ما بدك تكمل، بنقدر نلغي الطلب مباشرة. وإذا عندك دفع فعلي لازم يظهر مؤكد على الملف أولًا حتى ينفتح مسار الاسترداد.");
+        ? "إذا ما بدك تكمل، الإلغاء متاح وحق الاسترداد على الدفع المؤكد محفوظ؛ ما بعطيك موعد غير موثق."
+        : "إذا ما بدك تكمل، الإلغاء متاح. وإذا في دفع فعلي لازم يتأكد رسميًا على الملف قبل فتح الاسترداد.");
     }
-    if (topics.has("social_threat")) parts.push("خلينا نعالج الملف نفسه بشكل مباشر؛ والنشر بمعلومات غير صحيحة أو التشهير المتعمد موضوع مختلف وله تبعاته القانونية.");
+    if (topics.has("social_threat")) parts.push("اعتراضك حقك، لكن نشر معلومات غير صحيحة أو التشهير المتعمد له تبعاته القانونية.");
   }
+
+  if ((topics.has("complaint") || topics.has("legal") || topics.has("social_threat")) && !input.turn.acts.some(x => x.type === "provide_fact" || x.type === "provide_reason")) parts.push("احكيلي شو صار مع طلبك تحديدًا وبراجع نفس النقطة معك.");
 
   if (!parts.length) parts.push("وصلتني رسالتك، وبكمل معك على نفس الموضوع بدون ما أخمّن معلومة غير مؤكدة.");
   return parts.join(" ");

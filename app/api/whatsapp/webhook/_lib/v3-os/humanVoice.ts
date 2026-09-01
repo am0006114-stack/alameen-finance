@@ -34,6 +34,13 @@ function opener(value: string) {
   return normalizeArabic(value).replace(/[^\p{L}\p{N}\s]/gu," ").replace(/\s+/g," ").trim().split(" ").slice(0,6).join(" ");
 }
 
+function hasRoleIntro(value: string, name: string) {
+  const n = normalizeArabic(value);
+  return n.includes(normalizeArabic(`معك ${name}`)) ||
+    n.includes(normalizeArabic(`انا ${name}`)) ||
+    n.includes(normalizeArabic(`أنا ${name}`));
+}
+
 export function detectHumanityViolations(reply: string, recentTurns?: string[]) {
   const violations: string[] = [];
   const previous = assistantReplies(recentTurns);
@@ -41,7 +48,7 @@ export function detectHumanityViolations(reply: string, recentTurns?: string[]) 
   if (!clean) return violations;
 
   for (const old of previous) {
-    if (clean.length >= 45 && old.length >= 45 && replySimilarity(clean,old) >= 0.78) {
+    if (clean.length >= 45 && old.length >= 45 && replySimilarity(clean,old) >= 0.72) {
       violations.push("high_similarity_to_recent_reply");
       break;
     }
@@ -64,6 +71,12 @@ export function detectHumanityViolations(reply: string, recentTurns?: string[]) 
     }
   }
 
+  for (const name of ["عمران", "تالا", "فدوة", "عبدالله", "عبدالرحمن"]) {
+    if (hasRoleIntro(clean,name) && previous.some(x => hasRoleIntro(x,name))) {
+      violations.push(`repeated_staff_identity:${name}`);
+    }
+  }
+
   const emojiCount = (clean.match(/[🌿✅🙏🙂😊]/g) || []).length;
   if (emojiCount > 1) violations.push("too_many_routine_emojis");
 
@@ -73,5 +86,6 @@ export function detectHumanityViolations(reply: string, recentTurns?: string[]) 
 export function humanVoiceGuidance(input: { recentTurns?: string[]; tone: string; roleName: string }) {
   const previous = assistantReplies(input.recentTurns);
   const recentOpeners = previous.map(opener).filter(Boolean);
-  return `HUMAN_VOICE_CONTRACT:\n- احكِ كموظف أردني حقيقي يفهم السياق، لا كقالب خدمة عملاء.\n- لا تبدأ كل رد بـ \"تمام\" أو \"وصلتني\" أو نفس التحية. ادخل بالموضوع مباشرة عندما السياق مستمر.\n- غيّر طول الجمل وترتيبها حسب الموقف. لا تعيد نفس البنية أو الخاتمة.\n- استخدم العامية الأردنية الخفيفة عند ملاءمتها، بدون مبالغة أو تمثيل.\n- في الغضب/التهديد: بدون إيموجي وبلا تملق؛ هدوء وثبات وحل عملي.\n- في الرد الطبيعي: إيموجي واحد كحد أقصى وإذا له معنى، وليس بكل رسالة.\n- لا تذكر اسم ${input.roleName} في كل رسالة؛ التعريف يكون عند البداية أو تغيير المستوى فقط.\n- لا تستخدم عبارات ميتة مثل \"نقدر شعورك\" إذا لم تضف بعدها إجراء أو حقيقة.\n- لا تكرر حرفيًا جملة سياسة ثابتة إذا يمكن شرح معناها بصياغة مختلفة مع الحفاظ على الحقيقة.\n- الرد يكون بطول السؤال: المختصر مختصر، والحالة المركبة تغطي كل النقاط بدون حشو.\nRECENT_OPENINGS_TO_AVOID=${JSON.stringify(recentOpeners.slice(-5))}`;
+  const firm = input.tone === "firm";
+  return `HUMAN_VOICE_CONTRACT:\n- احكِ كموظف أردني حقيقي يفهم السياق، لا كقالب خدمة عملاء.\n- لا تبدأ كل رد بـ "تمام" أو "وصلتني" أو نفس التحية. ادخل بالموضوع مباشرة عندما السياق مستمر.\n- غيّر طول الجمل وترتيبها حسب الموقف. لا تعيد نفس البنية أو الخاتمة.\n- استخدم العامية الأردنية الخفيفة عند ملاءمتها، بدون مبالغة أو تمثيل.\n- ممنوع كشف كلمات أو أوصاف داخلية مثل: مستوى إشراف في النظام، Supervisor، AI، ذكاء اصطناعي، routing، تحويل داخلي. العميل يرى موظفًا باسم واضح فقط.\n- في الغضب/التهديد: بدون إيموجي وبلا تملق؛ هدوء وثبات وحل عملي. لا تحوّل الرد إلى خطاب دفاعي.\n- في الرد الطبيعي: إيموجي واحد كحد أقصى وإذا له معنى، وليس بكل رسالة.\n- لا تذكر اسم ${input.roleName} في كل رسالة؛ التعريف مرة واحدة عند أول ظهور فعلي للدور فقط. بعد ذلك ادخل في الموضوع مباشرة.\n- لا تستخدم عبارات ميتة مثل "نقدر شعورك" إذا لم تضف بعدها إجراء أو حقيقة.\n- لا تكرر حرفيًا جملة سياسة ثابتة إذا يمكن شرح معناها بصياغة مختلفة مع الحفاظ على الحقيقة.\n- عند الشكوى أو اتهام النصب: ابدأ بحل المشكلة، ثم اذكر الإلغاء/الاسترداد بجملة مختصرة إذا كان ذلك مفيدًا للحل. لا تسرد السياسة كلها.\n- اسأل سؤالًا واحدًا واضحًا في نهاية الرد إذا كانت معلومة واحدة فقط هي المطلوبة؛ لا ترسل سلسلة أسئلة.\n- الرد يكون بطول السؤال: المختصر مختصر، والحالة المركبة تغطي كل النقاط بدون حشو.${firm ? "\n- هذه حالة حازمة: استهدف 45–90 كلمة غالبًا، وفق عدد النقاط، وبحد أقصى 3 فقرات قصيرة." : ""}\nRECENT_OPENINGS_TO_AVOID=${JSON.stringify(recentOpeners.slice(-5))}`;
 }

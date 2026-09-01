@@ -28,7 +28,7 @@ export const AI_TEAM: Record<AiRoleKey, { displayName: string; tier: AiTier; mis
   omran: {
     displayName: "عمران",
     tier: "supervisor",
-    mission: "Supervisor AI وصاحب صلاحية التغييرات الفعلية: الإلغاء، التراجع، الاسترداد، إعادة الفتح، تعديل بيانات الطلب، تغيير الجهاز وإعادة الحسبة، إضافة إلى الشكاوى والنزاعات والتصعيدات.",
+    mission: "صاحب صلاحية التغييرات الفعلية على الطلب، ويتولى الشكاوى والنزاعات والحالات الحساسة من بدايتها لنهايتها.",
     canOwn: "all",
   },
 };

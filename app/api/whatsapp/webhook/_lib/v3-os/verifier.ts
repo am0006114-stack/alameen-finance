@@ -1,5 +1,5 @@
 import { detectHumanityViolations } from "./humanVoice";
-import { actionRequiresOmran } from "./hierarchy";
+import { actionRequiresOmran, roleDisplayName } from "./hierarchy";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
@@ -22,8 +22,8 @@ function topicCovered(topic: TopicKey, text: string) {
     office_location: ["شارع المدينه","عمان"],
     delivery: ["المكتب","لا يوجد توصيل","الاستلام"],
     receipt_upload: ["الرابط","رفع"],
-    human_request: ["معك","فريق الامين"],
-    manager_request: ["عمران","متابعه","إشراف"],
+    human_request: ["معك","الامين","الأمين"],
+    manager_request: ["عمران","معك","راجع","متابعه"],
     application_status: ["طلب","حاله","تتبع"],
     refund: ["استرداد","استرجاع"],
     cancellation: ["الغاء","إلغاء"],
@@ -37,9 +37,9 @@ function topicCovered(topic: TopicKey, text: string) {
     device_change: ["الجهاز","الموديل","تغيير"],
     device_recalculation: ["القسط","الحسبه","الحسبة","السعر","شهر"],
     application_correction: ["تعديل","تصحيح","بيانات"],
-    complaint: ["حق","طلب","حل","الغاء","إلغاء","استرداد"],
-    legal: ["طلب","حق","استرداد","الغاء","إلغاء","شكوى"],
-    social_threat: ["حق","استرداد","الغاء","إلغاء","تشهير","نشر"],
+    complaint: ["طلب","مشكله","مشكلة","راجع","حل","حق"],
+    legal: ["طلب","حق","شكوى","راجع","قانون"],
+    social_threat: ["نشر","تشهير","قانون","اعتراض","حق","طلب"],
   };
   const needles = map[topic];
   return !needles || needles.some((n) => t.includes(normalizeArabic(n)));
@@ -51,6 +51,36 @@ function reviewWindowViolation(reply: string, turn: InterpretedTurn) {
   const hasNormalWindow = /(?:2|يومين|يومان)\s*(?:الى|ل|ـ)?\s*(?:3|ثلاث)/.test(n) || (n.includes("يومين") && (n.includes("ثلاث") || n.includes("3")));
   const hasPressure = n.includes("ضغط") || n.includes("المراجعات") || n.includes("الظروف التشغيليه");
   return !(hasNormalWindow && hasPressure);
+}
+
+
+function replyWordCount(value: string) {
+  return String(value || "").trim().split(/\s+/).filter(Boolean).length;
+}
+
+function riskReplyWordLimit(plan: ReplyPlan) {
+  const substantive = plan.answerItems.filter(x => !["manager_request","human_request","greeting","thanks","acknowledgement"].includes(x.topic)).length;
+  return Math.min(110, 68 + Math.max(0, substantive - 1) * 12);
+}
+
+function exposesInternalArchitecture(reply: string) {
+  const n = normalizeArabic(reply);
+  const raw = String(reply || "").toLowerCase();
+  return n.includes(normalizeArabic("مستوى اشراف")) ||
+    n.includes(normalizeArabic("مستوى الإشراف")) ||
+    n.includes(normalizeArabic("داخل النظام")) ||
+    n.includes(normalizeArabic("نظام التشغيل")) ||
+    n.includes(normalizeArabic("ذكاء اصطناعي")) ||
+    n.includes(normalizeArabic("تحويل داخلي")) ||
+    n.includes(normalizeArabic("انتقلت المعالجه داخليا")) ||
+    /\bsupervisor\b/.test(raw) || /\brouting\b/.test(raw) || /\bai\b/.test(raw);
+}
+
+function roleIntroduction(reply: string, roleName: string) {
+  const n = normalizeArabic(reply);
+  return n.includes(normalizeArabic(`معك ${roleName}`)) ||
+    n.includes(normalizeArabic(`انا ${roleName}`)) ||
+    n.includes(normalizeArabic(`أنا ${roleName}`));
 }
 
 export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }): VerificationReport {
@@ -95,6 +125,21 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (input.turn.explicitRoleRequest === "manager" && input.plan.role !== "omran") hierarchyViolations.push("manager_not_routed_to_omran");
   for (const action of input.plan.actions) {
     if (actionRequiresOmran(action.action) && (input.plan.role !== "omran" || action.requiredRole !== "omran")) hierarchyViolations.push(`mutation_not_owned_by_omran:${action.action}`);
+  }
+
+  if (exposesInternalArchitecture(reply)) hierarchyViolations.push("internal_architecture_exposed_to_customer");
+
+  const roleName = roleDisplayName(input.plan.role);
+  if (input.state.role.introduced && roleIntroduction(reply, roleName)) repetitionFlags.push(`repeated_role_self_introduction:${roleName}`);
+
+  if (input.plan.tone === "firm") {
+    const words = replyWordCount(reply);
+    const maxWords = riskReplyWordLimit(input.plan);
+    if (words > maxWords) repetitionFlags.push(`risk_reply_too_long:${words}>${maxWords}`);
+    const questions = (reply.match(/[؟?]/g) || []).length;
+    if (questions > 1) repetitionFlags.push(`risk_reply_too_many_questions:${questions}`);
+    const paragraphs = reply.split(/\n\s*\n/).filter(x => x.trim()).length;
+    if (paragraphs > 3) repetitionFlags.push(`risk_reply_too_many_paragraphs:${paragraphs}`);
   }
 
   if ((input.turn.topics.includes("application_status") || input.turn.topics.includes("refund")) && input.truth.confidence === "none" && input.truth.ambiguousApplications.length && /طلبك (?:حاليا|حاليًا)|حالته|تمت الموافقه|مؤهل/.test(t)) truthContradictions.push("personal_truth_with_ambiguous_application");
