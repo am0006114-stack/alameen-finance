@@ -2,6 +2,9 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { V3_OS_VERSION, type ConversationState } from "./types";
 
 const TABLE = "whatsapp_v3_conversation_state";
+const STATE_READ_DELAYS_MS = [0, 120, 360];
+
+function sleep(ms: number) { return new Promise((resolve) => setTimeout(resolve, ms)); }
 
 function compactState(state: ConversationState): ConversationState {
   return {
@@ -14,19 +17,33 @@ function compactState(state: ConversationState): ConversationState {
 export async function loadV3ConversationState(waId: string): Promise<ConversationState | null> {
   const clean = String(waId || "").trim();
   if (!clean) return null;
-  const { data, error } = await supabaseAdmin
-    .from(TABLE)
-    .select("state")
-    .eq("wa_id", clean)
-    .maybeSingle();
-  if (error) throw new Error(`v3_state_load:${error.message}`);
-  const state = data?.state as ConversationState | null | undefined;
-  if (!state?.waId) return null;
-  return {
-    ...state,
-    pendingAction: state.pendingAction || null,
-    pendingActionPayload: state.pendingActionPayload || null,
-  };
+  let lastError = "unknown";
+  for (let i = 0; i < STATE_READ_DELAYS_MS.length; i++) {
+    const wait = STATE_READ_DELAYS_MS[i];
+    if (wait) await sleep(wait);
+    try {
+      const { data, error } = await supabaseAdmin
+        .from(TABLE)
+        .select("state")
+        .eq("wa_id", clean)
+        .maybeSingle();
+      if (error) { lastError = error.message; continue; }
+      const state = data?.state as ConversationState | null | undefined;
+      if (!state?.waId) return null;
+      return {
+        ...state,
+        pendingAction: state.pendingAction || null,
+        pendingActionPayload: state.pendingActionPayload || null,
+        lastVerifiedApplication: state.lastVerifiedApplication || null,
+      };
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  // A transient state-store problem must not kill the whole customer turn.
+  // Truth resolution can still recover from recent tracking context and phone binding.
+  console.error("v3_state_load_failed_after_retry", { waId: clean, error: lastError });
+  return null;
 }
 
 export async function saveV3ConversationState(state: ConversationState): Promise<void> {

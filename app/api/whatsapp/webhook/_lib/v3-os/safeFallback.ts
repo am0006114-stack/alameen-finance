@@ -4,6 +4,7 @@ import { hasAuthoritativePaymentConfirmation, hasPaymentRefundIntegrityConflict 
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { continuationCommercialState } from "./commercialProgression";
 import { applicationJourneyStage, customerFacingStatusLabel, customerOrderSnapshot, explicitContinuation, firstCustomerName, shouldAskContinuationDecision } from "./applicationJourney";
+import { buildDelaySupportProfile } from "./delaySupport";
 
 function executed(actions: ActionResult[], action: string) {
   return actions.find(x=>x.action===action && x.executed && ["executed","already_done"].includes(x.outcome));
@@ -15,6 +16,7 @@ export function buildV3EmergencySafeReply(input: {
   truth: TruthBundle;
   plan: ReplyPlan;
   actions: ActionResult[];
+  recentTurns?: string[];
 }) {
   const parts: string[] = [];
   const topics = new Set(input.turn.topics);
@@ -24,6 +26,7 @@ export function buildV3EmergencySafeReply(input: {
   const continuationNow = explicitContinuation(input.turn);
   const beforeContinuation = journeyStage === "preliminary_review" || (journeyStage === "preliminary_approved_waiting_decision" && !continuationNow);
   const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
+  const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: input.recentTurns });
 
   if (topics.has("manager_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName("omran")}.`);
   else if (topics.has("human_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName(input.state.role.currentRole)} من الأمين.`);
@@ -117,7 +120,18 @@ export function buildV3EmergencySafeReply(input: {
   if (topics.has("website") && officialLinks.relevant.website) parts.push(`موقع الأمين الرسمي: ${officialLinks.relevant.website}`);
   if (topics.has("tracking") && officialLinks.relevant.tracking) parts.push(`رابط التتبع الرسمي: ${officialLinks.relevant.tracking}`);
   if (topics.has("products") && officialLinks.relevant.products) parts.push(`الأجهزة المتاحة موجودة هنا: ${officialLinks.relevant.products}`);
-  if (topics.has("review_timing") || topics.has("operational_pressure")) parts.push(`المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل، لكن الضغط حاليًا شديد جدًا وبعض الملفات تتجاوز هذا المعدل؛ ما بعطيك موعد غير مؤكد.`);
+  if (topics.has("review_timing") || topics.has("operational_pressure")) {
+    const app = input.truth.application;
+    const name = app ? firstCustomerName(app) : null;
+    const prefix = name ? `${name}، ` : "";
+    if (delaySupport.asksBeyondNormalWindow) {
+      parts.push(`${prefix}${delaySupport.reassuranceCue} بعد مدة الـ2–3 أيام ما عندنا رقم إضافي ثابت وموثق أقدر أنسبه لكل الملفات؛ لو قلتلك يومين أو خمسة زيادة بكون بخمّن عليك. الضغط الحالي شديد وبعض الملفات بتتجاوز المعدل الطبيعي، لكن ما رح أعطيك رقم من عندي.`);
+    } else if (delaySupport.repeatedDelayTurns >= 2) {
+      parts.push(`${prefix}${delaySupport.reassuranceCue} طلبك ما زال مربوط عندي ومراجعته مستمرة. ما عندي موعد إضافي موثق أقدر أوعدك فيه، والضغط الحالي شديد؛ لذلك بدي أظل معك على المؤكد بدل أعيد نفس الجملة أو أعطيك رقم تخميني.`);
+    } else {
+      parts.push(`${prefix}${delaySupport.reassuranceCue} المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل، لكن الضغط حاليًا شديد جدًا وبعض الملفات تتجاوز هذا المعدل. ما بعطيك موعد غير موثق.`);
+    }
+  }
 
   for (const action of ["cancel_application","request_refund","stop_refund","reopen_application","continue_application","change_device","change_application_data"] as const) {
     const result = executed(input.actions,action);

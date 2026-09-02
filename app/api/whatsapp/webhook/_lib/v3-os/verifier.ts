@@ -51,9 +51,24 @@ function topicCovered(topic: TopicKey, text: string) {
 function reviewWindowViolation(reply: string, turn: InterpretedTurn) {
   if (!turn.topics.includes("review_timing")) return false;
   const n = normalizeArabic(reply);
+  const q = normalizeArabic(turn.rawText);
+  const asksBeyondNormal = ["بعد المده المحدده","بعد المدة المحددة","بعد المده","بعد المدة","كم يوم زياده","كم يوم زيادة","قديش زياده","قديش زيادة"].some((x) => q.includes(normalizeArabic(x)));
   const hasNormalWindow = /(?:2|يومين|يومان)\s*(?:الى|ل|ـ)?\s*(?:3|ثلاث)/.test(n) || (n.includes("يومين") && (n.includes("ثلاث") || n.includes("3")));
   const hasPressure = n.includes("ضغط") || n.includes("المراجعات") || n.includes("الظروف التشغيليه");
+  if (asksBeyondNormal) {
+    const honestNoFixedExtra = ["ما عندنا رقم", "ما في رقم", "ما عندي رقم", "غير ثابت", "موثق", "تخمين", "بخمّن", "بخمن"].some((x) => n.includes(normalizeArabic(x)));
+    return !(hasPressure && honestNoFixedExtra);
+  }
   return !(hasNormalWindow && hasPressure);
+}
+
+function customerRejectedAutoUpdatePhrase(recentTurns?: string[]) {
+  return (recentTurns || []).some((line) => {
+    if (!/^\s*(?:العميل|customer)\s*:/i.test(String(line || ""))) return false;
+    const n = normalizeArabic(String(line || ""));
+    const reject = n.includes("لا تحكيلي") || n.includes("لا تقلي") || n.includes("ما بدي") || n.includes("بلاش");
+    return reject && (n.includes("اول ما") || n.includes("لما تخلص") || n.includes("لما يطلع"));
+  });
 }
 
 
@@ -229,6 +244,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (/ابعث(?:لي)?[^\n]{0,50}(?:وصل|اثبات|إثبات|صوره|صورة)[^\n]{0,50}(?:واتساب|هون|هنا)|ارسل(?:لي)?[^\n]{0,50}(?:وصل|اثبات|إثبات)[^\n]{0,50}(?:واتساب|هون|هنا)/.test(t)) policyViolations.push("sensitive_payment_proof_requested_on_whatsapp");
 
   if (reviewWindowViolation(reply,input.turn)) policyViolations.push("review_window_or_pressure_missing");
+  if (customerRejectedAutoUpdatePhrase(input.recentTurns) && /اول\s*ما|أول\s*ما|لما\s*(?:تخلص|يطلع|يظهر)/.test(t)) repetitionFlags.push("ignored_customer_wording_constraint_auto_update_phrase");
   if (input.turn.topics.includes("review_timing") && /24\s*ساع|48\s*ساع|خلال\s*يوم\s*واحد|بكره|غدا|غدًا/.test(t)) unsupportedClaims.push("invented_review_eta");
 
   if (input.turn.explicitRoleRequest === "staff" && /انتظر|تحويل.*موظف|موظف.*سيتواصل/.test(t)) hierarchyViolations.push("human_dependency_reintroduced");

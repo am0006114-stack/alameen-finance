@@ -2,6 +2,7 @@ import { roleDisplayName } from "./hierarchy";
 import { humanVoiceGuidance } from "./humanVoice";
 import { getV3Policy } from "./policy";
 import { applicationJourneyStage, canDiscloseFileOpeningPayment, customerOrderSnapshot, explicitContinuation, shouldAskContinuationDecision } from "./applicationJourney";
+import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, sanitizeRecentTurnsForModel, sanitizeStateForWriter, sanitizeTurnForWriter } from "./linkIntegrity";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
 
@@ -26,6 +27,7 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
   const fullPolicy = getV3Policy();
   const paymentDetailsAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn);
+  const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: safeRecentTurns });
   const writerPolicy = paymentDetailsAllowed
     ? fullPolicy
     : {
@@ -77,7 +79,7 @@ CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 - إذا ROLE_ALREADY_INTRODUCED=true ممنوع تبدأ بـ "معك ${roleName}" أو "أنا ${roleName}" أو تعيد تعريف نفسك.
 - ممنوع قول أو تسريب: "مستوى إشراف"، "مستوى إشراف في النظام"، "داخل النظام"، "Supervisor"، "AI"، "ذكاء اصطناعي"، "routing"، "تحويل داخلي"، أو أي وصف للبنية الداخلية.
 - لا تقل تم التحويل/سيتم التواصل/رح نتصل إلا إذا توجد نتيجة تنفيذ صريحة تثبت ذلك.
-- عند التأخير: المعدل الطبيعي 2–3 أيام عمل، لكن يوجد ضغط مراجعات شديد جدًا حاليًا. اشرح الاثنين بدون وعد بتاريخ، وبصياغة تناسب الرسالة بدل قالب متكرر.
+- عند التأخير لا تتعامل مع كل سؤال كأنه أول سؤال. اتبع DELAY_SUPPORT_CONTRACT أدناه؛ الهدف جواب إنساني صادق بدون إعادة نفس فقرة 2–3 أيام كل مرة وبدون اختراع مدة إضافية.
 - عند اتهام بالنصب أو تهديد بالنشر: كن حازمًا وهادئًا ومختصرًا. لا تتوسل ولا تتشاجر ولا تعترف باتهام غير مثبت. اعرض الحل العملي، واذكر الإلغاء/الاسترداد باختصار إذا كان مناسبًا. لا تحول الرد إلى دفاع طويل.
 - في الرد الحازم: فقرتان أو ثلاث قصيرة غالبًا، وسؤال واحد واضح كحد أقصى إذا احتجت معلومة من العميل.
 - لا تستخدم لغة تقنية أو أسماء نماذج أو حراس أو قرارات داخلية.
@@ -100,6 +102,9 @@ CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 - استخدم دورًا إنسانيًا مطمئنًا وغير ضاغط: اعترف أن أي دفعة إضافية قد تثير تردد العميل، وضّح أن القرار له وأن حقه محفوظ، ولا تستخدم استعجالًا أو تخويفًا أو ضغطًا نفسيًا. الهدف طمأنة العميل وفهمه للخطوة، لا دفعه بالقوة للقرار.
 - إذا الدفع مؤكد إداريًا في TRUTH أو الوصل بانتظار اعتماد الإدارة، ممنوع طلب 5 دنانير أو وصل جديد مرة ثانية.
 - رابط /track هو للتتبع فقط. ممنوع وصفه كرابط رفع مستندات أو إثبات دفع. روابط الرفع تكون فقط identity/salarySlip/guarantor/receipt من OFFICIAL_LINKS حسب الحالة.
+
+
+${delaySupport.active ? delaySupport.guidance : ""}
 
 ${humanVoiceGuidance({ recentTurns: safeRecentTurns, tone: input.plan.tone, roleName })}
 

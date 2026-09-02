@@ -4,6 +4,9 @@ import type { ApplicationTruth, ConversationState, DocumentTruth, TopicKey, Trut
 import { resolveTruth } from "./truth";
 
 const APP_SELECT = "id,created_at,tracking_id,full_name,phone,email,status,payment_status,payment_confirmed_at,payment_reference,device_id,device_name,device_price,installment_months,down_payment,interest_rate,monthly_payment,total_with_interest,salary,delivery_delay_until,guarantor_name,guarantor_phone,guarantor_national_id,preliminary_qualified_at,paid_clicked_at";
+const CORE_APP_SELECT = "id,created_at,tracking_id,full_name,phone,status,payment_status,payment_confirmed_at,device_name,installment_months,monthly_payment,preliminary_qualified_at";
+const TRUTH_RETRY_DELAYS_MS = [0, 140, 420];
+const VERIFIED_SNAPSHOT_MAX_AGE_MS = 20 * 60 * 1000;
 
 const PAYMENT_CONFIRMED = new Set(["confirmed", "paid", "payment_confirmed"]);
 const PAYMENT_PENDING = new Set(["customer_claimed_paid", "pending_payment_confirmation"]);
@@ -42,6 +45,35 @@ type DocumentRow = {
   document_type?: string | null;
   type?: string | null;
 };
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function retrySupabaseRead<T>(label: string, fn: () => Promise<{ data: T; error: { message?: string } | null }>): Promise<T> {
+  let last = "unknown";
+  for (let i = 0; i < TRUTH_RETRY_DELAYS_MS.length; i++) {
+    const wait = TRUTH_RETRY_DELAYS_MS[i];
+    if (wait) await sleep(wait);
+    try {
+      const { data, error } = await fn();
+      if (!error) return data;
+      last = String(error.message || "unknown");
+    } catch (error) {
+      last = error instanceof Error ? error.message : String(error);
+    }
+  }
+  throw new Error(`${label}:${last}`);
+}
+
+async function readApplicationWithFallback(label: string, full: () => Promise<{ data: ApplicationRow | null; error: { message?: string } | null }>, core: () => Promise<{ data: ApplicationRow | null; error: { message?: string } | null }>) {
+  try {
+    return await retrySupabaseRead<ApplicationRow | null>(label, full);
+  } catch (fullError) {
+    console.error(`${label}_full_read_failed`, fullError);
+    return retrySupabaseRead<ApplicationRow | null>(`${label}_core`, core);
+  }
+}
 
 function num(v: unknown): number | null {
   if (v == null || v === "") return null;
@@ -186,23 +218,48 @@ function isTerminal(app: ApplicationRow) {
 }
 
 async function byTracking(tracking: string) {
-  const { data, error } = await supabaseAdmin.from("applications").select(APP_SELECT).eq("tracking_id", tracking).order("created_at", { ascending: false }).limit(1).maybeSingle();
-  if (error) throw new Error(`v3_truth_tracking:${error.message}`);
-  return (data || null) as ApplicationRow | null;
+  return readApplicationWithFallback(
+    "v3_truth_tracking",
+    async () => {
+      const { data, error } = await supabaseAdmin.from("applications").select(APP_SELECT).eq("tracking_id", tracking).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return { data: (data || null) as ApplicationRow | null, error };
+    },
+    async () => {
+      const { data, error } = await supabaseAdmin.from("applications").select(CORE_APP_SELECT).eq("tracking_id", tracking).order("created_at", { ascending: false }).limit(1).maybeSingle();
+      return { data: (data || null) as ApplicationRow | null, error };
+    },
+  );
 }
 
 async function byId(id: string) {
-  const { data, error } = await supabaseAdmin.from("applications").select(APP_SELECT).eq("id", id).maybeSingle();
-  if (error) throw new Error(`v3_truth_id:${error.message}`);
-  return (data || null) as ApplicationRow | null;
+  return readApplicationWithFallback(
+    "v3_truth_id",
+    async () => {
+      const { data, error } = await supabaseAdmin.from("applications").select(APP_SELECT).eq("id", id).maybeSingle();
+      return { data: (data || null) as ApplicationRow | null, error };
+    },
+    async () => {
+      const { data, error } = await supabaseAdmin.from("applications").select(CORE_APP_SELECT).eq("id", id).maybeSingle();
+      return { data: (data || null) as ApplicationRow | null, error };
+    },
+  );
 }
 
 async function byPhone(identifier: string) {
   const variants = phoneVariants(identifier);
   if (!variants.length) return [] as ApplicationRow[];
-  const { data, error } = await supabaseAdmin.from("applications").select(APP_SELECT).in("phone", variants).order("created_at", { ascending: false }).limit(20);
-  if (error) throw new Error(`v3_truth_phone:${error.message}`);
-  return (data || []) as ApplicationRow[];
+  try {
+    return await retrySupabaseRead<ApplicationRow[]>("v3_truth_phone", async () => {
+      const { data, error } = await supabaseAdmin.from("applications").select(APP_SELECT).in("phone", variants).order("created_at", { ascending: false }).limit(20);
+      return { data: (data || []) as ApplicationRow[], error };
+    });
+  } catch (fullError) {
+    console.error("v3_truth_phone_full_read_failed", fullError);
+    return retrySupabaseRead<ApplicationRow[]>("v3_truth_phone_core", async () => {
+      const { data, error } = await supabaseAdmin.from("applications").select(CORE_APP_SELECT).in("phone", variants).order("created_at", { ascending: false }).limit(20);
+      return { data: (data || []) as ApplicationRow[], error };
+    });
+  }
 }
 
 function ambiguousRows(candidates: ApplicationRow[]): TruthBundle["ambiguousApplications"] {
@@ -228,6 +285,40 @@ async function authoritativeBundle(source: TruthBundle["source"], app: Applicati
   };
 }
 
+function snapshotAllowedForTopics(topics?: TopicKey[]) {
+  const sensitive = new Set<TopicKey>(["payment_status", "payment_confirmation", "receipt_upload", "refund", "cancellation", "reopen", "application_correction", "device_change"]);
+  return !(topics || []).some((topic) => sensitive.has(topic));
+}
+
+function snapshotBundle(input: { state: ConversationState; waId: string; suppliedPhone?: string | null; topics?: TopicKey[]; warnings: string[] }): TruthBundle | null {
+  const snapshot = input.state.lastVerifiedApplication;
+  if (!snapshot?.application || !snapshotAllowedForTopics(input.topics)) return null;
+  const age = Date.now() - new Date(snapshot.fetchedAt).getTime();
+  if (!Number.isFinite(age) || age < 0 || age > VERIFIED_SNAPSHOT_MAX_AGE_MS) return null;
+  const row = snapshot.application as unknown as ApplicationRow;
+  if (!appBelongsToIdentity(row, input.waId, input.suppliedPhone)) return null;
+  return {
+    confidence: "medium",
+    source: "verified_state_snapshot",
+    application: snapshot.application,
+    ambiguousApplications: [],
+    policy: resolveTruth({ state: input.state }).policy,
+    fetchedAt: snapshot.fetchedAt,
+    degraded: true,
+    readWarnings: input.warnings,
+  };
+}
+
+async function attemptLookup<T>(label: string, warnings: string[], fn: () => Promise<T>): Promise<T | null> {
+  try { return await fn(); }
+  catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    warnings.push(`${label}:${message}`);
+    console.error(`V3 truth lookup ${label} failed after retry`, error);
+    return null;
+  }
+}
+
 export async function resolveV3ProductionTruth(input: {
   waId: string;
   customerText: string;
@@ -235,33 +326,37 @@ export async function resolveV3ProductionTruth(input: {
   recentTurns?: string[];
   topics?: TopicKey[];
 }): Promise<TruthBundle> {
+  const warnings: string[] = [];
   const suppliedPhone = jordanPhoneFromText(input.customerText) || phoneFromRecentCustomerTurns(input.recentTurns);
   const currentTracking = trackingFromText(input.customerText);
+
   if (currentTracking) {
-    const app = await byTracking(currentTracking);
+    const app = await attemptLookup("current_tracking", warnings, () => byTracking(currentTracking));
     if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("current_message_tracking", app, input.state);
   }
 
+  // Sticky binding first: once an application was authoritatively bound, keep using its id/tracking
+  // across short follow-ups instead of rediscovering from generic phone matching every turn.
   if (input.state.activeApplicationId) {
-    const app = await byId(input.state.activeApplicationId);
+    const app = await attemptLookup("active_application_id", warnings, () => byId(input.state.activeApplicationId as string));
     if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("conversation_binding", app, input.state);
   }
 
   if (input.state.activeTrackingId) {
-    const app = await byTracking(input.state.activeTrackingId);
+    const app = await attemptLookup("active_tracking", warnings, () => byTracking(input.state.activeTrackingId as string));
     if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("conversation_binding", app, input.state);
   }
 
   const recentTracking = trackingFromRecentTurns(input.recentTurns);
   if (recentTracking) {
-    const app = await byTracking(recentTracking);
+    const app = await attemptLookup("recent_tracking", warnings, () => byTracking(recentTracking));
     if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("recent_conversation_tracking", app, input.state);
   }
 
-  const candidates = await byPhone(input.waId);
-  if (candidates.length === 1) return authoritativeBundle("unique_phone_match", candidates[0], input.state);
+  const candidates = await attemptLookup("phone_candidates", warnings, () => byPhone(input.waId));
+  if (candidates?.length === 1) return authoritativeBundle("unique_phone_match", candidates[0], input.state);
 
-  if (candidates.length > 1) {
+  if (candidates && candidates.length > 1) {
     const paymentQuestion = (input.topics || []).some((topic) => PAYMENT_TOPICS.has(topic));
     if (paymentQuestion) {
       const confirmed = candidates.filter(paymentConfirmedRow);
@@ -275,8 +370,15 @@ export async function resolveV3ProductionTruth(input: {
     const active = candidates.filter((app) => !isTerminal(app));
     if (active.length === 1) return authoritativeBundle("unique_relevant_phone_match", active[0], input.state);
 
-    return resolveTruth({ state: input.state, ambiguousApplications: ambiguousRows(candidates) });
+    const ambiguous = resolveTruth({ state: input.state, ambiguousApplications: ambiguousRows(candidates) });
+    return { ...ambiguous, readWarnings: warnings.length ? warnings : undefined };
   }
 
-  return resolveTruth({ state: input.state });
+  if (warnings.length) {
+    const cached = snapshotBundle({ state: input.state, waId: input.waId, suppliedPhone, topics: input.topics, warnings });
+    if (cached) return cached;
+  }
+
+  const empty = resolveTruth({ state: input.state });
+  return { ...empty, degraded: warnings.length > 0, readWarnings: warnings.length ? warnings : undefined };
 }

@@ -21,6 +21,7 @@ export function emptyState(waId: string): ConversationState {
     lastCustomerText: null,
     lastAssistantText: null,
     consecutiveRiskTurns: 0,
+    lastVerifiedApplication: null,
     updatedAt: now(),
   };
 }

@@ -87,6 +87,13 @@ export type RoleState = {
   introduced: boolean;
 };
 
+export type VerifiedApplicationSnapshot = {
+  application: ApplicationTruth;
+  fetchedAt: string;
+  degraded?: boolean;
+  readWarnings?: string[];
+};
+
 export type ConversationState = {
   version: typeof V3_OS_VERSION;
   waId: string;
@@ -103,6 +110,7 @@ export type ConversationState = {
   lastCustomerText: string | null;
   lastAssistantText: string | null;
   consecutiveRiskTurns: number;
+  lastVerifiedApplication: VerifiedApplicationSnapshot | null;
   updatedAt: string;
 };
 
@@ -149,11 +157,13 @@ export type ApplicationTruth = {
 
 export type TruthBundle = {
   confidence: TruthConfidence;
-  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "archive_historical_truth" | "none";
+  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "verified_state_snapshot" | "archive_historical_truth" | "none";
   application: ApplicationTruth | null;
   ambiguousApplications: Array<{ id: string; trackingId: string | null; deviceName: string | null; status: string | null; paymentStatus?: string | null }>;
   policy: PolicyTruth;
   fetchedAt: string;
+  degraded?: boolean;
+  readWarnings?: string[];
 };
 
 export type PolicyTruth = {

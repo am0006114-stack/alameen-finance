@@ -79,7 +79,7 @@ async function notifyActionProblems(input: {
 }
 
 export function buildV3LastResortReply() {
-  return "وصلتني رسالتك. في مشكلة مؤقتة بقراءة تفاصيل الطلب، وما رح أعطيك معلومة أو أنفذ تغيير بدون تحقق. ابعثلي نفس النقطة مرة ثانية بعد شوي وبكمل معك من نفس المحادثة.";
+  return "صار خلل مؤقت وأنا بجهز الرد، وما بدي أخمّن عليك أو أعطيك معلومة من عندي. ابعثلي نفس النقطة بعد دقيقة وبكمل معك من نفس المحادثة.";
 }
 
 export async function runV3ProductionLive(input: {
@@ -119,6 +119,9 @@ export async function runV3ProductionLive(input: {
         ...preliminaryState,
         activeApplicationId: truthBeforeActions.application.id,
         activeTrackingId: truthBeforeActions.application.trackingId,
+        lastVerifiedApplication: truthBeforeActions.source === "verified_state_snapshot"
+          ? preliminaryState.lastVerifiedApplication
+          : { application: truthBeforeActions.application, fetchedAt: truthBeforeActions.fetchedAt },
       }
     : preliminaryState;
 
@@ -216,6 +219,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
+        recentTurns: safeRecentTurns,
       });
       const fallbackVerification = verifyReply({
         reply: fallback,
@@ -287,8 +291,12 @@ export async function runV3ProductionLive(input: {
   const waitingConfirmationResult = actions.find((x) => x.outcome === "needs_confirmation") || null;
   const waitingConfirmation = waitingConfirmationResult?.action || null;
   const waitingPlan = waitingConfirmation ? plan.actions.find((x) => x.action === waitingConfirmation) : null;
+  const latestVerifiedSnapshot = truthAfterActions.application && truthAfterActions.source !== "verified_state_snapshot"
+    ? { application: truthAfterActions.application, fetchedAt: truthAfterActions.fetchedAt }
+    : boundState.lastVerifiedApplication;
   const actionAdjustedState: ConversationState = {
     ...boundState,
+    lastVerifiedApplication: latestVerifiedSnapshot,
     pendingAction: waitingConfirmation || (plan.actions.length ? null : boundState.pendingAction),
     pendingActionPayload: waitingConfirmation
       ? (waitingPlan?.payload || boundState.pendingActionPayload)
