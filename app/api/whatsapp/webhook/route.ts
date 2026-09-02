@@ -10951,6 +10951,238 @@ export async function POST(request: Request) {
           return;
         }
 
+        // V3 PHASE 6.9 EMERGENCY SAFE FAILOVER — when V3 is OFF or its kill switch is ON,
+        // bypass V2 canary/no-reply semantics and run the proven deterministic V1 path for every customer.
+        // Legacy AUTO_REPLY_IGNORED markers are intentionally ignored: this project has no staffed human handoff.
+        if (!v3LiveActive) {
+          let outgoingMemory = preReplyMemory;
+          let finalApplication: ApplicationRecord | null = null;
+          let shadowTrackingId: string | null = null;
+          let reply = "";
+        // Capture the pre-reply state for diagnostics only. buildReply may mutate the application,
+        // so every final policy decision must be based on a fresh post-reply read.
+        const preReplyApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, preReplyMemory);
+
+        // V1.7.0 CONVERSATION KERNEL: synchronize Final Truth, logs and Shadow
+        // with the same application-aware semantic decision used by buildReply.
+        processingIntent = resolveConversationKernelIntent({
+          customerText: replyInputText,
+          messageType: processingMessageType,
+          currentIntent: processingIntent,
+          application: preReplyApplication,
+          memory: preReplyMemory,
+        });
+        needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
+        let rawReply = await buildReply(
+          request,
+          from,
+          replyInputText,
+          processingMessageType,
+          undefined,
+        );
+        outgoingMemory = await getConversationMemory(from);
+        const refreshedApplication = await findApplicationForAiMemory(from, replyInputText, processingIntent, outgoingMemory);
+        finalApplication = refreshedApplication || preReplyApplication;
+        shadowTrackingId =
+          extractTracking(replyInputText) ||
+          incomingTracking ||
+          finalApplication?.tracking_id ||
+          null;
+
+        reply = finalizeReplyBeforeSend(rawReply, {
+          from,
+          text: replyInputText,
+          intent: processingIntent,
+          memory: outgoingMemory,
+          application: finalApplication,
+        });
+
+        if (isNearDuplicateAssistantReply(reply, outgoingMemory, processingIntent)) {
+          const recoveryReply = repeatedReplyRecoveryReply(processingIntent);
+
+          // في متابعة الحالة فقط نختصر الرد إلى "لا يوجد تحديث جديد".
+          // أما الأسئلة الأخرى فلا نطلب من العميل إعادة سؤاله ولا نستبدل الجواب بقالب عام.
+          if (recoveryReply) {
+            reply = recoveryReply;
+          }
+
+          await sendDiscordNotification({
+            title: "🔁 تم اكتشاف رد قريب من رد سابق",
+            description: recoveryReply
+              ? "تم اختصار رد متابعة الحالة لأن الحالة لم تتغير."
+              : "تم رصد التشابه دون استبدال جواب العميل بقالب عام.",
+            color: 0xfee75c,
+            customerPhone: from,
+            customerMessage: processingText,
+            systemReply: reply,
+            baseUrl: getBaseUrl(request),
+          });
+        }
+
+        reply = applyFinalSendGuard(reply, finalApplication);
+
+        const finalTruthResult = await applyProductionFinalTruthGate({
+          request,
+          from,
+          customerName: contactName || null,
+          customerText: processingText,
+          messageType: processingMessageType,
+          initialIntent: processingIntent,
+          application: finalApplication,
+          reply,
+          conversationContext: outgoingMemory.conversationContext,
+          lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+          lastCustomerMessages: outgoingMemory.lastCustomerMessages,
+          hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
+        });
+        reply = finalTruthResult.reply;
+
+        // V1.4.1 CUSTOMER-FACING FIREWALL: internal guard/debug language is never
+        // allowed to reach the customer, even if an upstream recovery path regresses.
+        if (hasInternalCustomerFacingLanguage(reply)) {
+          const beforeFirewall = reply;
+          if (String(processingIntent) === "location") {
+            reply = locationReply(from, finalApplication);
+          } else if (String(processingIntent) === "payment_amount") {
+            reply = paymentAmountReply(finalApplication, replyInputText);
+          } else if (String(processingIntent) === "review_time") {
+            reply = finalApplication
+              ? reviewTimeReply(from, finalApplication, finalApplication.tracking_id || finalApplication.id, replyInputText)
+              : generalReviewTimeReply(from, replyInputText);
+          } else if (String(processingIntent) === "voluntary_opt_out") {
+            reply = voluntaryOptOutReply(finalApplication, true);
+          } else if (String(processingIntent) === "office_payment_request") {
+            reply = officeFeePaymentReply(finalApplication, true);
+          } else if (finalApplication) {
+            // V1.6.0 SEMANTIC FIREWALL: recover on the same customer topic instead
+            // of collapsing a valid question into the generic unknown fallback.
+            reply = safeReply(finalApplication, getBaseUrl(request), replyInputText, processingIntent);
+          } else {
+            reply = unknownReply(from, null, replyInputText);
+          }
+          reply = applyFinalSendGuard(reply, finalApplication);
+          await sendDiscordNotification({
+            title: "🧹 CUSTOMER-FACING FIREWALL — تم منع لغة داخلية",
+            description: "تم استبدال رد احتوى لغة داخلية/تقنية قبل الإرسال للعميل.",
+            color: 0xfee75c,
+            app: finalApplication || undefined,
+            customerPhone: from,
+            customerMessage: processingText,
+            systemReply: reply,
+            baseUrl: getBaseUrl(request),
+          });
+          console.warn("Customer-facing firewall replaced internal narration", { beforeFirewall, reply });
+        }
+
+        // V1.4.2 FINAL DELIVERY INTEGRITY: the final customer text is checked
+        // after Final Truth, human recovery and Customer-Facing Firewall. Nothing
+        // may modify the reply after this gate except the send lock itself.
+        reply = finalizeLastMileDeliveryReply(reply, {
+          from,
+          text: replyInputText,
+          intent: processingIntent,
+          application: finalApplication,
+        });
+
+        const deliveryTruthResult = await applyProductionFinalTruthGate({
+          request,
+          from,
+          customerName: contactName || null,
+          customerText: processingText,
+          messageType: processingMessageType,
+          initialIntent: processingIntent,
+          application: finalApplication,
+          reply,
+          conversationContext: outgoingMemory.conversationContext,
+          lastAssistantReplies: outgoingMemory.lastAssistantReplies,
+          lastCustomerMessages: outgoingMemory.lastCustomerMessages,
+          hasRecentStaffIntro: outgoingMemory.hasRecentStaffIntro,
+        });
+        reply = finalizeLastMileDeliveryReply(deliveryTruthResult.reply, {
+          from,
+          text: replyInputText,
+          intent: processingIntent,
+          application: finalApplication,
+        });
+        // V1.7.0 CONVERSATION KERNEL FINAL COVERAGE GATE: semantic invariants
+        // run after Final Truth and immediately before the outgoing send lock.
+        reply = applyConversationKernelReplyGuard({
+          customerText: replyInputText,
+          messageType: processingMessageType,
+          currentIntent: processingIntent,
+          application: finalApplication,
+          memory: outgoingMemory,
+          reply,
+        });
+        reply = applyFinalSendGuard(reply, finalApplication);
+
+
+          const emergencySafeClaim = await claimOutgoingReplyLock({
+            waId: from,
+            incomingMessageId: message.id,
+            reply,
+            windowSeconds: 20,
+          });
+          const emergencySafeAlreadySent = !emergencySafeClaim.shouldSend || (
+            emergencySafeClaim.reason !== "outgoing_lock_claimed" &&
+            await hasRecentlySentSameReply(from, reply, 30)
+          );
+
+          if (!emergencySafeAlreadySent) {
+            await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
+            let replyActuallySent = reply;
+            let sendAttempt = await sendWhatsAppTextDetailed(from, reply, true);
+            let outgoingMessageId = sendAttempt.messageId;
+
+            if (!outgoingMessageId) {
+              const shortSafeReply = buildV3LastResortReply();
+              const retryAttempt = await sendWhatsAppTextDetailed(from, shortSafeReply, false);
+              if (retryAttempt.messageId) {
+                outgoingMessageId = retryAttempt.messageId;
+                replyActuallySent = shortSafeReply;
+              } else {
+                console.error("Emergency V1 safe-route WhatsApp delivery failed", {
+                  waId: from,
+                  firstStatus: sendAttempt.httpStatus,
+                  firstCode: sendAttempt.errorCode,
+                  secondStatus: retryAttempt.httpStatus,
+                  secondCode: retryAttempt.errorCode,
+                });
+              }
+            }
+
+            if (outgoingMessageId) {
+              await logMessage({
+                waId: from,
+                direction: "outgoing",
+                body: replyActuallySent,
+                messageId: outgoingMessageId,
+                intent: processingIntent,
+                trackingId: shadowTrackingId,
+                applicationId: finalApplication?.id || null,
+                needsHumanReview: false,
+                handledByAi: true,
+              });
+              await logAiConversation({
+                phone: from,
+                customerMessage: processingText,
+                aiReply: replyActuallySent,
+                intent: processingIntent,
+                applicationStatus: finalApplication?.status || null,
+              });
+            }
+          } else {
+            console.log("Skipped duplicate emergency V1 safe-route reply", {
+              waId: from,
+              messageId: message.id,
+              reason: emergencySafeClaim.reason,
+            });
+          }
+
+          await markIncomingWhatsAppMessageProcessed(message.id);
+          return;
+        }
+
         // V2.1 PRODUCTION CONVERSATION OS: current safe route remains available only
         // when V3 is not explicitly active or its emergency kill switch is engaged.
         const v2Production = await prepareV2ProductionTurn({
