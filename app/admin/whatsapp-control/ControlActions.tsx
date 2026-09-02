@@ -50,12 +50,7 @@ export default function ControlActions(props: Props) {
     setBusy(action);
     setMessage("");
     try {
-      let confirmValue: string | undefined;
-      if (action === "enable_real_actions") {
-        const accepted = window.confirm("تفعيل Real Actions يسمح لعمران بتنفيذ تغييرات حقيقية على الطلبات. هل أنت متأكد؟");
-        if (!accepted) return;
-        confirmValue = "ENABLE_REAL_ACTIONS";
-      }
+      const confirmValue: string | undefined = undefined;
       const response = await fetch("/api/admin/whatsapp-control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -156,14 +151,14 @@ export default function ControlActions(props: Props) {
           <button disabled={Boolean(busy)} onClick={() => control("disable_v3")} className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-5 py-3 text-sm font-black text-amber-100 disabled:opacity-50">
             إيقاف V3 / المسار الآمن
           </button>
-          {!props.realActions ? (
-            <button disabled={Boolean(busy) || !props.v3Live || props.killSwitch} onClick={() => control("enable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/10 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-40">
-              تفعيل Real Actions لعمران
+          {props.realActions ? (
+            <button disabled={Boolean(busy)} onClick={() => control("disable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
+              إيقاف Real Actions فورًا
             </button>
           ) : (
-            <button disabled={Boolean(busy)} onClick={() => control("disable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
-              إيقاف Real Actions
-            </button>
+            <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-sm font-black text-sky-100">
+              الإجراءات الحقيقية: يدوي عبر Discord
+            </div>
           )}
         </div>
       </div>

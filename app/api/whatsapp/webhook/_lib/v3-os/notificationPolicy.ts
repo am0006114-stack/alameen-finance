@@ -3,6 +3,7 @@ export type V3NotificationEvent =
   | "official_receipt_uploaded"
   | "official_salary_slip_uploaded"
   | "payment_confirmation_required"
+  | "manual_action_required"
   | "business_mutation_failed"
   | "truth_integrity_failure"
   | "final_safety_fail_closed"
@@ -39,6 +40,7 @@ export function decideV3DiscordNotification(input: {
   applicationId?: string | null;
   paymentConfirmed?: boolean;
   recovered?: boolean;
+  actionKey?: string | null;
 }): V3NotificationDecision {
   if (QUIET_EVENTS.has(input.event)) {
     return { notify: false, severity: "none", mentionAdmin: false, dedupeKey: null, reason: "routine_or_self_recovered_event_is_telemetry_only" };
@@ -51,6 +53,16 @@ export function decideV3DiscordNotification(input: {
       mentionAdmin: false,
       dedupeKey: `customer-continue:${input.applicationId || "unknown"}`,
       reason: "customer_explicitly_chose_to_continue_and_payment_step_is_ready",
+    };
+  }
+
+  if (input.event === "manual_action_required") {
+    return {
+      notify: true,
+      severity: "important",
+      mentionAdmin: true,
+      dedupeKey: `manual-action:${input.applicationId || "unknown"}:${input.actionKey || "unknown"}`,
+      reason: "real_action_requires_manual_admin_execution",
     };
   }
 

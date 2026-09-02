@@ -79,11 +79,13 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
   const hours = parseHours(params.hours);
   const since = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
 
-  const [{ data: settings }, { data: messages, error: messagesError }, actionResult, notificationResult] = await Promise.all([
+  const [{ data: settings }, { data: messages, error: messagesError }, actionResult, notificationResult, manualActionCountResult, deliveryFailureCountResult] = await Promise.all([
     supabaseAdmin.from("whatsapp_v3_production_settings").select("id,live_enabled,kill_switch,real_actions_enabled,resume_legacy_ignored,runtime_version,updated_at").eq("id", "default").maybeSingle(),
     supabaseAdmin.from("whatsapp_messages").select("id,wa_id,direction,body,message_type,created_at,customer_name,tracking_id,application_id,status").gte("created_at", since).order("created_at", { ascending: true }).limit(5000),
     supabaseAdmin.from("whatsapp_v3_action_ledger").select("id,action_type,status,application_id,wa_id,created_at,blocker").gte("created_at", since).order("created_at", { ascending: false }).limit(20),
     supabaseAdmin.from("whatsapp_v3_notification_ledger").select("id,event_type,severity,status,wa_id,application_id,created_at,error_message").gte("created_at", since).order("created_at", { ascending: false }).limit(20),
+    supabaseAdmin.from("whatsapp_v3_notification_ledger").select("id", { count: "exact", head: true }).eq("event_type", "manual_action_required").gte("created_at", since),
+    supabaseAdmin.from("whatsapp_v3_notification_ledger").select("id", { count: "exact", head: true }).eq("event_type", "whatsapp_delivery_failure").gte("created_at", since),
   ]);
 
   const rows = (messages || []) as MessageRow[];
@@ -94,6 +96,9 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
   const outgoing = rows.filter((x) => x.direction === "outgoing" && x.message_type !== "admin_control").length;
   const customers = new Set(rows.map((x) => x.wa_id).filter(Boolean)).size;
   const failedStatuses = rows.filter((x) => x.direction === "status" && String(x.status || "").toLowerCase() === "failed").length;
+  const visibleFallbacks = rows.filter((x) => x.direction === "outgoing" && /صار خلل مؤقت|بكمل معك على نفس الموضوع بدون ما أخمّن/i.test(String(x.body || ""))).length;
+  const manualActionRequests = Number(manualActionCountResult.count || 0);
+  const deliveryFailures = Number(deliveryFailureCountResult.count || 0);
   const liveEnabled = Boolean(settings?.live_enabled);
   const killSwitch = Boolean(settings?.kill_switch);
   const realActions = Boolean(settings?.real_actions_enabled);
@@ -105,7 +110,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
           <div>
             <div className="text-sm font-black text-[#d6b56b]">الأمين للأقساط</div>
             <h1 className="mt-1 text-3xl font-black">V3 Control Center</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#aeb8b0]">تشغيل ومراقبة V3، استعادة المحادثات المتوقفة، ومراجعة التشغيل من مكان واحد. صفحات Lab وShadow القديمة أصبحت مجرد تحويل لهذه الصفحة.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#aeb8b0]">تشغيل ومراقبة V3 من مكان واحد. Real Actions مقفلة؛ أي تغيير حقيقي يتحول إلى تنبيه Discord واضح للإدارة، واللوحة تراقب الـFallback الظاهر وفشل الإرسال والمحادثات المتوقفة.</p>
           </div>
           <div className="flex gap-2">
             <Link href="/admin/whatsapp" className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black">محادثات واتساب</Link>
@@ -113,11 +118,14 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-7">
           <Stat title="حالة V3" value={liveEnabled && !killSwitch ? "شغال" : "موقف"} accent={liveEnabled && !killSwitch ? "good" : "warn"} />
           <Stat title="رسائل واردة" value={String(incoming)} />
           <Stat title="ردود صادرة" value={String(outgoing)} />
           <Stat title="محادثات متوقفة" value={String(pending.length)} accent={pending.length ? "bad" : "good"} />
+          <Stat title="Fallback ظاهر" value={String(visibleFallbacks)} accent={visibleFallbacks ? "bad" : "good"} />
+          <Stat title="إجراءات يدوية" value={String(manualActionRequests)} accent={manualActionRequests ? "warn" : undefined} />
+          <Stat title="فشل إرسال" value={String(deliveryFailures)} accent={deliveryFailures ? "bad" : "good"} />
           <Stat title="عملاء بالفترة" value={String(customers)} />
         </div>
 

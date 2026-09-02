@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const RUNTIME_VERSION = "v3.0.0-phase7-operator-control";
+const RUNTIME_VERSION = "v3.0.0-phase7.1-zero-fallback-manual-actions";
 
 type Action = "enable_replies" | "disable_v3" | "enable_real_actions" | "disable_real_actions";
 
@@ -21,7 +21,7 @@ export async function POST(request: NextRequest) {
 
   if (action === "enable_replies") {
     Object.assign(patch, { live_enabled: true, kill_switch: false, real_actions_enabled: false, resume_legacy_ignored: true });
-    message = "تم تشغيل V3 على الردود فقط. Real Actions ما زالت مقفلة.";
+    message = "تم تشغيل V3 على الردود فقط. الإجراءات الحقيقية تبقى يدوية وتصل كتنبيه Discord للإدارة.";
   } else if (action === "disable_v3") {
     Object.assign(patch, { live_enabled: false, kill_switch: true, real_actions_enabled: false });
     message = "تم إيقاف V3 وتفعيل المسار الآمن.";
@@ -29,12 +29,9 @@ export async function POST(request: NextRequest) {
     Object.assign(patch, { real_actions_enabled: false });
     message = "تم إيقاف Real Actions.";
   } else if (action === "enable_real_actions") {
-    if (body?.confirm !== "ENABLE_REAL_ACTIONS") return NextResponse.json({ error: "Explicit confirmation required" }, { status: 400 });
-    const { data: current, error: currentError } = await supabaseAdmin.from("whatsapp_v3_production_settings").select("live_enabled,kill_switch").eq("id", "default").maybeSingle();
-    if (currentError) return NextResponse.json({ error: currentError.message }, { status: 500 });
-    if (!current?.live_enabled || current?.kill_switch) return NextResponse.json({ error: "شغّل V3 Replies Only أولًا." }, { status: 409 });
-    Object.assign(patch, { real_actions_enabled: true });
-    message = "تم تفعيل Real Actions لعمران.";
+    // Phase 7.1 intentionally locks production mutations off. Action requests
+    // are sent to Discord for manual administration until reliability gates pass.
+    return NextResponse.json({ error: "Real Actions مقفلة حاليًا. أي إجراء حقيقي يصل للإدارة على Discord للتنفيذ اليدوي." }, { status: 409 });
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }

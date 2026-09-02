@@ -1,4 +1,4 @@
-export const V3_OS_VERSION = "v3.0.0-phase6-live-cutover" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.1-zero-fallback-manual-actions" as const;
 
 export type AiRoleKey = "tala" | "fadwa" | "abdullah" | "abdulrahman" | "omran";
 export type AiTier = "frontline" | "case_specialist" | "supervisor";

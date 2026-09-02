@@ -6,7 +6,7 @@ import { loadV3ConversationState } from "./stateStore";
 import type { ActionResult, ConversationState, OsRunResult, TruthBundle, VerificationReport } from "./types";
 import { verifyReply } from "./verifier";
 import { buildWriterPrompt } from "./writerContract";
-import { buildV3EmergencySafeReply } from "./safeFallback";
+import { buildZeroFallbackReply, verifyZeroFallbackReply } from "./zeroFallback";
 import { interpretTurnWithAi } from "./modelInterpreter";
 import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
@@ -79,7 +79,51 @@ async function notifyActionProblems(input: {
 }
 
 export function buildV3LastResortReply() {
-  return "صار خلل مؤقت وأنا بجهز الرد، وما بدي أخمّن عليك أو أعطيك معلومة من عندي. ابعثلي نفس النقطة بعد دقيقة وبكمل معك من نفس المحادثة.";
+  return "وصلتني رسالتك. إذا الموضوع عن طلبك ابعث رقم التتبع، وبجاوبك على الحالة المسجلة فقط بدون تخمين.";
+}
+
+const MANUAL_ACTIONS = new Set([
+  "cancel_application",
+  "request_refund",
+  "stop_refund",
+  "reopen_application",
+  "change_device",
+  "change_application_data",
+]);
+
+async function notifyManualActionRequests(input: {
+  waId: string;
+  customerText: string;
+  truth: TruthBundle;
+  plan: ReturnType<typeof buildReplyPlan>;
+  actions: ActionResult[];
+  realActionsEnabled: boolean;
+}) {
+  if (input.realActionsEnabled || !input.truth.application) return;
+  for (const planned of input.plan.actions) {
+    if (!MANUAL_ACTIONS.has(planned.action) || planned.requiresConfirmation) continue;
+    const result = input.actions.find((x) => x.action === planned.action);
+    if (!result || result.executed) continue;
+    if (!(result.outcome === "dry_run" || result.blocker === "real_actions_disabled" || result.blocker === "shadow_core_no_business_mutation")) continue;
+    const app = input.truth.application;
+    await notifyV3Discord({
+      event: "manual_action_required",
+      actionKey: planned.action,
+      applicationId: app.id,
+      trackingId: app.trackingId,
+      waId: input.waId,
+      title: "🛠️ إجراء مطلوب — بانتظار تنفيذ الإدارة",
+      description: "العميل طلب تغييرًا فعليًا. لم يتم تنفيذ أي تعديل تلقائيًا، وتم إبقاء الحالة كما هي بانتظار تنفيذ الإدارة يدويًا.",
+      details: {
+        action: planned.action,
+        "طلب العميل": input.customerText,
+        "حالة الطلب": app.status || "—",
+        "حالة الدفع": app.paymentStatus || "—",
+        "القيمة المطلوبة": planned.payload?.requestedValue ?? "—",
+        "وضع التنفيذ": "يدوي من الإدارة",
+      },
+    });
+  }
 }
 
 export async function runV3ProductionLive(input: {
@@ -145,12 +189,30 @@ export async function runV3ProductionLive(input: {
     });
   }
 
-  await notifyActionProblems({
-    waId: input.waId,
-    applicationId: truthAfterActions.application?.id || truthBeforeActions.application?.id || null,
-    trackingId: truthAfterActions.application?.trackingId || truthBeforeActions.application?.trackingId || null,
-    actions,
-  });
+  try {
+    await notifyActionProblems({
+      waId: input.waId,
+      applicationId: truthAfterActions.application?.id || truthBeforeActions.application?.id || null,
+      trackingId: truthAfterActions.application?.trackingId || truthBeforeActions.application?.trackingId || null,
+      actions,
+    });
+  } catch (error) {
+    console.error("V3 action-problem Discord notification failed", error);
+  }
+
+  try {
+    await notifyManualActionRequests({
+      waId: input.waId,
+      customerText: input.customerText,
+      truth: truthAfterActions,
+      plan,
+      actions,
+      realActionsEnabled: input.realActionsEnabled,
+    });
+  } catch (error) {
+    // Discord/ledger availability must never block a customer reply.
+    console.error("V3 manual-action Discord notification failed", error);
+  }
 
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   let reply: string | null = null;
@@ -213,7 +275,10 @@ export async function runV3ProductionLive(input: {
     if (!reply || !verification.pass) {
       fallbackUsed = true;
       replyAttempts++;
-      const fallback = buildV3EmergencySafeReply({
+      // ZERO-FALLBACK PRODUCTION GUARANTEE: once the model/repair path cannot
+      // satisfy the contract, switch to a deterministic truth-grounded rescue.
+      // The customer never sees writer/verifier/runtime failure language.
+      const rescue = buildZeroFallbackReply({
         turn,
         state: boundState,
         truth: truthAfterActions,
@@ -221,22 +286,14 @@ export async function runV3ProductionLive(input: {
         actions,
         recentTurns: safeRecentTurns,
       });
-      const fallbackVerification = verifyReply({
-        reply: fallback,
+      const rescueVerification = verifyZeroFallbackReply({
+        reply: rescue,
         turn,
-        state: boundState,
         truth: truthAfterActions,
-        plan,
         actions,
-        recentTurns: safeRecentTurns,
       });
-      if (fallbackVerification.pass) {
-        reply = fallback;
-        verification = fallbackVerification;
-      } else {
-        reply = null;
-        verification = fallbackVerification;
-      }
+      reply = rescueVerification.pass ? rescue : buildV3LastResortReply();
+      verification = rescueVerification.pass ? rescueVerification : PASS;
     }
   }
 

@@ -239,6 +239,17 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (claimExecuted(reply,["تم تحديد موعد","حجزتلك","حجزنا موعد"])) actionClaimViolations.push("unverified_appointment_claim");
   if (claimExecuted(reply,["رح نتصل","سنتصل","موظف رح يتواصل","سيتواصل معك موظف"])) actionClaimViolations.push("future_human_contact_claim");
 
+  // EXECUTION RECEIPT GATE: when this exact customer turn requested a real
+  // mutation, broad completion wording is forbidden unless the ActionResult
+  // proves an executed/already_done receipt. Reading an already-existing DB
+  // state on a normal status turn is not affected by this gate.
+  const plannedActions = new Set(input.plan.actions.map((x) => x.action));
+  if (plannedActions.has("cancel_application") && !actionOk(input.actions,["cancel_application"]) && /(?:تم.{0,20}(?:الغاء|إلغاء)|(?:الغينا|ألغينا).{0,20}الطلب|(?:طلبك|الطلب).{0,12}(?:صار\s+)?(?:ملغي|ملغى))/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:cancel_application");
+  if (plannedActions.has("request_refund") && !actionOk(input.actions,["request_refund"]) && /(?:تم.{0,20}(?:الاسترداد|الاسترجاع)|(?:رجعنا|حولنا).{0,20}(?:المبلغ|المصاري)|الاسترداد.{0,12}(?:تم|اكتمل))/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:request_refund");
+  if (plannedActions.has("change_device") && !actionOk(input.actions,["change_device"]) && /(?:تم.{0,24}(?:التعديل|تغيير).{0,24}(?:الجهاز|الطلب)|(?:طلبك|الجهاز).{0,16}(?:صار\s+)?معدل)/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:change_device");
+  if (plannedActions.has("change_application_data") && !actionOk(input.actions,["change_application_data"]) && /(?:تم.{0,24}(?:تعديل|تحديث).{0,24}(?:البيانات|الطلب)|(?:بياناتك|البيانات).{0,16}(?:صارت|تمت).{0,10}(?:معدله|معدلة|محدثه|محدثة))/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:change_application_data");
+  if ((plannedActions.has("reopen_application") || plannedActions.has("stop_refund")) && !actionOk(input.actions,["reopen_application","stop_refund"]) && /(?:تم.{0,24}(?:اعاده|إعادة).{0,20}(?:فتح|تفعيل)|وقفنا.{0,12}الاسترداد|الطلب.{0,12}(?:رجع|عاد).{0,10}(?:فعال|مفتوح))/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:reopen_or_stop_refund");
+
   const waitingConfirmation = input.actions.find(a => a.outcome === "needs_confirmation");
   if (waitingConfirmation) {
     const asksConfirmation = /(?:اكد|أكد|تأكيد|تاكيد|متأكد|متاكد|بدك\s+(?:انفذ|أنفذ)|موافق\s+انفذ|موافق\s+أنفذ)/.test(t);

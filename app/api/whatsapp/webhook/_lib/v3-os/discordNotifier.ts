@@ -63,8 +63,10 @@ function arabicReason(reason: string) {
     routine_or_self_recovered_event_is_telemetry_only: "حدث روتيني أو تم إصلاحه تلقائيًا؛ لا يحتاج تدخلًا",
     customer_explicitly_chose_to_continue_and_payment_step_is_ready: "العميل اختار الاستمرار والطلب جاهز لخطوة رسوم فتح الملف",
     official_salary_slip_uploaded: "تم رفع مستند راتب رسمي",
+    official_receipt_uploaded: "تم رفع وصل دفع رسمي وبانتظار مراجعة الإدارة",
     payment_already_confirmed: "الدفع مؤكد مسبقًا؛ لا حاجة لتنبيه جديد",
     manual_admin_payment_confirmation_is_required: "تأكيد الدفع يحتاج مراجعة الإدارة يدويًا",
+    real_action_requires_manual_admin_execution: "العميل طلب تغييرًا فعليًا على الطلب ويحتاج تنفيذ الإدارة يدويًا",
     customer_requested_real_change_but_database_mutation_failed: "العميل طلب تغييرًا فعليًا لكن تنفيذ التغيير في قاعدة البيانات فشل",
     truth_or_send_safety_could_not_self_recover: "تعذر إصلاح تعارض الحقيقة أو سلامة الرد تلقائيًا",
     whatsapp_delivery_failed_after_safe_retry: "تعذر إرسال الرد عبر واتساب حتى بعد محاولة رد قصير وآمن",
@@ -89,6 +91,7 @@ function defaultTitle(event: V3NotificationEvent) {
   if (event === "official_receipt_uploaded") return "💳 تم رفع وصل الدفع — بانتظار تأكيد الإدارة";
   if (event === "official_salary_slip_uploaded") return "📄 تم رفع كشف/شهادة راتب";
   if (event === "payment_confirmation_required") return "💳 يتطلب تأكيد دفع يدوي";
+  if (event === "manual_action_required") return "🛠️ إجراء مطلوب — بانتظار تنفيذ الإدارة";
   if (event === "business_mutation_failed") return "⛔ تعذر تنفيذ تغيير على الطلب";
   if (event === "truth_integrity_failure") return "⛔ تعارض في حقيقة الطلب";
   if (event === "whatsapp_delivery_failure") return "⛔ تعذر إرسال رد واتساب";
@@ -117,6 +120,7 @@ export async function notifyV3Discord(input: {
   trackingId?: string | null;
   waId?: string | null;
   paymentConfirmed?: boolean;
+  actionKey?: string | null;
   title?: string;
   description?: string;
   details?: Record<string, unknown> | null;
@@ -125,6 +129,7 @@ export async function notifyV3Discord(input: {
     event: input.event,
     applicationId: input.applicationId,
     paymentConfirmed: input.paymentConfirmed,
+    actionKey: input.actionKey || null,
   });
 
   if (!decision.notify || !decision.dedupeKey) {
