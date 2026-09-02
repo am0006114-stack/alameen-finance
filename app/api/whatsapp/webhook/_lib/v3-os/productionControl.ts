@@ -53,3 +53,29 @@ export function isV3ProductionActive(control: V3ProductionControl) {
 export function canV3ExecuteRealActions(control: V3ProductionControl) {
   return isV3ProductionActive(control) && control.realActionsEnabled;
 }
+
+
+export async function tripV3ProductionCircuitBreaker(reason: string) {
+  try {
+    const { error } = await supabaseAdmin
+      .from("whatsapp_v3_production_settings")
+      .update({
+        live_enabled: false,
+        kill_switch: true,
+        real_actions_enabled: false,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", "default");
+
+    if (error) {
+      console.error("v3 circuit breaker update failed:", { reason, error: error.message });
+      return false;
+    }
+
+    console.error("v3 circuit breaker tripped:", { reason });
+    return true;
+  } catch (error) {
+    console.error("v3 circuit breaker exception:", { reason, error });
+    return false;
+  }
+}

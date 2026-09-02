@@ -149,7 +149,7 @@ export function buildV3EmergencySafeReply(input: {
       if (contextualStatusConfirmation) {
         parts.push(`نعم، متأكد. حالة طلبك الآن: ${customerFacingStatusLabel(app)}.`);
       } else if (journeyStage === "preliminary_review") {
-        parts.push(`${intro}${details} حالة الطلب: ${customerFacingStatusLabel(app)}. الطلب ما زال في المراجعة الأولية.`);
+        parts.push(`${intro}${details} حالة الطلب: ${customerFacingStatusLabel(app)}. الطلب ما زال في المراجعة المبدئية.`);
         if (!contextualStatusConfirmation && officialLinks.relevant.tracking) parts.push(`رابط التتبع الرسمي: ${officialLinks.relevant.tracking}`);
       } else if (journeyStage === "preliminary_approved_waiting_decision") {
         parts.push(`${intro}${details} حالة الطلب: موافقة مبدئية. هذا يعني إن الطلب اجتاز المراجعة الأولية وأصبح مؤهلًا للانتقال للدراسة النهائية، لكنها ليست الموافقة النهائية.`);

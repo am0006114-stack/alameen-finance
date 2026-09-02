@@ -6,6 +6,8 @@ export type V3NotificationEvent =
   | "business_mutation_failed"
   | "truth_integrity_failure"
   | "final_safety_fail_closed"
+  | "whatsapp_delivery_failure"
+  | "v3_circuit_breaker_tripped"
   | "provider_interpreter_recovered"
   | "provider_writer_recovered"
   | "verifier_repaired"
@@ -29,6 +31,7 @@ const QUIET_EVENTS = new Set<V3NotificationEvent>([
   "routine_customer_complaint",
   "routine_unknown_message",
   "routine_action_success",
+  "final_safety_fail_closed",
 ]);
 
 export function decideV3DiscordNotification(input: {
@@ -82,13 +85,33 @@ export function decideV3DiscordNotification(input: {
     };
   }
 
-  if (input.event === "truth_integrity_failure" || input.event === "final_safety_fail_closed") {
+  if (input.event === "truth_integrity_failure") {
     return {
       notify: true,
       severity: "critical",
       mentionAdmin: true,
-      dedupeKey: `${input.event}:${input.applicationId || "unknown"}`,
+      dedupeKey: `truth-integrity:${input.applicationId || "unknown"}`,
       reason: "truth_or_send_safety_could_not_self_recover",
+    };
+  }
+
+  if (input.event === "whatsapp_delivery_failure") {
+    return {
+      notify: true,
+      severity: "critical",
+      mentionAdmin: true,
+      dedupeKey: "whatsapp-delivery-failure-global",
+      reason: "whatsapp_delivery_failed_after_safe_retry",
+    };
+  }
+
+  if (input.event === "v3_circuit_breaker_tripped") {
+    return {
+      notify: true,
+      severity: "critical",
+      mentionAdmin: true,
+      dedupeKey: "v3-circuit-breaker-global",
+      reason: "v3_was_automatically_stopped_to_protect_customers",
     };
   }
 

@@ -67,6 +67,8 @@ function arabicReason(reason: string) {
     manual_admin_payment_confirmation_is_required: "تأكيد الدفع يحتاج مراجعة الإدارة يدويًا",
     customer_requested_real_change_but_database_mutation_failed: "العميل طلب تغييرًا فعليًا لكن تنفيذ التغيير في قاعدة البيانات فشل",
     truth_or_send_safety_could_not_self_recover: "تعذر إصلاح تعارض الحقيقة أو سلامة الرد تلقائيًا",
+    whatsapp_delivery_failed_after_safe_retry: "تعذر إرسال الرد عبر واتساب حتى بعد محاولة رد قصير وآمن",
+    v3_was_automatically_stopped_to_protect_customers: "تم إيقاف V3 تلقائيًا وإرجاع الرسائل الجديدة للمسار الآمن لحماية العملاء",
     archive_lab_errors_stay_in_lab_telemetry_not_customer_discord: "خطأ داخل مختبر الأرشيف ولا يحتاج تنبيه تشغيل",
     no_notification_needed: "لا يوجد تدخل إداري مطلوب",
   };
@@ -89,8 +91,24 @@ function defaultTitle(event: V3NotificationEvent) {
   if (event === "payment_confirmation_required") return "💳 يتطلب تأكيد دفع يدوي";
   if (event === "business_mutation_failed") return "⛔ تعذر تنفيذ تغيير على الطلب";
   if (event === "truth_integrity_failure") return "⛔ تعارض في حقيقة الطلب";
-  if (event === "final_safety_fail_closed") return "⛔ توقف الرد بأمان — يحتاج مراجعة";
+  if (event === "whatsapp_delivery_failure") return "⛔ تعذر إرسال رد واتساب";
+  if (event === "v3_circuit_breaker_tripped") return "🛡️ تم إيقاف V3 تلقائيًا";
+  if (event === "final_safety_fail_closed") return "⚠️ تم استخدام رد آمن بديل";
   return "⚠️ حدث تشغيلي يحتاج تدخل الإدارة";
+}
+
+async function loadApplicationSummary(applicationId?: string | null) {
+  if (!applicationId) return null;
+  try {
+    const { data } = await supabaseAdmin
+      .from("applications")
+      .select("full_name,device_name,status,tracking_id")
+      .eq("id", applicationId)
+      .maybeSingle();
+    return data || null;
+  } catch {
+    return null;
+  }
 }
 
 export async function notifyV3Discord(input: {
@@ -138,15 +156,21 @@ export async function notifyV3Discord(input: {
   if (!claimed?.id) return { sent: false, suppressed: true, reason: "notification_claim_not_created" };
 
   const mention = decision.mentionAdmin ? String(process.env.DISCORD_ADMIN_MENTION || "").trim() : "";
-  const detailFields = Object.entries(input.details || {}).slice(0, 8).map(([name, value]) => ({
-    name: clipped(arabicDetailLabel(name), 90),
-    value: clipped(arabicDetailValue(name, value), 700) || "—",
-    inline: false,
-  }));
+  const appSummary = await loadApplicationSummary(input.applicationId);
+  const hiddenDetailKeys = new Set(["messageId", "turnId", "verification", "mutationId"]);
+  const detailFields = Object.entries(input.details || {})
+    .filter(([name]) => !hiddenDetailKeys.has(name))
+    .slice(0, 6)
+    .map(([name, value]) => ({
+      name: clipped(arabicDetailLabel(name), 90),
+      value: clipped(arabicDetailValue(name, value), 700) || "—",
+      inline: false,
+    }));
   const fields = [
-    input.trackingId ? { name: "رقم الطلب", value: clipped(input.trackingId), inline: true } : null,
-    input.applicationId ? { name: "معرّف الطلب الداخلي", value: clipped(input.applicationId), inline: true } : null,
+    (input.trackingId || appSummary?.tracking_id) ? { name: "رقم الطلب", value: clipped(input.trackingId || appSummary?.tracking_id), inline: true } : null,
+    appSummary?.full_name ? { name: "العميل", value: clipped(appSummary.full_name), inline: true } : null,
     input.waId ? { name: "رقم واتساب", value: clipped(input.waId), inline: true } : null,
+    appSummary?.device_name ? { name: "الجهاز", value: clipped(appSummary.device_name), inline: true } : null,
     ...detailFields,
     { name: "سبب التنبيه", value: clipped(arabicReason(decision.reason)), inline: false },
   ].filter(Boolean) as Array<{ name: string; value: string; inline?: boolean }>;

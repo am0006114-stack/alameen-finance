@@ -128,6 +128,29 @@ function numericValueMentioned(reply: string, value: number | null | undefined) 
   return Array.from(candidates).some((candidate) => reply.includes(candidate));
 }
 
+function asksFullApplicationSummary(turn: InterpretedTurn) {
+  const q = normalizeArabic(turn.rawText);
+  return [
+    "معلومات طلبي",
+    "معلومات الطلب",
+    "تفاصيل طلبي",
+    "تفاصيل الطلب",
+    "بيانات طلبي",
+    "بيانات الطلب",
+    "شو معلومات طلبي",
+    "شو معلومات الطلب",
+    "شو تفاصيل طلبي",
+    "شو تفاصيل الطلب",
+  ].some((phrase) => q.includes(normalizeArabic(phrase)));
+}
+
+function forbiddenBusinessIdentityClaim(reply: string) {
+  const n = normalizeArabic(reply);
+  const businessRefs = "(?:الامين|الأمين|احنا|إحنا|نحن|جهتنا|الشركه|الشركة)";
+  const forbiddenDescriptions = "(?:بنك|شركه تمويل|شركة تمويل|شركه اقراض|شركة اقراض|شركة إقراض)";
+  return new RegExp(`${businessRefs}.{0,28}${forbiddenDescriptions}|${forbiddenDescriptions}.{0,28}${businessRefs}`, "i").test(n);
+}
+
 export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }): VerificationReport {
   const reply = String(input.reply || "").trim();
   const t = normalizeArabic(reply);
@@ -169,7 +192,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
       const roleVocative = new RegExp(`^(?:\\s*(?:اخ|أخ)\\s+)?${roleNameForAddress}[،,:\\s]`, "i");
       if (roleVocative.test(reply) && !normalizeArabic(reply).startsWith(normalizeArabic(`معك ${roleNameForAddress}`))) policyViolations.push("staff_role_name_used_as_customer_name");
     }
-    if (!contextualStatusConfirmation) {
+    if (!contextualStatusConfirmation && asksFullApplicationSummary(input.turn)) {
       if (firstName && !normalizeArabic(reply).includes(normalizeArabic(firstName))) policyViolations.push("application_status_customer_name_missing");
       if (app.trackingId && !reply.includes(app.trackingId)) policyViolations.push("application_status_tracking_missing");
       if (app.deviceName && !reply.toLowerCase().includes(String(app.deviceName).toLowerCase())) policyViolations.push("application_status_device_missing");
@@ -178,7 +201,12 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     }
 
     if (journeyStage === "preliminary_review") {
-      if (!t.includes(normalizeArabic("مراجعة مبدئية")) && !t.includes(normalizeArabic("قيد المراجعة المبدئية"))) policyViolations.push("preliminary_review_status_label_missing");
+      const preliminaryLabelOk =
+        t.includes(normalizeArabic("مراجعة مبدئية")) ||
+        t.includes(normalizeArabic("قيد المراجعة المبدئية")) ||
+        t.includes(normalizeArabic("مراجعة أولية")) ||
+        t.includes(normalizeArabic("قيد المراجعة الأولية"));
+      if (!preliminaryLabelOk) policyViolations.push("preliminary_review_status_label_missing");
       if (hasContinuationDecisionQuestion(reply)) policyViolations.push("continuation_question_before_preliminary_approval");
     }
 
@@ -194,8 +222,13 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     }
   }
 
-  for (const forbidden of input.truth.policy.forbiddenClaims) if (t.includes(normalizeArabic(forbidden))) policyViolations.push(`forbidden_claim:${forbidden}`);
+  for (const forbidden of input.truth.policy.forbiddenClaims) {
+    if (normalizeArabic(forbidden) === normalizeArabic("بنك")) continue;
+    if (t.includes(normalizeArabic(forbidden))) policyViolations.push(`forbidden_claim:${forbidden}`);
+  }
+  if (forbiddenBusinessIdentityClaim(reply)) policyViolations.push("forbidden_business_identity_claim");
   if (/\b3\s*(?:دنانير|دينار)\b/.test(reply) || /\b٣\s*(?:دنانير|دينار)\b/.test(reply)) policyViolations.push("forbidden_3_jod");
+  if (reply.length > 3900) repetitionFlags.push(`reply_too_long_for_whatsapp:${reply.length}`);
 
   if (claimExecuted(reply,["تم التحويل","حولتك","تم تصعيد","تم التصعيد"]) && !actionOk(input.actions,["switch_ai_role"])) actionClaimViolations.push("unverified_transfer_claim");
   if (claimExecuted(reply,["تم الغاء","تم إلغاء","الغينا الطلب"]) && !actionOk(input.actions,["cancel_application"])) actionClaimViolations.push("unverified_cancel_claim");

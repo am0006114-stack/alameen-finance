@@ -163,7 +163,7 @@ import {
   buildConversationKernelActionReply,
   resolveConversationKernelIntent,
 } from "./_lib/conversationKernel";
-import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
+import { getV3ProductionControl, isV3ProductionActive, tripV3ProductionCircuitBreaker } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
 import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
 import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
@@ -5489,46 +5489,88 @@ async function sendWhatsAppTypingIndicator(incomingMessageId?: string | null) {
   }
 }
 
-async function sendWhatsAppText(to: string, body: string) {
+type WhatsAppSendAttempt = {
+  messageId: string | null;
+  ok: boolean;
+  httpStatus: number | null;
+  errorCode: string | null;
+  errorMessage: string | null;
+};
+
+async function sendWhatsAppTextDetailed(to: string, body: string, previewUrl = true): Promise<WhatsAppSendAttempt> {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
   const graphVersion = process.env.GRAPH_API_VERSION || "v20.0";
 
   if (!token || !phoneNumberId) {
     console.error("Missing WHATSAPP_TOKEN or WHATSAPP_PHONE_NUMBER_ID");
-    return null;
+    return { messageId: null, ok: false, httpStatus: null, errorCode: "missing_credentials", errorMessage: "Missing WhatsApp credentials" };
   }
 
   const cleanTo = normalizeWhatsAppToSend(to);
-  if (!cleanTo) return null;
-
-  const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      messaging_product: "whatsapp",
-      to: cleanTo,
-      type: "text",
-      text: { preview_url: true, body },
-    }),
-  });
-
-  const responseText = await response.text();
-
-  if (!response.ok) {
-    console.error("WhatsApp send failed:", responseText);
-    return null;
+  if (!cleanTo) {
+    return { messageId: null, ok: false, httpStatus: null, errorCode: "invalid_recipient", errorMessage: "Invalid WhatsApp recipient" };
   }
 
   try {
-    const data = JSON.parse(responseText);
-    return data?.messages?.[0]?.id || null;
-  } catch {
-    return null;
+    const response = await fetch(`https://graph.facebook.com/${graphVersion}/${phoneNumberId}/messages`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        messaging_product: "whatsapp",
+        to: cleanTo,
+        type: "text",
+        text: { preview_url: previewUrl, body },
+      }),
+    });
+
+    const responseText = await response.text();
+    let parsed: any = null;
+    try { parsed = responseText ? JSON.parse(responseText) : null; } catch {}
+
+    if (!response.ok) {
+      const metaError = parsed?.error || {};
+      console.error("WhatsApp send failed:", {
+        httpStatus: response.status,
+        code: metaError?.code || null,
+        subcode: metaError?.error_subcode || null,
+        message: metaError?.message || responseText,
+        fbtraceId: metaError?.fbtrace_id || null,
+      });
+      return {
+        messageId: null,
+        ok: false,
+        httpStatus: response.status,
+        errorCode: metaError?.code != null ? String(metaError.code) : null,
+        errorMessage: metaError?.message ? String(metaError.message) : "WhatsApp API rejected the message",
+      };
+    }
+
+    const messageId = parsed?.messages?.[0]?.id ? String(parsed.messages[0].id) : null;
+    if (!messageId) {
+      console.error("WhatsApp send returned success without message id:", responseText);
+      return { messageId: null, ok: false, httpStatus: response.status, errorCode: "missing_message_id", errorMessage: "WhatsApp API returned no message id" };
+    }
+
+    return { messageId, ok: true, httpStatus: response.status, errorCode: null, errorMessage: null };
+  } catch (error) {
+    console.error("WhatsApp send exception:", error);
+    return {
+      messageId: null,
+      ok: false,
+      httpStatus: null,
+      errorCode: "network_exception",
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
   }
+}
+
+async function sendWhatsAppText(to: string, body: string) {
+  const result = await sendWhatsAppTextDetailed(to, body, true);
+  return result.messageId;
 }
 
 function adminApplicationUrl(baseUrl: string, app: ApplicationRecord) {
@@ -10798,49 +10840,92 @@ export async function POST(request: Request) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
 
             // Do NOT honor legacy AUTO_REPLY_IGNORED here. V3 has no human-handoff pause.
-            let outgoingMessageId = await sendWhatsAppText(from, reply);
-            if (!outgoingMessageId) {
-              await new Promise((resolve) => setTimeout(resolve, 700));
-              outgoingMessageId = await sendWhatsAppText(from, reply);
-            }
+            // First try the verified V3 reply. If Meta rejects it, do NOT retry the same body:
+            // retry once with a short URL-free emergency message. If that also fails, trip
+            // the V3 circuit breaker so the next customer turn goes to the safe route.
+            let replyActuallySent = reply;
+            let sendAttempt = await sendWhatsAppTextDetailed(from, reply, true);
+            let outgoingMessageId = sendAttempt.messageId;
+            let emergencyDeliveryUsed = false;
 
             if (!outgoingMessageId) {
-              try {
-                await notifyV3Discord({
-                  event: "final_safety_fail_closed",
-                  applicationId: v3Run?.truthAfterActions.application?.id || null,
-                  trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
+              await new Promise((resolve) => setTimeout(resolve, 500));
+              const emergencyReply = buildV3LastResortReply();
+              const emergencyAttempt = await sendWhatsAppTextDetailed(from, emergencyReply, false);
+              if (emergencyAttempt.messageId) {
+                outgoingMessageId = emergencyAttempt.messageId;
+                replyActuallySent = emergencyReply;
+                emergencyDeliveryUsed = true;
+                console.warn("V3 primary WhatsApp reply rejected; emergency reply delivered", {
                   waId: from,
-                  title: "V3 — WhatsApp send failed",
-                  description: "فشل إرسال الرد مرتين بعد إنتاج رد آمن.",
-                  details: { messageId: message.id || null },
+                  firstStatus: sendAttempt.httpStatus,
+                  firstCode: sendAttempt.errorCode,
                 });
-              } catch (v3SendNotifyError) {
-                console.error("V3 send failure notification failed", v3SendNotifyError);
+              } else {
+                const circuitTripped = await tripV3ProductionCircuitBreaker("whatsapp_delivery_failed_after_safe_retry");
+                console.error("V3 WhatsApp delivery failed after safe retry", {
+                  waId: from,
+                  firstStatus: sendAttempt.httpStatus,
+                  firstCode: sendAttempt.errorCode,
+                  secondStatus: emergencyAttempt.httpStatus,
+                  secondCode: emergencyAttempt.errorCode,
+                  circuitTripped,
+                });
+                try {
+                  await notifyV3Discord({
+                    event: "whatsapp_delivery_failure",
+                    applicationId: v3Run?.truthAfterActions.application?.id || null,
+                    trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
+                    waId: from,
+                    description: "تعذر إرسال الرد الأساسي ثم الرد القصير الآمن. تم إيقاف V3 تلقائيًا حتى لا تتكرر خسارة الرسائل.",
+                    details: {
+                      "حالة واتساب": emergencyAttempt.httpStatus || sendAttempt.httpStatus || "غير متوفر",
+                      "رمز الخطأ": emergencyAttempt.errorCode || sendAttempt.errorCode || "غير متوفر",
+                    },
+                  });
+                  if (circuitTripped) {
+                    await notifyV3Discord({
+                      event: "v3_circuit_breaker_tripped",
+                      applicationId: v3Run?.truthAfterActions.application?.id || null,
+                      trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
+                      waId: from,
+                      description: "تم إيقاف V3 تلقائيًا. الرسائل الجديدة ستعود للمسار الآمن إلى أن تتم المراجعة.",
+                    });
+                  }
+                } catch (v3SendNotifyError) {
+                  console.error("V3 send failure notification failed", v3SendNotifyError);
+                }
               }
             }
 
-            await logMessage({
-              waId: from,
-              direction: "outgoing",
-              body: reply,
-              messageId: outgoingMessageId || undefined,
-              intent: processingIntent,
-              trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
-              needsHumanReview: false,
-              handledByAi: true,
-            });
+            if (outgoingMessageId) {
+              await logMessage({
+                waId: from,
+                direction: "outgoing",
+                body: replyActuallySent,
+                messageId: outgoingMessageId,
+                intent: processingIntent,
+                trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
+                needsHumanReview: false,
+                handledByAi: true,
+              });
 
-            await logAiConversation({
-              phone: from,
-              customerMessage: processingText,
-              aiReply: reply,
-              intent: processingIntent,
-              applicationStatus: v3Run?.truthAfterActions.application?.status || null,
-            });
+              await logAiConversation({
+                phone: from,
+                customerMessage: processingText,
+                aiReply: replyActuallySent,
+                intent: processingIntent,
+                applicationStatus: v3Run?.truthAfterActions.application?.status || null,
+              });
+            } else {
+              console.error("V3 outgoing reply was NOT logged as sent because WhatsApp delivery failed", {
+                waId: from,
+                messageId: message.id || null,
+              });
+            }
 
-            // Commit conversation state only after the customer-facing send path completed.
-            if (v3Run && outgoingMessageId) {
+            // Commit conversation state only after the intended V3 reply was actually delivered.
+            if (v3Run && outgoingMessageId && !emergencyDeliveryUsed) {
               try {
                 await saveV3ConversationState(v3Run.stateAfter);
               } catch (v3StateError) {
@@ -10851,7 +10936,7 @@ export async function POST(request: Request) {
                     applicationId: v3Run.truthAfterActions.application?.id || null,
                     trackingId: v3Run.truthAfterActions.application?.trackingId || null,
                     waId: from,
-                    title: "V3 — Conversation state save failed",
+                    title: "⛔ تعذر حفظ حالة المحادثة",
                     description: "تم إرسال الرد لكن تعذر حفظ حالة المحادثة الدائمة.",
                     details: { messageId: message.id || null },
                   });
