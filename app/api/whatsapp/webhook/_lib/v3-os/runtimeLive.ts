@@ -11,6 +11,7 @@ import { interpretTurnWithAi } from "./modelInterpreter";
 import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { notifyV3Discord } from "./discordNotifier";
+import { continuationCommercialState } from "./commercialProgression";
 import { sanitizeRecentTurnsForModel } from "./linkIntegrity";
 
 const PASS: VerificationReport = {
@@ -246,6 +247,32 @@ export async function runV3ProductionLive(input: {
       description: "الكاتب ومرحلة الإصلاح والـsafe fallback لم ينجحوا في إنتاج رد يجتاز التحقق.",
       details: { verification, turnId: input.turnId },
     });
+  }
+
+  if (finalSafetyPass && reply && truthAfterActions.application) {
+    const explicitContinue = plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation);
+    const commercial = continuationCommercialState(truthAfterActions.application);
+    if (explicitContinue && commercial === "payment_ready") {
+      try {
+        await notifyV3Discord({
+          event: "customer_continue_payment_ready",
+          applicationId: truthAfterActions.application.id,
+          trackingId: truthAfterActions.application.trackingId,
+          waId: input.waId,
+          title: "✅ العميل وافق على الاستمرار — أرسلت له خطوة 5 دنانير",
+          description: "الطلب مؤهل مبدئيًا، والعميل اختار الاستمرار. V3 أرسل تعليمات رسوم فتح الملف ورابط رفع الوصل الرسمي.",
+          details: {
+            الاسم: truthAfterActions.application.fullName || "—",
+            الجهاز: truthAfterActions.application.deviceName || "—",
+            "حالة الطلب": truthAfterActions.application.status || "—",
+            "حالة الدفع": truthAfterActions.application.paymentStatus || "—",
+            الرسوم: `${truthAfterActions.policy.fileOpeningFeeJod} دنانير`,
+          },
+        });
+      } catch (error) {
+        console.error("V3 continuation Discord notification failed:", error);
+      }
+    }
   }
 
   const answeredTopics = reply && verification.pass ? plan.answerItems.map((x) => x.topic) : [];

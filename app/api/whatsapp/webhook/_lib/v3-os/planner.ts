@@ -1,6 +1,7 @@
 import { actionRequiresOmran } from "./hierarchy";
 import { mutationAuthorization } from "./actionAuthority";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { continuationCommercialState } from "./commercialProgression";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, PlannedAnswer, ReplyPlan, TruthBundle } from "./types";
 
 function truthNeeded(topic: string) {
@@ -80,7 +81,16 @@ function instructionFor(topic: string, truth: TruthBundle) {
     application_status: applicationStatusInstruction(truth),
     refund: `افصل بين سياسة الاسترداد العامة والحالة الخاصة. إذا الدفع مؤكد وطلب العميل الاسترداد صراحةً فالتنفيذ من عمران. ${p.refundPressureRule} لا تقل تم الاسترداد إلا بعد ActionResult منفذ.`,
     cancellation: "طلب الإلغاء الصريح عملية تنفيذية مستقلة ويملكها عمران فقط. لا تربطه بالدفع أو الاستمرار. إذا الدفع مؤكد يفتح مسار الاسترداد آليًا، وإذا غير مؤكد يكون إلغاء فقط.",
-    continuation: "قرار الاستمرار مستقل. إذا الطلب ملغي/في استرداد فالتراجع وإعادة الفتح يملكهما عمران، ولا تعد العميل بتحويل لشخص آخر.",
+    continuation: (() => {
+      const commercial = continuationCommercialState(truth.application);
+      if (commercial === "payment_ready") {
+        return `العميل اختار الاستمرار والطلب مؤهل لخطوة رسوم فتح الملف الآن. اشرح بوضوح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، منفصلة عن ثمن الجهاز وعن القسط الأول، وتُطلب الآن لأن الطلب مؤهل مبدئيًا والعميل اختار الاستمرار. اذكر طريقة الدفع الموثقة: ${p.paymentMethodRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS لرفع الوصل. وضّح أن تأكيد الدفع النهائي يدوي من الإدارة بعد مراجعة الوصل، وأن القسط الأول ليس الآن. لا تقل "لا يوجد دفع مطلوب".`;
+      }
+      if (commercial === "already_paid") return "العميل اختار الاستمرار والدفع مؤكد إداريًا أصلًا؛ أكد استمرار المتابعة ولا تطلب 5 دنانير أو وصلًا جديدًا.";
+      if (commercial === "payment_pending_admin") return "العميل اختار الاستمرار ووصل الدفع مسجل بانتظار اعتماد الإدارة؛ لا تطلب دفعًا أو وصلًا جديدًا، ووضح أن التأكيد النهائي إداري.";
+      if (commercial === "no_application") return "وصل قرار الاستمرار لكن لا يوجد طلب موثوق مربوط الآن؛ لا تطلب دفعًا ولا تعطي معلومات تحويل حتى يتم ربط الطلب الصحيح.";
+      return "قرار الاستمرار وصل، لكن حالة الطلب الحالية لا تثبت أن رسوم فتح الملف مطلوبة الآن. لا تطلب دفعًا قبل التأهيل المبدئي؛ اشرح الخطوة الحالية فقط.";
+    })(),
     reopen: "التراجع عن الإلغاء/إعادة الفتح من صلاحية عمران. إذا الاسترداد لم يكتمل يمكن إيقاف المسار وإعادة تفعيل الطلب ضمن الحقيقة؛ إذا اكتمل الاسترداد لا تعِد بإعادة نفس الملف تلقائيًا.",
     application_correction: "تصحيح بيانات الطلب من صلاحية عمران. لا تغيّر إلا حقولًا ذات قيمة جديدة واضحة ومتحقق من تنسيقها؛ إذا التفاصيل ناقصة اسأل سؤالًا واحدًا ضيقًا.",
     device_change: "تغيير الجهاز/الموديل من صلاحية عمران. استخدم كتالوج المنتجات الحالي فقط، وطابق موديلًا واحدًا بشكل واضح قبل التنفيذ. بعد التغيير أعد حساب السعر/المدة/الدفعة والقسط بنفس الحاسبة الرسمية ولا تخترع سعرًا.",
@@ -134,7 +144,7 @@ export function buildReplyPlan(input: { turn: InterpretedTurn; state: Conversati
   }
   const risk = input.turn.sentiment === "angry" || input.turn.topics.some((t) => ["legal","social_threat","complaint"].includes(t));
   return {
-    objective: "حل كل أجزاء رسالة العميل داخل نفس المحادثة، مع امتلاك عمران لكل تغيير فعلي على الطلب، وتأكيد الدفع يدويًا من الإدارة فقط، ومنع إعادة طلب مستندات وصلت فعليًا أو استخدام رابط تتبع كرابط رفع.",
+    objective: "حل كل أجزاء رسالة العميل داخل نفس المحادثة. قرار الاستمرار بعد التأهيل المبدئي هو انتقال تجاري حاسم: يجب أن يعرض 5 دنانير ورسوم فتح الملف وطريقة الدفع ورابط الوصل الموثق، ما لم يكن الدفع مؤكدًا/بانتظار اعتماد الإدارة. عمران يملك كل تغيير فعلي على الطلب، وتأكيد الدفع يدوي من الإدارة فقط، وممنوع إعادة طلب مستندات وصلت أو استخدام رابط تتبع كرابط رفع.",
     role: input.state.role.currentRole,
     answerItems,
     actions,

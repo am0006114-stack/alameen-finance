@@ -1,5 +1,6 @@
 import { BUSINESS_WEBSITE } from "../constants";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { continuationNeedsFeeNow } from "./commercialProgression";
 import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "./types";
 
 const HTTP_URL_RE = /https?:\/\/[^\s<>{}\[\]"']+/gi;
@@ -92,7 +93,10 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
 
   Object.assign(relevant, requirementLinks(turn, truth));
 
-  const receiptRequested = turnNeeds("receipt_upload", turn.topics) || turnNeeds("payment_confirmation", turn.topics);
+  const receiptRequested =
+    turnNeeds("receipt_upload", turn.topics) ||
+    turnNeeds("payment_confirmation", turn.topics) ||
+    (turnNeeds("continuation", turn.topics) && continuationNeedsFeeNow(truth));
   const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
   const receipt = receiptRequested && !paymentConfirmed ? boundApplicationUrl("/receipt", truth) : null;
   if (receipt) relevant.receipt = receipt;
@@ -176,7 +180,7 @@ export function detectReplyLinkViolations(input: { reply: string; turn: Interpre
     if (!isOfficialAmeenHost(host)) violations.push(`foreign_domain_reference:${host}`);
   }
 
-  if (input.turn.topics.includes("receipt_upload")) {
+  if (input.turn.topics.includes("receipt_upload") || (input.turn.topics.includes("continuation") && continuationNeedsFeeNow(input.truth))) {
     if (context.receiptLinkUnavailableReason === "payment_already_confirmed") {
       if (replyUrls.length) violations.push("receipt_link_sent_after_payment_confirmed");
     } else if (context.relevant.receipt) {

@@ -166,6 +166,9 @@ export type PolicyTruth = {
   secureDocumentsRule: string;
   independenceStatement: string;
   paymentAliases: string[];
+  paymentWalletType: string;
+  paymentBeneficiaryName: string;
+  paymentMethodRule: string;
   paymentConfirmationRule: string;
   normalReviewWindow: string;
   reviewPressureLevel: "normal" | "high" | "severe";

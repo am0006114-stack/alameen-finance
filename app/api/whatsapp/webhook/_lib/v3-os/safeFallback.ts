@@ -2,6 +2,7 @@ import { roleDisplayName } from "./hierarchy";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
 import { hasAuthoritativePaymentConfirmation, hasPaymentRefundIntegrityConflict } from "./paymentTruth";
 import { buildOfficialLinkContext } from "./linkIntegrity";
+import { continuationCommercialState } from "./commercialProgression";
 
 function executed(actions: ActionResult[], action: string) {
   return actions.find(x=>x.action===action && x.executed && ["executed","already_done"].includes(x.outcome));
@@ -37,6 +38,20 @@ export function buildV3EmergencySafeReply(input: {
   }
 
   if (topics.has("payment_fee")) parts.push(`رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وتكون ${p.fileOpeningFeeTiming}.`);
+  if (topics.has("continuation")) {
+    const commercial = continuationCommercialState(input.truth.application);
+    if (commercial === "payment_ready") {
+      parts.push(`تمام، قرارك بالاستمرار واضح. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، منفصلة عن ثمن الجهاز وعن القسط الأول. ${p.paymentMethodRule}`);
+      if (officialLinks.relevant.receipt) parts.push(`بعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
+      parts.push("تأكيد الدفع النهائي يتم يدويًا من الإدارة بعد مراجعة الوصل، والقسط الأول ليس مطلوبًا الآن.");
+    } else if (commercial === "already_paid") {
+      parts.push("قرار الاستمرار واضح، والدفع مؤكد إداريًا أصلًا؛ ما في داعي تدفع أو ترفع وصل جديد.");
+    } else if (commercial === "payment_pending_admin") {
+      parts.push("قرار الاستمرار واضح، ووصل الدفع مسجل وبانتظار اعتماد الإدارة؛ لا تعيد الدفع ولا ترفع وصلًا ثانيًا.");
+    } else if (commercial === "no_application") {
+      parts.push("وصل قرار الاستمرار، لكن لازم أربط الطلب الصحيح قبل ما أعطيك أي تعليمات دفع.");
+    }
+  }
   if (topics.has("payment_confirmation")) {
     if (hasAuthoritativePaymentConfirmation(input.truth.application)) {
       parts.push("الدفع ظاهر مؤكد على الطلب، فلا تعيد الدفع.");

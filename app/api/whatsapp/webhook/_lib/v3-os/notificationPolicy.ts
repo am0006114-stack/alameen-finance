@@ -1,5 +1,7 @@
 export type V3NotificationEvent =
+  | "customer_continue_payment_ready"
   | "official_receipt_uploaded"
+  | "official_salary_slip_uploaded"
   | "payment_confirmation_required"
   | "business_mutation_failed"
   | "truth_integrity_failure"
@@ -37,6 +39,26 @@ export function decideV3DiscordNotification(input: {
 }): V3NotificationDecision {
   if (QUIET_EVENTS.has(input.event)) {
     return { notify: false, severity: "none", mentionAdmin: false, dedupeKey: null, reason: "routine_or_self_recovered_event_is_telemetry_only" };
+  }
+
+  if (input.event === "customer_continue_payment_ready") {
+    return {
+      notify: true,
+      severity: "important",
+      mentionAdmin: false,
+      dedupeKey: `customer-continue:${input.applicationId || "unknown"}`,
+      reason: "customer_explicitly_chose_to_continue_and_payment_step_is_ready",
+    };
+  }
+
+  if (input.event === "official_salary_slip_uploaded") {
+    return {
+      notify: true,
+      severity: "important",
+      mentionAdmin: false,
+      dedupeKey: `salary-slip-uploaded:${input.applicationId || "unknown"}`,
+      reason: "official_salary_slip_uploaded",
+    };
   }
 
   if (input.event === "official_receipt_uploaded" || input.event === "payment_confirmation_required") {

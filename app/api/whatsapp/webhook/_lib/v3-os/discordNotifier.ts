@@ -12,8 +12,16 @@ function timeBucket(minutes: number) {
 }
 
 function persistedDedupeKey(event: V3NotificationEvent, key: string) {
-  if (event === "official_receipt_uploaded" || event === "payment_confirmation_required") return key;
+  if (["official_receipt_uploaded","official_salary_slip_uploaded","payment_confirmation_required"].includes(event)) return key;
   return `${key}:bucket-${timeBucket(30)}`;
+}
+
+function defaultTitle(event: V3NotificationEvent) {
+  if (event === "customer_continue_payment_ready") return "✅ العميل وافق على الاستمرار — خطوة 5 دنانير";
+  if (event === "official_receipt_uploaded") return "💳 تم رفع وصل الدفع — بانتظار تأكيد الإدارة";
+  if (event === "official_salary_slip_uploaded") return "📄 تم رفع كشف/شهادة راتب";
+  if (event === "payment_confirmation_required") return "يتطلب تأكيد دفع يدوي";
+  return "V3 — حدث يتطلب تدخل الإدارة";
 }
 
 export async function notifyV3Discord(input: {
@@ -61,15 +69,21 @@ export async function notifyV3Discord(input: {
   if (!claimed?.id) return { sent: false, suppressed: true, reason: "notification_claim_not_created" };
 
   const mention = decision.mentionAdmin ? String(process.env.DISCORD_ADMIN_MENTION || "").trim() : "";
+  const detailFields = Object.entries(input.details || {}).slice(0, 8).map(([name, value]) => ({
+    name: clipped(name, 90),
+    value: clipped(value, 700) || "—",
+    inline: false,
+  }));
   const fields = [
     input.trackingId ? { name: "رقم الطلب", value: clipped(input.trackingId), inline: true } : null,
     input.applicationId ? { name: "Application", value: clipped(input.applicationId), inline: true } : null,
     input.waId ? { name: "WhatsApp", value: clipped(input.waId), inline: true } : null,
+    ...detailFields,
     { name: "السبب", value: clipped(decision.reason), inline: false },
   ].filter(Boolean) as Array<{ name: string; value: string; inline?: boolean }>;
 
   const result = await sendDiscordNotification({
-    title: input.title || (input.event === "payment_confirmation_required" ? "يتطلب تأكيد دفع يدوي" : "V3 — حدث يتطلب تدخل الإدارة"),
+    title: input.title || defaultTitle(input.event),
     description: clipped(`${mention ? `${mention} ` : ""}${input.description || "يوجد حدث تشغيلي يحتاج تدخلًا فعليًا."}`, 1800),
     fields,
   });
