@@ -13,6 +13,10 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   };
 
   if (!raw) add("unknown","unknown",0.2);
+  const bareTracking = /^AM-\d{8,}$/i.test(raw);
+  const bareJordanPhone = /^(?:(?:\+?962|00962|0)?7[789]\d{7})$/.test(raw.replace(/[\s-]/g, ""));
+  if (bareTracking) add("provide_fact","application_status",0.995,"none",raw.toUpperCase());
+  else if (bareJordanPhone) add("provide_fact","application_status",0.99,"none",raw);
   if (hasAny(n,["مرحبا","السلام عليكم","هلا","اهلا"])) add("greet","greeting",0.98);
   if (hasAny(n,["شكرا","يسلمو","يعطيك العافيه"])) add("thank","thanks",0.98);
   if (hasAny(n,["ما فهمت","مش فاهم","كيف يعني","وضح","وضحي"])) add("repair_request","repair",0.99);
@@ -37,7 +41,7 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
 
   if (refundMention && !stopRefund) add(isQuestion(raw)?"ask":"request_action","refund",0.98,isQuestion(raw)?"none":"request_refund");
 
-  if (hasAny(n,["حاله الطلب","حالة الطلب","شو صار بالطلب","وين طلبي","طلبي شو صار"])) add("ask","application_status",0.98);
+  if (hasAny(n,["حاله الطلب","حالة الطلب","شو صار بالطلب","وين طلبي","طلبي شو صار","معلومات الطلب","معلومات طلبي","شو معلومات الطلب","شو معلومات طلبي","تفاصيل الطلب","تفاصيل طلبي","شو تفاصيل الطلب","شو تفاصيل طلبي","بيانات الطلب","بيانات طلبي"])) add("ask","application_status",0.98);
   if (hasAny(n,["متى الموافقه","متى الموافقة","قديش بتقعد","كم بتقعد","متى بردولي خبر","مدة الدراسه","مدة الدراسة","قديش المراجعه","قديش المراجعة"])) add("ask","review_timing",0.98);
   if (hasAny(n,["ضغط المراجعات","ضغط المراجعه","ضغط شديد","ليش متاخر","ليش متأخر","التاخير","التأخير"])) add("ask","operational_pressure",0.88);
   if (hasAny(n,["وين موقعكم","وين المكتب","موقع الاستلام","العنوان"])) add("ask","office_location",0.99);

@@ -2,6 +2,7 @@ import { actionRequiresOmran } from "./hierarchy";
 import { mutationAuthorization } from "./actionAuthority";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { continuationCommercialState } from "./commercialProgression";
+import { applicationJourneyStage, customerFacingStatusLabel, customerOrderSnapshot, explicitContinuation } from "./applicationJourney";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, PlannedAnswer, ReplyPlan, TruthBundle } from "./types";
 
 function truthNeeded(topic: string) {
@@ -43,30 +44,72 @@ function paymentStatusInstruction(truth: TruthBundle) {
   return `حالة الدفع المسجلة هي ${app.paymentStatus || "غير محددة"}. اشرحها دون تحويلها إلى تأكيد أو نفي غير موجود.`;
 }
 
-function applicationStatusInstruction(truth: TruthBundle) {
+function applicationStatusInstruction(truth: TruthBundle, turn: InterpretedTurn) {
   const app = truth.application;
   if (!app) return "أجب فقط من application truth الموثوق. إذا الحقيقة غير محسومة لا تخصص حالة لطلب بعينه واطلب معلومة ضيقة للتمييز.";
-  const paid = hasAuthoritativePaymentConfirmation(app);
-  return `الطلب المربوط موثوق. استخدم الاسم الحقيقي ${app.fullName || "غير متوفر"} بشكل طبيعي عند الحاجة، ورقم التتبع ${app.trackingId || "غير متوفر"}. الحالة الخام ${app.status || "غير محددة"}، والدفع ${paid ? "مؤكد إداريًا" : app.paymentStatus || "غير محدد"}. لا تطلب مستندات أو دفعًا لمجرد أن الحالة اسمها قديم؛ راجع DOCUMENT_TRUTH أولًا.`;
+
+  const stage = applicationJourneyStage(app);
+  const snapshot = customerOrderSnapshot(app).join(" | ");
+  const label = customerFacingStatusLabel(app);
+  const contextualStatusConfirmation = turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
+  const trackingInstruction = contextualStatusConfirmation ? "" : " وأضف رابط tracking الرسمي من OFFICIAL_LINKS في سطر مستقل؛ هذا رابط تتبع فقط.";
+
+  if (contextualStatusConfirmation) {
+    return `العميل يسأل متابعة قصيرة للتأكد من نفس الحالة التي عرضتها للتو. أكد الحقيقة الحالية باختصار وبثقة: ${label}. لا تعيد الاسم أو رقم التتبع أو الجهاز أو الحسبة أو الرابط، ولا تنتقل لموضوع جديد. إذا المرحلة قبل اختيار الاستمرار، لا تذكر أي لغة مالية.`;
+  }
+
+  if (stage === "preliminary_review") {
+    return `اعرض معلومات الطلب الموثقة بشكل طبيعي: ${snapshot}. الحالة للعميل: ${label}. وضّح أن الطلب ما زال في المراجعة الأولية.${trackingInstruction} في هذه المرحلة ممنوع فتح موضوع الدفع أو رسوم فتح الملف أو 5 دنانير أو التحويل أو الوصل أو القسط الأول من نفسك، وممنوع سؤال العميل هل يريد الاستمرار لأن الموافقة المبدئية لم تصدر بعد. لا تعرض status/payment_status الخام.`;
+  }
+
+  if (stage === "preliminary_approved_waiting_decision") {
+    return `اعرض معلومات الطلب الموثقة بشكل مرتب: ${snapshot}. قل بوضوح إن الحالة موافقة مبدئية وإنها ليست الموافقة النهائية.${trackingInstruction} بعدها اسأل العميل سؤال قرار واحد واضح: "هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟" قبل أن يجيب بالموافقة ممنوع تمامًا ذكر 5 دنانير أو رسوم فتح الملف أو طريقة الدفع أو اسم المستفيد أو رابط الوصل أو أي معلومات مالية تخص خطوة فتح الملف. لا تعرض status/payment_status الخام.`;
+  }
+
+  if (stage === "continuation_confirmed_fee_due") {
+    return `اعرض معلومات الطلب عند الحاجة: ${snapshot}. رغبة الاستمرار مسجلة بالفعل. لا تسأل "هل تود الاستمرار؟" مرة ثانية. إذا سأل عن الخطوة التالية يمكن شرح استكمال فتح الملف وفق السياسة الموثقة.`;
+  }
+
+  if (stage === "payment_proof_pending_admin") {
+    return `اعرض معلومات الطلب عند الحاجة: ${snapshot}. إثبات الدفع موجود وبانتظار مراجعة الإدارة. لا تطلب دفعًا أو وصلًا جديدًا ولا تعيد العميل إلى قرار الاستمرار.`;
+  }
+
+  if (stage === "payment_confirmed_under_review") {
+    return `اعرض معلومات الطلب عند الحاجة: ${snapshot}. الدفع مؤكد إداريًا والطلب في مساره الحالي. لا تطلب 5 دنانير أو وصلًا جديدًا ولا تعيد العميل إلى قرار الاستمرار.`;
+  }
+
+  return `اعرض معلومات الطلب الموثقة بشكل طبيعي: ${snapshot}.${trackingInstruction} استخدم حالة العميل "${label}" فقط ولا تعرض رموز status/payment_status الخام. راجع DOCUMENT_TRUTH قبل طلب أي مستند ولا تخترع خطوة مالية.`;
 }
 
-function instructionFor(topic: string, truth: TruthBundle) {
+function instructionFor(topic: string, truth: TruthBundle, turn: InterpretedTurn) {
   const p = truth.policy;
+  const stage = applicationJourneyStage(truth.application);
+  const beforeContinuation = stage === "preliminary_review" || (stage === "preliminary_approved_waiting_decision" && !explicitContinuation(turn));
+  const paymentBeforeContinue = stage === "preliminary_approved_waiting_decision"
+    ? "الموافقة المبدئية صدرت، لكن العميل لم يؤكد الاستمرار بعد. لا تعطِ مبلغ الرسوم ولا طريقة الدفع ولا المستفيد ولا رابط الوصل. اسأله أولًا هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟"
+    : "الطلب لم يصل بعد إلى الموافقة المبدئية. لا تعطِ مبلغًا ولا معلومات دفع أو تحويل أو رابط وصل. وضّح فقط أن هذه الخطوة لا تُفتح قبل صدور الموافقة المبدئية واختيار الاستمرار.";
   const map: Record<string,string> = {
-    payment_fee: `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}. وضّح السبب: ${p.fileOpeningFeePurposeRule} ووضّح الاسترداد: ${p.fileOpeningFeeRefundRule} استخدم طمأنة بشرية غير ضاغطة: ${p.continuationReassuranceRule}`,
-    payment_status: paymentStatusInstruction(truth),
-    payment_confirmation: truth.application
-      ? `${paymentStatusInstruction(truth)} تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا احتاج رفع الإثبات ولم يكن الدفع مؤكدًا استخدم رابط receipt الموجود حرفيًا في OFFICIAL_LINKS فقط.`
-      : `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. لا يوجد طلب موثوق مربوط الآن؛ إذا احتاج العميل رابط رفع الوصل اطلب رقم التتبع/الطلب أولًا ولا تضع أي URL.`,
+    payment_fee: beforeContinuation ? paymentBeforeContinue : `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}. وضّح السبب: ${p.fileOpeningFeePurposeRule} ووضّح الاسترداد: ${p.fileOpeningFeeRefundRule} استخدم طمأنة بشرية غير ضاغطة: ${p.continuationReassuranceRule}`,
+    payment_method: beforeContinuation ? paymentBeforeContinue : `اشرح طريقة الدفع الموثقة فقط: ${p.paymentMethodRule}`,
+    payment_timing: beforeContinuation ? paymentBeforeContinue : `وضّح توقيت رسوم فتح الملف فقط حسب القاعدة: ${p.fileOpeningFeeTiming}. لا تقل إنها مستحقة عند التقديم أو الاستلام.`,
+    payment_recipient: beforeContinuation ? paymentBeforeContinue : `اذكر فقط وجهة الدفع الموثقة: ${p.paymentMethodRule}`,
+    payment_status: beforeContinuation ? paymentBeforeContinue : paymentStatusInstruction(truth),
+    payment_confirmation: beforeContinuation
+      ? paymentBeforeContinue
+      : truth.application
+        ? `${paymentStatusInstruction(truth)} تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا احتاج رفع الإثبات ولم يكن الدفع مؤكدًا استخدم رابط receipt الموجود حرفيًا في OFFICIAL_LINKS فقط.`
+        : `تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. لا يوجد طلب موثوق مربوط الآن؛ إذا احتاج العميل رابط رفع الوصل اطلب رقم التتبع/الطلب أولًا ولا تضع أي URL.`,
     first_installment: `اشرح القاعدة بالمعنى: ${p.firstInstallmentRule}.`,
     office_location: `اذكر فقط ${p.generalLocation}، ووضح أن الحضور بموعد رسمي فقط.`,
     appointment: "لا تدّعِ إنشاء موعد. وضح أن الحضور يكون بموعد رسمي وأن الموعد يعتمد على حالة الطلب الفعلية.",
     delivery: p.pickupRule,
-    receipt_upload: truth.application
-      ? hasAuthoritativePaymentConfirmation(truth.application)
-        ? "الدفع مؤكد إداريًا على الطلب، لذلك لا ترسل رابط رفع وصل ولا تطلب إعادة الرفع. وضح أن الخطوة منتهية."
-        : `${p.secureDocumentsRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS إذا كان موجودًا، ووضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`
-      : `لا يوجد طلب موثوق مربوط بالمحادثة الآن. اطلب رقم التتبع أو رقم الطلب حتى يتم توليد رابط رفع الوصل الرسمي. ممنوع إعطاء أي URL قبل ربط الطلب.`,
+    receipt_upload: beforeContinuation
+      ? paymentBeforeContinue
+      : truth.application
+        ? hasAuthoritativePaymentConfirmation(truth.application)
+          ? "الدفع مؤكد إداريًا على الطلب، لذلك لا ترسل رابط رفع وصل ولا تطلب إعادة الرفع. وضح أن الخطوة منتهية."
+          : `${p.secureDocumentsRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS إذا كان موجودًا، ووضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`
+        : `لا يوجد طلب موثوق مربوط بالمحادثة الآن. اطلب رقم التتبع أو رقم الطلب حتى يتم توليد رابط رفع الوصل الرسمي. ممنوع إعطاء أي URL قبل ربط الطلب.`,
     requirements: requirementsInstruction(truth),
     guarantor: requirementsInstruction(truth),
     tracking: truth.application
@@ -78,7 +121,7 @@ function instructionFor(topic: string, truth: TruthBundle) {
     call_request: "اعترف بتفضيل المكالمة لكن لا تعد بمكالمة غير منفذة؛ استمر بحل الموضوع على واتساب الآن.",
     review_timing: `اذكر أن ${p.normalReviewWindow}. وضّح أيضًا أن ${p.severePressureRule} لا تعطِ يومًا أو ساعة محددة إذا لم يوجد ETA موثق. غيّر الصياغة حسب سياق العميل ولا تكرر قالبًا ثابتًا.`,
     operational_pressure: `اشرح الظروف التشغيلية بوضوح وبأسلوب إنساني: ${p.severePressureRule} لا تستخدم نفس الجملة حرفيًا كل مرة ولا تحوّل الضغط إلى عذر فارغ.`,
-    application_status: applicationStatusInstruction(truth),
+    application_status: applicationStatusInstruction(truth,turn),
     refund: `افصل بين سياسة الاسترداد العامة والحالة الخاصة. إذا الدفع مؤكد وطلب العميل الاسترداد صراحةً فالتنفيذ من عمران. ${p.refundPressureRule} لا تقل تم الاسترداد إلا بعد ActionResult منفذ.`,
     cancellation: "طلب الإلغاء الصريح عملية تنفيذية مستقلة ويملكها عمران فقط. لا تربطه بالدفع أو الاستمرار. إذا الدفع مؤكد يفتح مسار الاسترداد آليًا، وإذا غير مؤكد يكون إلغاء فقط.",
     continuation: (() => {
@@ -116,7 +159,7 @@ export function buildReplyPlan(input: { turn: InterpretedTurn; state: Conversati
       continue;
     }
     if (act.type === "request_role") {
-      answerItems.push({ actId: act.id, topic: act.topic, resolution: "answer", instruction: instructionFor(act.topic,input.truth), truthRequired: false });
+      answerItems.push({ actId: act.id, topic: act.topic, resolution: "answer", instruction: instructionFor(act.topic,input.truth,input.turn), truthRequired: false });
       continue;
     }
     if (act.type === "deny") {
@@ -133,18 +176,22 @@ export function buildReplyPlan(input: { turn: InterpretedTurn; state: Conversati
         requiredRole: actionRequiresOmran(act.action) ? "omran" : input.state.role.currentRole,
         payload: payloadForAction(input.turn, act.action),
       });
-      answerItems.push({ actId: act.id, topic: act.topic, resolution: "execute_then_answer", instruction: instructionFor(act.topic,input.truth), truthRequired: truthNeeded(act.topic) });
+      answerItems.push({ actId: act.id, topic: act.topic, resolution: "execute_then_answer", instruction: instructionFor(act.topic,input.truth,input.turn), truthRequired: truthNeeded(act.topic) });
       continue;
     }
     if (["ask","complaint","repair_request","correct","provide_fact","provide_reason","unknown"].includes(act.type)) {
       const needs = truthNeeded(act.topic);
       const ambiguous = needs && input.truth.confidence === "none" && input.truth.ambiguousApplications.length > 0;
-      answerItems.push({ actId: act.id, topic: act.topic, resolution: ambiguous ? "ask_narrow_question" : needs && input.truth.confidence === "none" ? "defer_to_truth" : "answer", instruction: instructionFor(act.topic,input.truth), truthRequired: needs });
+      answerItems.push({ actId: act.id, topic: act.topic, resolution: ambiguous ? "ask_narrow_question" : needs && input.truth.confidence === "none" ? "defer_to_truth" : "answer", instruction: instructionFor(act.topic,input.truth,input.turn), truthRequired: needs });
     }
   }
   const risk = input.turn.sentiment === "angry" || input.turn.topics.some((t) => ["legal","social_threat","complaint"].includes(t));
   return {
-    objective: "حل كل أجزاء رسالة العميل داخل نفس المحادثة. قرار الاستمرار بعد التأهيل المبدئي هو انتقال تجاري حاسم: يجب أن يعرض 5 دنانير ورسوم فتح الملف وطريقة الدفع ورابط الوصل الموثق، ما لم يكن الدفع مؤكدًا/بانتظار اعتماد الإدارة. عمران يملك كل تغيير فعلي على الطلب، وتأكيد الدفع يدوي من الإدارة فقط، وممنوع إعادة طلب مستندات وصلت أو استخدام رابط تتبع كرابط رفع.",
+    objective: applicationJourneyStage(input.truth.application) === "preliminary_approved_waiting_decision" && !explicitContinuation(input.turn)
+      ? "اعرض حقيقة الطلب كاملة بشكل إنساني، ثبّت أن الحالة موافقة مبدئية وليست نهائية، ثم اسأل هل تود الاستمرار. لا تفتح أي تفاصيل دفع أو 5 دنانير أو رابط وصل قبل موافقة العميل الصريحة."
+      : applicationJourneyStage(input.truth.application) === "preliminary_review"
+        ? "اعرض حقيقة الطلب وحالته المبدئية فقط. لا تفتح موضوع الدفع أو رسوم فتح الملف أو قرار الاستمرار قبل صدور الموافقة المبدئية."
+        : "حل كل أجزاء رسالة العميل داخل نفس المحادثة وفق مرحلة الطلب الحالية. تفاصيل 5 دنانير تُعرض فقط بعد الموافقة المبدئية وموافقة العميل الصريحة على الاستمرار. عمران يملك التغييرات الحساسة، وتأكيد الدفع يدوي من الإدارة، وممنوع إعادة طلب مستندات وصلت أو استخدام رابط تتبع كرابط رفع.",
     role: input.state.role.currentRole,
     answerItems,
     actions,

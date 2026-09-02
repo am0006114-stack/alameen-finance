@@ -3,6 +3,7 @@ import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, Truth
 import { hasAuthoritativePaymentConfirmation, hasPaymentRefundIntegrityConflict } from "./paymentTruth";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { continuationCommercialState } from "./commercialProgression";
+import { applicationJourneyStage, customerFacingStatusLabel, customerOrderSnapshot, explicitContinuation, firstCustomerName, shouldAskContinuationDecision } from "./applicationJourney";
 
 function executed(actions: ActionResult[], action: string) {
   return actions.find(x=>x.action===action && x.executed && ["executed","already_done"].includes(x.outcome));
@@ -19,6 +20,10 @@ export function buildV3EmergencySafeReply(input: {
   const topics = new Set(input.turn.topics);
   const p = input.truth.policy;
   const officialLinks = buildOfficialLinkContext(input.turn, input.truth);
+  const journeyStage = applicationJourneyStage(input.truth.application);
+  const continuationNow = explicitContinuation(input.turn);
+  const beforeContinuation = journeyStage === "preliminary_review" || (journeyStage === "preliminary_approved_waiting_decision" && !continuationNow);
+  const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
 
   if (topics.has("manager_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName("omran")}.`);
   else if (topics.has("human_request") && !input.state.role.introduced) parts.push(`معك ${roleDisplayName(input.state.role.currentRole)} من الأمين.`);
@@ -37,7 +42,25 @@ export function buildV3EmergencySafeReply(input: {
     parts.push(`بس أكدلي إنك بدك أنفذ ${labels[pendingConfirmation.action] || "هذا الإجراء"} على طلبك.`);
   }
 
-  if (topics.has("payment_fee")) parts.push(`رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وتكون ${p.fileOpeningFeeTiming}.`);
+  if (topics.has("payment_fee")) {
+    if (beforeContinuation) {
+      parts.push(journeyStage === "preliminary_approved_waiting_decision"
+        ? "طلبك حاصل على موافقة مبدئية، لكن قبل أي تفاصيل للخطوة التالية بدي منك قرار واضح: هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟"
+        : "طلبك ما زال في المراجعة المبدئية، ولسه ما وصل لمرحلة الاستمرار. أول ما تصدر الموافقة المبدئية بنوضحلك الخطوة التالية.");
+    } else parts.push(`رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وتكون ${p.fileOpeningFeeTiming}.`);
+  }
+  if (["payment_method","payment_timing","payment_recipient","payment_status"].some((topic) => topics.has(topic as any))) {
+    if (beforeContinuation) {
+      parts.push(journeyStage === "preliminary_approved_waiting_decision"
+        ? "الموافقة المبدئية موجودة. قبل تفاصيل الخطوة التالية، هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟"
+        : "طلبك ما زال في المراجعة المبدئية. أول ما تصدر الموافقة المبدئية بنوضحلك الخطوة التالية كاملة.");
+    } else if (topics.has("payment_status")) {
+      if (hasAuthoritativePaymentConfirmation(input.truth.application)) parts.push("الخطوة المالية مؤكدة إداريًا على الملف.");
+      else parts.push("حالة هذه الخطوة مرتبطة بما هو مسجل على الطلب وبمراجعة الإدارة.");
+    } else {
+      parts.push(p.paymentMethodRule);
+    }
+  }
   if (topics.has("continuation")) {
     const commercial = continuationCommercialState(input.truth.application);
     if (commercial === "payment_ready") {
@@ -53,7 +76,11 @@ export function buildV3EmergencySafeReply(input: {
     }
   }
   if (topics.has("payment_confirmation")) {
-    if (hasAuthoritativePaymentConfirmation(input.truth.application)) {
+    if (beforeContinuation) {
+      parts.push(journeyStage === "preliminary_approved_waiting_decision"
+        ? "الموافقة المبدئية موجودة. هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟"
+        : "الطلب ما زال في المراجعة المبدئية، ولما تصدر الموافقة المبدئية بنوضحلك الخطوة التالية.");
+    } else if (hasAuthoritativePaymentConfirmation(input.truth.application)) {
       parts.push("الدفع ظاهر مؤكد على الطلب، فلا تعيد الدفع.");
     } else {
       if (officialLinks.relevant.receipt) parts.push(`رسالتك وصلت، لكن تأكيد الدفع النهائي يتم من الإدارة بعد مراجعة الإثبات. ارفع الوصل من الرابط الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
@@ -64,7 +91,11 @@ export function buildV3EmergencySafeReply(input: {
   if (topics.has("office_location")) parts.push(`${p.generalLocation}، والحضور بموعد رسمي فقط.`);
   if (topics.has("delivery")) parts.push(p.pickupRule);
   if (topics.has("receipt_upload")) {
-    if (hasAuthoritativePaymentConfirmation(input.truth.application)) parts.push("الدفع مؤكد على الطلب، فما في داعي ترفع الوصل مرة ثانية.");
+    if (beforeContinuation) {
+      parts.push(journeyStage === "preliminary_approved_waiting_decision"
+        ? "الموافقة المبدئية موجودة. هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟"
+        : "الطلب ما زال في المراجعة المبدئية، ولما تصدر الموافقة المبدئية بنوضحلك الخطوة التالية.");
+    } else if (hasAuthoritativePaymentConfirmation(input.truth.application)) parts.push("الدفع مؤكد على الطلب، فما في داعي ترفع الوصل مرة ثانية.");
     else if (officialLinks.relevant.receipt) parts.push(`${p.secureDocumentsRule} رابط رفع الوصل الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
     else parts.push("حتى أعطيك رابط رفع الوصل الرسمي المرتبط بطلبك، ابعث رقم التتبع أو رقم الطلب أولًا.");
   }
@@ -96,12 +127,30 @@ export function buildV3EmergencySafeReply(input: {
   if (topics.has("application_status")) {
     if (input.truth.application) {
       const app = input.truth.application;
-      const name = String(app.fullName || "").trim().split(/\s+/).filter(Boolean).slice(0,2).join(" ");
-      const paid = hasAuthoritativePaymentConfirmation(app);
-      parts.push(`${name ? `${name}، ` : ""}حالة طلبك المسجلة حاليًا: ${app.status || "غير محددة"}.${paid ? " والدفع مؤكد على الملف." : ""}`);
+      const name = firstCustomerName(app);
+      const snapshot = customerOrderSnapshot(app).filter((line) => !line.startsWith("الاسم:") && !line.startsWith("حالة الطلب:"));
+      const intro = name ? `${name}، تأكدت من طلبك.` : "تأكدت من الطلب.";
+      const details = snapshot.length ? ` ${snapshot.join("، ")}.` : "";
+
+      if (contextualStatusConfirmation) {
+        parts.push(`نعم، متأكد. حالة طلبك الآن: ${customerFacingStatusLabel(app)}.`);
+      } else if (journeyStage === "preliminary_review") {
+        parts.push(`${intro}${details} حالة الطلب: ${customerFacingStatusLabel(app)}. الطلب ما زال في المراجعة الأولية.`);
+        if (!contextualStatusConfirmation && officialLinks.relevant.tracking) parts.push(`رابط التتبع الرسمي: ${officialLinks.relevant.tracking}`);
+      } else if (journeyStage === "preliminary_approved_waiting_decision") {
+        parts.push(`${intro}${details} حالة الطلب: موافقة مبدئية. هذا يعني إن الطلب اجتاز المراجعة الأولية وأصبح مؤهلًا للانتقال للدراسة النهائية، لكنها ليست الموافقة النهائية.`);
+        if (!contextualStatusConfirmation && officialLinks.relevant.tracking) parts.push(`رابط التتبع الرسمي: ${officialLinks.relevant.tracking}`);
+        if (shouldAskContinuationDecision(app, input.turn)) parts.push("هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟");
+      } else if (journeyStage === "payment_proof_pending_admin") {
+        parts.push(`${intro}${details} حالة الطلب: إثبات الدفع بانتظار مراجعة الإدارة. ما في داعي تعيد رفع الوصل.`);
+      } else if (journeyStage === "payment_confirmed_under_review") {
+        parts.push(`${intro}${details} حالة الطلب: قيد الدراسة النهائية، والدفع مؤكد إداريًا على الملف.`);
+      } else {
+        parts.push(`${intro}${details} حالة الطلب: ${customerFacingStatusLabel(app)}.`);
+      }
     }
     else if (input.truth.ambiguousApplications.length) parts.push("عندي أكثر من طلب مرتبط بالمحادثة، وبدي أحدد أي طلب تقصد قبل ما أعطيك حالة تخص طلب بعينه.");
-    else parts.push("ما عندي حاليًا حقيقة كافية أربط فيها حالة طلب محدد بدون ما أخمّن.");
+    else parts.push("ما عندي الآن حقيقة كافية أربط فيها حالة طلب محدد بدون ما أخمّن.");
   }
 
   const paymentRefundIntegrityConflict = hasPaymentRefundIntegrityConflict(input.truth.application);

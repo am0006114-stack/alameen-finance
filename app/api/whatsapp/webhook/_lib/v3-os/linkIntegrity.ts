@@ -1,6 +1,7 @@
 import { BUSINESS_WEBSITE } from "../constants";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { continuationNeedsFeeNow } from "./commercialProgression";
+import { canDiscloseFileOpeningPayment } from "./applicationJourney";
 import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "./types";
 
 const HTTP_URL_RE = /https?:\/\/[^\s<>{}\[\]"']+/gi;
@@ -89,14 +90,19 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
 
   if (turnNeeds("website", turn.topics) || turnNeeds("trust", turn.topics)) relevant.website = baseUrl;
   if (turnNeeds("products", turn.topics)) relevant.products = `${baseUrl}/products`;
-  if (turnNeeds("tracking", turn.topics)) relevant.tracking = boundApplicationUrl("/track", truth) || `${baseUrl}/track`;
+  const contextualStatusConfirmation = turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
+  if (turnNeeds("tracking", turn.topics) || (turnNeeds("application_status", turn.topics) && !contextualStatusConfirmation)) {
+    relevant.tracking = boundApplicationUrl("/track", truth) || `${baseUrl}/track`;
+  }
 
   Object.assign(relevant, requirementLinks(turn, truth));
 
-  const receiptRequested =
+  const paymentDisclosureAllowed = canDiscloseFileOpeningPayment(truth.application, turn);
+  const receiptRequested = paymentDisclosureAllowed && (
     turnNeeds("receipt_upload", turn.topics) ||
     turnNeeds("payment_confirmation", turn.topics) ||
-    (turnNeeds("continuation", turn.topics) && continuationNeedsFeeNow(truth));
+    (turnNeeds("continuation", turn.topics) && continuationNeedsFeeNow(truth))
+  );
   const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
   const receipt = receiptRequested && !paymentConfirmed ? boundApplicationUrl("/receipt", truth) : null;
   if (receipt) relevant.receipt = receipt;
@@ -180,7 +186,8 @@ export function detectReplyLinkViolations(input: { reply: string; turn: Interpre
     if (!isOfficialAmeenHost(host)) violations.push(`foreign_domain_reference:${host}`);
   }
 
-  if (input.turn.topics.includes("receipt_upload") || (input.turn.topics.includes("continuation") && continuationNeedsFeeNow(input.truth))) {
+  const paymentDisclosureAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn);
+  if (paymentDisclosureAllowed && (input.turn.topics.includes("receipt_upload") || (input.turn.topics.includes("continuation") && continuationNeedsFeeNow(input.truth)))) {
     if (context.receiptLinkUnavailableReason === "payment_already_confirmed") {
       if (replyUrls.length) violations.push("receipt_link_sent_after_payment_confirmed");
     } else if (context.relevant.receipt) {
@@ -198,7 +205,8 @@ export function detectReplyLinkViolations(input: { reply: string; turn: Interpre
     if (!replyUrls.some((url) => normalizedHttpUrl(url) === expected)) violations.push("required_website_url_missing");
   }
 
-  if (input.turn.topics.includes("tracking") && context.relevant.tracking) {
+  const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
+  if ((input.turn.topics.includes("tracking") || (input.turn.topics.includes("application_status") && !contextualStatusConfirmation)) && context.relevant.tracking) {
     const expected = normalizedHttpUrl(context.relevant.tracking);
     if (!replyUrls.some((url) => normalizedHttpUrl(url) === expected)) violations.push("required_tracking_url_missing");
   }

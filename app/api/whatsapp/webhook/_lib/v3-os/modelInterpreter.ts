@@ -111,6 +111,30 @@ function validRole(v: unknown): InterpretedTurn["explicitRoleRequest"] {
   return null;
 }
 
+
+function resolveContextualStatusFollowup(turn: InterpretedTurn, state: ConversationState, customerText: string): InterpretedTurn {
+  const n = normalizeArabic(customerText).replace(/[؟?!.,،]/g, " ").replace(/\s+/g," ").trim();
+  const statusConfirm = /^(?:متاكد|متأكد|اكيد|أكيد|صح|صحيح|يعني|جد|عنجد)(?:\s|$)/.test(n);
+  if (!statusConfirm || state.currentTopic !== "application_status") return turn;
+  if (turn.acts.some((a) => a.topic === "application_status")) return turn;
+  const act: DialogueAct = {
+    id: `${turn.turnId}:resolved-status-followup`,
+    type: "ask",
+    topic: "application_status",
+    text: customerText,
+    action: "none",
+    value: "confirm_current_application_status",
+    confidence: 0.995,
+    source: "resolved",
+  };
+  return {
+    ...turn,
+    acts: [...turn.acts.filter((a) => !(a.topic === "unknown" && a.type === "unknown")), act],
+    topics: Array.from(new Set([...turn.topics.filter((x) => x !== "unknown"), "application_status"])),
+    confidence: Math.max(turn.confidence, 0.995),
+  };
+}
+
 const ACTION_TOPIC: Partial<Record<ActionKey,TopicKey>> = {
   cancel_application: "cancellation",
   continue_application: "continuation",
@@ -170,7 +194,8 @@ export async function interpretTurnWithAi(input: {
   provider?: V3TextProvider | null;
 }): Promise<{ turn: InterpretedTurn; modelUsed: boolean; modelError: string | null }> {
   const deterministicBase = interpretTurn({ turnId: input.turnId, customerText: input.customerText });
-  const deterministic = resolvePendingConfirmation(deterministicBase,input.state,input.customerText);
+  const contextual = resolveContextualStatusFollowup(deterministicBase,input.state,input.customerText);
+  const deterministic = resolvePendingConfirmation(contextual,input.state,input.customerText);
   if (!input.provider) return { turn: deterministic, modelUsed: false, modelError: null };
 
   try {

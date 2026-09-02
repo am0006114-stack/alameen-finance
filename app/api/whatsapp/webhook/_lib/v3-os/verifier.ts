@@ -2,6 +2,7 @@ import { detectHumanityViolations } from "./humanVoice";
 import { actionRequiresOmran, roleDisplayName } from "./hierarchy";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { continuationCommercialState } from "./commercialProgression";
+import { applicationJourneyStage, canDiscloseFileOpeningPayment, explicitContinuation, firstCustomerName } from "./applicationJourney";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
 import { detectReplyLinkViolations } from "./linkIntegrity";
@@ -85,10 +86,37 @@ function roleIntroduction(reply: string, roleName: string) {
     n.includes(normalizeArabic(`أنا ${roleName}`));
 }
 
+function hasContinuationDecisionQuestion(reply: string) {
+  const n = normalizeArabic(reply);
+  return /هل\s*(?:تود|ترغب)[^؟?]{0,70}(?:الاستمرار|تكمل)|(?:بدك|حاب|حابب)[^؟?]{0,40}(?:تكمل|تستمر)/.test(n);
+}
+
+function hasPaymentDetail(reply: string) {
+  const n = normalizeArabic(reply);
+  return /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,40}(?:كليك|cliq|محفظه|محفظة)/i.test(reply) ||
+    n.includes(normalizeArabic("رسوم فتح الملف"));
+}
+
+function hasAnyPaymentLanguage(reply: string) {
+  const n = normalizeArabic(reply);
+  return /(?:دفع|رسوم|تحويل|حواله|حوالة|وصل\s*الدفع|اثبات\s*الدفع|إثبات\s*الدفع|كليك|cliq|محفظه|محفظة|مبلغ\s*مستحق|مستحق\s*(?:الان|الآن|حاليا|حاليًا))/i.test(reply) || n.includes(normalizeArabic("رسوم فتح الملف"));
+}
+
+function rawStatusLeaked(reply: string) {
+  return /\b(?:preliminary_application|preliminary_qualified|customer_confirmed_continue|pending_payment|payment_info_sent|customer_claimed_paid|pending_payment_confirmation|needs_identity|needs_salary_slip|needs_guarantor|under_review|refund_requested|refund_completed)\b/i.test(reply);
+}
+
+function numericValueMentioned(reply: string, value: number | null | undefined) {
+  if (value == null || !Number.isFinite(Number(value))) return true;
+  const n = Number(value);
+  const candidates = new Set([String(n), String(Math.round(n * 10) / 10), String(Math.round(n * 100) / 100)]);
+  return Array.from(candidates).some((candidate) => reply.includes(candidate));
+}
+
 export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }): VerificationReport {
   const reply = String(input.reply || "").trim();
   const t = normalizeArabic(reply);
-  const missingTopics = input.plan.answerItems
+  let missingTopics = input.plan.answerItems
     .filter((x) => !["greeting","thanks","acknowledgement","unknown"].includes(x.topic) && !topicCovered(x.topic,reply))
     .map((x) => x.topic);
   const unsupportedClaims: string[] = [];
@@ -98,6 +126,58 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   const hierarchyViolations: string[] = [];
   const repetitionFlags: string[] = detectHumanityViolations(reply,input.recentTurns);
   policyViolations.push(...detectReplyLinkViolations({ reply, turn: input.turn, truth: input.truth }).map((x) => `link_integrity:${x}`));
+
+  const journeyStage = applicationJourneyStage(input.truth.application);
+  const continuationNow = explicitContinuation(input.turn);
+  const paymentTopics: TopicKey[] = ["payment_fee","payment_method","payment_timing","payment_recipient","payment_status","payment_confirmation","receipt_upload"];
+  const preContinuationStage = !canDiscloseFileOpeningPayment(input.truth.application, input.turn) && (journeyStage === "preliminary_review" || journeyStage === "preliminary_approved_waiting_decision");
+  if (preContinuationStage) {
+    // Before the customer explicitly chooses to continue, payment topics are intentionally deferred.
+    // Do not fail coverage merely because the safe response refuses to expose payment details.
+    missingTopics = missingTopics.filter((topic) => !paymentTopics.includes(topic));
+  }
+
+  if (rawStatusLeaked(reply)) policyViolations.push("raw_internal_application_status_exposed");
+  if (/(?:هلق|هلّق|هلأ)/.test(reply)) repetitionFlags.push("non_jordanian_now_word");
+
+  if (preContinuationStage) {
+    if (hasPaymentDetail(reply)) policyViolations.push("payment_details_exposed_before_explicit_continuation");
+    if (hasAnyPaymentLanguage(reply)) policyViolations.push("payment_language_exposed_before_explicit_continuation");
+  }
+
+  if (input.turn.topics.includes("application_status") && input.truth.application) {
+    const app = input.truth.application;
+    const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
+    const firstName = firstCustomerName(app);
+    const roleNameForAddress = roleDisplayName(input.plan.role);
+    if (firstName && normalizeArabic(firstName) !== normalizeArabic(roleNameForAddress)) {
+      const roleVocative = new RegExp(`^(?:\\s*(?:اخ|أخ)\\s+)?${roleNameForAddress}[،,:\\s]`, "i");
+      if (roleVocative.test(reply) && !normalizeArabic(reply).startsWith(normalizeArabic(`معك ${roleNameForAddress}`))) policyViolations.push("staff_role_name_used_as_customer_name");
+    }
+    if (!contextualStatusConfirmation) {
+      if (firstName && !normalizeArabic(reply).includes(normalizeArabic(firstName))) policyViolations.push("application_status_customer_name_missing");
+      if (app.trackingId && !reply.includes(app.trackingId)) policyViolations.push("application_status_tracking_missing");
+      if (app.deviceName && !reply.toLowerCase().includes(String(app.deviceName).toLowerCase())) policyViolations.push("application_status_device_missing");
+      if (!numericValueMentioned(reply, app.monthlyPayment)) policyViolations.push("application_status_monthly_payment_missing");
+      if (app.installmentMonths && !reply.includes(String(app.installmentMonths))) policyViolations.push("application_status_installment_duration_missing");
+    }
+
+    if (journeyStage === "preliminary_review") {
+      if (!t.includes(normalizeArabic("مراجعة مبدئية")) && !t.includes(normalizeArabic("قيد المراجعة المبدئية"))) policyViolations.push("preliminary_review_status_label_missing");
+      if (hasContinuationDecisionQuestion(reply)) policyViolations.push("continuation_question_before_preliminary_approval");
+    }
+
+    if (journeyStage === "preliminary_approved_waiting_decision" && !continuationNow) {
+      if (!t.includes(normalizeArabic("موافقة مبدئية"))) policyViolations.push("preliminary_approval_customer_label_missing");
+      if (!hasContinuationDecisionQuestion(reply)) policyViolations.push("preliminary_approval_continue_question_missing");
+      const saysNotFinal = t.includes(normalizeArabic("ليست موافقة نهائية")) ||
+        t.includes(normalizeArabic("ليست الموافقة النهائية")) ||
+        t.includes(normalizeArabic("مش موافقة نهائية")) ||
+        t.includes(normalizeArabic("الموافقة النهائية لم تصدر")) ||
+        t.includes(normalizeArabic("الموافقة النهائية لسه"));
+      if (!saysNotFinal) policyViolations.push("preliminary_approval_not_final_explanation_missing");
+    }
+  }
 
   for (const forbidden of input.truth.policy.forbiddenClaims) if (t.includes(normalizeArabic(forbidden))) policyViolations.push(`forbidden_claim:${forbidden}`);
   if (/\b3\s*(?:دنانير|دينار)\b/.test(reply) || /\b٣\s*(?:دنانير|دينار)\b/.test(reply)) policyViolations.push("forbidden_3_jod");
