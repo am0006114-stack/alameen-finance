@@ -243,9 +243,17 @@ export async function runV3ProductionLive(input: {
       applicationId: truthAfterActions.application?.id || null,
       trackingId: truthAfterActions.application?.trackingId || null,
       waId: input.waId,
-      title: "V3 — الرد النهائي توقف بأمان",
-      description: "الكاتب ومرحلة الإصلاح والـsafe fallback لم ينجحوا في إنتاج رد يجتاز التحقق.",
-      details: { verification, turnId: input.turnId },
+      title: "⛔ توقف الرد بأمان — يحتاج مراجعة",
+      description: "تعذر إنتاج رد نهائي يطابق حقيقة الطلب وسياسات الإرسال حتى بعد محاولة الإصلاح والرد الآمن البديل.",
+      details: {
+        "مواضيع ناقصة": verification.missingTopics.length,
+        "ادعاءات غير مدعومة": verification.unsupportedClaims.length,
+        "تعارضات مع الحقيقة": verification.truthContradictions.length,
+        "ادعاءات تنفيذ غير مثبتة": verification.actionClaimViolations.length,
+        "مخالفات السياسة": verification.policyViolations.length,
+        "مخالفات الصلاحيات": verification.hierarchyViolations.length,
+        "ملاحظات الأسلوب والتكرار": verification.repetitionFlags.length,
+      },
     });
   }
 

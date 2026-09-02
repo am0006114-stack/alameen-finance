@@ -53,7 +53,7 @@ function applicationStatusInstruction(truth: TruthBundle) {
 function instructionFor(topic: string, truth: TruthBundle) {
   const p = truth.policy;
   const map: Record<string,string> = {
-    payment_fee: `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}.`,
+    payment_fee: `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}. وضّح السبب: ${p.fileOpeningFeePurposeRule} ووضّح الاسترداد: ${p.fileOpeningFeeRefundRule} استخدم طمأنة بشرية غير ضاغطة: ${p.continuationReassuranceRule}`,
     payment_status: paymentStatusInstruction(truth),
     payment_confirmation: truth.application
       ? `${paymentStatusInstruction(truth)} تأكيد الدفع لا يتم من كلام العميل أو صورة واتساب. القاعدة: ${p.paymentConfirmationRule} إذا احتاج رفع الإثبات ولم يكن الدفع مؤكدًا استخدم رابط receipt الموجود حرفيًا في OFFICIAL_LINKS فقط.`
@@ -84,7 +84,7 @@ function instructionFor(topic: string, truth: TruthBundle) {
     continuation: (() => {
       const commercial = continuationCommercialState(truth.application);
       if (commercial === "payment_ready") {
-        return `العميل اختار الاستمرار والطلب مؤهل لخطوة رسوم فتح الملف الآن. اشرح بوضوح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، منفصلة عن ثمن الجهاز وعن القسط الأول، وتُطلب الآن لأن الطلب مؤهل مبدئيًا والعميل اختار الاستمرار. اذكر طريقة الدفع الموثقة: ${p.paymentMethodRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS لرفع الوصل. وضّح أن تأكيد الدفع النهائي يدوي من الإدارة بعد مراجعة الوصل، وأن القسط الأول ليس الآن. لا تقل "لا يوجد دفع مطلوب".`;
+        return `العميل اختار الاستمرار والطلب مؤهل لخطوة رسوم فتح الملف الآن. لا تجعل الرد كأنه فاتورة باردة. اشرح بوضوح وبأسلوب مطمئن أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، وتُطلب بعد الموافقة المبدئية لأن العميل اختار الاستمرار. اشرح السبب حرفيًا بالمعنى: ${p.fileOpeningFeePurposeRule} واشرح أن الرسوم مستردة بالكامل وفق القاعدة: ${p.fileOpeningFeeRefundRule} وضّح أن القرار للعميل ولا يوجد ضغط، واستخدم هذه القاعدة النفسية/الإنسانية: ${p.continuationReassuranceRule} بعدها اذكر طريقة الدفع الموثقة: ${p.paymentMethodRule} وأعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS لرفع الوصل. وضّح أن تأكيد الدفع النهائي يدوي من الإدارة بعد مراجعة الوصل، وأن القسط الأول ليس الآن. لا تقل "لا يوجد دفع مطلوب" ولا تختصر الخطوة إلى مجرد أمر دفع.`;
       }
       if (commercial === "already_paid") return "العميل اختار الاستمرار والدفع مؤكد إداريًا أصلًا؛ أكد استمرار المتابعة ولا تطلب 5 دنانير أو وصلًا جديدًا.";
       if (commercial === "payment_pending_admin") return "العميل اختار الاستمرار ووصل الدفع مسجل بانتظار اعتماد الإدارة؛ لا تطلب دفعًا أو وصلًا جديدًا، ووضح أن التأكيد النهائي إداري.";

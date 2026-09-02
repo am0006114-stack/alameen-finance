@@ -161,6 +161,9 @@ export type PolicyTruth = {
   generalLocation: string;
   fileOpeningFeeJod: number;
   fileOpeningFeeTiming: string;
+  fileOpeningFeePurposeRule: string;
+  fileOpeningFeeRefundRule: string;
+  continuationReassuranceRule: string;
   firstInstallmentRule: string;
   pickupRule: string;
   secureDocumentsRule: string;

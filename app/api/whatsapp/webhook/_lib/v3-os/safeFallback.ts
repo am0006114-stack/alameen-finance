@@ -41,7 +41,7 @@ export function buildV3EmergencySafeReply(input: {
   if (topics.has("continuation")) {
     const commercial = continuationCommercialState(input.truth.application);
     if (commercial === "payment_ready") {
-      parts.push(`تمام، قرارك بالاستمرار واضح. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، منفصلة عن ثمن الجهاز وعن القسط الأول. ${p.paymentMethodRule}`);
+      parts.push(`تمام، قرارك بالاستمرار واضح. وبعرف إن أي دفعة إضافية ممكن تخليك تسأل ليش مطلوبة، فبوضحلك إياها من البداية: رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط. ${p.fileOpeningFeePurposeRule} ${p.fileOpeningFeeRefundRule} القرار إلك وحقك محفوظ، وما في ضغط عليك تكمل إذا غيرت رأيك. ${p.paymentMethodRule}`);
       if (officialLinks.relevant.receipt) parts.push(`بعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك: ${officialLinks.relevant.receipt}`);
       parts.push("تأكيد الدفع النهائي يتم يدويًا من الإدارة بعد مراجعة الوصل، والقسط الأول ليس مطلوبًا الآن.");
     } else if (commercial === "already_paid") {

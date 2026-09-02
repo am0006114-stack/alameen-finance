@@ -139,6 +139,9 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
       const aliases = input.truth.policy.paymentAliases || [];
       if (aliases.length && !aliases.some((alias) => reply.includes(alias))) policyViolations.push("continuation_payment_ready_missing_payment_destination");
       if (!/القسط\s*الاول|القسط\s*الأول/.test(t)) policyViolations.push("continuation_payment_ready_first_installment_distinction_missing");
+      if (!/(?:مسترده|مستردة)\s*(?:بالكامل|كامل)/.test(t)) policyViolations.push("continuation_payment_ready_refundability_missing");
+      if (!/(?:فتح\s*الملف|استكمال\s*(?:اجراءات|إجراءات)\s*الطلب)/.test(t)) policyViolations.push("continuation_payment_ready_fee_purpose_missing");
+      if (!/(?:القرار\s*(?:الك|إلك|لك)|براحتك|بدون\s*ضغط|ما\s*في\s*ضغط|حقك\s*محفوظ|اذا\s*غيرت\s*رايك|إذا\s*غيرت\s*رأيك)/.test(t)) policyViolations.push("continuation_payment_ready_human_reassurance_missing");
     }
     if (["already_paid","payment_pending_admin"].includes(commercial) && /(?:ادفع|حول|حوّل)[^\n]{0,40}(?:5|٥|رسوم)/.test(t)) truthContradictions.push("continuation_payment_already_handled_but_fee_requested_again");
   }
