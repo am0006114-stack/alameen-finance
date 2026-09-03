@@ -18,6 +18,11 @@ function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   return turn.topics.includes("payment_fee") || /(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|بدون\s*(?:خمس|5|٥)|ما\s*بتفتحو[^\n]{0,30}(?:خمس|5|٥)|لازم[^\n]{0,30}(?:خمس|5|٥)/.test(q);
 }
 
+function explicitInstallmentPaymentChannelQuestion(turn: InterpretedTurn) {
+  const q = normalizeArabic(turn.rawText);
+  return /(?:وين|كيف|لمن|لمين|على\s+وين|طريقه|طريقة)[^\n]{0,35}(?:القسط|الاقساط)|(?:القسط|الاقساط)[^\n]{0,35}(?:وين|كيف|لمن|لمين|دفع|تحويل|محفظه|محفظة)/.test(q);
+}
+
 export function buildWriterPrompt(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }) {
   const roleName = roleDisplayName(input.plan.role);
   const alreadyIntroduced = Boolean(input.state.role.introduced);
@@ -32,7 +37,8 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const orderSnapshot = customerOrderSnapshot(input.truth.application);
   const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
   const fullPolicy = getV3Policy();
-  const paymentDetailsAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn);
+  const installmentPaymentChannelQuestion = explicitInstallmentPaymentChannelQuestion(input.turn);
+  const paymentDetailsAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn) && !installmentPaymentChannelQuestion;
   const feePolicyQuestionNow = explicitFeePolicyQuestion(input.turn);
   const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: safeRecentTurns });
   const writerPolicy = paymentDetailsAllowed
@@ -78,6 +84,7 @@ CUSTOMER_NAME=${preferredName || "غير متوفر"}
 CUSTOMER_JOURNEY_STAGE=${journeyStage}
 EXPLICIT_CONTINUATION_NOW=${continuationNow}
 EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
+INSTALLMENT_PAYMENT_CHANNEL_QUESTION=${installmentPaymentChannelQuestion}
 MUST_ASK_CONTINUATION_DECISION=${mustAskContinuation}
 CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 
@@ -114,7 +121,9 @@ CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 - لا تعدّل query parameters للرابط الرسمي ولا تختصره ولا تستبدل الدومين.
 - إذا CUSTOMER_NAME متوفر والحقيقة مربوطة بطلب موثوق، استخدم الاسم بشكل طبيعي عند أول شرح مهم أو حالة طلب؛ لا تبدأ بصيغة آلية مثل "أهلاً بك، رقم التتبع ... موجود عندي" ولا تكرر الاسم بكل رسالة.
 - DOCUMENT_TRUTH داخل TRUTH هو المرجع الوحيد لمعرفة ما رُفع فعليًا. ممنوع تطلب إعادة الهوية/كشف الراتب/بيانات الكفيل/وصل الدفع إذا DOCUMENT_TRUTH يقول إنها وصلت.
+- DOCUMENT_TRUTH يثبت ما وصل فعليًا، لكنه لا يحتوي قائمة إلزام شخصية كاملة لكل عميل. لا تحوّل غياب بيانات الكفيل إلى مستند ناقص إلزامي. بيانات الكفيل تُذكر دائمًا بصيغة مشروطة "قد تُطلب حسب حالة الملف" ما لم توجد حقيقة مستقلة وصريحة تلزمها. وإذا DOCUMENT_TRUTH غير محمّل، ممنوع أن تقول "ضل عليك" أو "ناقصك" مستند محدد كحقيقة على الملف.
 - في الأهلية والمتطلبات لا تقل "أكيد بزبط"، ولا تضمن القبول، ولا تقل إن مستندًا غير مطلوب نهائيًا لمجرد وجود كفيل. استخدم صياغة مشروطة: المتطلبات تعتمد على مراجعة الملف، وقد تُطلب بيانات الكفيل حسب الحالة.
+- PAYMENT POLICY داخل POLICY (المحفظة/المستفيد/AMEEENPAY/AMENPAY/paymentMethodRule) يخص حصريًا رسوم فتح الملف 5 دنانير قبل الدراسة النهائية، وليس قناة سداد الأقساط الشهرية بعد استلام الجهاز. ممنوع تمامًا قول إن الأقساط الشهرية تُحوّل إلى نفس المحفظة أو نفس المستفيد أو نفس alias. إذا سأل العميل أين/كيف يدفع الأقساط الشهرية ولم توجد حقيقة مخصصة لذلك في TRUTH، قل فقط إن أول قسط بعد شهر من الاستلام وتوقيع العقد، وإن جهة/طريقة سداد الأقساط الشهرية غير موثقة لديك الآن ولا يجوز استخدام بيانات رسوم فتح الملف كبديل.
 - إذا سأل العميل هل جهة عمله موجودة في السجل التجاري، لا تقل "بالتأكيد بنتحقق" كأنه جواب نعم، ولا تؤكد التسجيل بدون مصدر حقيقة مخصص. إذا لا توجد نتيجة سجل تجاري موثقة في TRUTH، قل بوضوح إنك لا تملك نتيجة موثقة تؤكد ذلك وأن التحقق يتم ضمن دراسة الملف.
 - لا تعرض للعميل رموز status أو payment_status الخام ولا تضع اسم الحالة بين اقتباسات كأنه حقل قاعدة بيانات؛ استخدم CUSTOMER_ORDER_SNAPSHOT وحالة العميل المفهومة فقط.
 - إذا CUSTOMER_JOURNEY_STAGE=preliminary_review: اعرض معلومات الطلب وحالته المبدئية فقط. لا تفتح تفاصيل التحويل أو المستفيد أو رابط الوصل. الاستثناء الوحيد: إذا EXPLICIT_FEE_POLICY_QUESTION_NOW=true لأن العميل سأل مباشرة عن وجود/سبب رسوم الـ5 دنانير، يجوز شرح قيمة الرسوم وسببها وقاعدة الاسترداد فقط، بدون أي اسم مستفيد أو alias أو تعليمات تحويل أو receipt URL. وممنوع سؤال "هل تود الاستمرار؟" لأن الموافقة المبدئية لم تصدر بعد.

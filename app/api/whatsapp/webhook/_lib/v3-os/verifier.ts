@@ -217,6 +217,27 @@ function excessiveLaughter(reply: string) {
   return /(?:ه){12,}/.test(compact) || /(?:ح){12,}/.test(compact) || /(.)\1{18,}/u.test(compact);
 }
 
+function asksInstallmentPaymentChannel(turn: InterpretedTurn) {
+  const q = normalizeArabic(turn.rawText);
+  return /(?:وين|كيف|لمن|لمين|على\s+وين|طريقه|طريقة)[^\n]{0,35}(?:القسط|الاقساط)|(?:القسط|الاقساط)[^\n]{0,35}(?:وين|كيف|لمن|لمين|دفع|تحويل|محفظه|محفظة)/.test(q);
+}
+
+function reusesFileOpeningPaymentForInstallments(reply: string) {
+  const n = normalizeArabic(reply);
+  return restrictedPaymentDestinationDetail(reply) ||
+    /(?:نفس|ذات)[^\n]{0,25}(?:المحفظه|المحفظة|المستفيد|بيانات\s*الدفع)/.test(n) ||
+    /(?:القسط|الاقساط)[^\n]{0,55}(?:orange\s*money|محفظه|محفظة|amee+npay|amenpay|abdul\s+rahman)/i.test(reply);
+}
+
+function guarantorRequirementOverclaim(reply: string) {
+  const n = normalizeArabic(reply);
+  if (!/(?:بيانات|هويه|هوية)[^\n]{0,12}الكفيل|الكفيل[^\n]{0,12}(?:بيانات|هويه|هوية)/.test(n)) return false;
+  const conditional = /(?:قد|ممكن|حسب\s*(?:حاله|الحاله|حالة|الحالة)|اذا\s*(?:طلبت|احتاجت|تطلبت)|إذا\s*(?:طلبت|احتاجت|تطلبت))[^\n]{0,55}(?:الكفيل|بيانات)/.test(n) ||
+    /(?:الكفيل|بيانات\s*الكفيل)[^\n]{0,45}(?:حسب\s*(?:الحاله|الحالة)|اذا\s*(?:طلب|احتاج)|إذا\s*(?:طلب|احتاج))/.test(n);
+  if (conditional) return false;
+  return /(?:باقي|ضل|ناقص|لازم|مطلوب|بنحتاج|نحتاج|الاوراق\s*الاساسيه|الأوراق\s*الأساسية)[^\n]{0,100}(?:الكفيل|بيانات\s*الكفيل)/.test(n);
+}
+
 function normalizedTokens(value: string) {
   return normalizeArabic(value).replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
 }
@@ -379,6 +400,14 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     if (/(?:اكيد|أكيد)\s+(?:بزبط|بتزبط|مقبول)|ما\s+رح\s+تحتاج[^\n]{0,35}(?:كشف|شهاده|شهادة)\s*راتب|وجود\s+(?:كفيل|كفلاء)\s+مطلوب/i.test(reply)) {
       unsupportedClaims.push("eligibility_or_document_requirement_overclaim");
     }
+    if (guarantorRequirementOverclaim(reply)) unsupportedClaims.push("guarantor_requirement_presented_as_mandatory_without_truth");
+    if (!input.truth.application?.documents?.loaded && /(?:باقي|ضل|ناقص)[^\n]{0,100}(?:الهويه|الهوية|كشف\s*راتب|شهاده\s*راتب|شهادة\s*راتب|بيانات\s*الكفيل)/.test(t)) {
+      unsupportedClaims.push("specific_missing_documents_claim_without_document_truth");
+    }
+  }
+
+  if (asksInstallmentPaymentChannel(input.turn) && reusesFileOpeningPaymentForInstallments(reply)) {
+    unsupportedClaims.push("installment_payment_destination_not_authoritative");
   }
 
   const docs = input.truth.application?.documents;

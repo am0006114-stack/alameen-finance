@@ -62,6 +62,10 @@ function rawAsksInstallmentAmount(q: string) {
   return /(?:كم|قديش|شو).{0,20}(?:قسط|القسط)|(?:القسط|قسطه|قسطو).{0,20}(?:كم|قديش)/.test(q);
 }
 
+function rawAsksInstallmentPaymentChannel(q: string) {
+  return /(?:وين|كيف|لمن|لمين|على\s+وين|طريقه|طريقة)[^\n]{0,35}(?:القسط|الاقساط)|(?:القسط|الاقساط)[^\n]{0,35}(?:وين|كيف|لمن|لمين|دفع|تحويل|محفظه|محفظة)/.test(q);
+}
+
 function rawAsksProductBoxCondition(q: string) {
   return /(?:الجهاز|التلفون|الموبايل).{0,25}(?:جديد|بالكرتونه|بالكرتونة|مختوم)|(?:جديد|بالكرتونه|بالكرتونة|مختوم).{0,25}(?:الجهاز|التلفون|الموبايل)/.test(q);
 }
@@ -125,6 +129,10 @@ export function buildZeroFallbackReply(input: {
   if (app && rawAsksInstallmentAmount(q) && app.monthlyPayment != null) {
     const duration = app.installmentMonths ? ` لمدة ${app.installmentMonths} شهر` : "";
     return `القسط الشهري التقريبي المسجل على طلبك هو ${app.monthlyPayment} دينار${duration}. وإذا تغير الجهاز أو السعر، ما بعتمد حسبة جديدة إلا بعد ما تتحدث بيانات الطلب فعليًا.`;
+  }
+
+  if (rawAsksInstallmentPaymentChannel(q)) {
+    return `${p.firstInstallmentRule} أما جهة أو طريقة سداد الأقساط الشهرية، ما عندي إلها بيانات موثقة ضمن حقيقة الطلب الحالية، لذلك ما رح أستخدم محفظة أو مستفيد رسوم فتح الملف على إنها بيانات الأقساط.`;
   }
 
   if (rawAsksProductBoxCondition(q)) {
@@ -203,8 +211,8 @@ export function buildZeroFallbackReply(input: {
         docs.salarySlipUploaded ? "كشف/شهادة الراتب" : null,
         docs.guarantorDataComplete ? "بيانات الكفيل" : null,
       ].filter(Boolean);
-      if (present.length) parts.push(`الموجود على ملفك حاليًا: ${present.join("، ")}. ما رح أطلب منك تعيد مستند وصلنا. إذا احتاجت المراجعة مستندًا إضافيًا بنطلبه عبر الرابط الرسمي الآمن فقط.`);
-      else parts.push("ما عندي مستند ناقص محدد أطلبه منك الآن. إذا احتاجت المراجعة مستندًا إضافيًا بنطلبه عبر الرابط الرسمي الآمن فقط.");
+      if (present.length) parts.push(`الموجود على ملفك حاليًا: ${present.join("، ")}. ما رح أطلب منك تعيد مستند وصلنا. إثبات الدخل من المتطلبات الأساسية، أما بيانات الكفيل فقد تُطلب حسب حالة الملف فقط. إذا احتاجت المراجعة مستندًا إضافيًا بنطلبه عبر الرابط الرسمي الآمن.`);
+      else parts.push("ما عندي مستند ناقص محدد مثبت على الملف الآن. إثبات الدخل من المتطلبات الأساسية، أما بيانات الكفيل فقد تُطلب حسب حالة الملف فقط. أي مستند إضافي بنطلبه عبر الرابط الرسمي الآمن.");
     } else parts.push("المتطلبات تعتمد على حالة الملف. المستندات الحساسة تُرفع فقط عبر الرابط الرسمي الآمن، وما بنستلمها على واتساب.");
   }
 
