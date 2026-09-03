@@ -19,7 +19,7 @@ const ACTION_LABELS: Record<string,string> = {
 
 function actionSentence(plan: ReplyPlan, actions: ActionResult[]) {
   const planned = plan.actions.find((x) => ACTION_LABELS[x.action]);
-  if (!planned) return null;
+  if (!planned || planned.action === "continue_application") return null;
   const result = actions.find((x) => x.action === planned.action);
   const label = ACTION_LABELS[planned.action] || "الإجراء المطلوب";
   if (result?.executed && ["executed","already_done"].includes(result.outcome) && result.authoritativeSummary) return result.authoritativeSummary;
@@ -46,6 +46,38 @@ function pick<T>(values: T[], seed: string): T {
   return values[hash % values.length];
 }
 
+function rawAsksFeePolicy(q: string) {
+  return /(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|بدون\s*(?:خمس|5|٥)|ما\s*بتفتحو[^\n]{0,30}(?:خمس|5|٥)|لازم[^\n]{0,30}(?:خمس|5|٥)/.test(q);
+}
+
+function rawAsksContactNumber(q: string) {
+  return /(?:رقم\s*(?:تواصل|اتصال|هاتف|واتساب)|في\s+رقم\s+تواصل|بدي\s+احكي\s+تلفون|اتصل\s+عليكم|مكالمة)/.test(q);
+}
+
+function rawAsksPickupWhen(q: string) {
+  return /(?:متى|امتى|ايمتى|أي\s*وقت|موعد).{0,30}(?:اجي|أجي|استلم)|(?:اجي|أجي).{0,30}(?:استلم|موعد)|(?:اعطيني|أعطيني).{0,20}موعد/.test(q);
+}
+
+function rawAsksInstallmentAmount(q: string) {
+  return /(?:كم|قديش|شو).{0,20}(?:قسط|القسط)|(?:القسط|قسطه|قسطو).{0,20}(?:كم|قديش)/.test(q);
+}
+
+function rawAsksProductBoxCondition(q: string) {
+  return /(?:الجهاز|التلفون|الموبايل).{0,25}(?:جديد|بالكرتونه|بالكرتونة|مختوم)|(?:جديد|بالكرتونه|بالكرتونة|مختوم).{0,25}(?:الجهاز|التلفون|الموبايل)/.test(q);
+}
+
+function isSocialAck(q: string) {
+  return /^(?:تمام|اوك|اوكي|شكرا|شكرًا|يسلمو|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|على\s+خير|ان\s+شاء\s+الله|إن\s+شاء\s+الله|الحمد\s+لله|اه\s+تمام|أه\s+تمام)[!؟?.,،\s]*$/.test(q);
+}
+
+function safeStatusLine(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app) return null;
+  const name = firstCustomerName(app);
+  const who = name ? `${name}، ` : "";
+  return `${who}طلبك${app.trackingId ? ` ${app.trackingId}` : ""} ${customerFacingStatusLabel(app)}.`;
+}
+
 export function buildZeroFallbackReply(input: {
   turn: InterpretedTurn;
   state: ConversationState;
@@ -60,6 +92,48 @@ export function buildZeroFallbackReply(input: {
   const stage = applicationJourneyStage(app);
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const parts: string[] = [];
+  const q = normalizeArabic(input.turn.rawText).replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ").trim();
+
+  // Social acknowledgements must stay social. Never dump the full order snapshot
+  // just because an application is bound to the conversation.
+  if (isSocialAck(q) && !input.turn.requestedActions.length && !input.turn.topics.some((t) => ["application_status","review_timing","payment_status","refund","requirements"].includes(t))) {
+    return pick(["العفو، الله يعطيك العافية.", "تمام، الله يعطيك العافية.", "على خير إن شاء الله، وأنا موجود لأي استفسار."], input.turn.turnId);
+  }
+
+  // A customer number is never an official company contact number. If no explicit
+  // official contact is provided by policy, keep the channel statement number-free.
+  if (rawAsksContactNumber(q) || input.turn.topics.includes("call_request")) {
+    return "المتابعة الأساسية للطلبات عبر واتساب الحالي. إذا احتجت قناة تواصل إضافية بنعطيك فقط البيانات الرسمية المعتمدة؛ ما رح أعطيك رقم غير موثق.";
+  }
+
+  // Direct policy answer when the customer explicitly asks whether the 5 JOD fee
+  // exists/is required. This explains the rule without exposing recipient/alias/receipt details.
+  if (rawAsksFeePolicy(q) && (stage === "preliminary_approved_waiting_decision" || stage === "preliminary_review")) {
+    return `رسوم فتح الملف هي ${p.fileOpeningFeeJod} دنانير، وتُطلب فقط بعد الموافقة المبدئية إذا اخترت الاستمرار بإجراءات فتح الملف والدراسة النهائية. هي ليست ثمن الجهاز ولا القسط الأول، وتخضع للاسترداد عبر المسار الرسمي عند الإلغاء بعد دفع مؤكد. ما بنرسل تفاصيل التحويل قبل ما تختار الاستمرار.`;
+  }
+
+  // A preliminary approval is not a pickup appointment. Answer the real question
+  // instead of repeating the whole order snapshot.
+  if (app && rawAsksPickupWhen(q) && stage !== "approved") {
+    const status = safeStatusLine(input.truth) || "طلبك لسا ضمن الإجراءات.";
+    const next = stage === "preliminary_approved_waiting_decision"
+      ? "الموافقة الحالية مبدئية وليست النهائية، ولسا ما في موعد استلام. إذا حاب تكمل بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية، أكدلي إنك بدك تستمر."
+      : "لسا ما في موعد استلام رسمي على الطلب. الاستلام من المكتب فقط بعد اكتمال الإجراءات وتحديد موعد رسمي.";
+    return `${status} ${next}`;
+  }
+
+  if (app && rawAsksInstallmentAmount(q) && app.monthlyPayment != null) {
+    const duration = app.installmentMonths ? ` لمدة ${app.installmentMonths} شهر` : "";
+    return `القسط الشهري التقريبي المسجل على طلبك هو ${app.monthlyPayment} دينار${duration}. وإذا تغير الجهاز أو السعر، ما بعتمد حسبة جديدة إلا بعد ما تتحدث بيانات الطلب فعليًا.`;
+  }
+
+  if (rawAsksProductBoxCondition(q)) {
+    return "بالنسبة لكون الجهاز جديد بالكرتونة أو مختوم، ما بدي أأكد صفة مش ظاهرة عندي بشكل موثق في بيانات الطلب الحالية. أي مواصفة بيعتمدها العرض أو المنتج الرسمي هي المرجع عند الإتمام.";
+  }
+
+  if (/(?:السجل\s+التجاري|مسجله\s+تجاري|مسجلة\s+تجاري|الشركه\s+مسجله|الشركة\s+مسجلة)/.test(q)) {
+    return "ما عندي ضمن بيانات الطلب الحالية نتيجة سجل تجاري موثقة أقدر أأكد منها تسجيل جهة العمل. التحقق من بيانات جهة العمل يتم ضمن دراسة الملف، وما بدي أعطيك تأكيد غير ظاهر عندي.";
+  }
 
   const manualDisposition = resolveManualActionDisposition({ state: input.state, truth: input.truth, plan: input.plan, actions: input.actions });
   const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: input.truth });
@@ -72,6 +146,7 @@ export function buildZeroFallbackReply(input: {
     const status = shortStatus(input.truth);
     if (status) parts.push(status);
     else if (input.truth.ambiguousApplications.length) parts.push("عندي أكثر من طلب مرتبط بالمحادثة. ابعث رقم التتبع للطلب اللي بدك أراجعه حتى ما أعطيك معلومات عن طلب ثاني.");
+    else if (input.state.activeTrackingId) parts.push(`رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ ما عندي تحديث موثق أضيفه على حالته بهذه اللحظة.`);
     else parts.push("حتى أعطيك حالة صحيحة، ابعث رقم التتبع أو رقم الطلب وبراجع نفس الطلب معك.");
     if (app && stage === "preliminary_approved_waiting_decision" && shouldAskContinuationDecision(app, input.turn)) {
       parts.push("الموافقة الحالية مبدئية وليست النهائية. هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟");
@@ -91,8 +166,9 @@ export function buildZeroFallbackReply(input: {
 
   if (["payment_status","payment_confirmation","payment_method","payment_timing","payment_recipient","payment_fee","receipt_upload"].some((t) => topics.has(t as any))) {
     if (!canDiscloseFileOpeningPayment(app, input.turn)) {
-      if (stage === "preliminary_approved_waiting_decision") parts.push("الطلب حاصل على موافقة مبدئية. قبل أي تفاصيل دفع، بدي قرارك أولًا: هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟");
-      else parts.push("الطلب لسه ما وصل لمرحلة رسوم فتح الملف، لذلك ما رح أفتح موضوع الدفع قبل وقته.");
+      if (rawAsksFeePolicy(q)) parts.push(`رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وتُطلب فقط بعد الموافقة المبدئية إذا اخترت الاستمرار. ما بنرسل تفاصيل التحويل قبل قرار الاستمرار.`);
+      else if (stage === "preliminary_approved_waiting_decision") parts.push("الطلب حاصل على موافقة مبدئية. قبل تفاصيل التحويل، بدي قرارك أولًا: هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟");
+      else parts.push("الطلب لسه ما وصل لمرحلة رسوم فتح الملف، لذلك ما رح أفتح تفاصيل التحويل قبل وقته.");
     } else if (hasAuthoritativePaymentConfirmation(app)) {
       parts.push("الدفع مؤكد إداريًا على الطلب، وما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.");
     } else if (topics.has("receipt_upload") || topics.has("payment_confirmation")) {
@@ -127,33 +203,28 @@ export function buildZeroFallbackReply(input: {
         docs.salarySlipUploaded ? "كشف/شهادة الراتب" : null,
         docs.guarantorDataComplete ? "بيانات الكفيل" : null,
       ].filter(Boolean);
-      if (present.length) parts.push(`الموجود على ملفك حاليًا: ${present.join("، ")}. ما رح أطلب منك تعيد مستند وصلنا.`);
-      else parts.push(p.secureDocumentsRule);
-    } else parts.push(p.secureDocumentsRule);
+      if (present.length) parts.push(`الموجود على ملفك حاليًا: ${present.join("، ")}. ما رح أطلب منك تعيد مستند وصلنا. إذا احتاجت المراجعة مستندًا إضافيًا بنطلبه عبر الرابط الرسمي الآمن فقط.`);
+      else parts.push("ما عندي مستند ناقص محدد أطلبه منك الآن. إذا احتاجت المراجعة مستندًا إضافيًا بنطلبه عبر الرابط الرسمي الآمن فقط.");
+    } else parts.push("المتطلبات تعتمد على حالة الملف. المستندات الحساسة تُرفع فقط عبر الرابط الرسمي الآمن، وما بنستلمها على واتساب.");
   }
 
   if (topics.has("office_location")) parts.push(`${p.generalLocation}، والحضور للمكتب بموعد رسمي فقط.`);
   if (topics.has("delivery")) parts.push(p.pickupRule);
   if (topics.has("first_installment")) parts.push(p.firstInstallmentRule);
 
-  const q = normalizeArabic(input.turn.rawText);
   if (!parts.length && /(?:شروط|تقسيط|طريقه التقديم|طريقة التقديم|كيف اقدم|كيف أقدم)/.test(q)) {
     parts.push("أكيد. التقديم يبدأ بطلب موافقة مبدئية، والمتطلبات تختلف حسب الملف. عادةً نحتاج هوية وإثبات دخل، وقد تُطلب بيانات كفيل حسب الحالة. المستندات الحساسة تُرفع فقط عبر الرابط الرسمي الآمن، وما بنستلمها على واتساب.");
   }
 
   if (!parts.length) {
-    const status = shortStatus(input.truth);
-    if (status) parts.push(status, pick([
-      "احكيلي النقطة اللي بدك إياها على نفس الطلب وبجاوبك على المسجل عندي.",
-      "شو النقطة اللي بدك أوضحها على الطلب؟",
-      "أنا معك على نفس الطلب؛ احكيلي شو بدك أعرفك عليه بالضبط.",
-    ], input.turn.turnId));
-    else if (input.state.activeTrackingId) parts.push(`رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ احكيلي شو بدك تعرف عنه.`);
-    else parts.push(pick([
-      "أنا معك. احكيلي سؤالك مباشرة، وإذا كان عن طلب سابق وما قدرت أربطه تلقائيًا وقتها بطلب منك معلومة واحدة فقط لتحديده.",
-      "تفضل، احكيلي شو بدك تعرف. إذا احتجت معلومة لتحديد طلب سابق بطلب منك معلومة واحدة فقط.",
-      "احكيلي النقطة اللي بدك إياها، وأنا بحاول أربط الطلب من السياق قبل ما أطلب منك أي معلومة موجودة أصلًا.",
-    ], input.turn.turnId));
+    if (topics.has("human_request") || /(?:موظف|موضف|حدا\s+يرد|احكي\s+مع)/.test(q)) {
+      parts.push("أنا معك من فريق الأمين وبكمل معك من نفس المحادثة. احكيلي المطلوب مباشرة وبجاوبك على المسجل بدون ما أعيد عليك معلومات معروفة.");
+    } else if (app) {
+      const status = safeStatusLine(input.truth);
+      parts.push(status || "طلبك مرتبط بالمحادثة عندي.");
+      parts.push("إذا سؤالك عن نقطة محددة مثل الموعد أو القسط أو المستندات، اكتبها مباشرة وبجاوبك عليها بدون إعادة كل تفاصيل الطلب.");
+    } else if (input.state.activeTrackingId) parts.push(`رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ اكتب سؤالك على نفس الطلب مباشرة.`);
+    else parts.push("أنا معك. احكيلي سؤالك مباشرة، وإذا تعذر ربط طلب سابق بطلب منك معلومة واحدة فقط لتحديده.");
   }
 
   return parts.join("\n\n").trim();

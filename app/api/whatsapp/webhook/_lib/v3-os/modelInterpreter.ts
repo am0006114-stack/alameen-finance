@@ -135,6 +135,36 @@ function resolveContextualStatusFollowup(turn: InterpretedTurn, state: Conversat
   };
 }
 
+function enrichOperationalActs(turn: InterpretedTurn, customerText: string): InterpretedTurn {
+  const q = normalizeArabic(customerText).replace(/[؟?!.,،]/g, " ").replace(/\s+/g, " ").trim();
+  const additions: Array<{ topic: TopicKey; type?: DialogueActType; value?: string | null }> = [];
+  if (/(?:متى|امتى|ايمتى|موعد).{0,30}(?:اجي|أجي|استلم)|(?:اجي|أجي).{0,30}(?:استلم|موعد)/.test(q)) additions.push({ topic: "appointment", type: "ask", value: "pickup_time" });
+  if (/(?:وين|اين|أين).{0,24}(?:استلم|اجي|أجي)|(?:موقع|عنوان).{0,20}(?:المكتب|الاستلام)/.test(q)) additions.push({ topic: "office_location", type: "ask", value: "pickup_location" });
+  if (/(?:كم|قديش|شو).{0,20}(?:قسط|القسط)|(?:القسط|قسطه|قسطو).{0,20}(?:كم|قديش)/.test(q)) additions.push({ topic: "device_recalculation", type: "ask", value: "installment_amount" });
+  if (/(?:رقم\s*(?:تواصل|اتصال|هاتف|واتساب)|مكالمة|اتصل\s+عليكم)/.test(q)) additions.push({ topic: "call_request", type: "ask", value: "official_contact" });
+  if (/(?:الجهاز|التلفون|الموبايل).{0,25}(?:جديد|بالكرتونه|بالكرتونة|مختوم)|(?:جديد|بالكرتونه|بالكرتونة|مختوم).{0,25}(?:الجهاز|التلفون|الموبايل)/.test(q)) additions.push({ topic: "products", type: "ask", value: "product_condition" });
+  if (/(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|بدون\s*(?:خمس|5|٥)|ما\s*بتفتحو[^\n]{0,30}(?:خمس|5|٥)/.test(q)) additions.push({ topic: "payment_fee", type: "ask", value: "fee_policy" });
+  if (!additions.length) return turn;
+
+  const acts = [...turn.acts];
+  const topics = new Set(turn.topics);
+  for (const add of additions) {
+    if (acts.some((a) => a.topic === add.topic && a.value === add.value)) continue;
+    acts.push({
+      id: `${turn.turnId}:enriched:${add.topic}`,
+      type: add.type || "ask",
+      topic: add.topic,
+      text: customerText,
+      action: "none",
+      value: add.value || null,
+      confidence: 0.995,
+      source: "resolved",
+    });
+    topics.add(add.topic);
+  }
+  return { ...turn, acts, topics: Array.from(topics), confidence: Math.max(turn.confidence, 0.995) };
+}
+
 const ACTION_TOPIC: Partial<Record<ActionKey,TopicKey>> = {
   cancel_application: "cancellation",
   continue_application: "continuation",
@@ -201,7 +231,7 @@ export async function interpretTurnWithAi(input: {
 }): Promise<{ turn: InterpretedTurn; modelUsed: boolean; modelError: string | null }> {
   const deterministicBase = interpretTurn({ turnId: input.turnId, customerText: input.customerText });
   const contextual = resolveContextualStatusFollowup(deterministicBase,input.state,input.customerText);
-  const deterministic = resolvePendingConfirmation(contextual,input.state,input.customerText);
+  const deterministic = enrichOperationalActs(resolvePendingConfirmation(contextual,input.state,input.customerText), input.customerText);
   if (!input.provider) return { turn: deterministic, modelUsed: false, modelError: null };
 
   try {
@@ -252,7 +282,7 @@ export async function interpretTurnWithAi(input: {
     ]));
 
     return {
-      turn: {
+      turn: enrichOperationalActs({
         ...deterministic,
         acts: merged,
         topics,
@@ -262,7 +292,7 @@ export async function interpretTurnWithAi(input: {
         urgency,
         confidence: Math.max(deterministic.confidence, merged.length ? Math.min(0.99, merged.reduce((s,a)=>s+a.confidence,0)/merged.length) : 0),
         warnings,
-      },
+      }, input.customerText),
       modelUsed: true,
       modelError: null,
     };

@@ -161,7 +161,12 @@ function broadCompletionClaim(reply: string, action: string) {
       /(?:ثبتنا|اعتمدنا).{0,20}(?:الجهاز|الموديل)/i,
     ],
     cancel_application: [/(?:خلصت|نفذت|نفّذت|تم).{0,20}(?:الغاء|إلغاء).{0,20}(?:الطلب)?/i,/(?:طلبك|الطلب).{0,12}(?:صار\s+)?(?:ملغي|ملغى)/i],
-    request_refund: [/(?:خلص|تم|اكتمل).{0,20}(?:الاسترداد|الاسترجاع)/i,/(?:رجعنا|حولنا|حوّلنا).{0,20}(?:المبلغ|المصاري)/i],
+    request_refund: [
+      /(?:خلص|تم|اكتمل).{0,20}(?:الاسترداد|الاسترجاع)/i,
+      /(?:رجعنا|حولنا|حوّلنا).{0,20}(?:المبلغ|المصاري)/i,
+      /(?:تم\s+تسجيل|سجلنا).{0,55}(?:بيانات|رقم|محفظ|حساب|على\s+ملف)/i,
+      /(?:الاسترداد|الاسترجاع).{0,20}(?:قيد\s+المعالجه|قيد\s+المعالجة)/i,
+    ],
     reopen_application: [/(?:تم|خلصت).{0,24}(?:اعاده|إعادة).{0,18}(?:فتح|تفعيل)/i],
     stop_refund: [/(?:وقفنا|أوقفنا|تم.{0,12}إيقاف).{0,18}(?:الاسترداد|الاسترجاع)/i],
     change_application_data: [/(?:خلصت|تم|حدثت|حدّثت|عدلت|عدّلت).{0,25}(?:البيانات|بياناتك|الطلب)/i,/(?:البيانات|بياناتك).{0,15}(?:صارت|أصبحت|اصبحت).{0,12}(?:محدثه|محدثة|معدله|معدلة)/i],
@@ -169,6 +174,71 @@ function broadCompletionClaim(reply: string, action: string) {
   return (patterns[action] || []).some((pattern) => pattern.test(reply));
 }
 
+
+function digitsOnly(value: string | null | undefined) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function phoneVariants(value: string | null | undefined) {
+  const d = digitsOnly(value);
+  const out = new Set<string>();
+  if (!d) return out;
+  out.add(d);
+  if (d.startsWith("962") && d.length >= 11) out.add(`0${d.slice(3)}`);
+  if (d.startsWith("0") && d.length >= 9) out.add(`962${d.slice(1)}`);
+  return out;
+}
+
+function customerPhoneMisusedAsBusinessContact(reply: string, state: ConversationState, truth: TruthBundle) {
+  const context = normalizeArabic(reply);
+  const contactLanguage = /(?:رقم\s*(?:التواصل|الاتصال|الواتساب)|تواصل\s*(?:صوتي|هاتفي)|اتصل|اتصلي|مكالمة|مكالمه|الرقم\s+اللي\s+بتراسلنا|الرقم\s+الذي\s+تراسلنا)/i.test(context);
+  if (!contactLanguage) return false;
+  const candidates = new Set<string>();
+  for (const v of phoneVariants(truth.application?.phone)) candidates.add(v);
+  for (const v of phoneVariants(state.waId)) candidates.add(v);
+  const replyDigits = digitsOnly(reply);
+  for (const v of candidates) {
+    if (v.length >= 9 && replyDigits.includes(v)) return true;
+  }
+  return false;
+}
+
+function explicitFeeQuestion(turn: InterpretedTurn) {
+  const q = normalizeArabic(turn.rawText);
+  return turn.topics.includes("payment_fee") || /(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|بدون\s*(?:خمس|5|٥)|لازم[^\n]{0,25}(?:خمس|5|٥)|ضروري[^\n]{0,25}(?:خمس|5|٥)|ما\s*بتفتحو[^\n]{0,25}(?:خمس|5|٥)/.test(q);
+}
+
+function restrictedPaymentDestinationDetail(reply: string) {
+  return /AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,45}(?:كليك|cliq|محفظه|محفظة)|(?:رقم|معرف)[^\n]{0,25}(?:الدفع|المحفظه|المحفظة)/i.test(reply);
+}
+
+function excessiveLaughter(reply: string) {
+  const compact = String(reply || "").replace(/\s+/g, "");
+  return /(?:ه){12,}/.test(compact) || /(?:ح){12,}/.test(compact) || /(.)\1{18,}/u.test(compact);
+}
+
+function normalizedTokens(value: string) {
+  return normalizeArabic(value).replace(/[^\p{L}\p{N}\s]/gu, " ").split(/\s+/).filter(Boolean);
+}
+
+function nearDuplicate(a: string | null | undefined, b: string) {
+  if (!a) return false;
+  const aa = normalizedTokens(a);
+  const bb = normalizedTokens(b);
+  if (aa.length < 7 || bb.length < 7) return false;
+  const sa = new Set(aa), sb = new Set(bb);
+  let intersection = 0;
+  for (const t of sa) if (sb.has(t)) intersection++;
+  const union = new Set([...sa, ...sb]).size || 1;
+  const jaccard = intersection / union;
+  const lengthRatio = Math.min(aa.length, bb.length) / Math.max(aa.length, bb.length);
+  return jaccard >= 0.78 && lengthRatio >= 0.68;
+}
+
+function asksBoxNewCondition(turn: InterpretedTurn) {
+  const q = normalizeArabic(turn.rawText);
+  return /(?:الجهاز|التلفون|الموبايل).{0,24}(?:جديد|بالكرتونه|بالكرتونة|مختوم)|(?:جديد|بالكرتونه|بالكرتونة|مختوم).{0,24}(?:الجهاز|التلفون|الموبايل)/.test(q);
+}
 function asksKnownTrackingAgain(reply: string) {
   const n = normalizeArabic(reply);
   return /(?:ابعث|ابعت|ارسل|أرسل|هات|اعطيني|أعطيني)[^\n]{0,45}(?:رقم\s*(?:التتبع|الطلب)|التتبع)/.test(n);
@@ -192,10 +262,12 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   const continuationNow = explicitContinuation(input.turn);
   const paymentTopics: TopicKey[] = ["payment_fee","payment_method","payment_timing","payment_recipient","payment_status","payment_confirmation","receipt_upload"];
   const preContinuationStage = !canDiscloseFileOpeningPayment(input.truth.application, input.turn) && (journeyStage === "preliminary_review" || journeyStage === "preliminary_approved_waiting_decision");
+  const feeQuestionNow = explicitFeeQuestion(input.turn);
   if (preContinuationStage) {
-    // Before the customer explicitly chooses to continue, payment topics are intentionally deferred.
-    // Do not fail coverage merely because the safe response refuses to expose payment details.
-    missingTopics = missingTopics.filter((topic) => !paymentTopics.includes(topic));
+    // Before explicit continuation, transaction details remain hidden. A customer may still
+    // ask a direct policy question about the existence/purpose/refundability of the 5 JOD fee;
+    // answer that question without exposing recipient, alias, transfer instructions or receipt URL.
+    missingTopics = missingTopics.filter((topic) => !paymentTopics.includes(topic) || (feeQuestionNow && topic === "payment_fee"));
   }
 
   if (rawStatusLeaked(reply)) policyViolations.push("raw_internal_application_status_exposed");
@@ -203,10 +275,20 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (/(?:انا|أنا)\s+انسان|انسان\s+مثلك|إنسان\s+مثلك|موظف\s+حقيقي/i.test(reply)) policyViolations.push("literal_human_identity_claim");
   const knownTracking = input.truth.application?.trackingId || input.state.activeTrackingId;
   if (knownTracking && asksKnownTrackingAgain(reply)) truthContradictions.push("known_tracking_re_requested");
+  if (customerPhoneMisusedAsBusinessContact(reply, input.state, input.truth)) truthContradictions.push("customer_phone_misused_as_business_contact");
+  if (excessiveLaughter(reply)) repetitionFlags.push("excessive_laughter_or_repeated_characters");
+  if (asksBoxNewCondition(input.turn)) {
+    const answeredCondition = /(?:جديد|كرتون|كرتونه|كرتونة|مختوم|غير\s+موثق|معلومة\s+موثقة|ما\s+عندي[^\n]{0,35}(?:تأكيد|معلومة))/.test(t);
+    if (!answeredCondition) missingTopics.push("products");
+  }
 
   if (preContinuationStage) {
-    if (hasPaymentDetail(reply)) policyViolations.push("payment_details_exposed_before_explicit_continuation");
-    if (hasAnyPaymentLanguage(reply)) policyViolations.push("payment_language_exposed_before_explicit_continuation");
+    if (feeQuestionNow) {
+      if (restrictedPaymentDestinationDetail(reply)) policyViolations.push("payment_destination_exposed_before_explicit_continuation");
+    } else {
+      if (hasPaymentDetail(reply)) policyViolations.push("payment_details_exposed_before_explicit_continuation");
+      if (hasAnyPaymentLanguage(reply)) policyViolations.push("payment_language_exposed_before_explicit_continuation");
+    }
   }
 
   if (input.turn.topics.includes("application_status") && input.truth.application) {
@@ -283,6 +365,9 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
       actionClaimViolations.push(`hard_execution_receipt_missing:${action}`);
     }
   }
+  if (pendingManualAction && !actionOk(input.actions,[pendingManualAction]) && /(?:قيد\s+المعالجه|قيد\s+المعالجة|تم\s+تسجيلها\s+على\s+ملف|تم\s+تسجيل\s+بيانات)/i.test(reply)) {
+    actionClaimViolations.push(`manual_action_falsely_in_processing:${pendingManualAction}`);
+  }
 
   const waitingConfirmation = input.actions.find(a => a.outcome === "needs_confirmation");
   if (waitingConfirmation) {
@@ -354,6 +439,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
 
   if ((input.turn.topics.includes("application_status") || input.turn.topics.includes("refund")) && input.truth.confidence === "none" && input.truth.ambiguousApplications.length && /طلبك (?:حاليا|حاليًا)|حالته|تمت الموافقه|مؤهل/.test(t)) truthContradictions.push("personal_truth_with_ambiguous_application");
   if (input.state.lastAssistantText && normalizeArabic(input.state.lastAssistantText) === t && t.length > 15) repetitionFlags.push("exact_previous_reply_repeat");
+  else if (nearDuplicate(input.state.lastAssistantText, reply)) repetitionFlags.push("near_previous_reply_repeat");
   if (reply.length === 0 && input.plan.shouldRespond) unsupportedClaims.push("missing_reply");
 
   return {

@@ -5,11 +5,17 @@ import { applicationJourneyStage, canDiscloseFileOpeningPayment, customerOrderSn
 import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, sanitizeRecentTurnsForModel, sanitizeStateForWriter, sanitizeTurnForWriter } from "./linkIntegrity";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
+import { normalizeArabic } from "./text";
 
 function preferredCustomerName(fullName: string | null | undefined) {
   const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
   if (!parts.length) return null;
   return parts[0];
+}
+
+function explicitFeePolicyQuestion(turn: InterpretedTurn) {
+  const q = normalizeArabic(turn.rawText);
+  return turn.topics.includes("payment_fee") || /(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|بدون\s*(?:خمس|5|٥)|ما\s*بتفتحو[^\n]{0,30}(?:خمس|5|٥)|لازم[^\n]{0,30}(?:خمس|5|٥)/.test(q);
 }
 
 export function buildWriterPrompt(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }) {
@@ -27,6 +33,7 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
   const fullPolicy = getV3Policy();
   const paymentDetailsAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn);
+  const feePolicyQuestionNow = explicitFeePolicyQuestion(input.turn);
   const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: safeRecentTurns });
   const writerPolicy = paymentDetailsAllowed
     ? fullPolicy
@@ -42,6 +49,11 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
         severePressureRule: fullPolicy.severePressureRule,
         disputeResolutionRule: fullPolicy.disputeResolutionRule,
         autonomousSupervisorRule: fullPolicy.autonomousSupervisorRule,
+        ...(feePolicyQuestionNow ? {
+          fileOpeningFeeJod: fullPolicy.fileOpeningFeeJod,
+          fileOpeningFeePurposeRule: fullPolicy.fileOpeningFeePurposeRule,
+          fileOpeningFeeRefundRule: fullPolicy.fileOpeningFeeRefundRule,
+        } : {}),
         forbiddenClaims: fullPolicy.forbiddenClaims,
       };
   const writerApplication = !paymentDetailsAllowed && input.truth.application
@@ -65,6 +77,7 @@ ROLE_ALREADY_INTRODUCED=${alreadyIntroduced}
 CUSTOMER_NAME=${preferredName || "غير متوفر"}
 CUSTOMER_JOURNEY_STAGE=${journeyStage}
 EXPLICIT_CONTINUATION_NOW=${continuationNow}
+EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
 MUST_ASK_CONTINUATION_DECISION=${mustAskContinuation}
 CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 
@@ -74,6 +87,7 @@ CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 - لا تدّعي تنفيذ إجراء إلا إذا ACTION_RESULTS يقول executed=true أو already_done.
 - إذا ACTION_RESULTS فيه needs_confirmation، اسأل تأكيدًا واحدًا قصيرًا وواضحًا على الإجراء المحدد؛ لا تقل إنه تم ولا تعيد شرح كل السياسة.
 - إذا ACTION_RESULTS فيه dry_run أو blocker يدل أن Real Actions مقفلة، فهذا يعني أن الإجراء لم يُنفذ. لا تقل "تم" ولا توحي بأن قاعدة البيانات تغيرت؛ قل باختصار إن طلب العميل واضح وأنك لا تعتبر الإجراء منجزًا قبل تحديث حالة الطلب فعليًا.
+- عند Real Actions المقفلة، ممنوع أيضًا قول "قيد المعالجة" أو "تم تسجيل بيانات الاسترداد على الملف" كأن الإدارة بدأت التنفيذ. استخدم فقط "بانتظار تنفيذ الإدارة" أو "تم إرسال طلب الإجراء للإدارة" إذا كانت نتيجة النظام تثبت إرسال التنبيه، ولا تدّعِ تغيير قاعدة البيانات.
 - عبارات الإكمال مثل "خلصت التحديث"، "طلبك صار محدث"، "الجهاز صار"، "غيرت الجهاز"، "اعتمدت التعديل" تعتبر ادعاء تنفيذ مثل كلمة "تم" تمامًا، وممنوعة بدون Execution Receipt حقيقي.
 - إذا كان التغيير المطلوب تغيير جهاز/موديل ولم يوجد دفع أو إثبات دفع مرتبط بالطلب: لا تعدّل الطلب ولا تدّعي التعديل؛ الأنظف هو نصح العميل بإلغاء الطلب الحالي وتقديم طلب جديد بالمواصفات الصحيحة حتى تكون الحسبة والسعر متطابقين. لا تلغِ من نفسك؛ اطلب تأكيد الإلغاء أولًا.
 - إذا كان تغيير الجهاز والطلب عليه دفع مؤكد أو وصل/إثبات دفع بانتظار الإدارة: حافظ على نفس الطلب، لا تنصح بإعادة التقديم، وقل إن تغيير الجهاز بانتظار تنفيذ الإدارة وإعادة الحسبة. الجهاز الموجود في TRUTH يبقى الجهاز الحالي حتى يتغير فعليًا.
@@ -91,14 +105,20 @@ CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 - الروابط ليست معرفة لغوية ولا ذاكرة محادثة: ممنوع كتابة أو نسخ أو استنتاج أي URL من كلام العميل أو RECENT_TURNS أو من ذاكرتك.
 - إذا احتجت رابطًا، استخدم حرفيًا واحدًا من OFFICIAL_LINKS فقط. إذا الرابط المطلوب غير موجود هناك، لا تضع أي URL. إذا TRUTH.application.trackingId أو STATE.activeTrackingId موجود، ممنوع طلب رقم التتبع من العميل مرة ثانية؛ استخدم الحقيقة الموجودة أو قل إن الرابط المطلوب غير متاح بدل إعادة طلب معلومة معروفة.
 - قاعدة NEVER ASK KNOWN FACTS: لا تطلب من العميل رقم تتبع/هاتف/معلومة موجودة أصلًا في TRUTH أو STATE أو تم ربطها موثوقًا بالمحادثة. اسأل فقط معلومة واحدة ضيقة عندما لا يمكن تحديد الطلب فعلًا.
+- رقم هاتف العميل داخل TRUTH/STATE هو رقم العميل وليس رقم الشركة. ممنوع عرضه كرقم تواصل أو اتصال للأمين. إذا سأل العميل عن رقم تواصل ولم يوجد رقم رسمي موثق في POLICY، قل إن المتابعة الأساسية عبر واتساب الحالي بدون اختراع أو تكرار رقم العميل.
+- لا تكرر ملخص الطلب إذا كان آخر رد قدم نفس المعلومات ولم تتغير الحقيقة. جاوب السؤال الجديد فقط. إذا لا يوجد تحديث جديد، قل ذلك بجملة قصيرة بدل إعادة رقم الطلب والجهاز والحالة كلها.
+- إذا العميل يسأل سؤالًا محددًا مثل "متى أستلم؟" أو "كم القسط؟" أو "وين أجي؟"، جاوب هذا السؤال مباشرة ولا تختم بـ "شو بدك أوضح؟" أو تطلب منه إعادة صياغة شيء قاله بوضوح.
+- إذا الرسالة تحتوي أكثر من سؤال، غطِّ كل سؤال بنقطة قصيرة. لا تسقط سؤال حالة الجهاز/التغليف أو موقع الاستلام لأن intent آخر أخذ الأولوية.
+- الضحك مسموح بشكل طبيعي ومختصر فقط، مثل "هههه 😅". ممنوع تكرار حروف الضحك أو أي حرف عشرات المرات.
 - أي دومين غير ameenfinance.co ممنوع تمامًا في رد الأمين، حتى لو ظهر سابقًا في المحادثة.
 - لا تعدّل query parameters للرابط الرسمي ولا تختصره ولا تستبدل الدومين.
 - إذا CUSTOMER_NAME متوفر والحقيقة مربوطة بطلب موثوق، استخدم الاسم بشكل طبيعي عند أول شرح مهم أو حالة طلب؛ لا تبدأ بصيغة آلية مثل "أهلاً بك، رقم التتبع ... موجود عندي" ولا تكرر الاسم بكل رسالة.
 - DOCUMENT_TRUTH داخل TRUTH هو المرجع الوحيد لمعرفة ما رُفع فعليًا. ممنوع تطلب إعادة الهوية/كشف الراتب/بيانات الكفيل/وصل الدفع إذا DOCUMENT_TRUTH يقول إنها وصلت.
 - في الأهلية والمتطلبات لا تقل "أكيد بزبط"، ولا تضمن القبول، ولا تقل إن مستندًا غير مطلوب نهائيًا لمجرد وجود كفيل. استخدم صياغة مشروطة: المتطلبات تعتمد على مراجعة الملف، وقد تُطلب بيانات الكفيل حسب الحالة.
+- إذا سأل العميل هل جهة عمله موجودة في السجل التجاري، لا تقل "بالتأكيد بنتحقق" كأنه جواب نعم، ولا تؤكد التسجيل بدون مصدر حقيقة مخصص. إذا لا توجد نتيجة سجل تجاري موثقة في TRUTH، قل بوضوح إنك لا تملك نتيجة موثقة تؤكد ذلك وأن التحقق يتم ضمن دراسة الملف.
 - لا تعرض للعميل رموز status أو payment_status الخام ولا تضع اسم الحالة بين اقتباسات كأنه حقل قاعدة بيانات؛ استخدم CUSTOMER_ORDER_SNAPSHOT وحالة العميل المفهومة فقط.
-- إذا CUSTOMER_JOURNEY_STAGE=preliminary_review: اعرض معلومات الطلب وحالته المبدئية فقط. ممنوع نهائيًا فتح أي لغة مالية تخص فتح الملف، حتى بصيغة نفي مثل "الدفع غير مطلوب" أو "ما في مبلغ مستحق"؛ لا تذكر دفع/رسوم/5 دنانير/تحويل/CliQ/AMEEENPAY/AMENPAY/وصل دفع/رابط receipt من الأساس. وممنوع سؤال "هل تود الاستمرار؟" لأن الموافقة المبدئية لم تصدر بعد.
-- إذا CUSTOMER_JOURNEY_STAGE=preliminary_approved_waiting_decision وEXPLICIT_CONTINUATION_NOW=false: اعرض معلومات الطلب أولًا، قل إنها موافقة مبدئية وليست نهائية، ثم اختم بسؤال واحد واضح: "هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟". قبل إجابة العميل بالموافقة ممنوع أي لغة مالية تخص فتح الملف، حتى بصيغة نفي مثل "الدفع غير مطلوب"؛ لا تذكر مبلغ 5 دنانير أو رسوم فتح الملف أو طريقة الدفع أو المستفيد أو رابط الوصل.
+- إذا CUSTOMER_JOURNEY_STAGE=preliminary_review: اعرض معلومات الطلب وحالته المبدئية فقط. لا تفتح تفاصيل التحويل أو المستفيد أو رابط الوصل. الاستثناء الوحيد: إذا EXPLICIT_FEE_POLICY_QUESTION_NOW=true لأن العميل سأل مباشرة عن وجود/سبب رسوم الـ5 دنانير، يجوز شرح قيمة الرسوم وسببها وقاعدة الاسترداد فقط، بدون أي اسم مستفيد أو alias أو تعليمات تحويل أو receipt URL. وممنوع سؤال "هل تود الاستمرار؟" لأن الموافقة المبدئية لم تصدر بعد.
+- إذا CUSTOMER_JOURNEY_STAGE=preliminary_approved_waiting_decision وEXPLICIT_CONTINUATION_NOW=false: اعرض معلومات الطلب أولًا، قل إنها موافقة مبدئية وليست نهائية، ثم اختم بسؤال واحد واضح: "هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟". لا تعرض تفاصيل التحويل أو المستفيد أو رابط الوصل قبل الموافقة. إذا EXPLICIT_FEE_POLICY_QUESTION_NOW=true، جاوب مباشرة أن رسوم فتح الملف 5 دنانير ولماذا تُطلب وأنها منفصلة عن ثمن الجهاز/القسط الأول وتخضع للاسترداد الرسمي، لكن لا ترسل طريقة التحويل أو المستفيد أو aliases أو رابط الوصل حتى يختار العميل الاستمرار.
 - معلومات الطلب عند السؤال عنها تشمل ما هو متوفر فعليًا من CUSTOMER_ORDER_SNAPSHOT: الاسم، رقم التتبع، الجهاز، السعر إن كان موجودًا، القسط الشهري/المدة، وحالة الطلب. لا تختصرها إلى رقم التتبع والحالة فقط إذا باقي المعلومات موجودة.
 - في السؤال الكامل عن معلومات/حالة الطلب، إذا OFFICIAL_LINKS.tracking موجود أضفه كرابط تتبع رسمي. في متابعة قصيرة مثل "متأكد؟" لا تعيد الرابط ولا تعيد كل التفاصيل.
 - إذا العميل قال "متأكد؟" أو "أكيد؟" بعد عرض حالة الطلب، أكد نفس الحقيقة باختصار ولا تغيّر المرحلة أو تقفز للخطوة المالية.
