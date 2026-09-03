@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const RUNTIME_VERSION = "v3.0.0-phase7.1-zero-fallback-manual-actions";
+const RUNTIME_VERSION = "v3.0.0-phase7.1.3-scoped-cancel-refund-actions";
 
 type Action = "enable_replies" | "disable_v3" | "enable_real_actions" | "disable_real_actions";
 
@@ -29,9 +29,11 @@ export async function POST(request: NextRequest) {
     Object.assign(patch, { real_actions_enabled: false });
     message = "تم إيقاف Real Actions.";
   } else if (action === "enable_real_actions") {
-    // Phase 7.1 intentionally locks production mutations off. Action requests
-    // are sent to Discord for manual administration until reliability gates pass.
-    return NextResponse.json({ error: "Real Actions مقفلة حاليًا. أي إجراء حقيقي يصل للإدارة على Discord للتنفيذ اليدوي." }, { status: 409 });
+    if (String(body?.confirm || "") !== "ENABLE_SCOPED_CANCEL_REFUND") {
+      return NextResponse.json({ error: "التأكيد المطلوب لتفعيل الإلغاء والاسترداد التلقائي غير موجود." }, { status: 400 });
+    }
+    Object.assign(patch, { live_enabled: true, kill_switch: false, real_actions_enabled: true, resume_legacy_ignored: true });
+    message = "تم تفعيل Real Actions بشكل مقيد: إلغاء الطلب + طلب الاسترداد فقط. باقي التغييرات تبقى يدوية عبر Discord.";
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }

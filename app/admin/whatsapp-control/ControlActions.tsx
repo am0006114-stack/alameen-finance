@@ -50,7 +50,12 @@ export default function ControlActions(props: Props) {
     setBusy(action);
     setMessage("");
     try {
-      const confirmValue: string | undefined = undefined;
+      let confirmValue: string | undefined;
+      if (action === "enable_real_actions") {
+        const accepted = window.confirm("سيتم تفعيل الإلغاء والاسترداد التلقائي فقط. تغيير الجهاز والبيانات وإعادة الفتح تبقى يدوية عبر Discord. متابعة؟");
+        if (!accepted) return;
+        confirmValue = "ENABLE_SCOPED_CANCEL_REFUND";
+      }
       const response = await fetch("/api/admin/whatsapp-control", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -140,7 +145,7 @@ export default function ControlActions(props: Props) {
             <div className="mt-1 text-lg font-black text-white">{statusText}</div>
           </div>
           <div className={`rounded-full px-4 py-2 text-xs font-black ${props.v3Live && !props.killSwitch ? "bg-emerald-500/15 text-emerald-200" : "bg-amber-500/15 text-amber-100"}`}>
-            Real Actions: {props.realActions ? "ON" : "OFF"}
+            Real Actions: {props.realActions ? "ON — إلغاء + استرداد فقط" : "OFF"}
           </div>
         </div>
 
@@ -153,13 +158,16 @@ export default function ControlActions(props: Props) {
           </button>
           {props.realActions ? (
             <button disabled={Boolean(busy)} onClick={() => control("disable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
-              إيقاف Real Actions فورًا
+              إيقاف الإلغاء والاسترداد التلقائي
             </button>
           ) : (
-            <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-sm font-black text-sky-100">
-              الإجراءات الحقيقية: يدوي عبر Discord
-            </div>
+            <button disabled={Boolean(busy) || !props.v3Live || props.killSwitch} onClick={() => control("enable_real_actions")} className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-5 py-3 text-sm font-black text-emerald-100 disabled:opacity-40">
+              تفعيل الإلغاء + الاسترداد التلقائي
+            </button>
           )}
+          <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-xs font-black text-sky-100">
+            تغيير الجهاز/البيانات/إعادة الفتح: يدوي عبر Discord
+          </div>
         </div>
       </div>
 

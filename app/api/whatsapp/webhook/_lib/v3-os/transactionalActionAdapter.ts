@@ -15,6 +15,15 @@ const MUTATIONS = new Set([
   "reopen_application",
 ]);
 
+// Phase 7.1.3A: production mutations are deliberately scoped. Turning the
+// Control Center Real Actions switch ON does NOT unlock every historical
+// action. Only explicit cancellation and refund requests may mutate data.
+// Everything else stays manual/Discord-assisted until separately approved.
+export const LIVE_SCOPED_MUTATIONS = new Set([
+  "cancel_application",
+  "request_refund",
+]);
+
 function expectedBefore(app: ApplicationTruth) {
   return {
     status: app.status,
@@ -64,10 +73,11 @@ function firstRpcRow(data: unknown) {
 }
 
 /**
- * Real V3 transactional adapter. It is deliberately double-gated by the
- * production-control row: V3 must be live, kill-switch must be off, and
- * real_actions_enabled must be true. The SQL RPC then enforces Omran ownership,
- * row locking, stale-truth checks, idempotency and the audit ledger atomically.
+ * Real V3 transactional adapter. It is deliberately gated by the production
+ * control row (V3 live, kill-switch off, Real Actions enabled) and then by the
+ * hard Phase 7.1.3A allow-list (cancel + refund only). The SQL RPC still
+ * enforces Omran ownership, row locking, stale-truth checks, idempotency and
+ * the audit ledger atomically.
  */
 export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
   async execute(planned, context) {
@@ -81,6 +91,12 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
     const productionControl = await getV3ProductionControl();
     if (!canV3ExecuteRealActions(productionControl)) {
       return { success: false, blocker: "v3_real_actions_production_gate_disabled" };
+    }
+
+    // Hard second gate: even when Real Actions are enabled globally, only
+    // cancellation and refund are allowed to reach the transactional RPC.
+    if (!LIVE_SCOPED_MUTATIONS.has(planned.action)) {
+      return { success: false, blocker: `scoped_real_actions_disallowed:${planned.action}` };
     }
 
     const app = context.truth.application;

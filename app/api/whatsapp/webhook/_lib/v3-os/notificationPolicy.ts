@@ -4,6 +4,7 @@ export type V3NotificationEvent =
   | "official_salary_slip_uploaded"
   | "payment_confirmation_required"
   | "manual_action_required"
+  | "business_mutation_succeeded"
   | "business_mutation_failed"
   | "truth_integrity_failure"
   | "final_safety_fail_closed"
@@ -63,6 +64,16 @@ export function decideV3DiscordNotification(input: {
       mentionAdmin: true,
       dedupeKey: `manual-action:${input.applicationId || "unknown"}:${input.actionKey || "unknown"}`,
       reason: "real_action_requires_manual_admin_execution",
+    };
+  }
+
+  if (input.event === "business_mutation_succeeded") {
+    return {
+      notify: true,
+      severity: "important",
+      mentionAdmin: false,
+      dedupeKey: `mutation-succeeded:${input.applicationId || "unknown"}:${input.actionKey || "unknown"}`,
+      reason: "scoped_real_action_executed_successfully",
     };
   }
 

@@ -9,10 +9,10 @@ import { buildWriterPrompt } from "./writerContract";
 import { buildZeroFallbackReply, verifyZeroFallbackReply } from "./zeroFallback";
 import { interpretTurnWithAi } from "./modelInterpreter";
 import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
-import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
+import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
-import { sanitizeRecentTurnsForModel } from "./linkIntegrity";
+import { applicationRefundUrl, sanitizeRecentTurnsForModel } from "./linkIntegrity";
 import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
@@ -56,7 +56,8 @@ async function notifyActionProblems(input: {
   actions: ActionResult[];
 }) {
   for (const result of input.actions) {
-    if (result.outcome === "failed") {
+    const scopedManualBlock = String(result.blocker || "").startsWith("scoped_real_actions_disallowed:");
+    if (result.outcome === "failed" && !scopedManualBlock) {
       await notifyV3Discord({
         event: "business_mutation_failed",
         applicationId: input.applicationId || null,
@@ -168,12 +169,13 @@ async function notifyManualActionRequests(input: {
   actions: ActionResult[];
   realActionsEnabled: boolean;
 }) {
-  if (input.realActionsEnabled || !input.truth.application) return;
+  if (!input.truth.application) return;
   for (const planned of input.plan.actions) {
     if (!MANUAL_ACTIONS.has(planned.action) || planned.requiresConfirmation) continue;
     const result = input.actions.find((x) => x.action === planned.action);
     if (!result || result.executed) continue;
-    if (!(result.outcome === "dry_run" || result.blocker === "real_actions_disabled" || result.blocker === "shadow_core_no_business_mutation")) continue;
+    const scopedManualBlock = String(result.blocker || "").startsWith("scoped_real_actions_disallowed:");
+    if (!(result.outcome === "dry_run" || result.blocker === "real_actions_disabled" || result.blocker === "shadow_core_no_business_mutation" || scopedManualBlock)) continue;
     const app = input.truth.application;
     // Unpaid device changes do not need an admin mutation request yet. The safe
     // path is cancel + reapply guidance; Discord is sent only after the customer
@@ -197,6 +199,91 @@ async function notifyManualActionRequests(input: {
       },
     });
   }
+}
+
+async function notifyScopedMutationSuccesses(input: {
+  waId: string;
+  truth: TruthBundle;
+  actions: ActionResult[];
+}) {
+  const app = input.truth.application;
+  if (!app) return;
+  for (const result of input.actions) {
+    if (result.outcome !== "executed" || !LIVE_SCOPED_MUTATIONS.has(result.action)) continue;
+    const isCancel = result.action === "cancel_application";
+    await notifyV3Discord({
+      event: "business_mutation_succeeded",
+      actionKey: result.action,
+      applicationId: app.id,
+      trackingId: app.trackingId,
+      waId: input.waId,
+      title: isCancel ? "✅ تم إلغاء الطلب تلقائيًا" : "💸 تم تسجيل طلب الاسترداد تلقائيًا",
+      description: isCancel
+        ? "تم تنفيذ الإلغاء في قاعدة البيانات بعد تأكيد العميل الصريح. إذا كان الطلب مدفوعًا فقد تم فتح مسار الاسترداد حسب الحقيقة المالية على الملف."
+        : "تم تسجيل طلب الاسترداد في قاعدة البيانات بعد تحقق شروط الدفع.",
+      details: {
+        action: result.action,
+        "حالة الطلب بعد التنفيذ": app.status || "—",
+        "حالة الدفع بعد التنفيذ": app.paymentStatus || "—",
+        "معرّف العملية": result.mutationId || "—",
+      },
+    });
+  }
+}
+
+async function notifyPendingScopedActionBlock(input: {
+  waId: string;
+  truth: TruthBundle;
+  pendingAction: string | null;
+  actions: ActionResult[];
+}) {
+  const app = input.truth.application;
+  if (!app || !input.pendingAction) return;
+  const result = input.actions.find((x) => x.action === input.pendingAction);
+  if (!result || result.executed || result.outcome === "needs_confirmation") return;
+  await notifyV3Discord({
+    event: "manual_action_required",
+    actionKey: input.pendingAction,
+    applicationId: app.id,
+    trackingId: app.trackingId,
+    waId: input.waId,
+    title: "⚠️ تعذر تنفيذ الإلغاء/الاسترداد تلقائيًا — يحتاج تدخل الإدارة",
+    description: "هذا الإجراء كان مؤكدًا سابقًا وبانتظار الإدارة، وحاول V3 تنفيذه بعد تفعيل النطاق المحدود لكنه لم ينجح. نفّذه يدويًا من رابط الطلب.",
+    details: {
+      action: input.pendingAction,
+      blocker: result.blocker || result.outcome,
+      "حالة الطلب": app.status || "—",
+      "حالة الدفع": app.paymentStatus || "—",
+    },
+  });
+}
+
+function buildScopedMutationSuccessReply(input: { truth: TruthBundle; actions: ActionResult[] }) {
+  const app = input.truth.application;
+  if (!app) return null;
+  const cancel = input.actions.find((x) => x.action === "cancel_application" && x.executed);
+  if (cancel) {
+    const refundRequested = String(app.paymentStatus || "").toLowerCase() === "refund_requested" || String(app.status || "").toLowerCase() === "refund_requested";
+    if (refundRequested) {
+      if (cancel.outcome === "executed") {
+        const url = applicationRefundUrl(input.truth);
+        return `تم إلغاء طلبك${app.trackingId ? ` ${app.trackingId}` : ""} بنجاح. بما أن الدفع مؤكد على الملف، تم فتح مسار الاسترداد. ثبّت بيانات الاسترداد من الرابط الرسمي التالي مرة واحدة:${url ? `\n${url}` : ""}\nبعد إدخال البيانات الصحيحة، يبقى الاسترداد تحت المراجعة إلى أن يتم تنفيذ التحويل فعليًا.`;
+      }
+      return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} ملغي بالفعل، وطلب الاسترداد مسجل على الملف. ما في داعي تعيد طلب الإلغاء أو الاسترداد؛ أول ما يتم التحويل فعليًا بنبلغك.`;
+    }
+    return `تم إلغاء طلبك${app.trackingId ? ` ${app.trackingId}` : ""} بنجاح. ما في دفع مؤكد مرتبط بالملف، لذلك ما في مسار استرداد مطلوب على هذا الطلب.`;
+  }
+
+  const refund = input.actions.find((x) => x.action === "request_refund" && x.executed);
+  if (refund) {
+    if (refund.outcome === "executed") {
+      const url = applicationRefundUrl(input.truth);
+      return `تم تسجيل طلب الاسترداد${app.trackingId ? ` على الطلب ${app.trackingId}` : ""}. ثبّت بيانات الاسترداد من الرابط الرسمي التالي مرة واحدة:${url ? `\n${url}` : ""}\nبعد إدخال البيانات الصحيحة، يبقى الطلب تحت المراجعة إلى أن يتم تنفيذ التحويل فعليًا.`;
+    }
+    return `طلب الاسترداد${app.trackingId ? ` على الطلب ${app.trackingId}` : ""} مسجل بالفعل. ما في داعي تعيد الطلب؛ أول ما يتم التحويل فعليًا بنبلغك.`;
+  }
+
+  return null;
 }
 
 export async function runV3ProductionLive(input: {
@@ -243,8 +330,27 @@ export async function runV3ProductionLive(input: {
     : preliminaryState;
 
   const plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  const actionsToExecute = [...plan.actions];
+  const pendingScopedAction = boundState.pendingAction && LIVE_SCOPED_MUTATIONS.has(boundState.pendingAction)
+    && String(boundState.pendingActionPayload?._manualStatus || "") === "awaiting_admin"
+    ? boundState.pendingAction
+    : null;
+  if (input.realActionsEnabled && pendingScopedAction && !actionsToExecute.some((x) => x.action === pendingScopedAction)) {
+    // A previously confirmed cancellation/refund that was waiting for manual
+    // administration is eligible for one safe transactional execution on the
+    // customer's next message after scoped Real Actions are enabled.
+    actionsToExecute.push({
+      action: pendingScopedAction,
+      sourceActId: turn.acts[0]?.id || turn.turnId,
+      requiresConfirmation: false,
+      authority: "deterministic",
+      requiredRole: "omran",
+      payload: boundState.pendingActionPayload || null,
+    });
+  }
+
   const actions = await executeActions({
-    actions: plan.actions,
+    actions: actionsToExecute,
     state: boundState,
     truth: truthBeforeActions,
     adapter: input.realActionsEnabled ? v3TransactionalActionAdapter : null,
@@ -274,6 +380,16 @@ export async function runV3ProductionLive(input: {
   }
 
   try {
+    await notifyScopedMutationSuccesses({
+      waId: input.waId,
+      truth: truthAfterActions,
+      actions,
+    });
+  } catch (error) {
+    console.error("V3 scoped-action success Discord notification failed", error);
+  }
+
+  try {
     await notifyManualActionRequests({
       waId: input.waId,
       customerText: input.customerText,
@@ -285,6 +401,17 @@ export async function runV3ProductionLive(input: {
   } catch (error) {
     // Discord/ledger availability must never block a customer reply.
     console.error("V3 manual-action Discord notification failed", error);
+  }
+
+  try {
+    await notifyPendingScopedActionBlock({
+      waId: input.waId,
+      truth: truthAfterActions,
+      pendingAction: pendingScopedAction,
+      actions,
+    });
+  } catch (error) {
+    console.error("V3 pending scoped-action Discord notification failed", error);
   }
 
   const manualDisposition = resolveManualActionDisposition({
@@ -301,8 +428,14 @@ export async function runV3ProductionLive(input: {
   let fallbackUsed = false;
 
   if (plan.shouldRespond) {
+    const scopedMutationReply = buildScopedMutationSuccessReply({ truth: truthAfterActions, actions });
     const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
-    if (manualReply) {
+    if (scopedMutationReply) {
+      // This response is built deterministically from the post-transaction truth
+      // and the official refund-link generator. It does not depend on model text.
+      reply = scopedMutationReply;
+      verification = PASS;
+    } else if (manualReply) {
       reply = manualReply;
       verification = verifyReply({
         reply,
@@ -395,7 +528,8 @@ export async function runV3ProductionLive(input: {
   // claims a business mutation completed may leave the runtime, even if an upstream
   // planner/interpreter/verifier missed the context. Replace it with the manual
   // disposition response or deterministic truth rescue.
-  if (!input.realActionsEnabled && reply && realActionsOffCompletionClaim(reply)) {
+  const hasExecutedBusinessMutation = actions.some((x) => x.executed && MANUAL_ACTIONS.has(x.action));
+  if (reply && realActionsOffCompletionClaim(reply) && !hasExecutedBusinessMutation) {
     fallbackUsed = true;
     const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
     reply = manualReply || buildZeroFallbackReply({

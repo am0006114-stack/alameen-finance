@@ -7,7 +7,7 @@ import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "
 const HTTP_URL_RE = /https?:\/\/[^\s<>{}\[\]"']+/gi;
 const DOMAIN_TOKEN_RE = /\b(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>{}\[\]"']*)?/gi;
 
-export type OfficialLinkKind = "website" | "products" | "tracking" | "receipt" | "identity" | "salarySlip" | "guarantor";
+export type OfficialLinkKind = "website" | "products" | "tracking" | "receipt" | "refund" | "identity" | "salarySlip" | "guarantor";
 
 export type OfficialLinkContext = {
   baseUrl: string;
@@ -55,6 +55,12 @@ function boundApplicationUrl(path: string, truth: TruthBundle) {
   const app = truth.application;
   if (!app?.id || !app.trackingId || !app.phone) return null;
   return `${canonicalBaseUrl()}${path}?tracking=${encodeURIComponent(app.trackingId)}&phone=${encodeURIComponent(app.phone)}`;
+}
+
+export function applicationRefundUrl(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app?.id || !app.trackingId || !app.phone) return null;
+  return `${canonicalBaseUrl()}/delay-decision?tracking=${encodeURIComponent(app.trackingId)}&phone=${encodeURIComponent(app.phone)}&mode=refund`;
 }
 
 function turnNeeds(topic: TopicKey, topics: TopicKey[]) {
@@ -106,6 +112,18 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
   const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
   const receipt = receiptRequested && !paymentConfirmed ? boundApplicationUrl("/receipt", truth) : null;
   if (receipt) relevant.receipt = receipt;
+
+  // Refund links are only issued from authoritative post-action truth. This
+  // preserves all existing receipt/requirements safeguards while allowing the
+  // deterministic paid-cancellation/refund response to pass link integrity.
+  const refundRelevant = Boolean(
+    truth.application &&
+    (turnNeeds("refund", turn.topics) || turnNeeds("cancellation", turn.topics)) &&
+    (String(truth.application.status || "").toLowerCase() === "refund_requested" ||
+      String(truth.application.paymentStatus || "").toLowerCase() === "refund_requested")
+  );
+  const refund = refundRelevant ? applicationRefundUrl(truth) : null;
+  if (refund) relevant.refund = refund;
 
   const currentCustomerUrls = extractHttpUrls(turn.rawText).map((value) => {
     const parsed = safeUrl(value);

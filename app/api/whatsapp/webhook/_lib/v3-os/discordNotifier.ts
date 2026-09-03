@@ -1,4 +1,5 @@
 import { sendDiscordNotification } from "@/lib/discord";
+import { BUSINESS_WEBSITE } from "../constants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { decideV3DiscordNotification, type V3NotificationEvent } from "./notificationPolicy";
 
@@ -67,6 +68,7 @@ function arabicReason(reason: string) {
     payment_already_confirmed: "الدفع مؤكد مسبقًا؛ لا حاجة لتنبيه جديد",
     manual_admin_payment_confirmation_is_required: "تأكيد الدفع يحتاج مراجعة الإدارة يدويًا",
     real_action_requires_manual_admin_execution: "العميل طلب تغييرًا فعليًا على الطلب ويحتاج تنفيذ الإدارة يدويًا",
+    scoped_real_action_executed_successfully: "تم تنفيذ إجراء الإلغاء/الاسترداد المسموح به تلقائيًا وتثبيت النتيجة في قاعدة البيانات",
     customer_requested_real_change_but_database_mutation_failed: "العميل طلب تغييرًا فعليًا لكن تنفيذ التغيير في قاعدة البيانات فشل",
     truth_or_send_safety_could_not_self_recover: "تعذر إصلاح تعارض الحقيقة أو سلامة الرد تلقائيًا",
     whatsapp_delivery_failed_after_safe_retry: "تعذر إرسال الرد عبر واتساب حتى بعد محاولة رد قصير وآمن",
@@ -92,6 +94,7 @@ function defaultTitle(event: V3NotificationEvent) {
   if (event === "official_salary_slip_uploaded") return "📄 تم رفع كشف/شهادة راتب";
   if (event === "payment_confirmation_required") return "💳 يتطلب تأكيد دفع يدوي";
   if (event === "manual_action_required") return "🛠️ إجراء مطلوب — بانتظار تنفيذ الإدارة";
+  if (event === "business_mutation_succeeded") return "✅ تم تنفيذ إجراء حقيقي تلقائيًا";
   if (event === "business_mutation_failed") return "⛔ تعذر تنفيذ تغيير على الطلب";
   if (event === "truth_integrity_failure") return "⛔ تعارض في حقيقة الطلب";
   if (event === "whatsapp_delivery_failure") return "⛔ تعذر إرسال رد واتساب";
@@ -171,11 +174,14 @@ export async function notifyV3Discord(input: {
       value: clipped(arabicDetailValue(name, value), 700) || "—",
       inline: false,
     }));
+  const baseUrl = String(BUSINESS_WEBSITE || "https://www.ameenfinance.co").replace(/\/+$/, "");
+  const adminApplicationUrl = input.applicationId ? `${baseUrl}/admin/applications/${encodeURIComponent(input.applicationId)}` : null;
   const fields = [
     (input.trackingId || appSummary?.tracking_id) ? { name: "رقم الطلب", value: clipped(input.trackingId || appSummary?.tracking_id), inline: true } : null,
     appSummary?.full_name ? { name: "العميل", value: clipped(appSummary.full_name), inline: true } : null,
     input.waId ? { name: "رقم واتساب", value: clipped(input.waId), inline: true } : null,
     appSummary?.device_name ? { name: "الجهاز", value: clipped(appSummary.device_name), inline: true } : null,
+    adminApplicationUrl ? { name: "فتح الطلب مباشرة", value: adminApplicationUrl, inline: false } : null,
     ...detailFields,
     { name: "سبب التنبيه", value: clipped(arabicReason(decision.reason)), inline: false },
   ].filter(Boolean) as Array<{ name: string; value: string; inline?: boolean }>;
