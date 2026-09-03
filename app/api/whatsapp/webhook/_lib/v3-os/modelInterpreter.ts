@@ -152,7 +152,13 @@ function resolvePendingConfirmation(turn: InterpretedTurn, state: ConversationSt
   if (turn.acts.some(a => a.source === "deterministic" && a.type === "request_action" && a.action && a.action !== "none")) return turn;
 
   const n = normalizeArabic(customerText).replace(/[؟?!.,،]/g, " ").replace(/\s+/g," ").trim();
-  const yes = /^(?:نعم|اه|اها|ايوه|ايوا|اوك|اوكي|تمام|موافق|اكد|اكدها|نفذ|نفذها|اعتمد|اعتمدها)(?:\s|$)/.test(n);
+  const pendingMode = String(state.pendingActionPayload?._manualStatus || "");
+  const cancelReapplyConfirmation = pending === "cancel_application" && pendingMode === "awaiting_customer_cancel_confirmation";
+  // Cancel+reapply is a destructive recommendation, so a generic "تمام" is not
+  // enough. Require the customer's reply itself to explicitly contain cancellation.
+  const yes = cancelReapplyConfirmation
+    ? /(?:^|\s)(?:الغي|الغاء|إلغاء|الغيه|ألغيه|الغو|ألغوا)(?:\s|$)/.test(n)
+    : /^(?:نعم|اه|اها|ايوه|ايوا|اوك|اوكي|تمام|موافق|اكد|اكدها|نفذ|نفذها|اعتمد|اعتمدها)(?:\s|$)/.test(n);
   const no = /^(?:لا|لأ|مش|لا خلاص|تراجعت)(?:\s|$)/.test(n);
   if (!yes && !no) return turn;
 

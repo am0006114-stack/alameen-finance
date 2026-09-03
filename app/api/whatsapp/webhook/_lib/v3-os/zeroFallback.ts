@@ -3,6 +3,8 @@ import { continuationCommercialState } from "./commercialProgression";
 import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, detectReplyLinkViolations } from "./linkIntegrity";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { buildManualActionCustomerReply, resolveManualActionDisposition } from "./manualActionPolicy";
+import { normalizeArabic } from "./text";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 
 const ACTION_LABELS: Record<string,string> = {
@@ -59,6 +61,10 @@ export function buildZeroFallbackReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const parts: string[] = [];
 
+  const manualDisposition = resolveManualActionDisposition({ state: input.state, truth: input.truth, plan: input.plan, actions: input.actions });
+  const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: input.truth });
+  if (manualReply) return manualReply;
+
   const action = actionSentence(input.plan, input.actions);
   if (action) parts.push(action);
 
@@ -91,7 +97,7 @@ export function buildZeroFallbackReply(input: {
       parts.push("الدفع مؤكد إداريًا على الطلب، وما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.");
     } else if (topics.has("receipt_upload") || topics.has("payment_confirmation")) {
       if (links.relevant.receipt) parts.push(`تأكيد الدفع يتم يدويًا من الإدارة بعد مراجعة الوصل. رابط رفع الوصل الرسمي المرتبط بطلبك: ${links.relevant.receipt}`);
-      else parts.push("تأكيد الدفع يتم يدويًا من الإدارة. ابعث رقم التتبع حتى أعطيك رابط رفع الوصل المرتبط بنفس الطلب.");
+      else parts.push(app?.trackingId ? "تأكيد الدفع يتم يدويًا من الإدارة، لكن رابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن؛ ما رح أعطيك رابط غير موثق." : "تأكيد الدفع يتم يدويًا من الإدارة. إذا ما قدرت أربط الطلب تلقائيًا بطلب منك معلومة واحدة فقط لتحديده.");
     } else {
       parts.push(p.paymentMethodRule);
     }
@@ -130,6 +136,11 @@ export function buildZeroFallbackReply(input: {
   if (topics.has("delivery")) parts.push(p.pickupRule);
   if (topics.has("first_installment")) parts.push(p.firstInstallmentRule);
 
+  const q = normalizeArabic(input.turn.rawText);
+  if (!parts.length && /(?:شروط|تقسيط|طريقه التقديم|طريقة التقديم|كيف اقدم|كيف أقدم)/.test(q)) {
+    parts.push("أكيد. التقديم يبدأ بطلب موافقة مبدئية، والمتطلبات تختلف حسب الملف. عادةً نحتاج هوية وإثبات دخل، وقد تُطلب بيانات كفيل حسب الحالة. المستندات الحساسة تُرفع فقط عبر الرابط الرسمي الآمن، وما بنستلمها على واتساب.");
+  }
+
   if (!parts.length) {
     const status = shortStatus(input.truth);
     if (status) parts.push(status, pick([
@@ -137,10 +148,11 @@ export function buildZeroFallbackReply(input: {
       "شو النقطة اللي بدك أوضحها على الطلب؟",
       "أنا معك على نفس الطلب؛ احكيلي شو بدك أعرفك عليه بالضبط.",
     ], input.turn.turnId));
+    else if (input.state.activeTrackingId) parts.push(`رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ احكيلي شو بدك تعرف عنه.`);
     else parts.push(pick([
-      "أنا معك. احكيلي سؤالك أو ابعث رقم التتبع إذا الموضوع عن طلب سابق.",
-      "تفضل، احكيلي شو بدك تعرف، وإذا الموضوع عن طلب ابعث رقم التتبع.",
-      "احكيلي النقطة اللي بدك إياها، وإذا عندك طلب ابعث رقم التتبع حتى أربطه صح.",
+      "أنا معك. احكيلي سؤالك مباشرة، وإذا كان عن طلب سابق وما قدرت أربطه تلقائيًا وقتها بطلب منك معلومة واحدة فقط لتحديده.",
+      "تفضل، احكيلي شو بدك تعرف. إذا احتجت معلومة لتحديد طلب سابق بطلب منك معلومة واحدة فقط.",
+      "احكيلي النقطة اللي بدك إياها، وأنا بحاول أربط الطلب من السياق قبل ما أطلب منك أي معلومة موجودة أصلًا.",
     ], input.turn.turnId));
   }
 

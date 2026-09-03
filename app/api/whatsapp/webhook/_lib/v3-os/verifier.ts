@@ -151,6 +151,29 @@ function forbiddenBusinessIdentityClaim(reply: string) {
   return new RegExp(`${businessRefs}.{0,28}${forbiddenDescriptions}|${forbiddenDescriptions}.{0,28}${businessRefs}`, "i").test(n);
 }
 
+function broadCompletionClaim(reply: string, action: string) {
+  const patterns: Record<string, RegExp[]> = {
+    change_device: [
+      /(?:خلصت|أنهيت|انهيت).{0,24}(?:تحديث|تعديل|تغيير).{0,30}(?:الطلب|الجهاز)/i,
+      /(?:طلبك|الطلب).{0,18}(?:صار\s+)?(?:محدث|محدّث|معدل|معدّل).{0,30}(?:الجهاز|سامسونج|ايفون|آيفون|iphone|samsung)?/i,
+      /(?:الجهاز|الموديل).{0,18}(?:صار|أصبح|اصبح).{0,35}(?:بدل|الى|إلى)/i,
+      /(?:غيرت|غيّرت|غيرنا|غيّرنا|حدثت|حدّثت|عدلنا|عدّلنا).{0,25}(?:الجهاز|الموديل|الطلب)/i,
+      /(?:ثبتنا|اعتمدنا).{0,20}(?:الجهاز|الموديل)/i,
+    ],
+    cancel_application: [/(?:خلصت|نفذت|نفّذت|تم).{0,20}(?:الغاء|إلغاء).{0,20}(?:الطلب)?/i,/(?:طلبك|الطلب).{0,12}(?:صار\s+)?(?:ملغي|ملغى)/i],
+    request_refund: [/(?:خلص|تم|اكتمل).{0,20}(?:الاسترداد|الاسترجاع)/i,/(?:رجعنا|حولنا|حوّلنا).{0,20}(?:المبلغ|المصاري)/i],
+    reopen_application: [/(?:تم|خلصت).{0,24}(?:اعاده|إعادة).{0,18}(?:فتح|تفعيل)/i],
+    stop_refund: [/(?:وقفنا|أوقفنا|تم.{0,12}إيقاف).{0,18}(?:الاسترداد|الاسترجاع)/i],
+    change_application_data: [/(?:خلصت|تم|حدثت|حدّثت|عدلت|عدّلت).{0,25}(?:البيانات|بياناتك|الطلب)/i,/(?:البيانات|بياناتك).{0,15}(?:صارت|أصبحت|اصبحت).{0,12}(?:محدثه|محدثة|معدله|معدلة)/i],
+  };
+  return (patterns[action] || []).some((pattern) => pattern.test(reply));
+}
+
+function asksKnownTrackingAgain(reply: string) {
+  const n = normalizeArabic(reply);
+  return /(?:ابعث|ابعت|ارسل|أرسل|هات|اعطيني|أعطيني)[^\n]{0,45}(?:رقم\s*(?:التتبع|الطلب)|التتبع)/.test(n);
+}
+
 export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }): VerificationReport {
   const reply = String(input.reply || "").trim();
   const t = normalizeArabic(reply);
@@ -177,6 +200,9 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
 
   if (rawStatusLeaked(reply)) policyViolations.push("raw_internal_application_status_exposed");
   if (/(?:هلق|هلّق|هلأ)/.test(reply)) repetitionFlags.push("non_jordanian_now_word");
+  if (/(?:انا|أنا)\s+انسان|انسان\s+مثلك|إنسان\s+مثلك|موظف\s+حقيقي/i.test(reply)) policyViolations.push("literal_human_identity_claim");
+  const knownTracking = input.truth.application?.trackingId || input.state.activeTrackingId;
+  if (knownTracking && asksKnownTrackingAgain(reply)) truthContradictions.push("known_tracking_re_requested");
 
   if (preContinuationStage) {
     if (hasPaymentDetail(reply)) policyViolations.push("payment_details_exposed_before_explicit_continuation");
@@ -250,10 +276,24 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (plannedActions.has("change_application_data") && !actionOk(input.actions,["change_application_data"]) && /(?:تم.{0,24}(?:تعديل|تحديث).{0,24}(?:البيانات|الطلب)|(?:بياناتك|البيانات).{0,16}(?:صارت|تمت).{0,10}(?:معدله|معدلة|محدثه|محدثة))/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:change_application_data");
   if ((plannedActions.has("reopen_application") || plannedActions.has("stop_refund")) && !actionOk(input.actions,["reopen_application","stop_refund"]) && /(?:تم.{0,24}(?:اعاده|إعادة).{0,20}(?:فتح|تفعيل)|وقفنا.{0,12}الاسترداد|الطلب.{0,12}(?:رجع|عاد).{0,10}(?:فعال|مفتوح))/i.test(reply)) actionClaimViolations.push("execution_receipt_missing:reopen_or_stop_refund");
 
+  const pendingManualAction = String(input.state.pendingActionPayload?._manualStatus || "") === "awaiting_admin" ? input.state.pendingAction : null;
+  for (const action of ["cancel_application","request_refund","stop_refund","reopen_application","change_device","change_application_data"]) {
+    const relevant = plannedActions.has(action as any) || pendingManualAction === action;
+    if (relevant && !actionOk(input.actions,[action]) && broadCompletionClaim(reply,action)) {
+      actionClaimViolations.push(`hard_execution_receipt_missing:${action}`);
+    }
+  }
+
   const waitingConfirmation = input.actions.find(a => a.outcome === "needs_confirmation");
   if (waitingConfirmation) {
     const asksConfirmation = /(?:اكد|أكد|تأكيد|تاكيد|متأكد|متاكد|بدك\s+(?:انفذ|أنفذ)|موافق\s+انفذ|موافق\s+أنفذ)/.test(t);
     if (!asksConfirmation) policyViolations.push(`pending_action_confirmation_not_requested:${waitingConfirmation.action}`);
+  }
+
+  if (input.turn.topics.some((topic) => topic === "requirements" || topic === "guarantor")) {
+    if (/(?:اكيد|أكيد)\s+(?:بزبط|بتزبط|مقبول)|ما\s+رح\s+تحتاج[^\n]{0,35}(?:كشف|شهاده|شهادة)\s*راتب|وجود\s+(?:كفيل|كفلاء)\s+مطلوب/i.test(reply)) {
+      unsupportedClaims.push("eligibility_or_document_requirement_overclaim");
+    }
   }
 
   const docs = input.truth.application?.documents;

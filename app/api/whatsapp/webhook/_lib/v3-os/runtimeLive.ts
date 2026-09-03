@@ -13,6 +13,8 @@ import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
 import { sanitizeRecentTurnsForModel } from "./linkIntegrity";
+import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
+import { customerFacingStatusLabel } from "./applicationJourney";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -78,8 +80,28 @@ async function notifyActionProblems(input: {
   }
 }
 
-export function buildV3LastResortReply() {
-  return "وصلتني رسالتك. إذا الموضوع عن طلبك ابعث رقم التتبع، وبجاوبك على الحالة المسجلة فقط بدون تخمين.";
+export function buildV3LastResortReply(input?: { truth: TruthBundle; state: ConversationState; customerText: string }) {
+  // Backward-compatible with the Phase 6.9/7 route-level zero-argument rescue call.
+  // Context-aware V3 runtime paths pass truth/state/customerText; older callers safely receive
+  // a neutral customer-facing rescue without exposing internal failure details or re-asking known facts.
+  if (!input) return "أنا معك. احكيلي سؤالك مباشرة، وبجاوبك على المعلومة المتاحة عندي بدون ما أعتبر أي إجراء منجز قبل تنفيذه فعليًا.";
+  const app = input.truth.application;
+  if (app) {
+    const bits = [
+      app.trackingId ? `رقم طلبك ${app.trackingId}` : null,
+      app.deviceName ? `الجهاز ${app.deviceName}` : null,
+      `الحالة الآن: ${customerFacingStatusLabel(app)}`,
+    ].filter(Boolean);
+    return `${bits.join("، ")}. احكيلي النقطة اللي بدك أوضحها على نفس الطلب.`;
+  }
+  const q = String(input.customerText || "");
+  if (/(?:شروط|تقسيط|طريقة التقديم|كيف اقدم|كيف أقدم)/i.test(q)) {
+    return "أكيد. التقديم للأقساط يبدأ بطلب موافقة مبدئية، والمتطلبات تختلف حسب الملف. عادةً نحتاج هوية وإثبات دخل، وقد تُطلب بيانات كفيل حسب الحالة. أي مستندات حساسة تُرفع فقط عبر الرابط الرسمي الآمن، وما بنستلمها على واتساب.";
+  }
+  if (input.state.activeTrackingId) {
+    return `رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ احكيلي شو بدك تعرف عنه.`;
+  }
+  return "أنا معك. احكيلي سؤالك مباشرة، وإذا كان عن طلب سابق وما قدرت أربطه تلقائيًا وقتها بطلب منك معلومة واحدة فقط لتحديده.";
 }
 
 const MANUAL_ACTIONS = new Set([
@@ -106,6 +128,10 @@ async function notifyManualActionRequests(input: {
     if (!result || result.executed) continue;
     if (!(result.outcome === "dry_run" || result.blocker === "real_actions_disabled" || result.blocker === "shadow_core_no_business_mutation")) continue;
     const app = input.truth.application;
+    // Unpaid device changes do not need an admin mutation request yet. The safe
+    // path is cancel + reapply guidance; Discord is sent only after the customer
+    // explicitly confirms cancellation. Payment evidence protects the existing file.
+    if (planned.action === "change_device" && !hasPaymentProtection(input.truth)) continue;
     await notifyV3Discord({
       event: "manual_action_required",
       actionKey: planned.action,
@@ -214,6 +240,13 @@ export async function runV3ProductionLive(input: {
     console.error("V3 manual-action Discord notification failed", error);
   }
 
+  const manualDisposition = resolveManualActionDisposition({
+    state: boundState,
+    truth: truthAfterActions,
+    plan,
+    actions,
+  });
+
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   let reply: string | null = null;
   let verification: VerificationReport = PASS;
@@ -221,7 +254,19 @@ export async function runV3ProductionLive(input: {
   let fallbackUsed = false;
 
   if (plan.shouldRespond) {
-    if (writer) {
+    const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
+    if (manualReply) {
+      reply = manualReply;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: boundState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: safeRecentTurns,
+      });
+    } else if (writer) {
       const basePrompt = buildWriterPrompt({
         turn,
         state: boundState,
@@ -292,7 +337,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         actions,
       });
-      reply = rescueVerification.pass ? rescue : buildV3LastResortReply();
+      reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: boundState, customerText: input.customerText });
       verification = rescueVerification.pass ? rescueVerification : PASS;
     }
   }
@@ -351,13 +396,23 @@ export async function runV3ProductionLive(input: {
   const latestVerifiedSnapshot = truthAfterActions.application && truthAfterActions.source !== "verified_state_snapshot"
     ? { application: truthAfterActions.application, fetchedAt: truthAfterActions.fetchedAt }
     : boundState.lastVerifiedApplication;
+  const manualPayload = manualStatePayload(manualDisposition);
+  const manualPendingAction = manualDisposition.kind === "awaiting_admin"
+    ? manualDisposition.action
+    : manualDisposition.kind === "cancel_reapply_guidance"
+      ? "cancel_application"
+      : null;
   const actionAdjustedState: ConversationState = {
     ...boundState,
     lastVerifiedApplication: latestVerifiedSnapshot,
-    pendingAction: waitingConfirmation || (plan.actions.length ? null : boundState.pendingAction),
+    pendingAction: waitingConfirmation
+      || manualPendingAction
+      || (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : boundState.pendingAction)),
     pendingActionPayload: waitingConfirmation
       ? (waitingPlan?.payload || boundState.pendingActionPayload)
-      : (plan.actions.length ? null : boundState.pendingActionPayload),
+      : manualPayload
+        ? manualPayload
+        : (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : boundState.pendingActionPayload)),
   };
   const answeredState = answeredTopics.length
     ? closeAnsweredLoops({ ...actionAdjustedState, lastAssistantText: reply }, answeredTopics)
