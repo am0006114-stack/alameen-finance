@@ -42,12 +42,15 @@ function hasExplicitTracking(value: string | null | undefined) {
 }
 export function explicitContinuationText(value: string | null | undefined) {
   const q = normalized(value);
-  return /(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
+  return /(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار|(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق|موافقه|موافقة)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
 }
 
 function contextualContinuationYes(turn: InterpretedTurn, state: ConversationState, recentTurns?: string[]) {
   const q = normalized(turn.rawText);
-  if (!/^(?:نعم|اه|أه|ايوه|أيوه|yes|تمام)$/.test(q)) return false;
+  // Customers often answer the continuation question naturally with “اه بدي”
+  // rather than a bare yes. Treat that as the same explicit commercial decision,
+  // but only when the immediately established context actually asked to continue.
+  if (!/^(?:نعم|اه|أه|ايوه|أيوه|yes|تمام)(?:\s+(?:بدي|حاب|حابه|حابة|اكيد|أكيد))?$/.test(q)) return false;
   const ctx = contextText(state, recentTurns);
   return /هل\s+(?:تود|بدك|حاب|حابه|حابة).{0,40}(?:الاستمرار|تكمل|تكملي|فتح\s+الملف|الدراسه\s+النهائيه|الدراسة\s+النهائية)/.test(ctx);
 }

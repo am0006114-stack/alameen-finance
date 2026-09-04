@@ -17,6 +17,7 @@ import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayloa
 import { customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildConversationRecoveryReply, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
+import { persistExplicitContinuation } from "./continuationPersistence";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -431,6 +432,42 @@ export async function runV3ProductionLive(input: {
     actions,
   });
 
+  // REVENUE + ADMIN INVARIANT: the explicit continuation decision must have one
+  // authoritative meaning everywhere: customer receives the 5 JOD step, the admin
+  // application changes to customer_confirmed_continue, and Discord receives the
+  // same decision. Never depend only on a model/planner action for this commercial
+  // event.
+  const continuationDecisionThisTurn = turn.requestedActions.includes("continue_application")
+    || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation);
+
+  const continuationPersistence = await persistExplicitContinuation({
+    application: truthAfterActions.application,
+    explicitContinue: continuationDecisionThisTurn,
+  });
+  if (continuationPersistence.updated) {
+    truthAfterActions = await resolveV3ProductionTruth({
+      waId: input.waId,
+      customerText: input.customerText,
+      state: boundState,
+      recentTurns: safeRecentTurns,
+      topics: turn.topics,
+    });
+  } else if (continuationPersistence.attempted && continuationPersistence.blocker) {
+    try {
+      await notifyV3Discord({
+        event: "truth_integrity_failure",
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        waId: input.waId,
+        title: "⛔ العميل اختار الاستمرار لكن تحديث الأدمن فشل",
+        description: "تم الحفاظ على خطوة 5 دنانير للعميل، لكن تعذر تثبيت قرار الاستمرار على حالة الطلب في قاعدة البيانات. راجع الطلب يدويًا.",
+        details: { blocker: continuationPersistence.blocker, action: "continue_application" },
+      });
+    } catch (error) {
+      console.error("V3 continuation persistence alert failed", error);
+    }
+  }
+
   const recoveryReply = buildConversationRecoveryReply({
     turn,
     state: boundState,
@@ -442,8 +479,6 @@ export async function runV3ProductionLive(input: {
   // truth for this turn. It must survive writer repair, fallback, duplicate
   // suppression, and any planner wording variance. Already-paid/pending-payment
   // truth remains protected from duplicate charging.
-  const continuationDecisionThisTurn = turn.requestedActions.includes("continue_application")
-    || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation);
   const protectedFiveJodStep = continuationDecisionThisTurn
     && continuationCommercialState(truthAfterActions.application) === "payment_ready";
 
@@ -665,13 +700,13 @@ export async function runV3ProductionLive(input: {
     const commercial = continuationCommercialState(truthAfterActions.application);
     if (explicitContinue && commercial === "payment_ready") {
       try {
-        await notifyV3Discord({
+        const notification = await notifyV3Discord({
           event: "customer_continue_payment_ready",
           applicationId: truthAfterActions.application.id,
           trackingId: truthAfterActions.application.trackingId,
           waId: input.waId,
           title: "✅ العميل وافق على الاستمرار — أرسلت له خطوة 5 دنانير",
-          description: "الطلب مؤهل مبدئيًا، والعميل اختار الاستمرار. V3 أرسل تعليمات رسوم فتح الملف ورابط رفع الوصل الرسمي.",
+          description: "تم تثبيت اختيار العميل على الطلب وإرسال تعليمات رسوم فتح الملف ورابط رفع الوصل الرسمي.",
           details: {
             الاسم: truthAfterActions.application.fullName || "—",
             الجهاز: truthAfterActions.application.deviceName || "—",
@@ -680,6 +715,9 @@ export async function runV3ProductionLive(input: {
             الرسوم: `${truthAfterActions.policy.fileOpeningFeeJod} دنانير`,
           },
         });
+        if (!notification.sent && !notification.suppressed) {
+          console.error("V3 continuation Discord delivery failed:", notification.reason);
+        }
       } catch (error) {
         console.error("V3 continuation Discord notification failed:", error);
       }
