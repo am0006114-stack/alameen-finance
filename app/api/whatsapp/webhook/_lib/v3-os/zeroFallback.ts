@@ -191,10 +191,10 @@ export function buildZeroFallbackReply(input: {
     const status = shortStatus(input.truth);
     if (status) parts.push(status);
     else if (input.truth.ambiguousApplications.length) parts.push("عندي أكثر من طلب مرتبط بالمحادثة. ابعث رقم التتبع للطلب اللي بدك أراجعه حتى ما أعطيك معلومات عن طلب ثاني.");
-    else if (input.state.activeTrackingId) parts.push(`رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ ما عندي تحديث موثق أضيفه على حالته بهذه اللحظة.`);
+    else if (input.state.activeTrackingId) parts.push(`الطلب ${input.state.activeTrackingId} مربوط عندي، لكن ما عندي حالة موثقة أحدث أقدر أضيفها الآن.`);
     else parts.push("حتى أعطيك حالة صحيحة، ابعث رقم التتبع أو رقم الطلب وبراجع نفس الطلب معك.");
     if (app && stage === "preliminary_approved_waiting_decision" && shouldAskContinuationDecision(app, input.turn)) {
-      parts.push("الموافقة الحالية مبدئية وليست النهائية. هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟");
+      parts.push(`الموافقة الحالية مبدئية وليست النهائية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول وتخضع للاسترداد الرسمي بعد دفع مؤكد. المعدل الطبيعي للدراسة ${p.normalReviewWindow}، وحاليًا في ضغط مراجعات وقد تتأخر بعض الملفات. إذا بدك نكمل، اكتبلي: أود الاستمرار.`);
     } else if (links.relevant.tracking && topics.has("tracking")) {
       parts.push(`رابط التتبع الرسمي: ${links.relevant.tracking}`);
     }
@@ -212,7 +212,7 @@ export function buildZeroFallbackReply(input: {
   if (["payment_status","payment_confirmation","payment_method","payment_timing","payment_recipient","payment_fee","receipt_upload"].some((t) => topics.has(t as any))) {
     if (!canDiscloseFileOpeningPayment(app, input.turn)) {
       if (rawAsksFeePolicy(q)) parts.push(`رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وتُطلب فقط بعد الموافقة المبدئية إذا اخترت الاستمرار. ما بنرسل تفاصيل التحويل قبل قرار الاستمرار.`);
-      else if (stage === "preliminary_approved_waiting_decision") parts.push("الطلب حاصل على موافقة مبدئية. قبل تفاصيل التحويل، بدي قرارك أولًا: هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟");
+      else if (stage === "preliminary_approved_waiting_decision") parts.push(`مبروك، الطلب حاصل على موافقة مبدئية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسومها ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول وتخضع للاسترداد الرسمي بعد دفع مؤكد. المعدل الطبيعي للدراسة ${p.normalReviewWindow} مع ضغط مراجعات حاليًا. إذا بدك نكمل، اكتبلي: أود الاستمرار.`);
       else parts.push("الطلب لسه ما وصل لمرحلة رسوم فتح الملف، لذلك ما رح أفتح تفاصيل التحويل قبل وقته.");
     } else if (hasAuthoritativePaymentConfirmation(app)) {
       parts.push("الدفع مؤكد إداريًا على الطلب، وما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.");
@@ -266,10 +266,14 @@ export function buildZeroFallbackReply(input: {
       parts.push("أنا معك من فريق الأمين وبكمل معك من نفس المحادثة. احكيلي المطلوب مباشرة وبجاوبك على المسجل بدون ما أعيد عليك معلومات معروفة.");
     } else if (app) {
       const status = safeStatusLine(input.truth);
-      parts.push(status || "طلبك مرتبط بالمحادثة عندي.");
-      parts.push("إذا سؤالك عن نقطة محددة مثل الموعد أو القسط أو المستندات، اكتبها مباشرة وبجاوبك عليها بدون إعادة كل تفاصيل الطلب.");
-    } else if (input.state.activeTrackingId) parts.push(`رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ اكتب سؤالك على نفس الطلب مباشرة.`);
-    else parts.push("أنا معك. احكيلي سؤالك مباشرة، وإذا تعذر ربط طلب سابق بطلب منك معلومة واحدة فقط لتحديده.");
+      parts.push(status || "طلبك ظاهر عندي ومربوط بالمحادثة.");
+      if (stage === "preliminary_approved_waiting_decision") {
+        parts.push(`إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، وبعد رفع الوصل واعتماده تبدأ الدراسة. المعدل الطبيعي ${p.normalReviewWindow} مع وجود ضغط مراجعات حاليًا. اكتبلي: أود الاستمرار.`);
+      } else {
+        parts.push("احكيلي شو النقطة اللي بدك أعرفك عليها بالطلب، وبجاوبك عليها من الحالة المسجلة بدون ما أعيد عليك نفس التفاصيل.");
+      }
+    } else if (input.state.activeTrackingId) parts.push(`الطلب ${input.state.activeTrackingId} مربوط عندي، لكن تفاصيل حالته الكاملة مش ظاهرة بهاللحظة. احكيلي شو بدك تعرف عنه وبجاوبك على المتاح.`);
+    else parts.push("احكيلي شو بدك تعرف بالضبط، وإذا احتجت أربط طلب سابق بطلب منك معلومة واحدة بس لتحديده.");
   }
 
   return parts.join("\n\n").trim();

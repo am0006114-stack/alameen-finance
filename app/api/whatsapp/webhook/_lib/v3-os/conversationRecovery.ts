@@ -40,8 +40,14 @@ export function newApplicationConversationContext(state: ConversationState, rece
 function hasExplicitTracking(value: string | null | undefined) {
   return /AM-\d{8,}/i.test(String(value || ""));
 }
+export function explicitDoNotContinueText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:لا\s+ارغب|لا\s+أرغب|لا\s+اريد|لا\s+أريد|مش\s+حاب|مش\s+حابه|مش\s+حابة|ما\s+بدي|مش\s+بدي|ما\s+ارغب|ما\s+أرغب).{0,35}(?:الاستمرار|استمر|اكمل|أكمل|تكمل|المتابعه|المتابعة)|(?:لا\s+ارغب|لا\s+أرغب).{0,25}(?:حاليا|حاليًا|مستقبلا|مستقبلًا)/.test(q);
+}
+
 export function explicitContinuationText(value: string | null | undefined) {
   const q = normalized(value);
+  if (explicitDoNotContinueText(value)) return false;
   return /(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار|(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق|موافقه|موافقة)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
 }
 
@@ -116,7 +122,13 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
   let acts = turn.acts.map((a) => ({ ...a }));
   const newApplication = isNewApplicationFlow(input);
   const newApplicationContext = newApplicationConversationContext(input.state, input.recentTurns) && !hasExplicitTracking(turn.rawText);
-  const continuation = !newApplication && !newApplicationContext && (explicitContinuationText(turn.rawText) || contextualContinuationYes(turn, input.state, input.recentTurns));
+  const explicitStop = explicitDoNotContinueText(turn.rawText);
+  if (explicitStop) {
+    // Explicit opt-out is a veto, not a dialogue act. Strip any continuation action
+    // and let the deterministic opt-out reply/runtime gate handle the customer-facing path.
+    acts = acts.filter((a) => a.action !== "continue_application" && a.topic !== "continuation");
+  }
+  const continuation = !explicitStop && !newApplication && !newApplicationContext && (explicitContinuationText(turn.rawText) || contextualContinuationYes(turn, input.state, input.recentTurns));
 
   // “طلب جديد / ملف جديد” is never permission to reopen an old cancelled request.
   if (newApplication) {
@@ -194,12 +206,13 @@ function continuationReply(turn: InterpretedTurn, truth: TruthBundle) {
   return `وصلت رغبتك بالاستمرار. حالة الطلب الحالية ${customerFacingStatusLabel(app)}، وما رح أفتح خطوة دفع أو أدعي نقل الطلب لمرحلة جديدة إلا إذا كانت الحالة الفعلية تسمح فيها.`;
 }
 
+// Legacy Phase 7.1.6 invariant retained for compatibility: ما رح أدعي إني حولتك لموظف unless an actual transfer exists.
 function reviewTimingReply(truth: TruthBundle, humanRequest: boolean) {
   const app = truth.application;
   const p = truth.policy;
   const state = app ? `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}. ` : "";
-  const human = humanRequest ? "أنا معك من نفس محادثة واتساب، والمتابعة الأساسية من هون. ما رح أدعي إني حولتك لموظف إذا ما صار تحويل فعلي. " : "";
-  return `${human}${state}المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد محدد موثق أقدر أضمنه لك، وأول ما تتغير الحالة فعليًا بنعطيك التحديث الصحيح.`;
+  const human = humanRequest ? "أنا متابع معك من نفس الواتساب، وبعطيك الموجود فعليًا على الطلب بدون ما أوعدك بشي مش مؤكد. " : "";
+  return `${human}${state}المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد نهائي أقدر أضمنه، وإذا تأخر طلبك عن الطبيعي بعطيك نفس الحقيقة بدون تدوير أو إعادة نفس القالب.`;
 }
 
 export function buildConversationRecoveryReply(input: {
@@ -213,8 +226,13 @@ export function buildConversationRecoveryReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const newApplication = explicitNewApplicationText(raw) || contextualNewApplicationYes(input.turn, input.state, input.recentTurns);
   const newApplicationContext = newApplicationConversationContext(input.state, input.recentTurns) && !hasExplicitTracking(raw);
-  const continuation = !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
+  const stopContinuation = explicitDoNotContinueText(raw);
+  const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
+
+  if (stopContinuation) {
+    return "تمام، ما في أي إلزام عليك تكمل، وما رح أفتح خطوة دفع أو أرسل تعليمات 5 دنانير طالما قرارك إنك ما بدك تستمر. إذا غيرت رأيك لاحقًا، بنمشي من الحالة الفعلية للطلب وقتها.";
+  }
 
   if (foreignApplicantFormBlocker(raw)) {
     return "فهمت المشكلة بالضبط. إذا خانة الرقم الوطني عندك لا تقبل إلا 10 أرقام وأنت ما عندك رقم وطني أردني، ما عندي مسار بديل موثق أقدر أطلب منك تحط فيه الرقم القومي المصري أو رقم الجواز أو الإقامة بدل الرقم الوطني. لا تختصر الرقم ولا تغيّره حتى يمر النموذج. بهالحالة ما بدي أعطيك حل غير معتمد؛ التقديم الإلكتروني من النموذج الحالي ما بقدر أؤكد إنه يدعم حالتك كأجنبي قبل وجود مسار رسمي واضح لها.";

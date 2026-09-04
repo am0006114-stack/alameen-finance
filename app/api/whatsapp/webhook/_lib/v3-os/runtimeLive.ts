@@ -16,8 +16,9 @@ import { applicationRefundUrl, sanitizeRecentTurnsForModel } from "./linkIntegri
 import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
-import { buildConversationRecoveryReply, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
+import { buildConversationRecoveryReply, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
 import { persistExplicitContinuation } from "./continuationPersistence";
+import { buildHumanJourneyReply } from "./humanJourney";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -437,8 +438,10 @@ export async function runV3ProductionLive(input: {
   // application changes to customer_confirmed_continue, and Discord receives the
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
-  const continuationDecisionThisTurn = turn.requestedActions.includes("continue_application")
-    || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation);
+  const continuationDecisionThisTurn = !explicitDoNotContinueText(input.customerText) && (
+    turn.requestedActions.includes("continue_application")
+    || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
+  );
 
   const continuationPersistence = await persistExplicitContinuation({
     application: truthAfterActions.application,
@@ -468,6 +471,17 @@ export async function runV3ProductionLive(input: {
     }
   }
 
+  // HUMAN JOURNEY FIRST: transactional truth is already resolved above. From here,
+  // the customer should hear a natural journey explanation, not a bare database
+  // status. This layer is intentionally deterministic for approval/status/timing
+  // so preliminary approval always explains the next commercial step and review
+  // window even if the model intent is weak or unknown.
+  const humanJourneyReply = buildHumanJourneyReply({
+    turn,
+    state: boundState,
+    truth: truthAfterActions,
+    recentTurns: safeRecentTurns,
+  });
   const recoveryReply = buildConversationRecoveryReply({
     turn,
     state: boundState,
@@ -496,6 +510,21 @@ export async function runV3ProductionLive(input: {
       // and the official refund-link generator. It does not depend on model text.
       reply = scopedMutationReply;
       verification = PASS;
+    } else if (humanJourneyReply) {
+      // Stage-aware customer journey owns approval/status/timing before generic
+      // recovery or model wording. This prevents bare status dumps and makes the
+      // 5 JOD continuation path visible immediately after preliminary approval.
+      reply = humanJourneyReply;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: boundState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: safeRecentTurns,
+        profileName: input.profileName,
+      });
     } else if (recoveryReply) {
       // High-confidence conversation recovery owns known regression cases before
       // model wording: continuation, new-application vs reopen, review timing,

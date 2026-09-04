@@ -105,7 +105,7 @@ function roleIntroduction(reply: string, roleName: string) {
 
 function hasContinuationDecisionQuestion(reply: string) {
   const n = normalizeArabic(reply);
-  return /هل\s*(?:تود|ترغب)[^؟?]{0,70}(?:الاستمرار|تكمل)|(?:بدك|حاب|حابب)[^؟?]{0,40}(?:تكمل|تستمر)/.test(n);
+  return /هل\s*(?:تود|ترغب)[^؟?]{0,70}(?:الاستمرار|تكمل)|(?:بدك|حاب|حابب)[^؟?]{0,40}(?:تكمل|تستمر)|(?:اكتب|احكي|قلي)[^\n]{0,30}(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار/.test(n);
 }
 
 function hasPaymentDetail(reply: string) {
@@ -378,6 +378,12 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   }
 
   if (rawStatusLeaked(reply)) policyViolations.push("raw_internal_application_status_exposed");
+  if (/(?:رقم\s+الطلب\s+المرتبط\s+بالمحادثه\s+عندي|رقم\s+الطلب\s+المرتبط\s+بالمحادثة\s+عندي|اكتب\s+سؤالك\s+مباشره|اكتب\s+سؤالك\s+مباشرة|اذا\s+عندك\s+نقطه\s+جديده|إذا\s+عندك\s+نقطة\s+جديدة|الحاله\s+الفعليه\s+المسجله|الحالة\s+الفعلية\s+المسجلة|بعتمد\s+هالحاله\s+نفسها|بعتمد\s+هالحالة\s+نفسها|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+رد)/.test(t)) {
+    repetitionFlags.push("robotic_generic_fallback_language");
+  }
+  if (/^انا\s+معك(?:[،,. ]|$)|^أنا\s+معك(?:[،,. ]|$)/.test(reply.trim()) && reply.trim().split(/\s+/).length < 14) {
+    repetitionFlags.push("empty_human_presence_without_answer");
+  }
   if (/(?:هلق|هلّق|هلأ)/.test(reply)) repetitionFlags.push("non_jordanian_now_word");
   if (/(?:انا|أنا)\s+انسان|انسان\s+مثلك|إنسان\s+مثلك|موظف\s+حقيقي/i.test(reply)) policyViolations.push("literal_human_identity_claim");
   const knownTracking = input.truth.application?.trackingId || input.state.activeTrackingId;
@@ -390,7 +396,13 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   }
 
   if (preContinuationStage) {
-    if (feeQuestionNow) {
+    // Transparency invariant: once preliminary approval exists, the customer may
+    // be told that continuing opens the 5 JOD file-opening step, including purpose
+    // and refundability. What stays protected until explicit continuation is the
+    // transaction destination itself: recipient, aliases, transfer instructions
+    // and receipt URL.
+    const prelimApproved = journeyStage === "preliminary_approved_waiting_decision";
+    if (feeQuestionNow || prelimApproved) {
       if (restrictedPaymentDestinationDetail(reply)) policyViolations.push("payment_destination_exposed_before_explicit_continuation");
     } else {
       if (hasPaymentDetail(reply)) policyViolations.push("payment_details_exposed_before_explicit_continuation");
