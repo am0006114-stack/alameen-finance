@@ -1,4 +1,5 @@
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { customerFacingStatusLabel } from "./applicationJourney";
 import { normalizeArabic } from "./text";
 import type { ActionKey, ActionPayload, ActionResult, ConversationState, PlannedAction, ReplyPlan, TruthBundle } from "./types";
 
@@ -187,7 +188,7 @@ export function buildManualActionCustomerReply(input: {
     if (d.action === "change_device") {
       return `الجهاز المسجل فعليًا على طلبك الآن هو ${app.deviceName || d.requestedValue || "الجهاز المطلوب"}. أي حسبة جديدة بعتمدها فقط من البيانات المحدثة على الطلب.`;
     }
-    return `الحالة الفعلية المسجلة على الطلب الآن هي ${app.status || "محدثة"}. بعتمد هالحالة نفسها بدون افتراض تنفيذ غير ظاهر عندي.`;
+    return `حالة الطلب الحالية للعميل: ${customerFacingStatusLabel(app)}. هذا هو الوضع الفعلي اللي بعتمد عليه، وما رح أقول إن إعادة فتح/إيقاف استرداد أو أي تغيير صار بسبب المحادثة إلا إذا كان التنفيذ موثق فعليًا.`;
   }
 
   return null;

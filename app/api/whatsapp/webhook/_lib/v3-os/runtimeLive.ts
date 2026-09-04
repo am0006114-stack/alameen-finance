@@ -16,6 +16,7 @@ import { applicationRefundUrl, sanitizeRecentTurnsForModel } from "./linkIntegri
 import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { buildConversationRecoveryReply, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -308,8 +309,16 @@ export async function runV3ProductionLive(input: {
     recentTurns: safeRecentTurns,
     provider: interpreter,
   });
-  const turn = interpreted.turn;
-  const preliminaryState = reduceState({ state: stateBefore, turn });
+  const turn = hardenTurnForConversationRecovery({
+    turn: interpreted.turn,
+    state: stateBefore,
+    recentTurns: safeRecentTurns,
+  });
+  const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
+  const reducedState = reduceState({ state: stateBefore, turn });
+  const preliminaryState = newApplicationFlow && ["reopen_application", "change_device", "change_application_data", "stop_refund"].includes(String(reducedState.pendingAction || ""))
+    ? { ...reducedState, pendingAction: null, pendingActionPayload: null }
+    : reducedState;
 
   const truthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
@@ -422,6 +431,22 @@ export async function runV3ProductionLive(input: {
     actions,
   });
 
+  const recoveryReply = buildConversationRecoveryReply({
+    turn,
+    state: boundState,
+    truth: truthAfterActions,
+    recentTurns: safeRecentTurns,
+  });
+  // REVENUE INVARIANT: once a preliminarily-qualified customer explicitly chooses
+  // to continue, the 5 JOD file-opening step becomes protected customer-facing
+  // truth for this turn. It must survive writer repair, fallback, duplicate
+  // suppression, and any planner wording variance. Already-paid/pending-payment
+  // truth remains protected from duplicate charging.
+  const continuationDecisionThisTurn = turn.requestedActions.includes("continue_application")
+    || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation);
+  const protectedFiveJodStep = continuationDecisionThisTurn
+    && continuationCommercialState(truthAfterActions.application) === "payment_ready";
+
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   let reply: string | null = null;
   let verification: VerificationReport = PASS;
@@ -436,6 +461,21 @@ export async function runV3ProductionLive(input: {
       // and the official refund-link generator. It does not depend on model text.
       reply = scopedMutationReply;
       verification = PASS;
+    } else if (recoveryReply) {
+      // High-confidence conversation recovery owns known regression cases before
+      // model wording: continuation, new-application vs reopen, review timing,
+      // foreign-form blockers, showroom browsing and explicit multi-topic turns.
+      reply = recoveryReply;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: boundState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: safeRecentTurns,
+        profileName: input.profileName,
+      });
     } else if (manualReply) {
       reply = manualReply;
       verification = verifyReply({
@@ -557,7 +597,7 @@ export async function runV3ProductionLive(input: {
     });
   }
 
-  if (reply && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
+  if (reply && !protectedFiveJodStep && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
     fallbackUsed = true;
     reply = buildRepeatDeltaReply({ turn, truth: truthAfterActions });
     verification = verifyReply({
@@ -570,6 +610,33 @@ export async function runV3ProductionLive(input: {
       recentTurns: safeRecentTurns,
       profileName: input.profileName,
     });
+  }
+
+  // FINAL 5 JOD REVENUE INVARIANT: this runs after the duplicate-response guard,
+  // immediately before the final safety decision. No later conversational layer
+  // is allowed to erase the mandatory continuation step when authoritative truth
+  // says payment_ready.
+  if (plan.shouldRespond && protectedFiveJodStep) {
+    const mandatoryContinuationReply = buildConversationRecoveryReply({
+      turn,
+      state: boundState,
+      truth: truthAfterActions,
+      recentTurns: safeRecentTurns,
+    });
+    if (mandatoryContinuationReply) {
+      reply = mandatoryContinuationReply;
+      fallbackUsed = true;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: boundState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: safeRecentTurns,
+        profileName: input.profileName,
+      });
+    }
   }
 
   const finalSafetyPass = !plan.shouldRespond || Boolean(reply && verification.pass);
@@ -594,7 +661,7 @@ export async function runV3ProductionLive(input: {
   }
 
   if (finalSafetyPass && reply && truthAfterActions.application) {
-    const explicitContinue = plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation);
+    const explicitContinue = continuationDecisionThisTurn;
     const commercial = continuationCommercialState(truthAfterActions.application);
     if (explicitContinue && commercial === "payment_ready") {
       try {

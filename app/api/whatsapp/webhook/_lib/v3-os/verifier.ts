@@ -5,8 +5,9 @@ import { continuationCommercialState } from "./commercialProgression";
 import { applicationJourneyStage, canDiscloseFileOpeningPayment, explicitContinuation, firstCustomerName } from "./applicationJourney";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
-import { detectReplyLinkViolations } from "./linkIntegrity";
+import { buildOfficialLinkContext, detectReplyLinkViolations } from "./linkIntegrity";
 import { appointmentCoordinationOverclaim, asksOfficeSchedule, bankStatementDurationQuestion, productAvailabilityOverclaim, safeCustomerFirstName, resolveOfficeScheduleTarget } from "./operationalPrecision";
+import { explicitNewApplicationText, foreignApplicantFormBlocker, showroomBrowsingRequest } from "./conversationRecovery";
 
 function claimExecuted(text: string, action: string[]) {
   const t = normalizeArabic(text);
@@ -281,6 +282,32 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   policyViolations.push(...detectReplyLinkViolations({ reply, turn: input.turn, truth: input.truth }).map((x) => `link_integrity:${x}`));
   if (appointmentCoordinationOverclaim(reply)) actionClaimViolations.push("appointment_coordination_not_supported");
 
+  if (explicitNewApplicationText(input.turn.rawText)) {
+    if (/(?:اعاده|إعادة)\s*(?:فتح|تفعيل)|رجع\s*(?:فتح|فعل)|reopen/i.test(reply)) {
+      actionClaimViolations.push("new_application_must_not_be_reopen");
+    }
+    if (input.truth.application?.trackingId && reply.includes(input.truth.application.trackingId)) {
+      truthContradictions.push("new_application_reused_old_tracking");
+    }
+  }
+
+  if (showroomBrowsingRequest(input.turn.rawText)) {
+    const invitesBrowseVisit = /(?:تقدر|بتقدر|ممكن|تعال|تعالي|اجي|أجي|تجي|تيجي)[^\n]{0,45}(?:المعرض|المكتب)[^\n]{0,35}(?:تشوف|تشوفي|مشاهده|مشاهدة|الاجهزه|الأجهزة)|(?:المعرض)[^\n]{0,45}(?:مفتوح|تزور|تجي|تيجي|تشوف)/.test(t);
+    if (invitesBrowseVisit) policyViolations.push("office_not_open_showroom_for_browsing");
+  }
+
+  if (foreignApplicantFormBlocker(input.turn.rawText)) {
+    const suggestsSubstitution = /(?:حط|اكتب|استخدم|استعمل)[^\n]{0,40}(?:رقم\s*(?:الجواز|الاقامه|الإقامة|القومي)|جواز\s*السفر|رقم\s*مصري)[^\n]{0,35}(?:مكان|بدل|بخانه|بخانة)\s*(?:الرقم\s+الوطني)?/.test(t) ||
+      /(?:قص|اختصر|احذف)[^\n]{0,30}(?:الرقم|ارقام|أرقام)/.test(t);
+    if (suggestsSubstitution) unsupportedClaims.push("foreign_applicant_invented_national_id_workaround");
+    const admitsNoApprovedPath = /(?:ما\s+عندي|ما\s+في|غير\s+متاح)[^\n]{0,55}(?:مسار|بديل|حل)[^\n]{0,35}(?:موثق|معتمد)|(?:ما\s+بدي|لن)[^\n]{0,35}(?:حل|طريقه|طريقة)[^\n]{0,25}(?:غير\s+معتمد|غير\s+موثق)/.test(t);
+    if (!admitsNoApprovedPath) policyViolations.push("foreign_applicant_form_blocker_not_answered_directly");
+  }
+
+  if (/(?:القسط|دينار)[^\n]{0,45}\d+[.,]\d{3,}|\d+[.,]\d{3,}[^\n]{0,35}(?:دينار|القسط)/.test(reply)) {
+    policyViolations.push("money_display_more_than_two_decimals");
+  }
+
   if (asksOfficeSchedule(input.turn.rawText)) {
     const ops = resolveOfficeScheduleTarget(input.turn.rawText);
     const targetDay = normalizeArabic(ops.arabic);
@@ -328,6 +355,17 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   }
 
   const journeyStage = applicationJourneyStage(input.truth.application);
+  const customerStatusText = normalizeArabic(reply);
+  const claimsCancelledOrClosed = /(?:الطلب|الملف)[^\n]{0,30}(?:ملغي|ملغى|انلغى|مقفول|متوقف)|(?:تم|صار)[^\n]{0,20}(?:الغاء|إلغاء)[^\n]{0,20}(?:الطلب|الملف)/.test(customerStatusText);
+  if (claimsCancelledOrClosed && !["cancelled","refund_requested","refund_completed"].includes(journeyStage)) {
+    truthContradictions.push("global_cancelled_or_closed_claim_mismatch_truth");
+  }
+  if (customerStatusText.includes(normalizeArabic("موافقة مبدئية")) && journeyStage !== "preliminary_approved_waiting_decision") {
+    truthContradictions.push("global_preliminary_approval_claim_mismatch_truth");
+  }
+  if (["cancelled","refund_requested","refund_completed"].includes(journeyStage) && /(?:قيد\s+الدراسه|قيد\s+الدراسة|قيد\s+المراجعه|قيد\s+المراجعة|موافقه\s+مبدئيه|موافقة\s+مبدئية)/.test(customerStatusText)) {
+    truthContradictions.push("global_active_status_claim_on_terminal_application");
+  }
   const continuationNow = explicitContinuation(input.turn);
   const paymentTopics: TopicKey[] = ["payment_fee","payment_method","payment_timing","payment_recipient","payment_status","payment_confirmation","receipt_upload"];
   const preContinuationStage = !canDiscloseFileOpeningPayment(input.truth.application, input.turn) && (journeyStage === "preliminary_review" || journeyStage === "preliminary_approved_waiting_decision");
@@ -479,6 +517,8 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
       if (/لا\s*يوجد\s*اي\s*دفع\s*مطلوب|ما\s*في\s*دفع\s*مطلوب|لا\s*دفع\s*مطلوب/.test(t)) truthContradictions.push("continuation_payment_ready_wrong_no_payment_claim");
       const aliases = input.truth.policy.paymentAliases || [];
       if (aliases.length && !aliases.some((alias) => reply.includes(alias))) policyViolations.push("continuation_payment_ready_missing_payment_destination");
+      const receiptLink = buildOfficialLinkContext(input.turn, input.truth).relevant.receipt;
+      if (receiptLink && !reply.includes(receiptLink)) policyViolations.push("continuation_payment_ready_missing_receipt_link");
       if (!/القسط\s*الاول|القسط\s*الأول/.test(t)) policyViolations.push("continuation_payment_ready_first_installment_distinction_missing");
       if (!/(?:مسترده|مستردة)\s*(?:بالكامل|كامل)/.test(t)) policyViolations.push("continuation_payment_ready_refundability_missing");
       if (!/(?:فتح\s*الملف|استكمال\s*(?:اجراءات|إجراءات)\s*الطلب)/.test(t)) policyViolations.push("continuation_payment_ready_fee_purpose_missing");

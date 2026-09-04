@@ -7,6 +7,7 @@ import { buildOfficialLinkContext, sanitizeRecentTurnsForModel, sanitizeStateFor
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
 import { normalizeArabic } from "./text";
 import { asksOfficeSchedule, bankStatementDurationQuestion, resolveOfficeScheduleTarget, safeCustomerFirstName } from "./operationalPrecision";
+import { explicitNewApplicationText, foreignApplicantFormBlocker, showroomBrowsingRequest } from "./conversationRecovery";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -39,6 +40,9 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const officeScheduleQuestion = asksOfficeSchedule(input.turn.rawText);
   const officeTarget = resolveOfficeScheduleTarget(input.turn.rawText);
   const bankStatementQuestion = bankStatementDurationQuestion(input.turn.rawText);
+  const newApplicationRequest = explicitNewApplicationText(input.turn.rawText);
+  const foreignFormBlocker = foreignApplicantFormBlocker(input.turn.rawText);
+  const showroomBrowse = showroomBrowsingRequest(input.turn.rawText);
   const writerPolicy = paymentDetailsAllowed
     ? fullPolicy
     : {
@@ -89,11 +93,19 @@ OFFICE_WEEKLY_DAY=${officeTarget.arabic}
 OFFICE_WEEKLY_HOLIDAY=${officeTarget.officeWeeklyHoliday}
 REQUESTS_ACCEPTED_EVERY_DAY=true
 BANK_STATEMENT_DURATION_QUESTION=${bankStatementQuestion}
+NEW_APPLICATION_REQUEST=${newApplicationRequest}
+FOREIGN_APPLICANT_FORM_BLOCKER=${foreignFormBlocker}
+SHOWROOM_BROWSING_REQUEST=${showroomBrowse}
 MUST_ASK_CONTINUATION_DECISION=${mustAskContinuation}
 CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 
 قواعد حاسمة:
 - حل كل عناصر PLAN ولا تسقط سؤالًا لأن سؤالًا آخر أهم.
+- إذا سؤال العميل واضح ومحدد، ممنوع الرد بقالب "اكتب سؤالك مباشرة" أو "إذا عندك نقطة جديدة". جاوب السؤال نفسه أو قل بوضوح إن الحقيقة المطلوبة غير متاحة.
+- إذا NEW_APPLICATION_REQUEST=true: الطلب الجديد ليس إعادة فتح للطلب القديم. ممنوع تنفيذ/اقتراح reopen_application، وممنوع إعادة استخدام رقم تتبع الطلب القديم كأنه الطلب الجديد. وجّه العميل لبدء طلب جديد من رابط المنتجات الرسمي الموجود في OFFICIAL_LINKS فقط.
+- إذا FOREIGN_APPLICANT_FORM_BLOCKER=true: لا تخترع طريقة لتجاوز خانة الرقم الوطني، ولا تطلب قص/اختصار رقم أجنبي أو وضع رقم الجواز/الإقامة مكان الرقم الوطني ما لم توجد حقيقة رسمية تدعم ذلك. قل بوضوح إنه لا يوجد عندك مسار بديل موثق بدل النموذج الحالي.
+- إذا SHOWROOM_BROWSING_REQUEST=true: المكتب ليس زيارة مفتوحة لمشاهدة الأجهزة. اعرض صفحة المنتجات الرسمية، ووضح أن الحضور للمكتب فقط بموعد رسمي مؤكد مرتبط بالإجراء المناسب على الطلب. لا تستخدم كلمة "المعرض" كأن هناك صالة عرض مفتوحة.
+- أي مبلغ بالدينار يظهر للعميل يجب تنسيقه بحد أقصى منزلتين عشريتين. ممنوع أرقام مثل 33.65506944444444.
 - لا تخترع حقيقة غير موجودة في TRUTH.
 - لا تدّعي تنفيذ إجراء إلا إذا ACTION_RESULTS يقول executed=true أو already_done.
 - إذا ACTION_RESULTS فيه needs_confirmation، اسأل تأكيدًا واحدًا قصيرًا وواضحًا على الإجراء المحدد؛ لا تقل إنه تم ولا تعيد شرح كل السياسة.

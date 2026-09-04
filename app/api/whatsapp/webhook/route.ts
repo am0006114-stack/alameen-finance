@@ -10844,6 +10844,16 @@ export async function POST(request: Request) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
 
             // Do NOT honor legacy AUTO_REPLY_IGNORED here. V3 has no human-handoff pause.
+            // Re-check after the human delay. This closes the Phase 7.1.5 race where a newer
+            // customer message could arrive after the first stale check but before send.
+            if (await shouldSuppressStaleV3Reply({ waId: from, currentMessageId: message.id, lookbackSeconds: 120 })) {
+              console.log("Skipped stale V3 reply at final send because a newer customer message arrived", {
+                waId: from,
+                messageId: message.id,
+              });
+              await markIncomingWhatsAppMessageProcessed(message.id);
+              return;
+            }
             // First try the verified V3 reply. If Meta rejects it, do NOT retry the same body:
             // retry once with a short URL-free emergency message. If that also fails, trip
             // the V3 circuit breaker so the next customer turn goes to the safe route.

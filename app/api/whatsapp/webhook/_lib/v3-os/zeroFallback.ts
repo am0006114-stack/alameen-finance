@@ -6,6 +6,7 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildManualActionCustomerReply, resolveManualActionDisposition } from "./manualActionPolicy";
 import { normalizeArabic } from "./text";
 import { asksOfficeSchedule, bankStatementDurationCustomerReply, bankStatementDurationQuestion, explicitDocumentUploadKind, officeScheduleCustomerReply } from "./operationalPrecision";
+import { buildConversationRecoveryReply, formatJod } from "./conversationRecovery";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 
 const ACTION_LABELS: Record<string,string> = {
@@ -95,6 +96,13 @@ export function buildZeroFallbackReply(input: {
   const parts: string[] = [];
   const q = normalizeArabic(input.turn.rawText).replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ").trim();
   const explicitDocumentKind = explicitDocumentUploadKind(input.turn.rawText);
+  const conversationRecovery = buildConversationRecoveryReply({
+    turn: input.turn,
+    state: input.state,
+    truth: input.truth,
+    recentTurns: input.recentTurns,
+  });
+  if (conversationRecovery) return conversationRecovery;
 
   if (asksOfficeSchedule(input.turn.rawText)) {
     return officeScheduleCustomerReply(input.turn.rawText);
@@ -152,7 +160,7 @@ export function buildZeroFallbackReply(input: {
 
   if (app && rawAsksInstallmentAmount(q) && app.monthlyPayment != null) {
     const duration = app.installmentMonths ? ` لمدة ${app.installmentMonths} شهر` : "";
-    return `القسط الشهري التقريبي المسجل على طلبك هو ${app.monthlyPayment} دينار${duration}. وإذا تغير الجهاز أو السعر، ما بعتمد حسبة جديدة إلا بعد ما تتحدث بيانات الطلب فعليًا.`;
+    return `القسط الشهري التقريبي المسجل على طلبك هو ${formatJod(app.monthlyPayment)} دينار${duration}. وإذا تغير الجهاز أو السعر، ما بعتمد حسبة جديدة إلا بعد ما تتحدث بيانات الطلب فعليًا.`;
   }
 
   if (rawAsksInstallmentPaymentChannel(q)) {
