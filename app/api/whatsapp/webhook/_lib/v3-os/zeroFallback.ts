@@ -1,10 +1,11 @@
-import { applicationJourneyStage, canDiscloseFileOpeningPayment, customerFacingStatusLabel, firstCustomerName, shouldAskContinuationDecision } from "./applicationJourney";
+import { applicationJourneyStage, canDiscloseFileOpeningPayment, customerFacingStatusLabel, shouldAskContinuationDecision } from "./applicationJourney";
 import { continuationCommercialState } from "./commercialProgression";
 import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, detectReplyLinkViolations } from "./linkIntegrity";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildManualActionCustomerReply, resolveManualActionDisposition } from "./manualActionPolicy";
 import { normalizeArabic } from "./text";
+import { asksOfficeSchedule, bankStatementDurationCustomerReply, bankStatementDurationQuestion, explicitDocumentUploadKind, officeScheduleCustomerReply } from "./operationalPrecision";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 
 const ACTION_LABELS: Record<string,string> = {
@@ -30,14 +31,12 @@ function actionSentence(plan: ReplyPlan, actions: ActionResult[]) {
 function shortStatus(truth: TruthBundle) {
   const app = truth.application;
   if (!app) return null;
-  const name = firstCustomerName(app);
-  const who = name ? `${name}، ` : "";
   const bits = [
     app.trackingId ? `رقم طلبك ${app.trackingId}` : null,
     app.deviceName ? `الجهاز ${app.deviceName}` : null,
     `الحالة الآن: ${customerFacingStatusLabel(app)}`,
   ].filter(Boolean);
-  return `${who}${bits.join("، ")}.`;
+  return `${bits.join("، ")}.`;
 }
 
 function pick<T>(values: T[], seed: string): T {
@@ -77,9 +76,7 @@ function isSocialAck(q: string) {
 function safeStatusLine(truth: TruthBundle) {
   const app = truth.application;
   if (!app) return null;
-  const name = firstCustomerName(app);
-  const who = name ? `${name}، ` : "";
-  return `${who}طلبك${app.trackingId ? ` ${app.trackingId}` : ""} ${customerFacingStatusLabel(app)}.`;
+  return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} ${customerFacingStatusLabel(app)}.`;
 }
 
 export function buildZeroFallbackReply(input: {
@@ -97,6 +94,33 @@ export function buildZeroFallbackReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const parts: string[] = [];
   const q = normalizeArabic(input.turn.rawText).replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ").trim();
+  const explicitDocumentKind = explicitDocumentUploadKind(input.turn.rawText);
+
+  if (asksOfficeSchedule(input.turn.rawText)) {
+    return officeScheduleCustomerReply(input.turn.rawText);
+  }
+
+  if (bankStatementDurationQuestion(input.turn.rawText)) {
+    return bankStatementDurationCustomerReply();
+  }
+
+  if (explicitDocumentKind && app) {
+    const docs = app.documents;
+    const alreadyPresent =
+      explicitDocumentKind === "identity" ? docs?.identityComplete === true :
+      explicitDocumentKind === "salarySlip" ? docs?.salarySlipUploaded === true :
+      docs?.guarantorDataComplete === true;
+    if (alreadyPresent) {
+      const label = explicitDocumentKind === "identity" ? "الهوية" : explicitDocumentKind === "salarySlip" ? "كشف/شهادة الراتب" : "بيانات الكفيل";
+      return `${label} موجود على ملفك بالفعل، وما في داعي تعيد رفعه.`;
+    }
+    const url = links.relevant[explicitDocumentKind];
+    if (url) {
+      const label = explicitDocumentKind === "identity" ? "الهوية" : explicitDocumentKind === "salarySlip" ? "كشف/شهادة الراتب" : "بيانات الكفيل";
+      return `ارفع ${label} من الرابط الرسمي الآمن المرتبط بطلبك:\n${url}\nوما بنستلم المستندات الحساسة على واتساب.`;
+    }
+    return "الرابط المباشر المرتبط بطلبك مش متاح عندي هسا، وما رح أعطيك رابط عام أو غير موثق بدل الرابط الصحيح.";
+  }
 
   // Social acknowledgements must stay social. Never dump the full order snapshot
   // just because an application is bound to the conversation.
@@ -137,6 +161,11 @@ export function buildZeroFallbackReply(input: {
 
   if (rawAsksProductBoxCondition(q)) {
     return "بالنسبة لكون الجهاز جديد بالكرتونة أو مختوم، ما بدي أأكد صفة مش ظاهرة عندي بشكل موثق في بيانات الطلب الحالية. أي مواصفة بيعتمدها العرض أو المنتج الرسمي هي المرجع عند الإتمام.";
+  }
+
+  if (/(?:متوفر|متوفرين|متاح|موجود)[^\n]{0,35}(?:ايفون|آيفون|iphone|سامسونج|samsung|الجهاز|الموديل)|(?:ايفون|آيفون|iphone|سامسونج|samsung|الجهاز|الموديل)[^\n]{0,35}(?:متوفر|متوفرين|متاح|موجود)/i.test(q)) {
+    if (links.relevant.products) return `التوفر والسعر الحاليين مرجعهم صفحة المنتجات الرسمية، وما بدي أأكد توفر موديل من غير بيانات موثقة:\n${links.relevant.products}`;
+    return "ما عندي حالة توفر موثقة لهذا الموديل ضمن حقيقة الطلب الحالية، لذلك ما رح أأكد إنه متوفر أو غير متوفر من عندي.";
   }
 
   if (/(?:السجل\s+التجاري|مسجله\s+تجاري|مسجلة\s+تجاري|الشركه\s+مسجله|الشركة\s+مسجلة)/.test(q)) {

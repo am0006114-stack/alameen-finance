@@ -3,6 +3,7 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { continuationNeedsFeeNow } from "./commercialProgression";
 import { canDiscloseFileOpeningPayment } from "./applicationJourney";
 import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "./types";
+import { explicitDocumentUploadKind } from "./operationalPrecision";
 
 const HTTP_URL_RE = /https?:\/\/[^\s<>{}\[\]"']+/gi;
 const DOMAIN_TOKEN_RE = /\b(?:www\.)?(?:[a-z0-9-]+\.)+[a-z]{2,}(?:\/[^\s<>{}\[\]"']*)?/gi;
@@ -69,21 +70,22 @@ function turnNeeds(topic: TopicKey, topics: TopicKey[]) {
 
 function requirementLinks(turn: InterpretedTurn, truth: TruthBundle) {
   const result: Partial<Record<OfficialLinkKind, string>> = {};
-  if (!turnNeeds("requirements", turn.topics) && !turnNeeds("guarantor", turn.topics)) return result;
+  const explicitKind = explicitDocumentUploadKind(turn.rawText);
+  if (!turnNeeds("requirements", turn.topics) && !turnNeeds("guarantor", turn.topics) && !explicitKind) return result;
   const app = truth.application;
   if (!app) return result;
   const docs = app.documents;
   const status = String(app.status || "").toLowerCase();
 
-  if (["needs_identity", "identity_requested"].includes(status) && docs?.identityComplete !== true) {
+  if ((["needs_identity", "identity_requested"].includes(status) || explicitKind === "identity") && docs?.identityComplete !== true) {
     const url = boundApplicationUrl("/identity", truth);
     if (url) result.identity = url;
   }
-  if (["needs_salary_slip", "salary_slip_link_sent"].includes(status) && docs?.salarySlipUploaded !== true) {
+  if ((["needs_salary_slip", "salary_slip_link_sent"].includes(status) || explicitKind === "salarySlip") && docs?.salarySlipUploaded !== true) {
     const url = boundApplicationUrl("/salary-slip", truth);
     if (url) result.salarySlip = url;
   }
-  if (status === "needs_guarantor" && docs?.guarantorDataComplete !== true) {
+  if ((status === "needs_guarantor" || explicitKind === "guarantor") && docs?.guarantorDataComplete !== true) {
     const url = boundApplicationUrl("/guarantor", truth);
     if (url) result.guarantor = url;
   }
@@ -227,6 +229,17 @@ export function detectReplyLinkViolations(input: { reply: string; turn: Interpre
   if ((input.turn.topics.includes("tracking") || (input.turn.topics.includes("application_status") && !contextualStatusConfirmation)) && context.relevant.tracking) {
     const expected = normalizedHttpUrl(context.relevant.tracking);
     if (!replyUrls.some((url) => normalizedHttpUrl(url) === expected)) violations.push("required_tracking_url_missing");
+  }
+
+  const explicitDocumentKind = explicitDocumentUploadKind(input.turn.rawText);
+  if (explicitDocumentKind) {
+    const expectedRaw = context.relevant[explicitDocumentKind];
+    if (expectedRaw) {
+      const expected = normalizedHttpUrl(expectedRaw);
+      if (!replyUrls.some((url) => normalizedHttpUrl(url) === expected)) {
+        violations.push(`required_explicit_document_upload_url_missing:${explicitDocumentKind}`);
+      }
+    }
   }
 
   return Array.from(new Set(violations));

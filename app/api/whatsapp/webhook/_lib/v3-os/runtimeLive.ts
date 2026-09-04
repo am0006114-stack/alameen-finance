@@ -291,6 +291,7 @@ export async function runV3ProductionLive(input: {
   turnId: string;
   customerText: string;
   recentTurns?: string[];
+  profileName?: string | null;
   writer?: V3TextProvider | null;
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
@@ -445,6 +446,7 @@ export async function runV3ProductionLive(input: {
         plan,
         actions,
         recentTurns: safeRecentTurns,
+        profileName: input.profileName,
       });
     } else if (writer) {
       const basePrompt = buildWriterPrompt({
@@ -454,6 +456,7 @@ export async function runV3ProductionLive(input: {
         plan,
         actions,
         recentTurns: safeRecentTurns,
+        profileName: input.profileName,
       });
       try {
         replyAttempts++;
@@ -471,6 +474,7 @@ export async function runV3ProductionLive(input: {
           plan,
           actions,
           recentTurns: safeRecentTurns,
+          profileName: input.profileName,
         });
 
         if (!verification.pass) {
@@ -489,6 +493,7 @@ export async function runV3ProductionLive(input: {
             plan,
             actions,
             recentTurns: safeRecentTurns,
+            profileName: input.profileName,
           });
         }
       } catch (error) {
@@ -548,6 +553,7 @@ export async function runV3ProductionLive(input: {
       plan,
       actions,
       recentTurns: safeRecentTurns,
+      profileName: input.profileName,
     });
   }
 
@@ -562,6 +568,7 @@ export async function runV3ProductionLive(input: {
       plan,
       actions,
       recentTurns: safeRecentTurns,
+      profileName: input.profileName,
     });
   }
 

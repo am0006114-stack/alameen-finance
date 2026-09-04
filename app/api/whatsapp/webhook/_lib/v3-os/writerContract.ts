@@ -6,12 +6,7 @@ import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, sanitizeRecentTurnsForModel, sanitizeStateForWriter, sanitizeTurnForWriter } from "./linkIntegrity";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
 import { normalizeArabic } from "./text";
-
-function preferredCustomerName(fullName: string | null | undefined) {
-  const parts = String(fullName || "").trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return null;
-  return parts[0];
-}
+import { asksOfficeSchedule, bankStatementDurationQuestion, resolveOfficeScheduleTarget, safeCustomerFirstName } from "./operationalPrecision";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -23,14 +18,14 @@ function explicitInstallmentPaymentChannelQuestion(turn: InterpretedTurn) {
   return /(?:وين|كيف|لمن|لمين|على\s+وين|طريقه|طريقة)[^\n]{0,35}(?:القسط|الاقساط)|(?:القسط|الاقساط)[^\n]{0,35}(?:وين|كيف|لمن|لمين|دفع|تحويل|محفظه|محفظة)/.test(q);
 }
 
-export function buildWriterPrompt(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }) {
+export function buildWriterPrompt(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[]; profileName?: string | null }) {
   const roleName = roleDisplayName(input.plan.role);
   const alreadyIntroduced = Boolean(input.state.role.introduced);
   const officialLinks = buildOfficialLinkContext(input.turn, input.truth);
   const safeTurn = sanitizeTurnForWriter(input.turn);
   const safeRecentTurns = sanitizeRecentTurnsForModel(input.recentTurns);
   const safeState = sanitizeStateForWriter(input.state);
-  const preferredName = preferredCustomerName(input.truth.application?.fullName);
+  const preferredName = safeCustomerFirstName(input.truth.application?.fullName, input.profileName);
   const journeyStage = applicationJourneyStage(input.truth.application);
   const continuationNow = explicitContinuation(input.turn);
   const mustAskContinuation = shouldAskContinuationDecision(input.truth.application, input.turn);
@@ -41,6 +36,9 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const paymentDetailsAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn) && !installmentPaymentChannelQuestion;
   const feePolicyQuestionNow = explicitFeePolicyQuestion(input.turn);
   const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: safeRecentTurns });
+  const officeScheduleQuestion = asksOfficeSchedule(input.turn.rawText);
+  const officeTarget = resolveOfficeScheduleTarget(input.turn.rawText);
+  const bankStatementQuestion = bankStatementDurationQuestion(input.turn.rawText);
   const writerPolicy = paymentDetailsAllowed
     ? fullPolicy
     : {
@@ -85,6 +83,12 @@ CUSTOMER_JOURNEY_STAGE=${journeyStage}
 EXPLICIT_CONTINUATION_NOW=${continuationNow}
 EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
 INSTALLMENT_PAYMENT_CHANNEL_QUESTION=${installmentPaymentChannelQuestion}
+OFFICE_SCHEDULE_QUESTION=${officeScheduleQuestion}
+OFFICE_SCHEDULE_TARGET=${officeTarget.reference}
+OFFICE_WEEKLY_DAY=${officeTarget.arabic}
+OFFICE_WEEKLY_HOLIDAY=${officeTarget.officeWeeklyHoliday}
+REQUESTS_ACCEPTED_EVERY_DAY=true
+BANK_STATEMENT_DURATION_QUESTION=${bankStatementQuestion}
 MUST_ASK_CONTINUATION_DECISION=${mustAskContinuation}
 CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 
@@ -109,6 +113,12 @@ CUSTOMER_ORDER_SNAPSHOT=${JSON.stringify(orderSnapshot)}
 - عند اتهام بالنصب أو تهديد بالنشر: كن حازمًا وهادئًا ومختصرًا. لا تتوسل ولا تتشاجر ولا تعترف باتهام غير مثبت. اعرض الحل العملي، واذكر الإلغاء/الاسترداد باختصار إذا كان مناسبًا. لا تحول الرد إلى دفاع طويل.
 - في الرد الحازم: فقرتان أو ثلاث قصيرة غالبًا، وسؤال واحد واضح كحد أقصى إذا احتجت معلومة من العميل.
 - لا تستخدم لغة تقنية أو أسماء نماذج أو حراس أو قرارات داخلية.
+- CUSTOMER_NAME ليس إلزاميًا. إذا كانت قيمته "غير متوفر" فلا تخمّن اسم العميل ولا تستخدم اسم الطلب كنداء؛ ابدأ بدون اسم. هذا يحصل خصوصًا عندما لا تتطابق هوية واتساب الظاهرة مع اسم الطلب بثقة.
+- قاعدة الدوام الأسبوعي ثابتة: دوام المكتب من الأحد للخميس، والجمعة والسبت عطلة، لكن استقبال الطلبات والمتابعة عبر الموقع وواتساب مستمر يوميًا. إذا OFFICE_SCHEDULE_QUESTION=true أجب حسب OFFICE_SCHEDULE_TARGET وOFFICE_WEEKLY_DAY وOFFICE_WEEKLY_HOLIDAY؛ احسب "بكرة" واليوم المسمّى على اليوم المقصود، لا على يوم الرسالة. لا تخترع ساعات دوام غير موجودة في TRUTH.
+- الحضور للمكتب بموعد رسمي مؤكد فقط. المحادثة لا تملك إجراء حجز/تنسيق موعد؛ ممنوع عرض "بنسق معك"، "بحجزلك"، "بنحددلك موعد"، "تعال اليوم" أو أي وعد بموعد. إذا سأل عن الحضور، قل فقط إن الموعد الرسمي يُرسل عند استحقاقه.
+- إذا BANK_STATEMENT_DURATION_QUESTION=true: لا تخترع حدًا أدنى بالأشهر ولا تكرر جوابًا عامًا فقط. قل بوضوح إن ما عندك حد أدنى ثابت وموثق لمدة كشف الحساب، وإن المدة تتحدد حسب دراسة الملف ويصل المطلوب المحدد إذا احتاجته المراجعة.
+- إذا العميل طلب صراحة رابط رفع مستند معين وكان OFFICIAL_LINKS يحتوي identity أو salarySlip أو guarantor، أعطه الرابط المحدد نفسه. ممنوع الاكتفاء بالصفحة الرئيسية أو قول "من نفس الموقع" بينما الرابط المباشر متاح. وإذا DOCUMENT_TRUTH يقول إن المستند وصل بالفعل، لا تطلب إعادة رفعه.
+- لا تقل عن جهاز أو موديل إنه "متوفر/متاح/موجود" أو "غير متوفر" إلا إذا حقيقة التوفر ظاهرة صراحة في TRUTH. الأسعار والأقساط لا تُذكر إلا من القيم الرقمية الموجودة فعليًا في TRUTH.application.
 - الروابط ليست معرفة لغوية ولا ذاكرة محادثة: ممنوع كتابة أو نسخ أو استنتاج أي URL من كلام العميل أو RECENT_TURNS أو من ذاكرتك.
 - إذا احتجت رابطًا، استخدم حرفيًا واحدًا من OFFICIAL_LINKS فقط. إذا الرابط المطلوب غير موجود هناك، لا تضع أي URL. إذا TRUTH.application.trackingId أو STATE.activeTrackingId موجود، ممنوع طلب رقم التتبع من العميل مرة ثانية؛ استخدم الحقيقة الموجودة أو قل إن الرابط المطلوب غير متاح بدل إعادة طلب معلومة معروفة.
 - قاعدة NEVER ASK KNOWN FACTS: لا تطلب من العميل رقم تتبع/هاتف/معلومة موجودة أصلًا في TRUTH أو STATE أو تم ربطها موثوقًا بالمحادثة. اسأل فقط معلومة واحدة ضيقة عندما لا يمكن تحديد الطلب فعلًا.

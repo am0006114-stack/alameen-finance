@@ -6,6 +6,7 @@ import { applicationJourneyStage, canDiscloseFileOpeningPayment, explicitContinu
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
 import { detectReplyLinkViolations } from "./linkIntegrity";
+import { appointmentCoordinationOverclaim, asksOfficeSchedule, bankStatementDurationQuestion, productAvailabilityOverclaim, safeCustomerFirstName, resolveOfficeScheduleTarget } from "./operationalPrecision";
 
 function claimExecuted(text: string, action: string[]) {
   const t = normalizeArabic(text);
@@ -265,7 +266,7 @@ function asksKnownTrackingAgain(reply: string) {
   return /(?:ابعث|ابعت|ارسل|أرسل|هات|اعطيني|أعطيني)[^\n]{0,45}(?:رقم\s*(?:التتبع|الطلب)|التتبع)/.test(n);
 }
 
-export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[] }): VerificationReport {
+export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[]; profileName?: string | null }): VerificationReport {
   const reply = String(input.reply || "").trim();
   const t = normalizeArabic(reply);
   let missingTopics = input.plan.answerItems
@@ -278,6 +279,53 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   const hierarchyViolations: string[] = [];
   const repetitionFlags: string[] = detectHumanityViolations(reply,input.recentTurns);
   policyViolations.push(...detectReplyLinkViolations({ reply, turn: input.turn, truth: input.truth }).map((x) => `link_integrity:${x}`));
+  if (appointmentCoordinationOverclaim(reply)) actionClaimViolations.push("appointment_coordination_not_supported");
+
+  if (asksOfficeSchedule(input.turn.rawText)) {
+    const ops = resolveOfficeScheduleTarget(input.turn.rawText);
+    const targetDay = normalizeArabic(ops.arabic);
+    const mentionsTarget = t.includes(targetDay) || (ops.reference === "today" && /(?:اليوم|هسا)/.test(t)) || (ops.reference === "tomorrow" && /(?:بكره|بكرة|غدا)/.test(t));
+    const targetOpenClaim = new RegExp(`${targetDay}[^\n]{0,28}(?:دوام\s+عادي|فاتح|مفتوح|فاتحين)|(?:دوام\s+عادي|فاتح|مفتوح|فاتحين)[^\n]{0,28}${targetDay}`).test(t);
+    const targetHolidayClaim = new RegExp(`${targetDay}[^\n]{0,28}(?:عطله|عطلة|مغلق|مسكر)|(?:عطله|عطلة|مغلق|مسكر)[^\n]{0,28}${targetDay}`).test(t);
+    if (ops.officeWeeklyHoliday) {
+      if (!mentionsTarget || !/(?:عطله|عطلة)/.test(t) || !/(?:طلبات|التقديم|المتابعه|المتابعة)/.test(t) || !/(?:واتساب|الموقع)/.test(t)) {
+        policyViolations.push("weekly_holiday_office_answer_incomplete");
+      }
+      if (targetOpenClaim) truthContradictions.push("weekly_holiday_claimed_open");
+    } else if (targetHolidayClaim) {
+      truthContradictions.push("weekly_workday_claimed_holiday");
+    }
+  }
+
+  if (bankStatementDurationQuestion(input.turn.rawText)) {
+    const honestUnknown = /(?:ما\s+عندي|ما\s+في)[^\n]{0,35}(?:حد\s+ادنى|حد\s+أدنى|مده\s+ثابته|مدة\s+ثابتة)|(?:بتتحدد|تتحدد)[^\n]{0,35}(?:دراسه|دراسة)\s*الملف/.test(t);
+    if (!honestUnknown) policyViolations.push("bank_statement_duration_not_answered_usefully");
+    if (/(?:الحد\s*(?:الادنى|الأدنى)|اقل\s+مده|أقل\s+مدة|مطلوب)[^\n]{0,30}(?:\d+|شهرين|ثلاث|3)\s*(?:شهر|اشهر|أشهر)/.test(t)) {
+      unsupportedClaims.push("invented_bank_statement_minimum_duration");
+    }
+  }
+
+  if (productAvailabilityOverclaim(reply) && !(input.truth.application as any)?.availability) {
+    unsupportedClaims.push("product_availability_not_authoritative");
+  }
+
+  const truthAppForPricing = input.truth.application;
+  if (/(?:السعر|سعره|سعرها)[^\n]{0,30}\d+(?:[.,]\d+)?\s*(?:دينار)?/.test(t)) {
+    if (truthAppForPricing?.devicePrice == null) unsupportedClaims.push("device_price_not_authoritative");
+    else if (!numericValueMentioned(reply, truthAppForPricing.devicePrice)) truthContradictions.push("device_price_mismatch_truth");
+  }
+  if (/(?:القسط|قسطه|قسطها)[^\n]{0,35}\d+(?:[.,]\d+)?\s*(?:دينار)?/.test(t)) {
+    if (truthAppForPricing?.monthlyPayment == null) unsupportedClaims.push("monthly_payment_not_authoritative");
+    else if (!numericValueMentioned(reply, truthAppForPricing.monthlyPayment)) truthContradictions.push("monthly_payment_mismatch_truth");
+  }
+
+  if (input.profileName && input.truth.application?.fullName && !safeCustomerFirstName(input.truth.application.fullName, input.profileName)) {
+    const appFirst = String(input.truth.application.fullName || "").trim().split(/\s+/)[0] || "";
+    const opening = String(reply || "").trim().split(/\s+/).slice(0, 8).join(" ");
+    if (appFirst && normalizeArabic(opening).includes(normalizeArabic(appFirst))) {
+      policyViolations.push("customer_name_confidence_low");
+    }
+  }
 
   const journeyStage = applicationJourneyStage(input.truth.application);
   const continuationNow = explicitContinuation(input.turn);
@@ -315,7 +363,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (input.turn.topics.includes("application_status") && input.truth.application) {
     const app = input.truth.application;
     const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
-    const firstName = firstCustomerName(app);
+    const firstName = input.profileName ? safeCustomerFirstName(app.fullName, input.profileName) : firstCustomerName(app);
     const roleNameForAddress = roleDisplayName(input.plan.role);
     if (firstName && normalizeArabic(firstName) !== normalizeArabic(roleNameForAddress)) {
       const roleVocative = new RegExp(`^(?:\\s*(?:اخ|أخ)\\s+)?${roleNameForAddress}[،,:\\s]`, "i");

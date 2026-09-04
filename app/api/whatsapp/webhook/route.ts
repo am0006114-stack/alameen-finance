@@ -166,6 +166,7 @@ import {
 import { getV3ProductionControl, isV3ProductionActive, tripV3ProductionCircuitBreaker } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
 import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
+import { shouldSuppressStaleV3Reply } from "./_lib/v3-os/turnIntegrity";
 import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
 
 export const dynamic = "force-dynamic";
@@ -10601,16 +10602,10 @@ export async function POST(request: Request) {
           // Only create a fallback row if Meta sends a status for a message ID that we do not
           // have stored locally.
           if (!matchedExistingMessage && statusMessageId) {
-            const statusPhone = recipientId || "";
-            await logMessage({
-              waId: statusPhone,
-              direction: "outgoing",
-              body: "",
+            console.warn("Unmatched WhatsApp status event ignored as conversation row", {
               messageId: statusMessageId,
-              messageType: "status",
               status: statusValue || null,
-              statusTimestamp,
-              rawPayload: statusEvent,
+              recipientId: recipientId || null,
             });
           }
         } catch (error) {
@@ -10806,6 +10801,7 @@ export async function POST(request: Request) {
               turnId: v3TurnId,
               customerText: replyInputText,
               recentTurns: v3RecentTurns,
+              profileName: contactName,
               realActionsEnabled: v3ProductionControl.realActionsEnabled,
             });
             reply = v3Run.reply || buildV3LastResortReply();
@@ -10825,6 +10821,14 @@ export async function POST(request: Request) {
             }
           }
 
+          if (await shouldSuppressStaleV3Reply({ waId: from, currentMessageId: message.id, lookbackSeconds: 120 })) {
+            console.log("Skipped stale V3 reply because a newer customer message arrived", {
+              waId: from,
+              messageId: message.id,
+            });
+            await markIncomingWhatsAppMessageProcessed(message.id);
+            return;
+          }
           const outgoingClaim = await claimOutgoingReplyLock({
             waId: from,
             incomingMessageId: message.id,
