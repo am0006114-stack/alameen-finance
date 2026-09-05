@@ -119,6 +119,20 @@ function hasAnyPaymentLanguage(reply: string) {
   return /(?:دفع|رسوم|تحويل|حواله|حوالة|وصل\s*الدفع|اثبات\s*الدفع|إثبات\s*الدفع|كليك|cliq|محفظه|محفظة|مبلغ\s*مستحق|مستحق\s*(?:الان|الآن|حاليا|حاليًا))/i.test(reply) || n.includes(normalizeArabic("رسوم فتح الملف"));
 }
 
+function hasFiveJodJourneyExplanation(reply: string) {
+  const n = normalizeArabic(reply);
+  const fee = /(?:5|٥)\s*(?:دنانير|دينار)/.test(reply) && n.includes(normalizeArabic("فتح الملف"));
+  const separated = n.includes(normalizeArabic("ثمن الجهاز")) || n.includes(normalizeArabic("القسط الأول"));
+  return fee && separated;
+}
+
+function hasReviewWindowAndPressure(reply: string) {
+  const n = normalizeArabic(reply);
+  const duration = /(?:2|٢|يومين).{0,18}(?:3|٣|ثلاث)/.test(n) || (n.includes("يومين") && n.includes("ثلاث"));
+  const pressure = n.includes(normalizeArabic("ضغط المراجعات")) || n.includes(normalizeArabic("ضغط مراجعات"));
+  return duration && pressure;
+}
+
 function rawStatusLeaked(reply: string) {
   return /\b(?:preliminary_application|preliminary_qualified|customer_confirmed_continue|pending_payment|payment_info_sent|customer_claimed_paid|pending_payment_confirmation|needs_identity|needs_salary_slip|needs_guarantor|under_review|refund_requested|refund_completed)\b/i.test(reply);
 }
@@ -378,7 +392,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   }
 
   if (rawStatusLeaked(reply)) policyViolations.push("raw_internal_application_status_exposed");
-  if (/(?:رقم\s+الطلب\s+المرتبط\s+بالمحادثه\s+عندي|رقم\s+الطلب\s+المرتبط\s+بالمحادثة\s+عندي|اكتب\s+سؤالك\s+مباشره|اكتب\s+سؤالك\s+مباشرة|اذا\s+عندك\s+نقطه\s+جديده|إذا\s+عندك\s+نقطة\s+جديدة|الحاله\s+الفعليه\s+المسجله|الحالة\s+الفعلية\s+المسجلة|بعتمد\s+هالحاله\s+نفسها|بعتمد\s+هالحالة\s+نفسها|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+رد)/.test(t)) {
+  if (/(?:رقم\s+الطلب\s+المرتبط\s+بالمحادثه\s+عندي|رقم\s+الطلب\s+المرتبط\s+بالمحادثة\s+عندي|اكتب\s+سؤالك\s+مباشره|اكتب\s+سؤالك\s+مباشرة|اذا\s+عندك\s+نقطه\s+جديده|إذا\s+عندك\s+نقطة\s+جديدة|الحاله\s+الفعليه\s+المسجله|الحالة\s+الفعلية\s+المسجلة|بعتمد\s+هالحاله\s+نفسها|بعتمد\s+هالحالة\s+نفسها|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+(?:رد|حاله|حالة))/.test(t)) {
     repetitionFlags.push("robotic_generic_fallback_language");
   }
   if (/^انا\s+معك(?:[،,. ]|$)|^أنا\s+معك(?:[،,. ]|$)/.test(reply.trim()) && reply.trim().split(/\s+/).length < 14) {
@@ -446,6 +460,8 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
         t.includes(normalizeArabic("الموافقة النهائية لم تصدر")) ||
         t.includes(normalizeArabic("الموافقة النهائية لسه"));
       if (!saysNotFinal) policyViolations.push("preliminary_approval_not_final_explanation_missing");
+      if (!hasFiveJodJourneyExplanation(reply)) policyViolations.push("preliminary_approval_5_jod_next_step_missing");
+      if (!hasReviewWindowAndPressure(reply)) policyViolations.push("preliminary_approval_review_window_missing");
     }
   }
 
@@ -465,6 +481,8 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (claimExecuted(reply,["تم تعديل البيانات","عدلت البيانات"]) && !actionOk(input.actions,["change_application_data"])) actionClaimViolations.push("unverified_application_change_claim");
   if (claimExecuted(reply,["تم تحديد موعد","حجزتلك","حجزنا موعد"])) actionClaimViolations.push("unverified_appointment_claim");
   if (claimExecuted(reply,["رح نتصل","سنتصل","موظف رح يتواصل","سيتواصل معك موظف"])) actionClaimViolations.push("future_human_contact_claim");
+  if (/(?:رح|راح|بنبعث|رح\s+نبعث|بنرسل|رح\s+نرسل).{0,45}(?:على|ع)\s*(?:هاض|هاد|هذا)\s+الرقم/i.test(reply) && !actionOk(input.actions,["change_application_data"])) actionClaimViolations.push("unverified_contact_number_change_claim");
+  if (continuationNow && /(?:بمجرد|لما).{0,35}(?:تنفذ|تنفّذ|تعمل).{0,35}(?:الاداره|الإدارة).{0,35}(?:فتح\s+الملف|خطوه\s+فتح|خطوة\s+فتح)/i.test(reply)) policyViolations.push("invented_admin_gate_before_5_jod");
 
   // EXECUTION RECEIPT GATE: when this exact customer turn requested a real
   // mutation, broad completion wording is forbidden unless the ActionResult

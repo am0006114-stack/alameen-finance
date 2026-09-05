@@ -263,17 +263,17 @@ export function buildZeroFallbackReply(input: {
 
   if (!parts.length) {
     if (topics.has("human_request") || /(?:موظف|موضف|حدا\s+يرد|احكي\s+مع)/.test(q)) {
-      parts.push("أنا معك من فريق الأمين وبكمل معك من نفس المحادثة. احكيلي المطلوب مباشرة وبجاوبك على المسجل بدون ما أعيد عليك معلومات معروفة.");
+      parts.push("احكيلي المعلومة اللي بدك إياها بالطلب، وبجاوبك على الموجود فعليًا بدون ما ألفّك بنفس الكلام.");
     } else if (app) {
       const status = safeStatusLine(input.truth);
       parts.push(status || "طلبك ظاهر عندي ومربوط بالمحادثة.");
       if (stage === "preliminary_approved_waiting_decision") {
         parts.push(`إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، وبعد رفع الوصل واعتماده تبدأ الدراسة. المعدل الطبيعي ${p.normalReviewWindow} مع وجود ضغط مراجعات حاليًا. اكتبلي: أود الاستمرار.`);
       } else {
-        parts.push("احكيلي شو النقطة اللي بدك أعرفك عليها بالطلب، وبجاوبك عليها من الحالة المسجلة بدون ما أعيد عليك نفس التفاصيل.");
+        parts.push("إذا في نقطة محددة بالطلب بدك تعرفها، بعطيك جوابها من الحالة المسجلة بدون ما أعيد عليك الملخص كامل.");
       }
-    } else if (input.state.activeTrackingId) parts.push(`الطلب ${input.state.activeTrackingId} مربوط عندي، لكن تفاصيل حالته الكاملة مش ظاهرة بهاللحظة. احكيلي شو بدك تعرف عنه وبجاوبك على المتاح.`);
-    else parts.push("احكيلي شو بدك تعرف بالضبط، وإذا احتجت أربط طلب سابق بطلب منك معلومة واحدة بس لتحديده.");
+    } else if (input.state.activeTrackingId) parts.push(`الطلب ${input.state.activeTrackingId} مربوط بالمحادثة، بس تفاصيله الكاملة مش ظاهرة بهاللحظة. بعتمد فقط اللي ظاهر عندي وما بخمّن.`);
+    else parts.push("إذا سؤالك عن طلب سابق ابعث رقم التتبع مرة واحدة، وإذا سؤالك عام احكيه مباشرة.");
   }
 
   return parts.join("\n\n").trim();

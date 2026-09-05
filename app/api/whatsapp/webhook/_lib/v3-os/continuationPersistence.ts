@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { continuationCommercialState } from "./commercialProgression";
+import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import type { ApplicationTruth } from "./types";
 
 export type ContinuationPersistenceResult = {
@@ -8,6 +9,24 @@ export type ContinuationPersistenceResult = {
   alreadyRecorded: boolean;
   blocker: string | null;
 };
+
+/**
+ * Revenue-ready means the customer has authoritative preliminary approval (or
+ * their continuation decision is already persisted), but the 5 JOD payment is
+ * neither confirmed nor represented by a receipt waiting for admin review.
+ * This deliberately survives the status transition from preliminary_qualified
+ * -> customer_confirmed_continue so persistence can never erase the payment step.
+ */
+// Phase 7.1.6B compatibility: the old gate was `commercial !== "payment_ready"`; 7.2.1 intentionally extends payment-ready continuity across customer_confirmed_continue without widening any mutation scope.
+export function isContinuationRevenueReady(app: ApplicationTruth | null | undefined) {
+  if (!app) return false;
+  if (hasAuthoritativePaymentConfirmation(app)) return false;
+  if (app.documents?.paymentReceiptUploaded) return false;
+
+  const status = String(app.status || "").trim().toLowerCase();
+  if (["preliminary_qualified", "customer_confirmed_continue"].includes(status)) return true;
+  return continuationCommercialState(app) === "payment_ready";
+}
 
 /**
  * Persist the customer's explicit continuation decision into the same application
@@ -24,15 +43,16 @@ export async function persistExplicitContinuation(input: {
     return { attempted: false, updated: false, alreadyRecorded: false, blocker: null };
   }
 
-  const commercial = continuationCommercialState(app);
-  if (commercial !== "payment_ready") {
-    return { attempted: false, updated: false, alreadyRecorded: false, blocker: `commercial_state:${commercial}` };
-  }
-
   const status = String(app.status || "").trim().toLowerCase();
   if (status === "customer_confirmed_continue") {
     return { attempted: false, updated: false, alreadyRecorded: true, blocker: null };
   }
+
+  if (!isContinuationRevenueReady(app)) {
+    const commercial = continuationCommercialState(app);
+    return { attempted: false, updated: false, alreadyRecorded: false, blocker: `commercial_state:${commercial}` };
+  }
+
   if (status !== "preliminary_qualified") {
     return { attempted: false, updated: false, alreadyRecorded: false, blocker: `application_status:${status || "empty"}` };
   }

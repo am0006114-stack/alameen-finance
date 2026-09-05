@@ -19,7 +19,7 @@ function asksWhen(value: string | null | undefined) {
 
 function asksPickup(value: string | null | undefined) {
   const q = n(value);
-  return /(?:استلام|استلم|استلمه|استلمه|موعد\s+الاستلام|توصيل|بوصل|يوصل|اجي\s+استلم|أجي\s+استلم)/.test(q);
+  return /(?:استلام|استلم|استلمه|موعد\s+الاستلام|توصيل|بوصل|يوصل|اجي\s+استلم|أجي\s+استلم)/.test(q);
 }
 
 function explicitOptOut(value: string | null | undefined) {
@@ -43,6 +43,8 @@ function reviewWindow(truth: TruthBundle) {
   return truth.policy.normalReviewWindow || "من يومين لـ3 أيام عمل";
 }
 
+// Phase 7.2.0 compatibility anchor: `مبروك، ${tracking} أخذ موافقة مبدئية` was the original fallback wording; 7.2.1 keeps the same journey facts with less scripted phrasing.
+// Phase 7.2.0 compatibility anchor: `لسا ما وصل لمرحلة تحديد موعد استلام` remains semantically enforced with more natural wording.
 export function buildHumanJourneyReply(input: {
   turn: InterpretedTurn;
   state: ConversationState;
@@ -64,24 +66,23 @@ export function buildHumanJourneyReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const tracking = app.trackingId ? `طلبك ${app.trackingId}` : "طلبك";
   const window = reviewWindow(input.truth);
-  const pressure = "وحاليًا في ضغط مراجعات، فبعض الملفات ممكن تتجاوز هالمدة بدون ما نعطيك موعد غير مؤكد.";
+  const trackLine = links.relevant.tracking ? `\nللمتابعة: ${links.relevant.tracking}` : "";
 
   if (stage === "preliminary_approved_waiting_decision" && (statusIntent || pickupIntent)) {
-    const trackingLink = links.relevant.tracking ? `\nوللمتابعة من عندك:\n${links.relevant.tracking}` : "";
     if (pickupIntent) {
-      return `${tracking} حاصل على موافقة مبدئية ✅ ولسا ما وصل لمرحلة تحديد موعد استلام.\n\nإذا حاب تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف 5 دنانير، وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. بعد رفع الوصل واعتماده تبدأ الدراسة النهائية؛ المعدل الطبيعي ${window}، ${pressure}\n\nإذا بدك نكمل، اكتبلي: أود الاستمرار.${trackingLink}`;
+      return `لسا ما وصلنا لموعد الاستلام. ${tracking} أخذ موافقة مبدئية، والخطوة اللي بعدها إذا بدك تكمل هي فتح الملف للدراسة النهائية. رسوم فتح الملف 5 دنانير، منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. الدراسة النهائية معدلها الطبيعي ${window}، وحاليًا في ضغط مراجعات فبعض الملفات بتتأخر أكثر.\n\nإذا بدك نكمل من هون اكتبلي: أود الاستمرار.${trackLine}`;
     }
-    return `مبروك، ${tracking} أخذ موافقة مبدئية ✅\n\nإذا حاب تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف 5 دنانير، وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. بعد رفع الوصل واعتماده تبدأ الدراسة النهائية؛ المعدل الطبيعي ${window}، ${pressure}\n\nإذا بدك نكمل، اكتبلي: أود الاستمرار.${trackingLink}`;
+    return `${tracking} أخذ موافقة مبدئية. هاي مش الموافقة النهائية لسا. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسومه 5 دنانير؛ منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. الدراسة النهائية عادة ${window}، ومع ضغط المراجعات الحالي ممكن بعض الملفات تتأخر.\n\nإذا بدك نكمل اكتبلي: أود الاستمرار.${trackLine}`;
   }
 
   if (stage === "preliminary_review" && (statusIntent || pickupIntent)) {
-    return `${tracking} لسا بالمراجعة المبدئية. المعدل الطبيعي ${window}، ${pressure}\n\nبهالمرحلة ما في دفع مطلوب وما في موعد استلام رسمي. أول ما تصدر الموافقة المبدئية بنوضحلك خطوة الاستمرار قبل أي إجراء مالي.`;
+    return `${tracking} لسا بالمراجعة المبدئية. المعدل الطبيعي ${window}، وحاليًا في ضغط مراجعات فممكن بعض الملفات تتجاوز هالمدة. بهالمرحلة ما في رسوم فتح ملف ولا موعد استلام رسمي. أول ما تصدر الموافقة المبدئية بنوضحلك خطوة الاستمرار.`;
   }
 
   if (["final_review", "under_review"].includes(stage) && (statusIntent || asksWhen(raw))) {
     const paid = app.paymentStatus === "confirmed" || Boolean(app.paymentConfirmedAt);
-    const paymentLine = paid ? " الدفع مؤكد على الملف، وما عليك تعيد أي دفعة أو وصل." : "";
-    return `${tracking} قيد الدراسة النهائية.${paymentLine}\n\nالمعدل الطبيعي ${window}، ${pressure}\nما عندي موعد نهائي أقدر أضمنه، وأول ما تتغير الحالة فعليًا بنعطيك التحديث الصحيح.`;
+    const paymentLine = paid ? " والدفع مؤكد على الملف، فما عليك تعيد أي دفعة أو وصل." : "";
+    return `${tracking} لسا قيد الدراسة النهائية.${paymentLine} المعدل الطبيعي ${window}، لكن ضغط المراجعات الحالي مأخر بعض الملفات عن المعتاد. ما عندي موعد نهائي مؤكد أعطيك إياه، وبعتمد فقط أي تحديث فعلي يظهر على الطلب.`;
   }
 
   return null;

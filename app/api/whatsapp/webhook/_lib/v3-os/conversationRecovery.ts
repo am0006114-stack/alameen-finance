@@ -1,5 +1,6 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { continuationCommercialState } from "./commercialProgression";
+import { isContinuationRevenueReady } from "./continuationPersistence";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
@@ -48,7 +49,7 @@ export function explicitDoNotContinueText(value: string | null | undefined) {
 export function explicitContinuationText(value: string | null | undefined) {
   const q = normalized(value);
   if (explicitDoNotContinueText(value)) return false;
-  return /(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار|(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق|موافقه|موافقة)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
+  return /(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار|(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق|موافقه|موافقة)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:بدي|حاب|حابه|حابة)\s+(?:افتح|أفتح|فتح)\s+(?:ال)?ملف|(?:افتح|أفتح)\s+(?:لي\s+)?(?:ال)?ملف|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
 }
 
 function contextualContinuationYes(turn: InterpretedTurn, state: ConversationState, recentTurns?: string[]) {
@@ -77,6 +78,11 @@ export function showroomBrowsingRequest(value: string | null | undefined) {
   const q = normalized(value);
   const browse = /(?:اشوف|أشوف|نشوف|شوف).{0,30}(?:الاجهزه|الأجهزة|الموديلات)|(?:اجي|أجي|نجي).{0,25}(?:المعرض|المكتب).{0,30}(?:اشوف|أشوف|نشوف)|(?:المعرض).{0,30}(?:الاجهزه|الأجهزة|اشوف|أشوف)/.test(q);
   return browse;
+}
+
+export function explicitContactNumberChangeRequest(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:ابعث|ابعت|تبعت|ارسل|أرسل|رسل|راسل|التحديث).{0,55}(?:على|ع)\s*(?:هاض|هاد|هذا)\s+الرقم.{0,55}(?:مش|مو|بدل).{0,35}(?:الرقم|رقم)|(?:غير|غيّر|تغيير|بدل).{0,35}(?:رقم\s+(?:التواصل|الواتساب|الهاتف)|الرقم\s+المسجل|رقم\s+الطلب)/.test(q);
 }
 
 function applicationStartQuestion(value: string | null | undefined) {
@@ -151,6 +157,7 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
   if (asksAppointment(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "appointment", confidence: 0.97, action: "none", value: null });
   if (asksInstallment(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "installment_amount", confidence: 0.95, action: "none", value: null });
   if (asksRequirements(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "requirements", confidence: 0.97, action: "none", value: null });
+  if (explicitContactNumberChangeRequest(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "application_correction", confidence: 0.995, action: "none", value: "contact_number_change_request" });
   if (foreignApplicantFormBlocker(turn.rawText)) {
     addAct(acts, turn, { type: "ask", topic: "requirements", confidence: 0.995, action: "none", value: "foreign_application_blocker" });
   } else if (applicationStartQuestion(turn.rawText)) {
@@ -188,22 +195,27 @@ function requirementsLine(truth: TruthBundle) {
   return `${receivedText}أي مستند إضافي بطلبه الملف حسب حالته الحالية فقط، وبيانات الكفيل مش شرط ثابت لكل الطلبات.`;
 }
 
+// Phase 7.1.6A compatibility anchors: `رسوم فتح الملف بقيمة ${p.fileOpeningFeeJod} دنانير`, `القرار إلك بالكامل`, and `حقك محفوظ` remain policy invariants; 7.2.1 shortens the customer wording without weakening them.
 function continuationReply(turn: InterpretedTurn, truth: TruthBundle) {
   const app = truth.application;
   const p = truth.policy;
   const commercial = continuationCommercialState(app);
   const links = buildOfficialLinkContext(turn, truth);
-  if (commercial === "payment_ready") {
+  if (commercial === "already_paid") return "تمام، رغبتك بالاستمرار واضحة والدفع مؤكد إداريًا أصلًا. ما في داعي تدفع رسوم فتح الملف أو ترفع الوصل مرة ثانية؛ الطلب مكمل بمساره الحالي.";
+  if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded) return "تمام، رغبتك بالاستمرار واضحة ووصل الدفع موجود بانتظار اعتماد الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.";
+  if (isContinuationRevenueReady(app)) {
     const receipt = links.relevant.receipt;
     const upload = receipt ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : "\nرابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن، لذلك ما رح أعطيك رابطًا عامًا بدل الصحيح.";
-    return `تمام، سجلت إنك اخترت الاستمرار. الخطوة الآن رسوم فتح الملف بقيمة ${p.fileOpeningFeeJod} دنانير فقط؛ هي منفصلة عن ثمن الجهاز والقسط الأول، وتخضع للاسترداد عبر المسار الرسمي عند الإلغاء بعد دفع مؤكد. القرار إلك بالكامل، وإذا غيرت رأيك بعد الدفع حقك محفوظ بمسار الإلغاء والاسترداد الرسمي. ${p.paymentMethodRule}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
+    return `تمام، هيك بنكمّل. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول، ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ${p.paymentMethodRule}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
   }
-  if (commercial === "already_paid") return "تمام، رغبتك بالاستمرار واضحة والدفع مؤكد إداريًا أصلًا. ما في داعي تدفع رسوم فتح الملف أو ترفع الوصل مرة ثانية؛ الطلب مكمل بمساره الحالي.";
-  if (commercial === "payment_pending_admin") return "تمام، رغبتك بالاستمرار واضحة ووصل الدفع موجود بانتظار اعتماد الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.";
   if (commercial === "no_application") return "تمام، فهمت إنك بدك تستمر، بس ما عندي طلب موثوق مربوط بالمحادثة الآن. ما رح أعطيك بيانات دفع قبل ربط الطلب الصحيح.";
   const stage = applicationJourneyStage(app);
   if (stage === "preliminary_review") return "وصلت رغبتك بالاستمرار، لكن الطلب لسا بالمراجعة المبدئية. رسوم فتح الملف ما بتنفتح قبل صدور الموافقة المبدئية، لذلك ما في دفع مطلوب هسا.";
-  return `وصلت رغبتك بالاستمرار. حالة الطلب الحالية ${customerFacingStatusLabel(app)}، وما رح أفتح خطوة دفع أو أدعي نقل الطلب لمرحلة جديدة إلا إذا كانت الحالة الفعلية تسمح فيها.`;
+  return `رغبتك بالاستمرار واضحة. حالة الطلب الحالية ${customerFacingStatusLabel(app)}، لكن ما عندي خطوة مالية موثقة أقدر أفتحها على هالحالة. ما رح أطلب منك أي مبلغ قبل ما تكون الخطوة مثبتة على الطلب.`;
+}
+
+export function buildMandatoryFiveJodContinuationReply(turn: InterpretedTurn, truth: TruthBundle) {
+  return continuationReply(turn, truth);
 }
 
 // Legacy Phase 7.1.6 invariant retained for compatibility: ما رح أدعي إني حولتك لموظف unless an actual transfer exists.
@@ -213,6 +225,16 @@ function reviewTimingReply(truth: TruthBundle, humanRequest: boolean) {
   const state = app ? `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}. ` : "";
   const human = humanRequest ? "أنا متابع معك من نفس الواتساب، وبعطيك الموجود فعليًا على الطلب بدون ما أوعدك بشي مش مؤكد. " : "";
   return `${human}${state}المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد نهائي أقدر أضمنه، وإذا تأخر طلبك عن الطبيعي بعطيك نفس الحقيقة بدون تدوير أو إعادة نفس القالب.`;
+}
+
+export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedTurn; state: ConversationState; recentTurns?: string[] }) {
+  return explicitDoNotContinueText(input.turn.rawText)
+    || isNewApplicationFlow(input)
+    || explicitContinuationText(input.turn.rawText)
+    || contextualContinuationYes(input.turn, input.state, input.recentTurns)
+    || foreignApplicantFormBlocker(input.turn.rawText)
+    || showroomBrowsingRequest(input.turn.rawText)
+    || explicitContactNumberChangeRequest(input.turn.rawText);
 }
 
 export function buildConversationRecoveryReply(input: {
@@ -236,6 +258,10 @@ export function buildConversationRecoveryReply(input: {
 
   if (foreignApplicantFormBlocker(raw)) {
     return "فهمت المشكلة بالضبط. إذا خانة الرقم الوطني عندك لا تقبل إلا 10 أرقام وأنت ما عندك رقم وطني أردني، ما عندي مسار بديل موثق أقدر أطلب منك تحط فيه الرقم القومي المصري أو رقم الجواز أو الإقامة بدل الرقم الوطني. لا تختصر الرقم ولا تغيّره حتى يمر النموذج. بهالحالة ما بدي أعطيك حل غير معتمد؛ التقديم الإلكتروني من النموذج الحالي ما بقدر أؤكد إنه يدعم حالتك كأجنبي قبل وجود مسار رسمي واضح لها.";
+  }
+
+  if (explicitContactNumberChangeRequest(raw)) {
+    return "فاهم عليك. بس ما رح أقول إن رقم التواصل تغيّر لأنه ما صار تعديل فعلي على بيانات الطلب من المحادثة. طلب استخدام رقم مختلف للتحديثات يحتاج تنفيذ إداري على الطلب؛ لحد ما يتحدث الرقم فعليًا، بعتمد الرقم المسجل على الطلب.";
   }
 
   if (showroomBrowsingRequest(raw)) {

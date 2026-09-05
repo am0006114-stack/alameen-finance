@@ -14,10 +14,10 @@ import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
 import { applicationRefundUrl, sanitizeRecentTurnsForModel } from "./linkIntegrity";
 import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
-import { customerFacingStatusLabel } from "./applicationJourney";
+import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
-import { buildConversationRecoveryReply, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
-import { persistExplicitContinuation } from "./continuationPersistence";
+import { buildConversationRecoveryReply, buildMandatoryFiveJodContinuationReply, explicitContactNumberChangeRequest, explicitContinuationText, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow, shouldPrioritizeConversationRecovery } from "./conversationRecovery";
+import { isContinuationRevenueReady, persistExplicitContinuation } from "./continuationPersistence";
 import { buildHumanJourneyReply } from "./humanJourney";
 
 const PASS: VerificationReport = {
@@ -86,8 +86,7 @@ async function notifyActionProblems(input: {
 }
 
 export function buildV3LastResortReply(input?: { truth: TruthBundle; state: ConversationState; customerText: string }) {
-  // Backward-compatible with the route-level zero-argument rescue call.
-  if (!input) return "أنا معك. احكيلي سؤالك مباشرة، وبجاوبك على المعلومة المتاحة عندي بدون ما أعتبر أي إجراء منجز قبل تنفيذه فعليًا.";
+  if (!input) return "احكيلي شو بدك تعرف، وبجاوبك على الموجود فعليًا بدون ما أفترض خطوة ما صارت.";
   const app = input.truth.application;
   const q = String(input.customerText || "").trim();
   const nq = q.replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
@@ -96,26 +95,27 @@ export function buildV3LastResortReply(input?: { truth: TruthBundle; state: Conv
     return "العفو، الله يعطيك العافية.";
   }
   if (/(?:رقم\s*(?:تواصل|اتصال|واتساب)|مكالمة|اتصل عليكم)/i.test(nq)) {
-    return "المتابعة الأساسية للطلبات عبر واتساب الحالي. ما بعطيك رقم تواصل غير موثق.";
+    return "المتابعة الأساسية للطلبات من نفس الواتساب. إذا بدك تغيّر رقم التواصل المسجل على الطلب، لازم يتحدث فعليًا على الطلب قبل ما أقول إنه تغيّر.";
   }
   if (/(?:شروط|تقسيط|طريقة التقديم|كيف اقدم|كيف أقدم)/i.test(q)) {
-    return "أكيد. التقديم للأقساط يبدأ بطلب موافقة مبدئية، والمتطلبات تختلف حسب الملف. عادةً نحتاج هوية وإثبات دخل، وقد تُطلب بيانات كفيل حسب الحالة. أي مستندات حساسة تُرفع فقط عبر الرابط الرسمي الآمن، وما بنستلمها على واتساب.";
+    return "التقديم يبدأ بطلب موافقة مبدئية من الموقع. المتطلبات بتعتمد على الملف، وعادةً تشمل الهوية وإثبات دخل، وقد تُطلب بيانات كفيل حسب الحالة. المستندات الحساسة تُرفع فقط من الرابط الرسمي الآمن.";
   }
-  if (app && /(?:متى|امتى|ايمتى).{0,30}(?:استلم|اجي|أجي)|(?:موعد).{0,20}(?:استلام|اجي|أجي)/i.test(nq)) {
-    return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}. ما في موعد استلام رسمي إلا بعد اكتمال الإجراءات وتحديد الموعد على الطلب.`;
-  }
-  if (app && /(?:شو صار|حالة|حاله|تتبع|طلبي|الطلب)/i.test(nq)) {
-    const bits = [
-      app.trackingId ? `رقم طلبك ${app.trackingId}` : null,
-      app.deviceName ? `الجهاز ${app.deviceName}` : null,
-      `الحالة الآن: ${customerFacingStatusLabel(app)}`,
-    ].filter(Boolean);
-    return `${bits.join("، ")}.`;
+  if (app) {
+    const stage = applicationJourneyStage(app);
+    if (stage === "preliminary_approved_waiting_decision") {
+      return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} أخذ موافقة مبدئية، ولسا مش موافقة نهائية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسومه ${input.truth.policy.fileOpeningFeeJod} دنانير؛ منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. الدراسة عادة ${input.truth.policy.normalReviewWindow} ومع ضغط المراجعات الحالي ممكن تتأخر بعض الملفات. إذا بدك نكمل اكتبلي: أود الاستمرار.`;
+    }
+    if (/(?:متى|امتى|ايمتى).{0,30}(?:استلم|اجي|أجي)|(?:موعد).{0,20}(?:استلام|اجي|أجي)/i.test(nq)) {
+      return `لسا ما في موعد استلام رسمي. طلبك حالته ${customerFacingStatusLabel(app)}، والموعد ما بينحدد إلا بعد اكتمال الإجراءات وصدوره رسميًا على الطلب.`;
+    }
+    if (/(?:شو صار|حالة|حاله|تتبع|طلبي|الطلب)/i.test(nq)) {
+      return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}. إذا سؤالك عن وقت المراجعة أو الخطوة التالية، بعطيك إياها حسب نفس الحالة بدون ما أعيد عليك ملخص الطلب كامل.`;
+    }
   }
   if (input.state.activeTrackingId) {
-    return `رقم الطلب المرتبط بالمحادثة عندي ${input.state.activeTrackingId}. ما رح أطلبه منك مرة ثانية؛ اكتب سؤالك على نفس الطلب مباشرة.`;
+    return `الطلب ${input.state.activeTrackingId} مربوط بالمحادثة. احكيلي النقطة اللي بدك تعرفها عنه وبجاوبك من الحالة المسجلة.`;
   }
-  return "أنا معك. احكيلي سؤالك مباشرة، وإذا كان عن طلب سابق وما قدرت أربطه تلقائيًا وقتها بطلب منك معلومة واحدة فقط لتحديده.";
+  return "إذا عندك طلب سابق ابعث رقم التتبع مرة واحدة، وإذا سؤالك عام احكيلي إياه مباشرة.";
 }
 
 function realActionsOffCompletionClaim(reply: string) {
@@ -142,17 +142,24 @@ function runtimeNearDuplicate(a: string | null | undefined, b: string | null | u
   return common / union >= 0.76 && ratio >= 0.65;
 }
 
+function isLowInformationCustomerTurn(value: string | null | undefined) {
+  const q = String(value || "").trim().replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!q) return true;
+  if (/AM-\d{8,}/i.test(q)) return false;
+  if (q.length > 18) return false;
+  return /^(?:\.|؟|\?|تمام|اوك|اوكي|اه|أه|نعم|شكرا|شكرًا|مرحبا|هلا|السلام عليكم|وعليكم السلام|طيب|تم)$/i.test(q);
+}
+
 function buildRepeatDeltaReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const app = input.truth.application;
-  const q = String(input.turn.rawText || "");
-  if (app && input.turn.topics.includes("receipt_upload")) {
-    if (hasAuthoritativePaymentConfirmation(app)) return "الدفع مؤكد إداريًا أصلًا، وما في داعي تعيد رفع الوصل.";
-    if (app.documents?.paymentReceiptUploaded) return "الوصل موجود على الطلب وبانتظار مراجعة الإدارة. ما في داعي تعيد رفعه.";
+  if (!app) return "تمام، أنا متابع نفس السياق معك.";
+  const stage = applicationJourneyStage(app);
+  if (stage === "preliminary_approved_waiting_decision") {
+    return `لسا نفس المرحلة: موافقة مبدئية. إذا بدك نكمل للدراسة النهائية، رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير وبعدها ارفع الوصل الرسمي. اكتبلي: أود الاستمرار.`;
   }
-  if (app && input.turn.topics.includes("review_timing")) return `ما في تحديث جديد عن آخر حالة؛ طلبك الآن ${customerFacingStatusLabel(app)}، وما عندي موعد إضافي موثق غير اللي وضحته لك.`;
-  if (app && /(?:متى|امتى|ايمتى).{0,25}(?:استلم|اجي|أجي)|موعد.{0,20}(?:استلام|اجي|أجي)/i.test(q)) return `لسا ما في موعد استلام رسمي على الطلب. حالته الآن ${customerFacingStatusLabel(app)}، والاستلام ما بصير إلا بعد اكتمال الإجراءات وتحديد موعد رسمي.`;
-  if (app && input.turn.topics.includes("application_status")) return `ما في تحديث جديد عن آخر حالة: طلبك ${app.trackingId || ""} ${customerFacingStatusLabel(app)}.`.replace(/\s+/g," ").trim();
-  return "ما في تحديث جديد عن آخر رد. إذا عندك نقطة جديدة أو سؤال مختلف احكيلي إياه مباشرة.";
+  if (stage === "preliminary_review") return "لسا بالمراجعة المبدئية، وما في رسوم أو موعد استلام بهالمرحلة.";
+  if (["final_review", "under_review"].includes(stage)) return "لسا قيد الدراسة النهائية، وما ظهر قرار جديد على الطلب لحد هسا.";
+  return `لسا حالة الطلب ${customerFacingStatusLabel(app)}، وما ظهر تغيير فعلي جديد.`;
 }
 
 const MANUAL_ACTIONS = new Set([
@@ -163,6 +170,25 @@ const MANUAL_ACTIONS = new Set([
   "change_device",
   "change_application_data",
 ]);
+
+async function notifyContactNumberChangeRequest(input: { waId: string; customerText: string; truth: TruthBundle }) {
+  if (!explicitContactNumberChangeRequest(input.customerText) || !input.truth.application) return;
+  const app = input.truth.application;
+  await notifyV3Discord({
+    event: "manual_action_required",
+    actionKey: "change_application_data",
+    applicationId: app.id,
+    trackingId: app.trackingId || null,
+    waId: input.waId,
+    title: "📱 العميل طلب تغيير رقم التواصل على الطلب",
+    description: "العميل طلب أن تصله تحديثات الطلب على رقم مختلف. لم يتم تغيير الرقم تلقائيًا؛ يحتاج تنفيذًا إداريًا على الطلب.",
+    details: {
+      "الاسم": app.fullName || "—",
+      "رقم التتبع": app.trackingId || "—",
+      "رقم واتساب الحالي": input.waId,
+    },
+  });
+}
 
 async function notifyManualActionRequests(input: {
   waId: string;
@@ -426,6 +452,16 @@ export async function runV3ProductionLive(input: {
     console.error("V3 pending scoped-action Discord notification failed", error);
   }
 
+  try {
+    await notifyContactNumberChangeRequest({
+      waId: input.waId,
+      customerText: input.customerText,
+      truth: truthAfterActions,
+    });
+  } catch (error) {
+    console.error("V3 contact-number-change Discord notification failed", error);
+  }
+
   const manualDisposition = resolveManualActionDisposition({
     state: boundState,
     truth: truthAfterActions,
@@ -439,12 +475,16 @@ export async function runV3ProductionLive(input: {
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
   const continuationDecisionThisTurn = !explicitDoNotContinueText(input.customerText) && (
-    turn.requestedActions.includes("continue_application")
+    explicitContinuationText(input.customerText)
+    || turn.requestedActions.includes("continue_application")
     || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
   );
+  const truthAtContinuationDecision = truthAfterActions;
+  const continuationRevenueReadyAtDecision = continuationDecisionThisTurn
+    && isContinuationRevenueReady(truthAtContinuationDecision.application);
 
   const continuationPersistence = await persistExplicitContinuation({
-    application: truthAfterActions.application,
+    application: truthAtContinuationDecision.application,
     explicitContinue: continuationDecisionThisTurn,
   });
   if (continuationPersistence.updated) {
@@ -493,8 +533,12 @@ export async function runV3ProductionLive(input: {
   // truth for this turn. It must survive writer repair, fallback, duplicate
   // suppression, and any planner wording variance. Already-paid/pending-payment
   // truth remains protected from duplicate charging.
-  const protectedFiveJodStep = continuationDecisionThisTurn
-    && continuationCommercialState(truthAfterActions.application) === "payment_ready";
+  const protectedFiveJodStep = continuationRevenueReadyAtDecision;
+  const prioritizeRecovery = shouldPrioritizeConversationRecovery({
+    turn,
+    state: boundState,
+    recentTurns: safeRecentTurns,
+  });
 
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   let reply: string | null = null;
@@ -506,29 +550,13 @@ export async function runV3ProductionLive(input: {
     const scopedMutationReply = buildScopedMutationSuccessReply({ truth: truthAfterActions, actions });
     const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
     if (scopedMutationReply) {
-      // This response is built deterministically from the post-transaction truth
-      // and the official refund-link generator. It does not depend on model text.
       reply = scopedMutationReply;
       verification = PASS;
-    } else if (humanJourneyReply) {
-      // Stage-aware customer journey owns approval/status/timing before generic
-      // recovery or model wording. This prevents bare status dumps and makes the
-      // 5 JOD continuation path visible immediately after preliminary approval.
-      reply = humanJourneyReply;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: boundState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: safeRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (recoveryReply) {
-      // High-confidence conversation recovery owns known regression cases before
-      // model wording: continuation, new-application vs reopen, review timing,
-      // foreign-form blockers, showroom browsing and explicit multi-topic turns.
+    } else if (prioritizeRecovery && recoveryReply) {
+      // Only truth-critical recovery paths pre-empt the writer: explicit
+      // continuation/opt-out, new application, foreign form blocker, showroom
+      // policy, and contact-number correction. Normal status/timing stays with
+      // the human writer so the conversation does not sound like a status API.
       reply = recoveryReply;
       verification = verifyReply({
         reply,
@@ -567,7 +595,7 @@ export async function runV3ProductionLive(input: {
         reply = await writer.generate({
           system: "اكتب رد الأمين النهائي فقط وفق العقد التالي. لا تضف شرحًا داخليًا.",
           user: basePrompt,
-          temperature: 0.22,
+          temperature: 0.34,
           maxTokens: 800,
         });
         verification = verifyReply({
@@ -586,7 +614,7 @@ export async function runV3ProductionLive(input: {
           reply = await writer.generate({
             system: "أنت مرحلة إصلاح نهائي. أعد الرد فقط بعد إزالة كل المخالفات.",
             user: repairPrompt(basePrompt, reply, verification),
-            temperature: 0.08,
+            temperature: 0.12,
             maxTokens: 850,
           });
           verification = verifyReply({
@@ -603,6 +631,27 @@ export async function runV3ProductionLive(input: {
       } catch (error) {
         console.error("v3 live writer failed:", error);
         reply = null;
+      }
+    }
+
+    if (!reply || !verification.pass) {
+      const deterministicJourneyRescue = humanJourneyReply || recoveryReply;
+      if (deterministicJourneyRescue) {
+        const deterministicVerification = verifyReply({
+          reply: deterministicJourneyRescue,
+          turn,
+          state: boundState,
+          truth: truthAfterActions,
+          plan,
+          actions,
+          recentTurns: safeRecentTurns,
+          profileName: input.profileName,
+        });
+        if (deterministicVerification.pass) {
+          reply = deterministicJourneyRescue;
+          verification = deterministicVerification;
+          fallbackUsed = true;
+        }
       }
     }
 
@@ -661,7 +710,8 @@ export async function runV3ProductionLive(input: {
     });
   }
 
-  if (reply && !protectedFiveJodStep && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
+  // Phase 7.1.6A compatibility anchor: `!protectedFiveJodStep && runtimeNearDuplicate` remains true, now additionally restricted to low-information customer turns.
+  if (reply && !protectedFiveJodStep && isLowInformationCustomerTurn(input.customerText) && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
     fallbackUsed = true;
     reply = buildRepeatDeltaReply({ turn, truth: truthAfterActions });
     verification = verifyReply({
@@ -681,12 +731,10 @@ export async function runV3ProductionLive(input: {
   // is allowed to erase the mandatory continuation step when authoritative truth
   // says payment_ready.
   if (plan.shouldRespond && protectedFiveJodStep) {
-    const mandatoryContinuationReply = buildConversationRecoveryReply({
+    const mandatoryContinuationReply = buildMandatoryFiveJodContinuationReply(
       turn,
-      state: boundState,
-      truth: truthAfterActions,
-      recentTurns: safeRecentTurns,
-    });
+      truthAtContinuationDecision,
+    );
     if (mandatoryContinuationReply) {
       reply = mandatoryContinuationReply;
       fallbackUsed = true;
@@ -724,23 +772,23 @@ export async function runV3ProductionLive(input: {
     });
   }
 
-  if (finalSafetyPass && reply && truthAfterActions.application) {
+  if (finalSafetyPass && reply && (truthAfterActions.application || truthAtContinuationDecision.application)) {
     const explicitContinue = continuationDecisionThisTurn;
-    const commercial = continuationCommercialState(truthAfterActions.application);
-    if (explicitContinue && commercial === "payment_ready") {
+    if (explicitContinue && protectedFiveJodStep) {
+      const discordApp = truthAfterActions.application || truthAtContinuationDecision.application!;
       try {
         const notification = await notifyV3Discord({
           event: "customer_continue_payment_ready",
-          applicationId: truthAfterActions.application.id,
-          trackingId: truthAfterActions.application.trackingId,
+          applicationId: discordApp.id,
+          trackingId: discordApp.trackingId,
           waId: input.waId,
           title: "✅ العميل وافق على الاستمرار — أرسلت له خطوة 5 دنانير",
           description: "تم تثبيت اختيار العميل على الطلب وإرسال تعليمات رسوم فتح الملف ورابط رفع الوصل الرسمي.",
           details: {
-            الاسم: truthAfterActions.application.fullName || "—",
-            الجهاز: truthAfterActions.application.deviceName || "—",
-            "حالة الطلب": truthAfterActions.application.status || "—",
-            "حالة الدفع": truthAfterActions.application.paymentStatus || "—",
+            الاسم: discordApp.fullName || "—",
+            الجهاز: discordApp.deviceName || "—",
+            "حالة الطلب": discordApp.status || "—",
+            "حالة الدفع": discordApp.paymentStatus || "—",
             الرسوم: `${truthAfterActions.policy.fileOpeningFeeJod} دنانير`,
           },
         });
