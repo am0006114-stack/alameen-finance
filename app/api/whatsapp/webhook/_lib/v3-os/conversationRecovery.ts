@@ -4,6 +4,7 @@ import { isContinuationRevenueReady } from "./continuationPersistence";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
+import { contextualTurnSignals } from "./contextualTurnResolver";
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
@@ -64,7 +65,7 @@ function contextualContinuationYes(turn: InterpretedTurn, state: ConversationSta
 
 export function reviewTimingQuestionText(value: string | null | undefined) {
   const q = normalized(value);
-  return /(?:متى|امتى|ايمتى|لايمتا|لامتى).{0,35}(?:موافق|الموافقه|الموافقة|قرار|يطلع)|(?:شو\s+صار|وين\s+وصل).{0,30}(?:الموافقه|الموافقة|الطلب)|صارلي\s+[\d٠-٩]+\s*(?:يوم|ايام|أيام)|(?:ثلاث|ثلاثه|ثلاثة|يومين|اسبوع|أسبوع|شهر).{0,18}(?:صارلي|استنى|انتظار)|(?:قديش|كم).{0,20}(?:وقت|بده|بدها).{0,20}(?:موافق|مراجعه|مراجعة)/.test(q);
+  return /(?:متي|امتي|ايمتي|لايمتا|لامتي).{0,45}(?:موافق|الموافقه|قرار|يطلع|ترد|تردو|تردولي|تحكو|تحكولي|خبر|نتيجه|يخلص|تخلص|يتغير|تتغير|بتتغير)|(?:قبلتو|قبلتوه|انقبل|انقبلت).{0,30}(?:طلبي|الطلب)?|(?:شو\s+صار|وين\s+وصل).{0,30}(?:الموافقه|الطلب)|صارلي\s+[\d٠-٩]+\s*(?:يوم|ايام)|(?:ثلاث|ثلاثه|يومين|اسبوع|شهر).{0,18}(?:صارلي|استني|انتظار)|(?:قديش|كم).{0,20}(?:وقت|بده|بدها).{0,20}(?:موافق|مراجعه)/.test(q);
 }
 
 export function foreignApplicantFormBlocker(value: string | null | undefined) {
@@ -146,12 +147,31 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
     addAct(acts, turn, { type: "request_action", topic: "continuation", confidence: 0.995, action: "continue_application", value: "explicit_continue" });
   }
 
-  if (reviewTimingQuestionText(turn.rawText)) {
-    addAct(acts, turn, { type: "ask", topic: "review_timing", confidence: 0.995, action: "none", value: null });
+  const dialogueSignals = contextualTurnSignals({ turn, state: input.state, recentTurns: input.recentTurns });
+
+  if (reviewTimingQuestionText(turn.rawText) || dialogueSignals.reviewTiming) {
+    addAct(acts, turn, { type: "ask", topic: "review_timing", confidence: 0.995, action: "none", value: dialogueSignals.shortFollowUpResolved ? "contextual_followup" : null });
   }
 
-  if (humanRequestText(turn.rawText)) {
+  if (dialogueSignals.nextStep) {
+    addAct(acts, turn, { type: "ask", topic: "application_status", confidence: 0.99, action: "none", value: "next_step" });
+  }
+
+  if (dialogueSignals.productAvailability) {
+    addAct(acts, turn, { type: "ask", topic: "products", confidence: 0.995, action: "none", value: "product_availability" });
+  }
+
+  if (dialogueSignals.trustConcern) {
+    addAct(acts, turn, { type: "ask", topic: "trust", confidence: 0.995, action: "none", value: "trust_concern" });
+    if (dialogueSignals.topics.includes("complaint")) addAct(acts, turn, { type: "complaint", topic: "complaint", confidence: 0.995, action: "none", value: "trust_complaint" });
+  }
+
+  if (humanRequestText(turn.rawText) || dialogueSignals.humanRequest) {
     addAct(acts, turn, { type: "request_role", topic: "human_request", confidence: 0.995, action: "switch_ai_role", value: null });
+  }
+
+  if (dialogueSignals.paymentStatusClaim) {
+    addAct(acts, turn, { type: "provide_fact", topic: "payment_status", confidence: 0.98, action: "none", value: "customer_claimed_payment" });
   }
 
   if (asksAppointment(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "appointment", confidence: 0.97, action: "none", value: null });
@@ -294,7 +314,11 @@ export function buildConversationRecoveryReply(input: {
 
   if (continuation) return continuationReply(input.turn, input.truth);
 
-  if (reviewTimingQuestionText(raw) || human) return reviewTimingReply(input.truth, human);
+  if (human && !reviewTimingQuestionText(raw)) {
+    return "فاهم إنك بدك تحكي مع حدا مباشرة. المتابعة الرسمية للطلبات من نفس واتساب، وما رح أوهمك بتحويل أو اتصال إذا ما في تحويل فعلي. احكيلي شو الإجراء أو المعلومة اللي بدك إياها وبجاوبك من حالة الطلب نفسها بدون تدوير.";
+  }
+
+  if (reviewTimingQuestionText(raw)) return reviewTimingReply(input.truth, human);
 
   if (reopenStatusQuestion(raw) && input.truth.application) {
     const app = input.truth.application;

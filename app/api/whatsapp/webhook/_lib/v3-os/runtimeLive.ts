@@ -19,6 +19,9 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildConversationRecoveryReply, buildMandatoryFiveJodContinuationReply, explicitContactNumberChangeRequest, explicitContinuationText, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow, shouldPrioritizeConversationRecovery } from "./conversationRecovery";
 import { isContinuationRevenueReady, persistExplicitContinuation } from "./continuationPersistence";
 import { buildHumanJourneyReply } from "./humanJourney";
+import { filterPlannedActionsForApplicationScope, pendingActionMatchesCurrentApplication, scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampActionScope, stampPendingPayloadScope } from "./applicationScopeLock";
+import { enforceFinalResponseGate } from "./finalResponseGate";
+import { logIntegrityTelemetry } from "./integrityTelemetry";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -113,9 +116,9 @@ export function buildV3LastResortReply(input?: { truth: TruthBundle; state: Conv
     }
   }
   if (input.state.activeTrackingId) {
-    return `الطلب ${input.state.activeTrackingId} مربوط بالمحادثة. احكيلي النقطة اللي بدك تعرفها عنه وبجاوبك من الحالة المسجلة.`;
+    return "تفاصيل الطلب مش كاملة عندي بهاللحظة، وما بدي أخمّن بحالة أو خطوة مش ظاهرة بشكل موثوق.";
   }
-  return "إذا عندك طلب سابق ابعث رقم التتبع مرة واحدة، وإذا سؤالك عام احكيلي إياه مباشرة.";
+  return "إذا عندك طلب سابق ابعث رقم التتبع مرة واحدة؛ وإذا سؤالك عام اكتبه مثل ما هو وبجاوبك مباشرة.";
 }
 
 function realActionsOffCompletionClaim(reply: string) {
@@ -337,7 +340,7 @@ export async function runV3ProductionLive(input: {
     recentTurns: safeRecentTurns,
     provider: interpreter,
   });
-  const turn = hardenTurnForConversationRecovery({
+  let turn = hardenTurnForConversationRecovery({
     turn: interpreted.turn,
     state: stateBefore,
     recentTurns: safeRecentTurns,
@@ -356,35 +359,111 @@ export async function runV3ProductionLive(input: {
     topics: turn.topics,
   });
 
+  const scopeResult = scopeStateToCurrentApplication({
+    state: preliminaryState,
+    truth: truthBeforeActions,
+    customerText: input.customerText,
+  });
+  turn = scopeTurnToCurrentApplication({ turn, applicationChanged: scopeResult.applicationChanged });
+  const scopedRecentTurns = scopeResult.applicationChanged ? [] : safeRecentTurns;
+  const scopedState = scopeResult.state;
+
   const boundState: ConversationState = truthBeforeActions.application
     ? {
-        ...preliminaryState,
+        ...scopedState,
         activeApplicationId: truthBeforeActions.application.id,
         activeTrackingId: truthBeforeActions.application.trackingId,
         lastVerifiedApplication: truthBeforeActions.source === "verified_state_snapshot"
-          ? preliminaryState.lastVerifiedApplication
+          ? scopedState.lastVerifiedApplication
           : { application: truthBeforeActions.application, fetchedAt: truthBeforeActions.fetchedAt },
       }
-    : preliminaryState;
+    : scopedState;
 
-  const plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  if (scopeResult.droppedPendingAction) {
+    logIntegrityTelemetry({
+      event: "pending_action_scope_blocked",
+      waId: input.waId,
+      turnId: input.turnId,
+      applicationId: truthBeforeActions.application?.id || null,
+      trackingId: truthBeforeActions.application?.trackingId || null,
+      severity: "p0",
+      details: {
+        droppedAction: scopeResult.droppedPendingAction,
+        reason: scopeResult.reason,
+        previousApplicationId: preliminaryState.activeApplicationId,
+        previousTrackingId: preliminaryState.activeTrackingId,
+      },
+    });
+    try {
+      await notifyV3Discord({
+        event: "truth_integrity_failure",
+        applicationId: truthBeforeActions.application?.id || null,
+        trackingId: truthBeforeActions.application?.trackingId || null,
+        waId: input.waId,
+        title: "🧱 منع انتقال إجراء من طلب سابق إلى طلب جديد",
+        description: "تم اكتشاف pending action مربوط بسياق طلب سابق ومنعه قبل التنفيذ على الطلب الحالي.",
+        details: {
+          action: scopeResult.droppedPendingAction,
+          reason: scopeResult.reason,
+          "الطلب السابق": preliminaryState.activeTrackingId || "—",
+          "الطلب الحالي": truthBeforeActions.application?.trackingId || "—",
+        },
+      });
+    } catch (error) {
+      console.error("V3 application-scope Discord alert failed", error);
+    }
+  }
+
+  let plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  plan = { ...plan, actions: plan.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)) };
+  const applicationScopedPlan = filterPlannedActionsForApplicationScope({
+    actions: plan.actions,
+    turn,
+    applicationChanged: scopeResult.applicationChanged,
+  });
+  if (applicationScopedPlan.dropped.length) {
+    logIntegrityTelemetry({
+      event: "planned_action_scope_blocked",
+      waId: input.waId,
+      turnId: input.turnId,
+      applicationId: truthBeforeActions.application?.id || null,
+      trackingId: truthBeforeActions.application?.trackingId || null,
+      severity: "p0",
+      details: { actions: applicationScopedPlan.dropped.map((x) => x.action) },
+    });
+    try {
+      await notifyV3Discord({
+        event: "truth_integrity_failure",
+        applicationId: truthBeforeActions.application?.id || null,
+        trackingId: truthBeforeActions.application?.trackingId || null,
+        waId: input.waId,
+        title: "⛔ منع Action غير مطلوب على طلب جديد",
+        description: "تم منع إجراء مخطط انتقل/ظهر أثناء تبديل الطلب بدون طلب صريح من رسالة العميل الحالية.",
+        details: { actions: applicationScopedPlan.dropped.map((x) => x.action).join(", ") },
+      });
+    } catch (error) {
+      console.error("V3 planned action scope Discord alert failed", error);
+    }
+  }
+  plan = { ...plan, actions: applicationScopedPlan.actions };
   const actionsToExecute = [...plan.actions];
   const pendingScopedAction = boundState.pendingAction && LIVE_SCOPED_MUTATIONS.has(boundState.pendingAction)
     && String(boundState.pendingActionPayload?._manualStatus || "") === "awaiting_admin"
+    && pendingActionMatchesCurrentApplication({ state: boundState, truth: truthBeforeActions })
     ? boundState.pendingAction
     : null;
   if (input.realActionsEnabled && pendingScopedAction && !actionsToExecute.some((x) => x.action === pendingScopedAction)) {
     // A previously confirmed cancellation/refund that was waiting for manual
     // administration is eligible for one safe transactional execution on the
     // customer's next message after scoped Real Actions are enabled.
-    actionsToExecute.push({
+    actionsToExecute.push(stampActionScope({
       action: pendingScopedAction,
       sourceActId: turn.acts[0]?.id || turn.turnId,
       requiresConfirmation: false,
       authority: "deterministic",
       requiredRole: "omran",
       payload: boundState.pendingActionPayload || null,
-    });
+    }, truthBeforeActions, turn.turnId));
   }
 
   const actions = await executeActions({
@@ -401,7 +480,7 @@ export async function runV3ProductionLive(input: {
       waId: input.waId,
       customerText: input.customerText,
       state: boundState,
-      recentTurns: safeRecentTurns,
+      recentTurns: scopedRecentTurns,
       topics: turn.topics,
     });
   }
@@ -492,7 +571,7 @@ export async function runV3ProductionLive(input: {
       waId: input.waId,
       customerText: input.customerText,
       state: boundState,
-      recentTurns: safeRecentTurns,
+      recentTurns: scopedRecentTurns,
       topics: turn.topics,
     });
   } else if (continuationPersistence.attempted && continuationPersistence.blocker) {
@@ -520,13 +599,13 @@ export async function runV3ProductionLive(input: {
     turn,
     state: boundState,
     truth: truthAfterActions,
-    recentTurns: safeRecentTurns,
+    recentTurns: scopedRecentTurns,
   });
   const recoveryReply = buildConversationRecoveryReply({
     turn,
     state: boundState,
     truth: truthAfterActions,
-    recentTurns: safeRecentTurns,
+    recentTurns: scopedRecentTurns,
   });
   // REVENUE INVARIANT: once a preliminarily-qualified customer explicitly chooses
   // to continue, the 5 JOD file-opening step becomes protected customer-facing
@@ -537,7 +616,7 @@ export async function runV3ProductionLive(input: {
   const prioritizeRecovery = shouldPrioritizeConversationRecovery({
     turn,
     state: boundState,
-    recentTurns: safeRecentTurns,
+    recentTurns: scopedRecentTurns,
   });
 
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
@@ -565,7 +644,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: safeRecentTurns,
+        recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
     } else if (manualReply) {
@@ -577,7 +656,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: safeRecentTurns,
+        recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
     } else if (writer) {
@@ -587,7 +666,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: safeRecentTurns,
+        recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
       try {
@@ -605,7 +684,7 @@ export async function runV3ProductionLive(input: {
           truth: truthAfterActions,
           plan,
           actions,
-          recentTurns: safeRecentTurns,
+          recentTurns: scopedRecentTurns,
           profileName: input.profileName,
         });
 
@@ -624,7 +703,7 @@ export async function runV3ProductionLive(input: {
             truth: truthAfterActions,
             plan,
             actions,
-            recentTurns: safeRecentTurns,
+            recentTurns: scopedRecentTurns,
             profileName: input.profileName,
           });
         }
@@ -644,7 +723,7 @@ export async function runV3ProductionLive(input: {
           truth: truthAfterActions,
           plan,
           actions,
-          recentTurns: safeRecentTurns,
+          recentTurns: scopedRecentTurns,
           profileName: input.profileName,
         });
         if (deterministicVerification.pass) {
@@ -667,7 +746,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: safeRecentTurns,
+        recentTurns: scopedRecentTurns,
       });
       const rescueVerification = verifyZeroFallbackReply({
         reply: rescue,
@@ -696,7 +775,7 @@ export async function runV3ProductionLive(input: {
       truth: truthAfterActions,
       plan,
       actions,
-      recentTurns: safeRecentTurns,
+      recentTurns: scopedRecentTurns,
     });
     verification = verifyReply({
       reply,
@@ -705,7 +784,7 @@ export async function runV3ProductionLive(input: {
       truth: truthAfterActions,
       plan,
       actions,
-      recentTurns: safeRecentTurns,
+      recentTurns: scopedRecentTurns,
       profileName: input.profileName,
     });
   }
@@ -721,7 +800,7 @@ export async function runV3ProductionLive(input: {
       truth: truthAfterActions,
       plan,
       actions,
-      recentTurns: safeRecentTurns,
+      recentTurns: scopedRecentTurns,
       profileName: input.profileName,
     });
   }
@@ -745,13 +824,68 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         plan,
         actions,
-        recentTurns: safeRecentTurns,
+        recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
     }
   }
 
-  const finalSafetyPass = !plan.shouldRespond || Boolean(reply && verification.pass);
+  let finalGate = enforceFinalResponseGate({
+    reply,
+    turn,
+    state: boundState,
+    truth: truthAfterActions,
+    actions,
+    applicationChanged: scopeResult.applicationChanged,
+  });
+  if (!finalGate.pass && finalGate.replacementReply) {
+    fallbackUsed = true;
+    logIntegrityTelemetry({
+      event: "final_response_gate_repair",
+      waId: input.waId,
+      turnId: input.turnId,
+      applicationId: truthAfterActions.application?.id || null,
+      trackingId: truthAfterActions.application?.trackingId || null,
+      severity: finalGate.severity === "none" ? "info" : finalGate.severity,
+      details: { violations: finalGate.violations },
+    });
+    if (finalGate.severity === "p0") {
+      try {
+        await notifyV3Discord({
+          event: "truth_integrity_failure",
+          applicationId: truthAfterActions.application?.id || null,
+          trackingId: truthAfterActions.application?.trackingId || null,
+          waId: input.waId,
+          title: "⛔ Conversation Integrity منع رد خطير قبل الإرسال",
+          description: "تم إيقاف/إصلاح رد كان سيخالف حدود الطلب أو بوابة الدفع قبل وصوله للعميل.",
+          details: { violations: finalGate.violations },
+        });
+      } catch (error) {
+        console.error("V3 final response integrity Discord alert failed", error);
+      }
+    }
+    reply = finalGate.replacementReply;
+    verification = verifyReply({
+      reply,
+      turn,
+      state: boundState,
+      truth: truthAfterActions,
+      plan,
+      actions,
+      recentTurns: scopedRecentTurns,
+      profileName: input.profileName,
+    });
+    finalGate = enforceFinalResponseGate({
+      reply,
+      turn,
+      state: boundState,
+      truth: truthAfterActions,
+      actions,
+      applicationChanged: false,
+    });
+  }
+
+  const finalSafetyPass = !plan.shouldRespond || Boolean(reply && verification.pass && finalGate.pass);
   if (!finalSafetyPass) {
     await notifyV3Discord({
       event: "final_safety_fail_closed",
@@ -808,7 +942,7 @@ export async function runV3ProductionLive(input: {
   const latestVerifiedSnapshot = truthAfterActions.application && truthAfterActions.source !== "verified_state_snapshot"
     ? { application: truthAfterActions.application, fetchedAt: truthAfterActions.fetchedAt }
     : boundState.lastVerifiedApplication;
-  const manualPayload = manualStatePayload(manualDisposition);
+  const manualPayload = stampPendingPayloadScope(manualStatePayload(manualDisposition), truthAfterActions, turn.turnId);
   const manualPendingAction = manualDisposition.kind === "awaiting_admin"
     ? manualDisposition.action
     : manualDisposition.kind === "cancel_reapply_guidance"
@@ -821,7 +955,7 @@ export async function runV3ProductionLive(input: {
       || manualPendingAction
       || (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : boundState.pendingAction)),
     pendingActionPayload: waitingConfirmation
-      ? (waitingPlan?.payload || boundState.pendingActionPayload)
+      ? stampPendingPayloadScope((waitingPlan?.payload || boundState.pendingActionPayload), truthAfterActions, turn.turnId)
       : manualPayload
         ? manualPayload
         : (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : boundState.pendingActionPayload)),

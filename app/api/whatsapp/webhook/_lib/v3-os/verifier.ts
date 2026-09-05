@@ -2,12 +2,13 @@ import { detectHumanityViolations } from "./humanVoice";
 import { actionRequiresOmran, roleDisplayName } from "./hierarchy";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { continuationCommercialState } from "./commercialProgression";
-import { applicationJourneyStage, canDiscloseFileOpeningPayment, explicitContinuation, firstCustomerName } from "./applicationJourney";
+import { applicationJourneyStage, explicitContinuation, firstCustomerName } from "./applicationJourney";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
 import { buildOfficialLinkContext, detectReplyLinkViolations } from "./linkIntegrity";
 import { appointmentCoordinationOverclaim, asksOfficeSchedule, bankStatementDurationQuestion, productAvailabilityOverclaim, safeCustomerFirstName, resolveOfficeScheduleTarget } from "./operationalPrecision";
 import { explicitNewApplicationText, foreignApplicantFormBlocker, showroomBrowsingRequest } from "./conversationRecovery";
+import { containsRestrictedPaymentExecutionDetail, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 
 function claimExecuted(text: string, action: string[]) {
   const t = normalizeArabic(text);
@@ -381,8 +382,13 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     truthContradictions.push("global_active_status_claim_on_terminal_application");
   }
   const continuationNow = explicitContinuation(input.turn);
+  const paymentFirewall = paymentDisclosureDecision({
+    application: input.truth.application,
+    customerText: input.turn.rawText,
+    explicitContinuationThisTurn: continuationNow || input.turn.requestedActions.includes("continue_application"),
+  });
   const paymentTopics: TopicKey[] = ["payment_fee","payment_method","payment_timing","payment_recipient","payment_status","payment_confirmation","receipt_upload"];
-  const preContinuationStage = !canDiscloseFileOpeningPayment(input.truth.application, input.turn) && (journeyStage === "preliminary_review" || journeyStage === "preliminary_approved_waiting_decision");
+  const preContinuationStage = !paymentFirewall.paymentExecutionDetailsAllowed && (journeyStage === "preliminary_review" || journeyStage === "preliminary_approved_waiting_decision");
   const feeQuestionNow = explicitFeeQuestion(input.turn);
   if (preContinuationStage) {
     // Before explicit continuation, transaction details remain hidden. A customer may still
@@ -392,7 +398,10 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   }
 
   if (rawStatusLeaked(reply)) policyViolations.push("raw_internal_application_status_exposed");
-  if (/(?:رقم\s+الطلب\s+المرتبط\s+بالمحادثه\s+عندي|رقم\s+الطلب\s+المرتبط\s+بالمحادثة\s+عندي|اكتب\s+سؤالك\s+مباشره|اكتب\s+سؤالك\s+مباشرة|اذا\s+عندك\s+نقطه\s+جديده|إذا\s+عندك\s+نقطة\s+جديدة|الحاله\s+الفعليه\s+المسجله|الحالة\s+الفعلية\s+المسجلة|بعتمد\s+هالحاله\s+نفسها|بعتمد\s+هالحالة\s+نفسها|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+(?:رد|حاله|حالة))/.test(t)) {
+  if (!paymentFirewall.paymentExecutionDetailsAllowed && containsRestrictedPaymentExecutionDetail(reply, input.truth.policy)) {
+    policyViolations.push(`payment_firewall_blocked_execution_details:${paymentFirewall.reason}`);
+  }
+  if (/(?:رقم\s+الطلب\s+المرتبط\s+بالمحادثه\s+عندي|رقم\s+الطلب\s+المرتبط\s+بالمحادثة\s+عندي|الطلب\s+AM-\d+\s+مربوط\s+بالمحادثه|الطلب\s+AM-\d+\s+مربوط\s+بالمحادثة|احكيلي\s+النقطه\s+اللي\s+بدك\s+تعرفها|احكيلي\s+النقطة\s+اللي\s+بدك\s+تعرفها|اذا\s+في\s+نقطه\s+محدده\s+بالطلب|إذا\s+في\s+نقطة\s+محددة\s+بالطلب|اكتب\s+سؤالك\s+مباشره|اكتب\s+سؤالك\s+مباشرة|اذا\s+عندك\s+نقطه\s+جديده|إذا\s+عندك\s+نقطة\s+جديدة|الحاله\s+الفعليه\s+المسجله|الحالة\s+الفعلية\s+المسجلة|بعتمد\s+هالحاله\s+نفسها|بعتمد\s+هالحالة\s+نفسها|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+(?:رد|حاله|حالة)|على\s+الموجود\s+فعليا\s+بدون\s+ما\s+الفك\s+بنفس\s+الكلام)/.test(t)) {
     repetitionFlags.push("robotic_generic_fallback_language");
   }
   if (/^انا\s+معك(?:[،,. ]|$)|^أنا\s+معك(?:[،,. ]|$)/.test(reply.trim()) && reply.trim().split(/\s+/).length < 14) {
@@ -407,6 +416,12 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (asksBoxNewCondition(input.turn)) {
     const answeredCondition = /(?:جديد|كرتون|كرتونه|كرتونة|مختوم|غير\s+موثق|معلومة\s+موثقة|ما\s+عندي[^\n]{0,35}(?:تأكيد|معلومة))/.test(t);
     if (!answeredCondition) missingTopics.push("products");
+  }
+  if (input.turn.topics.includes("products") && /(?:ابعث|ابعت|ارسل|أرسل|هات|اعطيني|أعطيني)[^\n]{0,45}(?:رقم\s*(?:التتبع|الطلب)|التتبع)/.test(t)) {
+    policyViolations.push("product_question_wrong_tracking_fallback");
+  }
+  if ((input.turn.topics.includes("trust") || input.turn.topics.includes("complaint")) && /(?:جهة\s+معروفه|جهة\s+معروفة|مسجلين\s+قانونيا|مسجلين\s+قانونيًا|مرخصين|مرخصة)/.test(t)) {
+    unsupportedClaims.push("unsupported_trust_or_registration_claim");
   }
 
   if (preContinuationStage) {

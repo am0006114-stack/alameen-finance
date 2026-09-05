@@ -1,7 +1,7 @@
 import { roleDisplayName } from "./hierarchy";
 import { humanVoiceGuidance } from "./humanVoice";
 import { getV3Policy } from "./policy";
-import { applicationJourneyStage, canDiscloseFileOpeningPayment, customerOrderSnapshot, explicitContinuation, shouldAskContinuationDecision } from "./applicationJourney";
+import { applicationJourneyStage, customerOrderSnapshot, explicitContinuation, shouldAskContinuationDecision } from "./applicationJourney";
 import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, sanitizeRecentTurnsForModel, sanitizeStateForWriter, sanitizeTurnForWriter } from "./linkIntegrity";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle } from "./types";
@@ -9,6 +9,8 @@ import { normalizeArabic } from "./text";
 import { asksOfficeSchedule, bankStatementDurationQuestion, resolveOfficeScheduleTarget, safeCustomerFirstName } from "./operationalPrecision";
 import { explicitNewApplicationText, foreignApplicantFormBlocker, showroomBrowsingRequest } from "./conversationRecovery";
 import { personaWritingContract } from "./personas";
+import { paymentDisclosureDecision } from "./paymentEligibilityFirewall";
+import { contextualTurnSignals } from "./contextualTurnResolver";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -35,8 +37,14 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const contextualStatusConfirmation = input.turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
   const fullPolicy = getV3Policy();
   const installmentPaymentChannelQuestion = explicitInstallmentPaymentChannelQuestion(input.turn);
-  const paymentDetailsAllowed = canDiscloseFileOpeningPayment(input.truth.application, input.turn) && !installmentPaymentChannelQuestion;
+  const paymentFirewall = paymentDisclosureDecision({
+    application: input.truth.application,
+    customerText: input.turn.rawText,
+    explicitContinuationThisTurn: continuationNow || input.turn.requestedActions.includes("continue_application"),
+  });
+  const paymentDetailsAllowed = paymentFirewall.paymentExecutionDetailsAllowed && !installmentPaymentChannelQuestion;
   const feePolicyQuestionNow = explicitFeePolicyQuestion(input.turn);
+  const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: safeRecentTurns });
   const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: safeRecentTurns });
   const officeScheduleQuestion = asksOfficeSchedule(input.turn.rawText);
   const officeTarget = resolveOfficeScheduleTarget(input.turn.rawText);
@@ -87,6 +95,10 @@ CUSTOMER_NAME=${preferredName || "غير متوفر"}
 CUSTOMER_JOURNEY_STAGE=${journeyStage}
 EXPLICIT_CONTINUATION_NOW=${continuationNow}
 EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
+PAYMENT_EXECUTION_DETAILS_ALLOWED=${paymentDetailsAllowed}
+PAYMENT_FIREWALL_REASON=${paymentFirewall.reason}
+CONTEXTUAL_DIALOGUE_SIGNALS=${JSON.stringify(dialogueSignals)}
+APPLICATION_SCOPE_RESET=${input.turn.warnings.includes("application_scope_reset")}
 INSTALLMENT_PAYMENT_CHANNEL_QUESTION=${installmentPaymentChannelQuestion}
 OFFICE_SCHEDULE_QUESTION=${officeScheduleQuestion}
 OFFICE_SCHEDULE_TARGET=${officeTarget.reference}
@@ -111,9 +123,16 @@ ${personaWritingContract(roleName)}
 - عند الموافقة المبدئية لا تكتفي بعبارة "موافقة مبدئية". وضح أنها ليست نهائية، وأن خيار الاستمرار يفتح الدراسة النهائية، وأن رسوم فتح الملف 5 دنانير تُطلب فقط بعد اختيار الاستمرار، وأن المعدل الطبيعي للدراسة ${fullPolicy.normalReviewWindow} مع التنبيه لضغط المراجعات الحالي بدون وعد بموعد.
 - إذا العميل سأل "متى الاستلام؟" وهو ما زال بالموافقة المبدئية، اربط الجواب بالمرحلة: لا يوجد موعد استلام قبل إكمال خطوة الاستمرار والدراسة النهائية والموعد الرسمي.
 - اللهجة أردنية طبيعية: "هسا" عند الحاجة، "لسا"، "إذا بدك"، "تمام"؛ بدون تصنع، وبدون فصحى ثقيلة إلا إذا العميل نفسه يكتب رسميًا.
+- ما في حقل جنس موثوق في TRUTH؛ تجنب افتراض جنس العميل من الاسم أو صورة الحساب. استخدم صياغات محايدة مثل "الله يسلمك" و"إذا بدك" و"اكتبلي" بدل "تسلمي/تفضل/تفضلي" عندما ما يكون السياق محسومًا بشكل صريح.
 - لا تنهِ كل رد بـ"إذا عندك سؤال ثاني". اختم فقط عندما يوجد قرار أو سؤال واحد منطقي يحتاج جواب العميل.
 - حل كل عناصر PLAN ولا تسقط سؤالًا لأن سؤالًا آخر أهم.
 - إذا سؤال العميل واضح ومحدد، ممنوع الرد بقالب "اكتب سؤالك مباشرة" أو "إذا عندك نقطة جديدة". جاوب السؤال نفسه أو قل بوضوح إن الحقيقة المطلوبة غير متاحة.
+- PAYMENT_EXECUTION_DETAILS_ALLOWED هو القفل النهائي لتفاصيل دفع رسوم فتح الملف. إذا=false ممنوع تمامًا إظهار AMEEENPAY أو AMENPAY أو اسم المستفيد أو Orange Money كجهة تحويل أو تعليمات CliQ أو رابط /receipt، حتى لو العميل سأل "كيف الدفع؟". يجوز فقط شرح وجود/سبب/استرداد رسوم 5 دنانير عندما المرحلة تسمح.
+- إذا العميل قال إنه دفع أو حوّل لكن TRUTH لا يثبت الدفع بعد، لا تكذبه ولا تقل "الطلب لسه ما وصل لمرحلة الرسوم". قل إن رسالته وصلت وإن الاعتماد النهائي للدفع إداري، ولا تطلب منه دفعًا ثانيًا ما لم تثبت الحقيقة أن لا دفع/وصل موجود وأن المرحلة تسمح بذلك.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.productAvailability=true، جاوب سؤال التوفر نفسه أو وجّه لصفحة المنتجات الرسمية؛ ممنوع طلب رقم تتبع لأنه سؤال عام.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.trustConcern=true، عالج التخوف نفسه في نفس الرد. ممنوع ادعاء "جهة معروفة" أو "مسجلين قانونيًا" أو "مرخصين" بدون حقيقة موثقة في TRUTH. استخدم فقط الحقائق والسياسة الموجودة.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.reviewTiming=true، جاوب المدة مباشرة. لا تحول سؤال "متى؟" إلى ملخص حالة أو موضوع دفع.
+- إذا APPLICATION_SCOPE_RESET=true، هذه الرسالة ربطت طلبًا مختلفًا عن سياق الطلب السابق. تعامل مع الطلب الحالي كحدود جديدة: لا تستخدم pending action أو tracking أو جهاز أو خطوة مالية من الطلب السابق، ولا تذكر القديم إلا إذا العميل نفسه طلب المقارنة.
 - إذا NEW_APPLICATION_REQUEST=true: الطلب الجديد ليس إعادة فتح للطلب القديم. ممنوع تنفيذ/اقتراح reopen_application، وممنوع إعادة استخدام رقم تتبع الطلب القديم كأنه الطلب الجديد. وجّه العميل لبدء طلب جديد من رابط المنتجات الرسمي الموجود في OFFICIAL_LINKS فقط.
 - إذا FOREIGN_APPLICANT_FORM_BLOCKER=true: لا تخترع طريقة لتجاوز خانة الرقم الوطني، ولا تطلب قص/اختصار رقم أجنبي أو وضع رقم الجواز/الإقامة مكان الرقم الوطني ما لم توجد حقيقة رسمية تدعم ذلك. قل بوضوح إنه لا يوجد عندك مسار بديل موثق بدل النموذج الحالي.
 - إذا SHOWROOM_BROWSING_REQUEST=true: المكتب ليس زيارة مفتوحة لمشاهدة الأجهزة. اعرض صفحة المنتجات الرسمية، ووضح أن الحضور للمكتب فقط بموعد رسمي مؤكد مرتبط بالإجراء المناسب على الطلب. لا تستخدم كلمة "المعرض" كأن هناك صالة عرض مفتوحة.
@@ -150,6 +169,7 @@ ${personaWritingContract(roleName)}
 - لا تكرر ملخص الطلب إذا كان آخر رد قدم نفس المعلومات ولم تتغير الحقيقة. جاوب السؤال الجديد فقط. إذا لا يوجد تحديث جديد، قل ذلك بجملة قصيرة بدل إعادة رقم الطلب والجهاز والحالة كلها.
 - إذا العميل يسأل سؤالًا محددًا مثل "متى أستلم؟" أو "كم القسط؟" أو "وين أجي؟"، جاوب هذا السؤال مباشرة ولا تختم بـ "شو بدك أوضح؟" أو تطلب منه إعادة صياغة شيء قاله بوضوح.
 - إذا الرسالة تحتوي أكثر من سؤال، غطِّ كل سؤال بنقطة قصيرة. لا تسقط سؤال حالة الجهاز/التغليف أو موقع الاستلام لأن intent آخر أخذ الأولوية.
+- الرسالة الواحدة قد تحتوي طلب إجراء + تخوف/شكوى + سؤال. لا تختصرها إلى intent واحد: نفّذ/اشرح الإجراء وفق الحقيقة ثم جاوب التخوف والسؤال الإضافي باختصار في نفس الرد.
 - الضحك مسموح بشكل طبيعي ومختصر فقط، مثل "هههه 😅". ممنوع تكرار حروف الضحك أو أي حرف عشرات المرات.
 - أي دومين غير ameenfinance.co ممنوع تمامًا في رد الأمين، حتى لو ظهر سابقًا في المحادثة.
 - لا تعدّل query parameters للرابط الرسمي ولا تختصره ولا تستبدل الدومين.

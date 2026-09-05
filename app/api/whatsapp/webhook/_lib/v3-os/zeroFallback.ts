@@ -1,4 +1,4 @@
-import { applicationJourneyStage, canDiscloseFileOpeningPayment, customerFacingStatusLabel, shouldAskContinuationDecision } from "./applicationJourney";
+import { applicationJourneyStage, customerFacingStatusLabel, shouldAskContinuationDecision } from "./applicationJourney";
 import { continuationCommercialState } from "./commercialProgression";
 import { buildDelaySupportProfile } from "./delaySupport";
 import { buildOfficialLinkContext, detectReplyLinkViolations } from "./linkIntegrity";
@@ -6,7 +6,9 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildManualActionCustomerReply, resolveManualActionDisposition } from "./manualActionPolicy";
 import { normalizeArabic } from "./text";
 import { asksOfficeSchedule, bankStatementDurationCustomerReply, bankStatementDurationQuestion, explicitDocumentUploadKind, officeScheduleCustomerReply } from "./operationalPrecision";
-import { buildConversationRecoveryReply, formatJod } from "./conversationRecovery";
+import { buildConversationRecoveryReply, explicitContinuationText, formatJod } from "./conversationRecovery";
+import { buildSafePaymentFirewallReply, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
+import { contextualTurnSignals } from "./contextualTurnResolver";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 
 const ACTION_LABELS: Record<string,string> = {
@@ -95,6 +97,12 @@ export function buildZeroFallbackReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const parts: string[] = [];
   const q = normalizeArabic(input.turn.rawText).replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ").trim();
+  const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
+  const paymentFirewall = paymentDisclosureDecision({
+    application: app,
+    customerText: input.turn.rawText,
+    explicitContinuationThisTurn: explicitContinuationText(input.turn.rawText) || input.turn.requestedActions.includes("continue_application"),
+  });
   const explicitDocumentKind = explicitDocumentUploadKind(input.turn.rawText);
   const conversationRecovery = buildConversationRecoveryReply({
     turn: input.turn,
@@ -134,6 +142,16 @@ export function buildZeroFallbackReply(input: {
   // just because an application is bound to the conversation.
   if (isSocialAck(q) && !input.turn.requestedActions.length && !input.turn.topics.some((t) => ["application_status","review_timing","payment_status","refund","requirements"].includes(t))) {
     return pick(["العفو، الله يعطيك العافية.", "تمام، الله يعطيك العافية.", "على خير إن شاء الله، وأنا موجود لأي استفسار."], input.turn.turnId);
+  }
+
+  if (dialogueSignals.productAvailability) {
+    const products = links.relevant.products || "https://www.ameenfinance.co/products";
+    return `التوفر والسعر الحاليين مرجعهم صفحة المنتجات الرسمية، وما بدي أأكد موديل معيّن من غير بيانات محدثة. شوف الأجهزة الموجودة مباشرة من هون:
+${products}`;
+  }
+
+  if (dialogueSignals.trustConcern) {
+    return `مفهوم تخوفك، خصوصًا مع انتشار الاحتيال. اللي بقدر أؤكده بدون مبالغة: ${p.independenceStatement} وكل خطوة على الطلب بنعتمدها من الحالة الفعلية، وما بنعتبر دفع أو تعديل أو موافقة نهائية تمت إلا إذا كانت مثبتة فعليًا.`;
   }
 
   // A customer number is never an official company contact number. If no explicit
@@ -191,7 +209,7 @@ export function buildZeroFallbackReply(input: {
     const status = shortStatus(input.truth);
     if (status) parts.push(status);
     else if (input.truth.ambiguousApplications.length) parts.push("عندي أكثر من طلب مرتبط بالمحادثة. ابعث رقم التتبع للطلب اللي بدك أراجعه حتى ما أعطيك معلومات عن طلب ثاني.");
-    else if (input.state.activeTrackingId) parts.push(`الطلب ${input.state.activeTrackingId} مربوط عندي، لكن ما عندي حالة موثقة أحدث أقدر أضيفها الآن.`);
+    else if (input.state.activeTrackingId) parts.push("رقم الطلب معروف عندي، بس ما عندي حالة أحدث موثقة أقدر أضيفها هسا، وما بدي أخمّن عليك.");
     else parts.push("حتى أعطيك حالة صحيحة، ابعث رقم التتبع أو رقم الطلب وبراجع نفس الطلب معك.");
     if (app && stage === "preliminary_approved_waiting_decision" && shouldAskContinuationDecision(app, input.turn)) {
       parts.push(`الموافقة الحالية مبدئية وليست النهائية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول وتخضع للاسترداد الرسمي بعد دفع مؤكد. المعدل الطبيعي للدراسة ${p.normalReviewWindow}، وحاليًا في ضغط مراجعات وقد تتأخر بعض الملفات. إذا بدك نكمل، اكتبلي: أود الاستمرار.`);
@@ -209,16 +227,18 @@ export function buildZeroFallbackReply(input: {
     }
   }
 
+  if (dialogueSignals.paymentStatusClaim && !hasAuthoritativePaymentConfirmation(app) && app?.documents?.paymentReceiptUploaded !== true) {
+    return "وصلتني إنك بتقول إنك دفعت. تأكيد الدفع النهائي عندنا إداري وما بنعتبر الرسالة نفسها تأكيدًا، وبنفس الوقت ما رح أطلب منك تدفع مرة ثانية لمجرد إن التأكيد ما ظهر عندي هسا. بعتمد حالة الدفع الفعلية على الملف لما تتحدث.";
+  }
+
   if (["payment_status","payment_confirmation","payment_method","payment_timing","payment_recipient","payment_fee","receipt_upload"].some((t) => topics.has(t as any))) {
-    if (!canDiscloseFileOpeningPayment(app, input.turn)) {
-      if (rawAsksFeePolicy(q)) parts.push(`رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وتُطلب فقط بعد الموافقة المبدئية إذا اخترت الاستمرار. ما بنرسل تفاصيل التحويل قبل قرار الاستمرار.`);
-      else if (stage === "preliminary_approved_waiting_decision") parts.push(`مبروك، الطلب حاصل على موافقة مبدئية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسومها ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول وتخضع للاسترداد الرسمي بعد دفع مؤكد. المعدل الطبيعي للدراسة ${p.normalReviewWindow} مع ضغط مراجعات حاليًا. إذا بدك نكمل، اكتبلي: أود الاستمرار.`);
-      else parts.push("الطلب لسه ما وصل لمرحلة رسوم فتح الملف، لذلك ما رح أفتح تفاصيل التحويل قبل وقته.");
+    if (!paymentFirewall.paymentExecutionDetailsAllowed) {
+      parts.push(buildSafePaymentFirewallReply({ truth: input.truth, customerText: input.turn.rawText, decision: paymentFirewall }));
     } else if (hasAuthoritativePaymentConfirmation(app)) {
       parts.push("الدفع مؤكد إداريًا على الطلب، وما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.");
     } else if (topics.has("receipt_upload") || topics.has("payment_confirmation")) {
       if (links.relevant.receipt) parts.push(`تأكيد الدفع يتم يدويًا من الإدارة بعد مراجعة الوصل. رابط رفع الوصل الرسمي المرتبط بطلبك: ${links.relevant.receipt}`);
-      else parts.push(app?.trackingId ? "تأكيد الدفع يتم يدويًا من الإدارة، لكن رابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن؛ ما رح أعطيك رابط غير موثق." : "تأكيد الدفع يتم يدويًا من الإدارة. إذا ما قدرت أربط الطلب تلقائيًا بطلب منك معلومة واحدة فقط لتحديده.");
+      else parts.push(app?.trackingId ? "تأكيد الدفع يتم يدويًا من الإدارة، لكن رابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن؛ ما رح أعطيك رابط غير موثق." : "تأكيد الدفع يتم يدويًا من الإدارة، لكن ما عندي رابط مرتبط بطلب موثوق هسا، وما رح أعطيك رابط عام بدل الصحيح.");
     } else {
       parts.push(p.paymentMethodRule);
     }
@@ -270,10 +290,10 @@ export function buildZeroFallbackReply(input: {
       if (stage === "preliminary_approved_waiting_decision") {
         parts.push(`إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، وبعد رفع الوصل واعتماده تبدأ الدراسة. المعدل الطبيعي ${p.normalReviewWindow} مع وجود ضغط مراجعات حاليًا. اكتبلي: أود الاستمرار.`);
       } else {
-        parts.push("إذا في نقطة محددة بالطلب بدك تعرفها، بعطيك جوابها من الحالة المسجلة بدون ما أعيد عليك الملخص كامل.");
+        parts.push("الحالة اللي ظاهرة على الطلب هي اللي بعتمدها هسا. إذا رسالتك فيها سؤال محدد بجاوب عليه مباشرة بدون ما أعيد ملخص الطلب.");
       }
-    } else if (input.state.activeTrackingId) parts.push(`الطلب ${input.state.activeTrackingId} مربوط بالمحادثة، بس تفاصيله الكاملة مش ظاهرة بهاللحظة. بعتمد فقط اللي ظاهر عندي وما بخمّن.`);
-    else parts.push("إذا سؤالك عن طلب سابق ابعث رقم التتبع مرة واحدة، وإذا سؤالك عام احكيه مباشرة.");
+    } else if (input.state.activeTrackingId) parts.push("تفاصيل الطلب مش مكتملة عندي بهاللحظة، لذلك ما بدي أخمّن بحالة أو خطوة مش موثقة.");
+    else parts.push("إذا عندك طلب سابق ابعث رقم التتبع مرة واحدة؛ وإذا سؤالك عام اكتبه مثل ما هو وبجاوبك مباشرة.");
   }
 
   return parts.join("\n\n").trim();
