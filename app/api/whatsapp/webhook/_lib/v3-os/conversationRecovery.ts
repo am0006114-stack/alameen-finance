@@ -174,6 +174,22 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
     addAct(acts, turn, { type: "provide_fact", topic: "payment_status", confidence: 0.98, action: "none", value: "customer_claimed_payment" });
   }
 
+  if (dialogueSignals.siteIssue) {
+    addAct(acts, turn, { type: "ask", topic: "website", confidence: 0.995, action: "none", value: "site_issue" });
+  }
+  if (dialogueSignals.trackingLinkRequest) {
+    addAct(acts, turn, { type: "ask", topic: "tracking", confidence: 0.995, action: "none", value: "tracking_link_request" });
+  }
+  if (dialogueSignals.refundMeaning) {
+    addAct(acts, turn, { type: "ask", topic: "refund", confidence: 0.995, action: "none", value: "refund_meaning" });
+  }
+  if (dialogueSignals.continueAfterCancellation) {
+    addAct(acts, turn, { type: "request_action", topic: "reopen", confidence: 0.995, action: "reopen_application", value: "customer_wants_resume_after_cancel" });
+    if (/(?:الغي|وقف).{0,24}(?:مسار\s+)?(?:الاسترداد|الاسترجاع)/.test(normalized(turn.rawText))) {
+      addAct(acts, turn, { type: "request_action", topic: "refund", confidence: 0.995, action: "stop_refund", value: "customer_requests_stop_refund" });
+    }
+  }
+
   if (asksAppointment(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "appointment", confidence: 0.97, action: "none", value: null });
   if (asksInstallment(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "installment_amount", confidence: 0.95, action: "none", value: null });
   if (asksRequirements(turn.rawText)) addAct(acts, turn, { type: "ask", topic: "requirements", confidence: 0.97, action: "none", value: null });
@@ -254,7 +270,11 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || contextualContinuationYes(input.turn, input.state, input.recentTurns)
     || foreignApplicantFormBlocker(input.turn.rawText)
     || showroomBrowsingRequest(input.turn.rawText)
-    || explicitContactNumberChangeRequest(input.turn.rawText);
+    || explicitContactNumberChangeRequest(input.turn.rawText)
+    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).siteIssue
+    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).trackingLinkRequest
+    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).refundMeaning
+    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).continueAfterCancellation;
 }
 
 export function buildConversationRecoveryReply(input: {
@@ -271,6 +291,30 @@ export function buildConversationRecoveryReply(input: {
   const stopContinuation = explicitDoNotContinueText(raw);
   const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
+  const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
+
+  if (dialogueSignals.trackingLinkRequest) {
+    if (links.relevant.tracking) return `أكيد، هذا رابط التتبع الرسمي لطلبك:
+${links.relevant.tracking}`;
+    return "فاهم إنك بدك رابط التتبع. ما عندي رابط مرتبط بطلب موثوق هسا، وما رح أعطيك رابط عام ممكن يوديك لطلب غلط.";
+  }
+
+  if (dialogueSignals.siteIssue) {
+    const products = links.relevant.products || "https://www.ameenfinance.co/products";
+    return `فهمتك؛ المشكلة اللي بتحكي عنها بالموقع نفسه، مش إنك أرسلت مستند. جرّب تفتح صفحة المنتجات الرسمية مباشرة من المتصفح:
+${products}
+إذا ظل نفس الخطأ ظاهر، ابعثلي نص رسالة الخطأ أو صورة الشاشة وبجاوبك على المشكلة نفسها بدون ما أطلب منك رقم تتبع إذا ما عندك طلب.`;
+  }
+
+  if (dialogueSignals.refundMeaning) {
+    const stage = applicationJourneyStage(input.truth.application);
+    if (stage === "refund_requested") return "الاسترداد يعني إن الطلب ما عاد ماشي حاليًا كطلب تقسيط عادي، ومسار إرجاع المبلغ المدفوع مفتوح وقيد المعالجة. إذا إنت ما كنت تقصد الإلغاء وبدك تكمل بالجهاز، لازم يتوقف الاسترداد ويُعاد فتح الطلب إداريًا؛ ما رح أقول إنه رجع شغال قبل ما تتحدث الحالة فعليًا.";
+    return "الاسترداد هو مسار إرجاع مبلغ مدفوع بعد إلغاء أو توقف الطلب. إذا سؤالك عن سبب ظهوره على طلبك، بعتمد الحالة الفعلية المسجلة وما بخمّن بسبب مش موثق.";
+  }
+
+  if (dialogueSignals.continueAfterCancellation && applicationJourneyStage(input.truth.application) === "refund_requested") {
+    return "فهمتك: إنت ما بدك الإلغاء وبدك تكمل بالجهاز. حسب الحالة الفعلية هسا الطلب غير مستمر ومسار الاسترداد مفتوح. إعادة فتح الطلب وإيقاف الاسترداد يحتاجان تنفيذًا إداريًا، وما رح أقول إن الطلب رجع شغال إلا بعد ما تتحدث الحالة فعليًا.";
+  }
 
   if (stopContinuation) {
     return "تمام، ما في أي إلزام عليك تكمل، وما رح أفتح خطوة دفع أو أرسل تعليمات 5 دنانير طالما قرارك إنك ما بدك تستمر. إذا غيرت رأيك لاحقًا، بنمشي من الحالة الفعلية للطلب وقتها.";

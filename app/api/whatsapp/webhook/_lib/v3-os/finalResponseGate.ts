@@ -3,6 +3,8 @@ import { buildOfficialLinkContext } from "./linkIntegrity";
 import { containsRestrictedPaymentExecutionDetail, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { normalizeArabic } from "./text";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
+import { mutationQuestion, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
+import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -44,6 +46,27 @@ function reviewTimingQuestion(turn: InterpretedTurn) {
   return turn.topics.includes("review_timing") || /(?:متى|امتى|ايمتى).{0,45}(?:ترد|تحكو|تحكولي|خبر|موافق|قرار|يخلص|تخلص|يطلع)|(?:قبلتو|قبلتوه).{0,25}(?:طلبي|الطلب)?/.test(normalized(turn.rawText));
 }
 
+function trackingLinkRequest(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return turn.topics.includes("tracking") && /(?:رابط|اتتبع|اشوف\s+طلبي|تتبع)/.test(q)
+    || /(?:اعطيني|ابعث|ابعت|بدي).{0,25}رابط.{0,25}(?:التتبع|طلبي)|(?:كيف\s+اشوف|كيف\s+اتتبع).{0,25}(?:طلبي|الطلب)?/.test(q);
+}
+
+function siteIssue(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return turn.topics.includes("website") || /(?:الموقع|الصفحه|الرابط).{0,45}(?:مش\s+راضي|ما\s+بفتح|مش\s+فاتح|ما\s+بشتغل|مش\s+شغال|عطل|مشكله)/.test(q);
+}
+
+function refundMeaningQuestion(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:شو|ايش|ليش|لشو|مغزي|مغزاه|معني).{0,30}(?:الاسترداد|استرداد)|(?:الاسترداد|استرداد).{0,30}(?:شو|ليش|لشو|تبع\s+شو|مغزاه)/.test(q);
+}
+
+function wantsContinueAfterCancellation(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:بديش|ما\s+بدي|لا\s+اريد).{0,28}(?:الغاء|الغي)|(?:بدي|اريد).{0,24}(?:اكمل|استمر|الجهاز|التلفون)|(?:رجع|اعاده).{0,25}(?:الطلب|الملف).{0,22}(?:طبيعته|شغال|فعال)/.test(q);
+}
+
 function executedUnrequestedScopedMutation(actions: ActionResult[], turn: InterpretedTurn) {
   const requested = new Set(turn.requestedActions);
   return actions.find((x) => x.executed
@@ -58,11 +81,11 @@ function hasAlienTracking(reply: string, truth: TruthBundle) {
   return ids.some((id) => id !== current);
 }
 
-function buildReviewTimingReply(input: { truth: TruthBundle; state: ConversationState }) {
+function buildReviewTimingReply(input: { truth: TruthBundle; state: ConversationState; turn: InterpretedTurn }) {
   const app = input.truth.application;
   const p = input.truth.policy;
   const pendingManual = String(input.state.pendingActionPayload?._manualStatus || "") === "awaiting_admin" ? input.state.pendingAction : null;
-  if (pendingManual) {
+  if (pendingManual && pendingActionIsCurrentTurnFocus({ action: pendingManual, turn: input.turn })) {
     const labels: Record<string,string> = {
       reopen_application: "إعادة فتح الطلب",
       stop_refund: "إيقاف الاسترداد",
@@ -105,6 +128,31 @@ function buildStatusReply(input: { truth: TruthBundle }) {
   return `حالة طلبك الآن: ${customerFacingStatusLabel(app)}.`;
 }
 
+function buildTrackingReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  if (links.relevant.tracking) return `أكيد، هذا رابط التتبع الرسمي لطلبك:
+${links.relevant.tracking}`;
+  return "ما عندي رابط تتبع مرتبط بطلب موثوق هسا، وما رح أعطيك رابط عام ممكن يوديك لطلب غلط.";
+}
+
+function buildSiteIssueReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  const products = links.relevant.products || "https://www.ameenfinance.co/products";
+  return `فهمتك؛ المشكلة بالموقع نفسه، مش بالمستندات. جرّب صفحة المنتجات الرسمية مباشرة من المتصفح:
+${products}
+إذا ظل نفس الخطأ، ابعث نص رسالة الخطأ أو صورة الشاشة وبنركز على مشكلة الموقع نفسها.`;
+}
+
+function buildRefundMeaningReply(input: { truth: TruthBundle }) {
+  const app = input.truth.application;
+  if (!app) return "الاسترداد يعني إرجاع مبلغ مدفوع بعد توقف الطلب. ما عندي طلب موثوق مربوط هسا حتى أحدد إذا في استرداد فعلي على ملفك.";
+  const stage = applicationJourneyStage(app);
+  if (stage === "refund_requested") {
+    return "الاسترداد الظاهر على ملفك يعني إن الطلب ما عاد ماشي حاليًا كطلب تقسيط عادي، ومسار إرجاع المبلغ المدفوع مفتوح وقيد المعالجة. إذا إنت ما كنت تقصد الإلغاء وبدك تكمل بالجهاز، لازم يتوقف مسار الاسترداد ويُعاد فتح الطلب إداريًا؛ ما رح أقول إن الطلب رجع شغال قبل ما تتحدث حالته فعليًا.";
+  }
+  return "الاسترداد هو مسار إرجاع مبلغ مدفوع بعد إلغاء/توقف الطلب. بعتمد فقط الحالة الفعلية المسجلة على ملفك لتحديد إذا هذا المسار مفتوح عندك أو لا.";
+}
+
 function buildReplacement(input: {
   turn: InterpretedTurn;
   state: ConversationState;
@@ -122,13 +170,17 @@ function buildReplacement(input: {
     if (applicationJourneyStage(input.truth.application) === "preliminary_approved_waiting_decision") return `الموافقة الحالية مبدئية. رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير بتصير فقط إذا اخترت الاستمرار، وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. تفاصيل التحويل بنعطيك إياها بعد قرار الاستمرار.`;
     return `رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير مرتبطة بمرحلة ما بعد الموافقة المبدئية واختيار الاستمرار. ما رح أعطيك بيانات تحويل قبل ما تكون الخطوة مفتوحة فعليًا على الطلب.`;
   }
+  if (trackingLinkRequest(input.turn)) return buildTrackingReply({ turn: input.turn, truth: input.truth });
+  if (siteIssue(input.turn)) return buildSiteIssueReply({ turn: input.turn, truth: input.truth });
+  if (refundMeaningQuestion(input.turn)) return buildRefundMeaningReply({ truth: input.truth });
+  if (wantsContinueAfterCancellation(input.turn) && applicationJourneyStage(input.truth.application) === "refund_requested") return buildRefundMeaningReply({ truth: input.truth });
   if (customerClaimsPaid(input.turn)) {
     if (decision.alreadyPaid) return "تمام، الدفع مؤكد إداريًا على طلبك، فما في داعي تعيد الدفع أو ترفع وصل جديد.";
     if (decision.receiptPending) return "تمام، الوصل موجود على الملف وبانتظار اعتماد الإدارة، فما في داعي تعيد الدفع أو ترفعه مرة ثانية.";
     return "وصلتني إنك بتقول إنك دفعت. الرسالة نفسها ما بتعتبر تأكيد دفع إداري، وبنفس الوقت ما رح أطلب منك تدفع مرة ثانية لمجرد إن التأكيد ما ظهر عندي هسا. بعتمد حالة الدفع الفعلية على الملف أول ما تتحدث.";
   }
   if (directProductAvailabilityQuestion(input.turn)) return buildProductReply({ turn: input.turn, truth: input.truth });
-  if (reviewTimingQuestion(input.turn)) return buildReviewTimingReply({ truth: input.truth, state: input.state });
+  if (reviewTimingQuestion(input.turn)) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
   if (trustConcern(input.turn)) return buildTrustReply({ truth: input.truth });
   if (humanRequest(input.turn)) return "فاهم إنك بدك تحكي مع شخص مباشرة. المتابعة الرسمية لدى الأمين للطلب من نفس واتساب، وما رح أوهمك بتحويل أو اتصال إذا ما في تحويل فعلي. احكيلي شو الإجراء أو المعلومة اللي بدك إياها وبعطيك الجواب الموجود على الطلب بدون تدوير.";
   return buildStatusReply({ truth: input.truth });
@@ -167,11 +219,29 @@ export function enforceFinalResponseGate(input: {
   if (customerClaimsPaid(input.turn) && /(?:لسه|لسا|ما).{0,40}(?:وصل|وصلت).{0,25}(?:مرحله|مرحلة).{0,25}(?:رسوم|الدفع)|(?:ما\s+في|لا\s+يوجد).{0,25}(?:مرحله|مرحلة).{0,20}(?:دفع|رسوم)/.test(normalized(reply))) {
     violations.push("customer_payment_claim_contradicted_by_stage_template");
   }
+  if (paymentHistoricallyConfirmed(input.truth.application) && /(?:ما\s+في|لا\s+يوجد|مش\s+موجود).{0,28}(?:دفع\s+موكد|دفع\s+مؤكد|دفع).{0,20}(?:اصلا|أصلا)?/.test(normalized(reply))) {
+    violations.push("historically_confirmed_payment_cannot_be_denied");
+    severity = "p0";
+  }
+  if (trackingLinkRequest(input.turn) && !/(?:https?:\/\/|رابط\s+التتبع)/i.test(reply)) violations.push("tracking_link_request_not_answered");
+  if (siteIssue(input.turn) && /(?:ابعث|ابعت|ارسل).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("site_issue_wrong_tracking_fallback");
+  if (refundMeaningQuestion(input.turn) && /(?:طلب\s+الاسترداد\s+مسجل|ما\s+في\s+خطوه\s+ناقصه)/.test(normalized(reply))) violations.push("refund_meaning_question_not_answered");
+  if (wantsContinueAfterCancellation(input.turn) && applicationJourneyStage(input.truth.application) === "refund_requested" && /(?:الطلب\s+(?:شغال|مكمل|طبيعي)|ما\s+لغينا|ما\s+انلغي)/.test(normalized(reply))) {
+    violations.push("refund_state_falsely_claimed_active");
+    severity = "p0";
+  }
   if (input.applicationChanged && hasAlienTracking(reply, input.truth)) violations.push("old_application_tracking_leaked_after_switch");
 
   const crossApplicationMutation = input.applicationChanged ? executedUnrequestedScopedMutation(input.actions, input.turn) : null;
   if (crossApplicationMutation) {
     violations.push(`cross_application_mutation_executed:${crossApplicationMutation.action}`);
+    severity = "p0";
+  }
+  const mutationExecutedFromQuestion = input.actions.find((x) => x.executed
+    && ["cancel_application","request_refund"].includes(x.action)
+    && mutationQuestion(x.action as any, input.turn.rawText));
+  if (mutationExecutedFromQuestion) {
+    violations.push(`mutation_executed_from_question:${mutationExecutedFromQuestion.action}`);
     severity = "p0";
   }
 

@@ -138,8 +138,10 @@ ok(!pay.containsRestrictedPaymentExecutionDetail('رسوم فتح الملف 5 �
 // Execute the final response gate.
 const gate = loadTs(rel('finalResponseGate.ts'),{
   './applicationJourney':{applicationJourneyStage:stageOf,customerFacingStatusLabel:(a)=>stageOf(a)},
-  './linkIntegrity':{buildOfficialLinkContext:()=>({relevant:{products:'https://www.ameenfinance.co/products'}})},
+  './linkIntegrity':{buildOfficialLinkContext:()=>({relevant:{products:'https://www.ameenfinance.co/products',tracking:'https://www.ameenfinance.co/track?tracking=AM-1788618061022&phone=0790000000'}})},
   './paymentEligibilityFirewall':pay,
+  './mutationConfirmationGate':{mutationQuestion:()=>false,pendingActionIsCurrentTurnFocus:()=>false},
+  './truthSnapshotLock':{paymentHistoricallyConfirmed:()=>false},
   './text':{normalizeArabic},
 });
 function gateRun({reply,raw='متابعة',a=app('preliminary_qualified'),topics=[],actions=[],changed=false,state=baseState()}){ const turn={...baseTurn(raw),topics,requestedActions:topics.includes('continuation')?['continue_application']:[]}; return gate.enforceFinalResponseGate({reply,turn,state,truth:truth(a),actions,applicationChanged:changed}); }

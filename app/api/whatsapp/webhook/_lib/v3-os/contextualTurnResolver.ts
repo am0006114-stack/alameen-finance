@@ -23,6 +23,10 @@ export type ContextualTurnSignals = {
   trustConcern: boolean;
   humanRequest: boolean;
   paymentStatusClaim: boolean;
+  siteIssue: boolean;
+  trackingLinkRequest: boolean;
+  refundMeaning: boolean;
+  continueAfterCancellation: boolean;
   shortFollowUpResolved: boolean;
 };
 
@@ -66,6 +70,21 @@ export function contextualTurnSignals(input: {
   const paymentStatusClaim = /(?:دفعت|دافع|حولت|تم\s+الدفع|رفعت\s+الوصل|بعثت\s+الوصل|وصل\s+الدفع)/.test(q);
   if (paymentStatusClaim) topics.add("payment_status");
 
+  const siteIssue = /(?:الموقع|الصفحه|الرابط).{0,45}(?:مش\s+راضي|ما\s+بفتح|مش\s+فاتح|ما\s+بشتغل|مش\s+شغال|عطل|مشكله)|(?:مش\s+راضي|ما\s+بقدر).{0,28}(?:يفتح|يوديني|يدخل).{0,25}(?:الموقع|الصفحه|الرابط)/.test(q);
+  if (siteIssue) topics.add("website");
+
+  const trackingLinkRequest = /(?:اعطيني|ابعث|ابعت|ارسل|بدي).{0,25}(?:رابط).{0,25}(?:التتبع|طلبي)|(?:كيف\s+اشوف|كيف\s+اتتبع|بدي\s+اتتبع).{0,25}(?:طلبي|الطلب)?|(?:رابط\s+التتبع)/.test(q);
+  if (trackingLinkRequest) topics.add("tracking");
+
+  const refundMeaning = /(?:شو|ايش|ليش|لشو|مغزي|مغزاه|معني).{0,30}(?:الاسترداد|استرداد)|(?:الاسترداد|استرداد).{0,30}(?:شو|ليش|لشو|تبع\s+شو|مغزاه)/.test(q);
+  if (refundMeaning) topics.add("refund");
+
+  const continueAfterCancellation = /(?:بديش|ما\s+بدي|لا\s+اريد).{0,28}(?:الغاء|الغي)|(?:رجع|اعاده).{0,25}(?:الطلب|الملف).{0,22}(?:طبيعته|شغال|فعال)|(?:الغي|وقف).{0,24}(?:مسار\s+)?(?:الاسترداد|الاسترجاع)/.test(q);
+  if (continueAfterCancellation) {
+    topics.add("reopen");
+    topics.add("refund");
+  }
+
   return {
     topics: Array.from(topics),
     reviewTiming,
@@ -74,6 +93,10 @@ export function contextualTurnSignals(input: {
     trustConcern,
     humanRequest,
     paymentStatusClaim,
+    siteIssue,
+    trackingLinkRequest,
+    refundMeaning,
+    continueAfterCancellation,
     shortFollowUpResolved: (shortTiming || shortAffirmative(q)) && topics.size > 0,
   };
 }

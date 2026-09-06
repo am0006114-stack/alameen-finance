@@ -9,6 +9,7 @@ import { asksOfficeSchedule, bankStatementDurationCustomerReply, bankStatementDu
 import { buildConversationRecoveryReply, explicitContinuationText, formatJod } from "./conversationRecovery";
 import { buildSafePaymentFirewallReply, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { contextualTurnSignals } from "./contextualTurnResolver";
+import { pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 
 const ACTION_LABELS: Record<string,string> = {
@@ -200,7 +201,7 @@ ${products}`;
 
   const manualDisposition = resolveManualActionDisposition({ state: input.state, truth: input.truth, plan: input.plan, actions: input.actions });
   const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: input.truth });
-  if (manualReply) return manualReply;
+  if (manualReply && pendingActionIsCurrentTurnFocus({ action: manualDisposition.action, turn: input.turn })) return manualReply;
 
   const action = actionSentence(input.plan, input.actions);
   if (action) parts.push(action);

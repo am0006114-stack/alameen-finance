@@ -22,6 +22,8 @@ import { buildHumanJourneyReply } from "./humanJourney";
 import { filterPlannedActionsForApplicationScope, pendingActionMatchesCurrentApplication, scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampActionScope, stampPendingPayloadScope } from "./applicationScopeLock";
 import { enforceFinalResponseGate } from "./finalResponseGate";
 import { logIntegrityTelemetry } from "./integrityTelemetry";
+import { enforceMutationConfirmationGate, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
+import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -351,13 +353,14 @@ export async function runV3ProductionLive(input: {
     ? { ...reducedState, pendingAction: null, pendingActionPayload: null }
     : reducedState;
 
-  const truthBeforeActions = await resolveV3ProductionTruth({
+  const rawTruthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
     customerText: input.customerText,
     state: preliminaryState,
     recentTurns: safeRecentTurns,
     topics: turn.topics,
   });
+  const truthBeforeActions = stabilizeTruthSnapshot({ truth: rawTruthBeforeActions, state: preliminaryState });
 
   const scopeResult = scopeStateToCurrentApplication({
     state: preliminaryState,
@@ -446,43 +449,66 @@ export async function runV3ProductionLive(input: {
     }
   }
   plan = { ...plan, actions: applicationScopedPlan.actions };
+  const currentJourneyStage = applicationJourneyStage(truthBeforeActions.application);
+  plan = {
+    ...plan,
+    actions: plan.actions.filter((action) => {
+      if (action.action === "reopen_application" && !["cancelled", "refund_requested"].includes(currentJourneyStage)) return false;
+      if (action.action === "stop_refund" && currentJourneyStage !== "refund_requested") return false;
+      return true;
+    }),
+  };
+  const mutationGate = enforceMutationConfirmationGate({
+    actions: plan.actions,
+    turn,
+    state: boundState,
+    truth: truthBeforeActions,
+  });
+  plan = { ...plan, actions: mutationGate.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)) };
+  const executionState: ConversationState = mutationGate.clearPendingConfirmation
+    ? { ...boundState, pendingAction: null, pendingActionPayload: null }
+    : boundState;
   const actionsToExecute = [...plan.actions];
-  const pendingScopedAction = boundState.pendingAction && LIVE_SCOPED_MUTATIONS.has(boundState.pendingAction)
-    && String(boundState.pendingActionPayload?._manualStatus || "") === "awaiting_admin"
-    && pendingActionMatchesCurrentApplication({ state: boundState, truth: truthBeforeActions })
-    ? boundState.pendingAction
-    : null;
-  if (input.realActionsEnabled && pendingScopedAction && !actionsToExecute.some((x) => x.action === pendingScopedAction)) {
-    // A previously confirmed cancellation/refund that was waiting for manual
-    // administration is eligible for one safe transactional execution on the
-    // customer's next message after scoped Real Actions are enabled.
-    actionsToExecute.push(stampActionScope({
-      action: pendingScopedAction,
-      sourceActId: turn.acts[0]?.id || turn.turnId,
-      requiresConfirmation: false,
-      authority: "deterministic",
-      requiredRole: "omran",
-      payload: boundState.pendingActionPayload || null,
-    }, truthBeforeActions, turn.turnId));
+  if (mutationGate.blockedQuestionAction) {
+    logIntegrityTelemetry({
+      event: "mutation_question_blocked",
+      waId: input.waId,
+      turnId: input.turnId,
+      applicationId: truthBeforeActions.application?.id || null,
+      trackingId: truthBeforeActions.application?.trackingId || null,
+      severity: "warning",
+      details: { action: mutationGate.blockedQuestionAction, reason: "question_is_not_execution_consent" },
+    });
   }
+  const pendingScopedAction = executionState.pendingAction && LIVE_SCOPED_MUTATIONS.has(executionState.pendingAction)
+    && String(executionState.pendingActionPayload?._manualStatus || "") === "awaiting_admin"
+    && pendingActionMatchesCurrentApplication({ state: executionState, truth: truthBeforeActions })
+    ? executionState.pendingAction
+    : null;
+  // Phase 7.3.1 safety change: a historical awaiting_admin cancellation/refund is
+  // NEVER auto-executed merely because the customer sent another message. Real
+  // mutations execute only on the dedicated second confirmation turn produced by
+  // enforceMutationConfirmationGate(). pendingScopedAction is retained for audit/
+  // Discord compatibility and manual follow-up, not as implicit execution consent.
 
   const actions = await executeActions({
     actions: actionsToExecute,
-    state: boundState,
+    state: executionState,
     truth: truthBeforeActions,
     adapter: input.realActionsEnabled ? v3TransactionalActionAdapter : null,
     allowMutation: input.realActionsEnabled,
   });
 
   let truthAfterActions = truthBeforeActions;
-  if (input.realActionsEnabled && plan.actions.length && actionNeedsTruthRefresh(actions)) {
-    truthAfterActions = await resolveV3ProductionTruth({
+  if (input.realActionsEnabled && actionsToExecute.length && actionNeedsTruthRefresh(actions)) {
+    const refreshedTruth = await resolveV3ProductionTruth({
       waId: input.waId,
       customerText: input.customerText,
-      state: boundState,
+      state: executionState,
       recentTurns: scopedRecentTurns,
       topics: turn.topics,
     });
+    truthAfterActions = stabilizeTruthSnapshot({ truth: refreshedTruth, state: executionState, previousTruth: truthBeforeActions });
   }
 
   try {
@@ -542,7 +568,7 @@ export async function runV3ProductionLive(input: {
   }
 
   const manualDisposition = resolveManualActionDisposition({
-    state: boundState,
+    state: executionState,
     truth: truthAfterActions,
     plan,
     actions,
@@ -570,10 +596,11 @@ export async function runV3ProductionLive(input: {
     truthAfterActions = await resolveV3ProductionTruth({
       waId: input.waId,
       customerText: input.customerText,
-      state: boundState,
+      state: executionState,
       recentTurns: scopedRecentTurns,
       topics: turn.topics,
     });
+    truthAfterActions = stabilizeTruthSnapshot({ truth: truthAfterActions, state: executionState, previousTruth: truthAtContinuationDecision });
   } else if (continuationPersistence.attempted && continuationPersistence.blocker) {
     try {
       await notifyV3Discord({
@@ -597,13 +624,13 @@ export async function runV3ProductionLive(input: {
   // window even if the model intent is weak or unknown.
   const humanJourneyReply = buildHumanJourneyReply({
     turn,
-    state: boundState,
+    state: executionState,
     truth: truthAfterActions,
     recentTurns: scopedRecentTurns,
   });
   const recoveryReply = buildConversationRecoveryReply({
     turn,
-    state: boundState,
+    state: executionState,
     truth: truthAfterActions,
     recentTurns: scopedRecentTurns,
   });
@@ -615,7 +642,7 @@ export async function runV3ProductionLive(input: {
   const protectedFiveJodStep = continuationRevenueReadyAtDecision;
   const prioritizeRecovery = shouldPrioritizeConversationRecovery({
     turn,
-    state: boundState,
+    state: executionState,
     recentTurns: scopedRecentTurns,
   });
 
@@ -628,7 +655,14 @@ export async function runV3ProductionLive(input: {
   if (plan.shouldRespond) {
     const scopedMutationReply = buildScopedMutationSuccessReply({ truth: truthAfterActions, actions });
     const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
-    if (scopedMutationReply) {
+    const manualReplyRelevant = pendingActionIsCurrentTurnFocus({ action: manualDisposition.action, turn });
+    if (mutationGate.confirmationPrompt) {
+      reply = mutationGate.confirmationPrompt;
+      verification = PASS;
+    } else if (mutationGate.informationalReply) {
+      reply = mutationGate.informationalReply;
+      verification = PASS;
+    } else if (scopedMutationReply) {
       reply = scopedMutationReply;
       verification = PASS;
     } else if (prioritizeRecovery && recoveryReply) {
@@ -640,19 +674,19 @@ export async function runV3ProductionLive(input: {
       verification = verifyReply({
         reply,
         turn,
-        state: boundState,
+        state: executionState,
         truth: truthAfterActions,
         plan,
         actions,
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (manualReply) {
+    } else if (manualReply && manualReplyRelevant) {
       reply = manualReply;
       verification = verifyReply({
         reply,
         turn,
-        state: boundState,
+        state: executionState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -662,7 +696,7 @@ export async function runV3ProductionLive(input: {
     } else if (writer) {
       const basePrompt = buildWriterPrompt({
         turn,
-        state: boundState,
+        state: executionState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -680,7 +714,7 @@ export async function runV3ProductionLive(input: {
         verification = verifyReply({
           reply,
           turn,
-          state: boundState,
+          state: executionState,
           truth: truthAfterActions,
           plan,
           actions,
@@ -699,7 +733,7 @@ export async function runV3ProductionLive(input: {
           verification = verifyReply({
             reply,
             turn,
-            state: boundState,
+            state: executionState,
             truth: truthAfterActions,
             plan,
             actions,
@@ -719,7 +753,7 @@ export async function runV3ProductionLive(input: {
         const deterministicVerification = verifyReply({
           reply: deterministicJourneyRescue,
           turn,
-          state: boundState,
+          state: executionState,
           truth: truthAfterActions,
           plan,
           actions,
@@ -742,7 +776,7 @@ export async function runV3ProductionLive(input: {
       // The customer never sees writer/verifier/runtime failure language.
       const rescue = buildZeroFallbackReply({
         turn,
-        state: boundState,
+        state: executionState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -754,7 +788,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         actions,
       });
-      reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: boundState, customerText: input.customerText });
+      reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: executionState, customerText: input.customerText });
       verification = rescueVerification.pass ? rescueVerification : PASS;
     }
   }
@@ -771,7 +805,7 @@ export async function runV3ProductionLive(input: {
     const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
     reply = manualReply || buildZeroFallbackReply({
       turn,
-      state: boundState,
+      state: executionState,
       truth: truthAfterActions,
       plan,
       actions,
@@ -780,7 +814,7 @@ export async function runV3ProductionLive(input: {
     verification = verifyReply({
       reply,
       turn,
-      state: boundState,
+      state: executionState,
       truth: truthAfterActions,
       plan,
       actions,
@@ -820,7 +854,7 @@ export async function runV3ProductionLive(input: {
       verification = verifyReply({
         reply,
         turn,
-        state: boundState,
+        state: executionState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -833,7 +867,7 @@ export async function runV3ProductionLive(input: {
   let finalGate = enforceFinalResponseGate({
     reply,
     turn,
-    state: boundState,
+    state: executionState,
     truth: truthAfterActions,
     actions,
     applicationChanged: scopeResult.applicationChanged,
@@ -868,7 +902,7 @@ export async function runV3ProductionLive(input: {
     verification = verifyReply({
       reply,
       turn,
-      state: boundState,
+      state: executionState,
       truth: truthAfterActions,
       plan,
       actions,
@@ -878,7 +912,7 @@ export async function runV3ProductionLive(input: {
     finalGate = enforceFinalResponseGate({
       reply,
       turn,
-      state: boundState,
+      state: executionState,
       truth: truthAfterActions,
       actions,
       applicationChanged: false,
@@ -949,16 +983,16 @@ export async function runV3ProductionLive(input: {
       ? "cancel_application"
       : null;
   const actionAdjustedState: ConversationState = {
-    ...boundState,
+    ...executionState,
     lastVerifiedApplication: latestVerifiedSnapshot,
     pendingAction: waitingConfirmation
       || manualPendingAction
-      || (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : boundState.pendingAction)),
+      || (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : executionState.pendingAction)),
     pendingActionPayload: waitingConfirmation
-      ? stampPendingPayloadScope((waitingPlan?.payload || boundState.pendingActionPayload), truthAfterActions, turn.turnId)
+      ? stampPendingPayloadScope((waitingPlan?.payload || executionState.pendingActionPayload), truthAfterActions, turn.turnId)
       : manualPayload
         ? manualPayload
-        : (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : boundState.pendingActionPayload)),
+        : (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : executionState.pendingActionPayload)),
   };
   const answeredState = answeredTopics.length
     ? closeAnsweredLoops({ ...actionAdjustedState, lastAssistantText: reply }, answeredTopics)
