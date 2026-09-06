@@ -254,13 +254,24 @@ export function buildMandatoryFiveJodContinuationReply(turn: InterpretedTurn, tr
   return continuationReply(turn, truth);
 }
 
+function normalizedReviewWindow(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل";
+  return /المعدل\s+الطبيعي/.test(normalized(raw)) ? raw : `المعدل الطبيعي للمراجعة ${raw}`;
+}
+
+function explicitReceiptUploadConfirmationText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:رفعت|حملت|حمّلت|ارسلت|بعثت).{0,24}(?:وصل|اثبات\s+الدفع)|(?:وصل\s+دفع).{0,28}(?:رفعت|حملت|ارسلت|بعثت)|(?:ارغب|بدي).{0,25}(?:متابعه|تاكيد).{0,25}(?:الوصل|الدفع)/.test(q);
+}
+
 // Legacy Phase 7.1.6 invariant retained for compatibility: ما رح أدعي إني حولتك لموظف unless an actual transfer exists.
 function reviewTimingReply(truth: TruthBundle, humanRequest: boolean) {
   const app = truth.application;
   const p = truth.policy;
   const state = app ? `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}. ` : "";
   const human = humanRequest ? "أنا متابع معك من نفس الواتساب، وبعطيك الموجود فعليًا على الطلب بدون ما أوعدك بشي مش مؤكد. " : "";
-  return `${human}${state}المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد نهائي أقدر أضمنه، وإذا تأخر طلبك عن الطبيعي بعطيك نفس الحقيقة بدون تدوير أو إعادة نفس القالب.`;
+  return `${human}${state}${normalizedReviewWindow(p.normalReviewWindow)}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد نهائي أقدر أضمنه، وإذا تأخر طلبك عن الطبيعي بعطيك نفس الحقيقة بدون تدوير أو إعادة نفس القالب.`;
 }
 
 export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedTurn; state: ConversationState; recentTurns?: string[] }) {
@@ -272,6 +283,8 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || showroomBrowsingRequest(input.turn.rawText)
     || explicitContactNumberChangeRequest(input.turn.rawText)
     || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).siteIssue
+    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).productAvailability
+    || explicitReceiptUploadConfirmationText(input.turn.rawText)
     || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).trackingLinkRequest
     || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).refundMeaning
     || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).continueAfterCancellation;
@@ -304,6 +317,20 @@ ${links.relevant.tracking}`;
     return `فهمتك؛ المشكلة اللي بتحكي عنها بالموقع نفسه، مش إنك أرسلت مستند. جرّب تفتح صفحة المنتجات الرسمية مباشرة من المتصفح:
 ${products}
 إذا ظل نفس الخطأ ظاهر، ابعثلي نص رسالة الخطأ أو صورة الشاشة وبجاوبك على المشكلة نفسها بدون ما أطلب منك رقم تتبع إذا ما عندك طلب.`;
+  }
+
+  if (dialogueSignals.productAvailability) {
+    const products = links.relevant.products || "https://www.ameenfinance.co/products";
+    return `إذا سؤالك عن توفر موديل أو سعره الحالي، المرجع هو صفحة المنتجات الرسمية لأن التوفر والأسعار ممكن يتغيروا. شوف الموجود والسعر المحدث من هون:
+${products}`;
+  }
+
+  if (explicitReceiptUploadConfirmationText(raw)) {
+    const app = input.truth.application;
+    const commercial = continuationCommercialState(app);
+    if (commercial === "already_paid") return "تمام، الدفع مؤكد إداريًا على طلبك، وما في عليك أي دفعة أو وصل جديد. الملف مكمل حسب مرحلته الحالية.";
+    if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded) return "تمام، وصل الدفع موجود على ملفك وبانتظار مراجعة الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية؛ أول ما يتم اعتماده بتتحدث حالة الطلب.";
+    return "تمام، وصلتني متابعتك بخصوص الوصل. تأكيد الدفع النهائي يتم يدويًا بعد مراجعة الإثبات المرفوع من الرابط الرسمي، وما رح أعتبر الدفع مؤكد قبل ما يظهر الاعتماد على الملف.";
   }
 
   if (dialogueSignals.refundMeaning) {

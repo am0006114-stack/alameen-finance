@@ -77,6 +77,10 @@ function isSocialAck(q: string) {
   return /^(?:تمام|اوك|اوكي|شكرا|شكرًا|يسلمو|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|على\s+خير|ان\s+شاء\s+الله|إن\s+شاء\s+الله|الحمد\s+لله|اه\s+تمام|أه\s+تمام)[!؟?.,،\s]*$/.test(q);
 }
 
+function explicitReceiptUploadConfirmation(q: string) {
+  return /(?:رفعت|حملت|حمّلت|ارسلت|بعثت).{0,24}(?:وصل|اثبات\s+الدفع)|(?:وصل\s+دفع).{0,28}(?:رفعت|حملت|ارسلت|بعثت)|(?:ارغب|بدي).{0,25}(?:متابعه|تاكيد).{0,25}(?:الوصل|الدفع)/.test(q);
+}
+
 function safeStatusLine(truth: TruthBundle) {
   const app = truth.application;
   if (!app) return null;
@@ -145,7 +149,18 @@ export function buildZeroFallbackReply(input: {
     return pick(["العفو، الله يعطيك العافية.", "تمام، الله يعطيك العافية.", "على خير إن شاء الله، وأنا موجود لأي استفسار."], input.turn.turnId);
   }
 
-  if (dialogueSignals.productAvailability) {
+  if (explicitReceiptUploadConfirmation(q)) {
+    const commercial = continuationCommercialState(app);
+    if (commercial === "already_paid" || hasAuthoritativePaymentConfirmation(app)) {
+      return "تمام، الدفع مؤكد إداريًا على طلبك، وما في عليك أي دفعة أو وصل جديد. الملف مكمل حسب مرحلته الحالية.";
+    }
+    if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded === true) {
+      return "تمام، وصل الدفع موجود على ملفك وبانتظار مراجعة الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية؛ أول ما يتم اعتماده بتتحدث حالة الطلب.";
+    }
+    return "تمام، وصلتني متابعتك بخصوص الوصل. تأكيد الدفع النهائي يتم يدويًا بعد مراجعة الإثبات المرفوع من الرابط الرسمي، وما رح أعتبر الدفع مؤكد قبل ما يظهر الاعتماد على الملف.";
+  }
+
+  if (dialogueSignals.productAvailability || (topics.has("products") && !input.turn.requestedActions.length)) {
     const products = links.relevant.products || "https://www.ameenfinance.co/products";
     return `التوفر والسعر الحاليين مرجعهم صفحة المنتجات الرسمية، وما بدي أأكد موديل معيّن من غير بيانات محدثة. شوف الأجهزة الموجودة مباشرة من هون:
 ${products}`;
@@ -212,7 +227,8 @@ ${products}`;
     else if (input.truth.ambiguousApplications.length) parts.push("عندي أكثر من طلب مرتبط بالمحادثة. ابعث رقم التتبع للطلب اللي بدك أراجعه حتى ما أعطيك معلومات عن طلب ثاني.");
     else if (input.state.activeTrackingId) parts.push("رقم الطلب معروف عندي، بس ما عندي حالة أحدث موثقة أقدر أضيفها هسا، وما بدي أخمّن عليك.");
     else parts.push("حتى أعطيك حالة صحيحة، ابعث رقم التتبع أو رقم الطلب وبراجع نفس الطلب معك.");
-    if (app && stage === "preliminary_approved_waiting_decision" && shouldAskContinuationDecision(app, input.turn)) {
+    const commercial = continuationCommercialState(app);
+    if (app && stage === "preliminary_approved_waiting_decision" && !["payment_ready","payment_pending_admin","already_paid"].includes(commercial) && shouldAskContinuationDecision(app, input.turn)) {
       parts.push(`الموافقة الحالية مبدئية وليست النهائية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول وتخضع للاسترداد الرسمي بعد دفع مؤكد. المعدل الطبيعي للدراسة ${p.normalReviewWindow}، وحاليًا في ضغط مراجعات وقد تتأخر بعض الملفات. إذا بدك نكمل، اكتبلي: أود الاستمرار.`);
     } else if (links.relevant.tracking && topics.has("tracking")) {
       parts.push(`رابط التتبع الرسمي: ${links.relevant.tracking}`);
@@ -288,8 +304,8 @@ ${products}`;
     } else if (app) {
       const status = safeStatusLine(input.truth);
       parts.push(status || "طلبك ظاهر عندي ومربوط بالمحادثة.");
-      if (stage === "preliminary_approved_waiting_decision") {
-        parts.push(`إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، وبعد رفع الوصل واعتماده تبدأ الدراسة. المعدل الطبيعي ${p.normalReviewWindow} مع وجود ضغط مراجعات حاليًا. اكتبلي: أود الاستمرار.`);
+      if (stage === "preliminary_approved_waiting_decision" && !["payment_ready","payment_pending_admin","already_paid"].includes(continuationCommercialState(app))) {
+        parts.push(`إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط، وبعد رفع الوصل واعتماده تبدأ الدراسة. ${/المعدل\s+الطبيعي/.test(normalizeArabic(p.normalReviewWindow)) ? p.normalReviewWindow : `المعدل الطبيعي للمراجعة ${p.normalReviewWindow}`} مع وجود ضغط مراجعات حاليًا. اكتبلي: أود الاستمرار.`);
       } else {
         parts.push("الحالة اللي ظاهرة على الطلب هي اللي بعتمدها هسا. إذا رسالتك فيها سؤال محدد بجاوب عليه مباشرة بدون ما أعيد ملخص الطلب.");
       }

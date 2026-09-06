@@ -11,6 +11,7 @@ import { explicitNewApplicationText, foreignApplicantFormBlocker, showroomBrowsi
 import { personaWritingContract } from "./personas";
 import { paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { contextualTurnSignals } from "./contextualTurnResolver";
+import { continuationCommercialState } from "./commercialProgression";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -31,6 +32,7 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const safeState = sanitizeStateForWriter(input.state);
   const preferredName = safeCustomerFirstName(input.truth.application?.fullName, input.profileName);
   const journeyStage = applicationJourneyStage(input.truth.application);
+  const commercialContinuationState = continuationCommercialState(input.truth.application);
   const continuationNow = explicitContinuation(input.turn);
   const mustAskContinuation = shouldAskContinuationDecision(input.truth.application, input.turn);
   const orderSnapshot = customerOrderSnapshot(input.truth.application);
@@ -93,6 +95,7 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
 ROLE_ALREADY_INTRODUCED=${alreadyIntroduced}
 CUSTOMER_NAME=${preferredName || "غير متوفر"}
 CUSTOMER_JOURNEY_STAGE=${journeyStage}
+COMMERCIAL_CONTINUATION_STATE=${commercialContinuationState}
 EXPLICIT_CONTINUATION_NOW=${continuationNow}
 EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
 PAYMENT_EXECUTION_DETAILS_ALLOWED=${paymentDetailsAllowed}
@@ -129,7 +132,10 @@ ${personaWritingContract(roleName)}
 - إذا سؤال العميل واضح ومحدد، ممنوع الرد بقالب "اكتب سؤالك مباشرة" أو "إذا عندك نقطة جديدة". جاوب السؤال نفسه أو قل بوضوح إن الحقيقة المطلوبة غير متاحة.
 - PAYMENT_EXECUTION_DETAILS_ALLOWED هو القفل النهائي لتفاصيل دفع رسوم فتح الملف. إذا=false ممنوع تمامًا إظهار AMEEENPAY أو AMENPAY أو اسم المستفيد أو Orange Money كجهة تحويل أو تعليمات CliQ أو رابط /receipt، حتى لو العميل سأل "كيف الدفع؟". يجوز فقط شرح وجود/سبب/استرداد رسوم 5 دنانير عندما المرحلة تسمح.
 - إذا العميل قال إنه دفع أو حوّل لكن TRUTH لا يثبت الدفع بعد، لا تكذبه ولا تقل "الطلب لسه ما وصل لمرحلة الرسوم". قل إن رسالته وصلت وإن الاعتماد النهائي للدفع إداري، ولا تطلب منه دفعًا ثانيًا ما لم تثبت الحقيقة أن لا دفع/وصل موجود وأن المرحلة تسمح بذلك.
-- إذا CONTEXTUAL_DIALOGUE_SIGNALS.productAvailability=true، جاوب سؤال التوفر نفسه أو وجّه لصفحة المنتجات الرسمية؛ ممنوع طلب رقم تتبع لأنه سؤال عام.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.productAvailability=true، جاوب سؤال التوفر/السعر نفسه أو وجّه لصفحة المنتجات الرسمية؛ ممنوع طلب رقم تتبع لأنه سؤال عام، حتى لو كتب العميل فقط "في ايفون 14؟" أو "ايفون 14 كم سعرو؟".
+- إذا COMMERCIAL_CONTINUATION_STATE واحد من payment_ready أو payment_pending_admin أو already_paid، فالعميل اختار الاستمرار أو تجاوز هذه الخطوة بالفعل. ممنوع تمامًا ترجع تطلب منه "أود الاستمرار" أو تسأله إذا بدّه يكمل؛ جاوب السؤال الحالي من مرحلته الحالية.
+- إذا رسالة العميل تقول إنه رفع وصل الدفع أو يريد متابعة تأكيد الوصل، جاوب حالة الوصل نفسها: إما بانتظار مراجعة الإدارة أو الدفع مؤكد حسب TRUTH. لا تكتفِ برابط التتبع ولا تعيد شرح فلسفة رسوم الـ5 دنانير من البداية.
+- رسائل الإغلاق الاجتماعي مثل "يسلمو" و"شكراً" و"تمام يسلمو" تُجاب برد اجتماعي قصير. لا تحولها إلى ملخص حالة طلب أو رابط تتبع ما لم يسأل العميل عن الحالة في نفس الرسالة.
 - إذا CONTEXTUAL_DIALOGUE_SIGNALS.trustConcern=true، عالج التخوف نفسه في نفس الرد. ممنوع ادعاء "جهة معروفة" أو "مسجلين قانونيًا" أو "مرخصين" بدون حقيقة موثقة في TRUTH. استخدم فقط الحقائق والسياسة الموجودة.
 - إذا CONTEXTUAL_DIALOGUE_SIGNALS.reviewTiming=true، جاوب المدة مباشرة. لا تحول سؤال "متى؟" إلى ملخص حالة أو موضوع دفع.
 - إذا APPLICATION_SCOPE_RESET=true، هذه الرسالة ربطت طلبًا مختلفًا عن سياق الطلب السابق. تعامل مع الطلب الحالي كحدود جديدة: لا تستخدم pending action أو tracking أو جهاز أو خطوة مالية من الطلب السابق، ولا تذكر القديم إلا إذا العميل نفسه طلب المقارنة.

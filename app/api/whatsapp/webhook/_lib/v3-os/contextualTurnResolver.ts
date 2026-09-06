@@ -55,7 +55,7 @@ export function contextualTurnSignals(input: {
   const nextStep = /(?:شو|ما|ايش).{0,18}الخطوه\s*التاليه|^الخطوه\s*التاليه$|(?:شو\s+ضل|شو\s+باقي|وبعدين|طيب\s+وبعدين)/.test(q);
   if (nextStep) topics.add("application_status");
 
-  const productAvailability = /(?:متوفر|موجود|في\s+عندكم|عندكم).{0,35}(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|جهاز)|(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno).{0,35}(?:متوفر|موجود|عندكم)/i.test(q);
+  const productAvailability = /(?:متوفر|موجود|في\s+عندكم|عندكم).{0,35}(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme|جهاز)|(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme).{0,35}(?:متوفر|موجود|عندكم)|^(?:في|فيه)\s+(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme)(?:\s|\d|$)|(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme).{0,30}(?:كم\s+سعر|قديش\s+سعر|شو\s+سعر|سعرو|سعره|سعرها|بكم)/i.test(q);
   if (productAvailability) topics.add("products");
 
   const trustConcern = /(?:نصب|نصاب|نصابين|مصداقيه|اضمن|يضمن|ثقه|مسجلين\s+قانون|قانونيا|خايف|خايفه|متخوف|متخوفه)/.test(q);

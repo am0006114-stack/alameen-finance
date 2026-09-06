@@ -24,7 +24,7 @@ function roboticPhrase(reply: string) {
 
 function directProductAvailabilityQuestion(turn: InterpretedTurn) {
   const q = normalized(turn.rawText);
-  return /(?:متوفر|موجود|في\s+عندكم|عندكم).{0,35}(?:ايفون|آيفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|جهاز)|(?:ايفون|آيفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno).{0,35}(?:متوفر|موجود|عندكم)/i.test(q);
+  return turn.topics.includes("products") || /(?:متوفر|موجود|في\s+عندكم|عندكم).{0,35}(?:ايفون|آيفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme|جهاز)|(?:ايفون|آيفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme).{0,35}(?:متوفر|موجود|عندكم)|^(?:في|فيه)\s+(?:ايفون|آيفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme)(?:\s|\d|$)|(?:ايفون|آيفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme).{0,30}(?:كم\s+سعر|قديش\s+سعر|شو\s+سعر|سعرو|سعره|سعرها|بكم)/i.test(q);
 }
 
 function trustConcern(turn: InterpretedTurn) {
@@ -67,6 +67,32 @@ function wantsContinueAfterCancellation(turn: InterpretedTurn) {
   return /(?:بديش|ما\s+بدي|لا\s+اريد).{0,28}(?:الغاء|الغي)|(?:بدي|اريد).{0,24}(?:اكمل|استمر|الجهاز|التلفون)|(?:رجع|اعاده).{0,25}(?:الطلب|الملف).{0,22}(?:طبيعته|شغال|فعال)/.test(q);
 }
 
+function receiptUploadConfirmation(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:رفعت|حملت|حمّلت|ارسلت|بعثت).{0,24}(?:وصل|اثبات\s+الدفع)|(?:وصل\s+دفع).{0,28}(?:رفعت|حملت|ارسلت|بعثت)|(?:ارغب|بدي).{0,25}(?:متابعه|تاكيد).{0,25}(?:الوصل|الدفع)/.test(q);
+}
+
+function socialCloseTurn(turn: InterpretedTurn) {
+  if (turn.requestedActions.length) return false;
+  const q = normalized(turn.rawText);
+  if (/^(?:شكرا|يسلمو|يعطيك\s+العافيه|الله\s+يعطيك\s+العافيه|تمام\s+يسلمو|تمام\s+شكرا)$/.test(q)) return true;
+  return /^(?:تمام|اوك|اوكي)$/.test(q) && turn.topics.some((t) => ["thanks","reaction"].includes(t));
+}
+
+function normalizedReviewWindow(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل";
+  return /المعدل\s+الطبيعي/.test(normalized(raw)) ? raw : `المعدل الطبيعي للمراجعة ${raw}`;
+}
+
+function continuationStageRegression(reply: string, truth: TruthBundle) {
+  const decision = paymentDisclosureDecision({ application: truth.application, customerText: "", explicitContinuationThisTurn: false });
+  const progressed = decision.paymentExecutionDetailsAllowed || decision.receiptPending || decision.alreadyPaid;
+  if (!progressed) return false;
+  const n = normalized(reply);
+  return /(?:اكتبلي|اكتب|قللي|قولي).{0,22}(?:اود\s+الاستمرار|ارغب\s+بالاستمرار)|(?:اذا\s+بدك|إذا\s+بدك).{0,20}(?:نكمل|تكمل).{0,25}(?:اود\s+الاستمرار|ارغب\s+بالاستمرار)/.test(n);
+}
+
 function executedUnrequestedScopedMutation(actions: ActionResult[], turn: InterpretedTurn) {
   const requested = new Set(turn.requestedActions);
   return actions.find((x) => x.executed
@@ -96,12 +122,12 @@ function buildReviewTimingReply(input: { truth: TruthBundle; state: Conversation
     };
     return `طلب ${labels[pendingManual] || "التعديل"} بانتظار تنفيذ الإدارة على نفس الملف. ما عندي وقت ثابت وموثق لتنفيذه، لذلك ما بدي أعطيك موعد من عندي. الحالة الحالية ما بتتغير عندي إلا بعد التنفيذ الفعلي.`;
   }
-  if (!app) return `المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، وحاليًا في ضغط مراجعات شديد. إذا بدك مدة تخص طلبك نفسه لازم يكون الطلب مربوط بشكل موثوق أولًا.`;
+  if (!app) return `${normalizedReviewWindow(p.normalReviewWindow)}، وحاليًا في ضغط مراجعات شديد. إذا بدك مدة تخص طلبك نفسه لازم يكون الطلب مربوط بشكل موثوق أولًا.`;
   const stage = applicationJourneyStage(app);
   if (stage === "cancelled") return "الطلب متوقف/ملغي حاليًا، لذلك ما في مراجعة فعالة ماشية عليه الآن. إذا كان في طلب إعادة فتح، بضل بانتظار التنفيذ الفعلي قبل ما أحكي عن مدة مراجعة جديدة.";
   if (stage === "refund_requested") return "الاسترداد مسجل وقيد المعالجة. ما عندي موعد تحويل ثابت وموثق أقدر أضمنه، وبعتمد فقط التنفيذ الفعلي لما يتم.";
-  if (stage === "preliminary_approved_waiting_decision") return `الموافقة المبدئية صدرت، لكن الدراسة النهائية ما بتبدأ قبل اختيار الاستمرار وفتح الملف. بعد هالخطوة المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، وحاليًا في ضغط مراجعات قد يطيل بعض الملفات.`;
-  return `طلبك ${customerFacingStatusLabel(app)}. المعدل الطبيعي للمراجعة ${p.normalReviewWindow}، لكن حاليًا في ضغط مراجعات شديد وبعض الملفات بتتأخر أكثر من الطبيعي. ما عندي موعد نهائي موثق أقدر أضمنه.`;
+  if (stage === "preliminary_approved_waiting_decision") return `الموافقة المبدئية صدرت، لكن الدراسة النهائية ما بتبدأ قبل اختيار الاستمرار وفتح الملف. بعد هالخطوة ${normalizedReviewWindow(p.normalReviewWindow)}، وحاليًا في ضغط مراجعات قد يطيل بعض الملفات.`;
+  return `طلبك ${customerFacingStatusLabel(app)}. ${normalizedReviewWindow(p.normalReviewWindow)}، لكن حاليًا في ضغط مراجعات شديد وبعض الملفات بتتأخر أكثر من الطبيعي. ما عندي موعد نهائي موثق أقدر أضمنه.`;
 }
 
 function buildProductReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
@@ -143,6 +169,17 @@ ${products}
 إذا ظل نفس الخطأ، ابعث نص رسالة الخطأ أو صورة الشاشة وبنركز على مشكلة الموقع نفسها.`;
 }
 
+function buildReceiptConfirmationReply(input: { truth: TruthBundle; turn: InterpretedTurn }) {
+  const decision = paymentDisclosureDecision({
+    application: input.truth.application,
+    customerText: input.turn.rawText,
+    explicitContinuationThisTurn: false,
+  });
+  if (decision.alreadyPaid || paymentHistoricallyConfirmed(input.truth.application)) return "تمام، الدفع مؤكد إداريًا على طلبك، وما في عليك أي دفعة أو وصل جديد. الملف مكمل حسب مرحلته الحالية.";
+  if (decision.receiptPending || input.truth.application?.documents?.paymentReceiptUploaded === true) return "تمام، وصل الدفع موجود على ملفك وبانتظار مراجعة الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية؛ أول ما يتم اعتماده بتتحدث حالة الطلب.";
+  return "تمام، وصلتني متابعتك بخصوص الوصل. تأكيد الدفع النهائي يتم يدويًا بعد مراجعة الإثبات المرفوع من الرابط الرسمي، وما رح أعتبر الدفع مؤكد قبل ما يظهر الاعتماد على الملف.";
+}
+
 function buildRefundMeaningReply(input: { truth: TruthBundle }) {
   const app = input.truth.application;
   if (!app) return "الاسترداد يعني إرجاع مبلغ مدفوع بعد توقف الطلب. ما عندي طلب موثوق مربوط هسا حتى أحدد إذا في استرداد فعلي على ملفك.";
@@ -170,6 +207,8 @@ function buildReplacement(input: {
     if (applicationJourneyStage(input.truth.application) === "preliminary_approved_waiting_decision") return `الموافقة الحالية مبدئية. رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير بتصير فقط إذا اخترت الاستمرار، وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. تفاصيل التحويل بنعطيك إياها بعد قرار الاستمرار.`;
     return `رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير مرتبطة بمرحلة ما بعد الموافقة المبدئية واختيار الاستمرار. ما رح أعطيك بيانات تحويل قبل ما تكون الخطوة مفتوحة فعليًا على الطلب.`;
   }
+  if (socialCloseTurn(input.turn)) return "العفو، الله يعطيك العافية.";
+  if (receiptUploadConfirmation(input.turn)) return buildReceiptConfirmationReply({ truth: input.truth, turn: input.turn });
   if (trackingLinkRequest(input.turn)) return buildTrackingReply({ turn: input.turn, truth: input.truth });
   if (siteIssue(input.turn)) return buildSiteIssueReply({ turn: input.turn, truth: input.truth });
   if (refundMeaningQuestion(input.turn)) return buildRefundMeaningReply({ truth: input.truth });
@@ -183,6 +222,7 @@ function buildReplacement(input: {
   if (reviewTimingQuestion(input.turn)) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
   if (trustConcern(input.turn)) return buildTrustReply({ truth: input.truth });
   if (humanRequest(input.turn)) return "فاهم إنك بدك تحكي مع شخص مباشرة. المتابعة الرسمية لدى الأمين للطلب من نفس واتساب، وما رح أوهمك بتحويل أو اتصال إذا ما في تحويل فعلي. احكيلي شو الإجراء أو المعلومة اللي بدك إياها وبعطيك الجواب الموجود على الطلب بدون تدوير.";
+  if (decision.paymentExecutionDetailsAllowed || decision.receiptPending || decision.alreadyPaid) return "رغبتك بالاستمرار مسجلة بالفعل، فما في داعي تعيد خطوة «أود الاستمرار». جاوبني بالنقطة اللي بدك تعرفها وبكمل معك من المرحلة الحالية.";
   return buildStatusReply({ truth: input.truth });
 }
 
@@ -215,6 +255,10 @@ export function enforceFinalResponseGate(input: {
   }
   if (reply && roboticPhrase(reply)) violations.push("robotic_escape_phrase");
   if (directProductAvailabilityQuestion(input.turn) && /(?:ابعث|ابعت|ارسل|أرسل).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("product_question_wrong_tracking_fallback");
+  if (receiptUploadConfirmation(input.turn) && !/(?:وصل|اثبات\s+الدفع|الدفع).{0,45}(?:بانتظار|مراجعه|مراجعة|موكد|مؤكد|اعتماد|اعتماده)|(?:بانتظار|مراجعه|مراجعة|موكد|مؤكد|اعتماد).{0,45}(?:وصل|الدفع)/.test(normalized(reply))) violations.push("receipt_confirmation_status_not_answered");
+  if (receiptUploadConfirmation(input.turn) && /رسوم\s+فتح\s+الملف.{0,18}(?:5|٥|خمس)/.test(normalized(reply))) violations.push("receipt_confirmation_replayed_fee_education");
+  if (socialCloseTurn(input.turn) && /(?:حاله\s+طلبك|حالة\s+طلبك|رقم\s+طلبك|قيد\s+الدراسه|قيد\s+الدراسة|رابط\s+التتبع|رسوم\s+فتح\s+الملف)/.test(normalized(reply))) violations.push("social_close_should_not_dump_status");
+  if (continuationStageRegression(reply, input.truth)) violations.push("continuation_stage_regression");
   if (trustConcern(input.turn) && /(?:جهة\s+معروفه|جهة\s+معروفة|مسجلين\s+قانونيا|مسجلين\s+قانونيًا|مرخصين|مرخصة)/.test(normalized(reply))) violations.push("unsupported_trust_or_registration_claim");
   if (customerClaimsPaid(input.turn) && /(?:لسه|لسا|ما).{0,40}(?:وصل|وصلت).{0,25}(?:مرحله|مرحلة).{0,25}(?:رسوم|الدفع)|(?:ما\s+في|لا\s+يوجد).{0,25}(?:مرحله|مرحلة).{0,20}(?:دفع|رسوم)/.test(normalized(reply))) {
     violations.push("customer_payment_claim_contradicted_by_stage_template");
