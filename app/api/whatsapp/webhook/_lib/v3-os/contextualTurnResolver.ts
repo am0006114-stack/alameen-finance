@@ -7,12 +7,48 @@ function normalized(value: string | null | undefined) {
 
 function lastRelevantContext(state: ConversationState, recentTurns?: string[]) {
   const lines = (recentTurns || []).filter(Boolean);
-  const tail = lines.slice(-8).join("\n");
+  const tail = lines.slice(-10).join("\n");
   return normalized([state.lastAssistantText || "", state.lastCustomerText || "", tail].filter(Boolean).join("\n"));
 }
 
 function shortAffirmative(q: string) {
   return /^(?:اه|نعم|ايوه|تمام|طيب|اوكي|اوك|yes|صح|مزبوط)$/.test(q);
+}
+
+export function explicitNoPriorApplicationText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:^|\s)(?:لا|ما)\s*(?:عندي|معي)\s+(?:طلب|ملف)(?:\s+سابق)?(?:\s|$)|(?:ماعندي|ما عندي|ما معي)\s+(?:طلب|ملف)(?:\s+سابق)?|(?:لا|ما)\s*(?:عندي|معي)\s+(?:رقم\s+)?تتبع/.test(q);
+}
+
+export function installmentAdjustmentQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:ازود|أزود|زود|زياده|زيادة|ادفع|أدفع|اسدد|أسدد).{0,32}(?:القسط|الاقساط|الأقساط|الدفعات)|(?:القسط|الاقساط|الأقساط|الدفعات).{0,35}(?:ازود|أزود|زياده|زيادة|اكثر|أكثر|مقدم|مرتين|دفعتين)|(?:دفعات|دفعه|دفعة).{0,24}(?:اكبر|أكبر|اكثر|أكثر).{0,24}(?:شهري|القسط)|(?:تسديد|سداد).{0,25}(?:مبكر|مبكرًا|مسبق|زياده|زيادة)/.test(q);
+}
+
+export function generalRequirementsQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:شو|ما|ايش|إيش).{0,18}(?:الشروط|المتطلبات|الاوراق|الأوراق)|(?:شو|ما).{0,18}(?:لازم|required)|(?:لازم|ضروري).{0,22}(?:كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب|هويه|هوية|كفيل)|(?:بزبط|بصير|ينفع).{0,28}(?:ع\s*الهويه|على\s+الهويه|بالهوية|بالهويه|بدون\s+كشف\s+راتب)|(?:كشف\s+راتب).{0,20}(?:لازم|ضروري|مطلوب)|(?:الهويه|الهوية).{0,25}(?:لحال|فقط|بس)/.test(q);
+}
+
+export function financingStructureQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:التقسيط|الاقساط|الأقساط|المعامله|المعاملة).{0,30}(?:عن\s+طريق|من\s+خلال).{0,18}(?:بنك|البنك)|(?:عن\s+طريق|من\s+خلال)\s+(?:بنك|البنك).{0,30}(?:التقسيط|الشروط|المعامله|المعاملة)|(?:بنك|البنك).{0,22}(?:وشو|وما|شو).{0,18}(?:الشروط|المتطلبات)/.test(q);
+}
+
+export function applicationFormIssueText(value: string | null | undefined, context?: string | null) {
+  const q = normalized(value);
+  const ctx = normalized(context);
+  const direct = /(?:حطيت|عبّيت|عبيت|دخلت).{0,35}(?:كلشي|كل\s+شي|البيانات).{0,30}(?:ما\s*كمل|ما\s+بكمل|ما\s+كمل|وقف|علق)|(?:كل\s+شوي).{0,28}(?:بعطيني|بطلعلي|بيطلعلي).{0,20}(?:هيك|خطا|خطأ|رساله|رسالة)|(?:ما\s+عم\s+بقدر|ما\s+بقدر|مش\s+قادر).{0,28}(?:احط|أحط|ادخل|أدخل|اكمل|أكمل).{0,28}(?:معلومات|بيانات|التقديم|الطلب)|(?:النموذج|الفورم|التقديم|الطلب).{0,35}(?:ما\s*كمل|ما\s+بكمل|علق|واقف|مش\s+راضي)/.test(q);
+  const contextualShort = /^(?:شو\s+القصه|شو\s+القصة|هيك|نفس\s+الاشي|نفس\s+الشي|ماكمل|ما\s+كمل|كل\s+شوي\s+هيك)$/.test(q)
+    && /(?:الموقع|الصفحه|النموذج|الفورم|التقديم|بيانات|صوره|صورة|سكرين|خطا|خطأ)/.test(ctx);
+  return direct || contextualShort;
+}
+
+export function foreignApplicantGeneralFormIssueText(value: string | null | undefined) {
+  const q = normalized(value);
+  const nationality = /(?:سوري|سوريه|سورية|مصري|مصريه|مصرية|فلسطيني|فلسطينيه|فلسطينية|عراقي|عراقيه|عراقية|اجنبي|أجنبي|اجنبيه|أجنبية|غير\s+اردني|غير\s+أردني|جواز\s+سفر|اقامه|إقامة)/.test(q);
+  const formProblem = /(?:ما\s+عم\s+بقدر|ما\s+بقدر|مش\s+قادر|لا\s+استطيع|مش\s+راضي).{0,40}(?:احط|أحط|ادخل|أدخل|اكمل|أكمل|اعبي|أعبي).{0,35}(?:معلومات|بيانات|الطلب|التقديم|الخانات|خانه|خانة)/.test(q);
+  return nationality && formProblem;
 }
 
 export type ContextualTurnSignals = {
@@ -27,6 +63,12 @@ export type ContextualTurnSignals = {
   trackingLinkRequest: boolean;
   refundMeaning: boolean;
   continueAfterCancellation: boolean;
+  noPriorApplication: boolean;
+  applicationFormIssue: boolean;
+  foreignApplicantFormIssue: boolean;
+  generalRequirements: boolean;
+  financingStructure: boolean;
+  installmentAdjustment: boolean;
   shortFollowUpResolved: boolean;
 };
 
@@ -70,7 +112,10 @@ export function contextualTurnSignals(input: {
   const paymentStatusClaim = /(?:دفعت|دافع|حولت|تم\s+الدفع|رفعت\s+الوصل|بعثت\s+الوصل|وصل\s+الدفع)/.test(q);
   if (paymentStatusClaim) topics.add("payment_status");
 
-  const siteIssue = /(?:الموقع|الصفحه|الرابط).{0,45}(?:مش\s+راضي|ما\s+بفتح|مش\s+فاتح|ما\s+بشتغل|مش\s+شغال|عطل|مشكله)|(?:مش\s+راضي|ما\s+بقدر).{0,28}(?:يفتح|يوديني|يدخل).{0,25}(?:الموقع|الصفحه|الرابط)/.test(q);
+  const directSiteIssue = /(?:الموقع|الصفحه|الرابط).{0,45}(?:مش\s+راضي|ما\s+بفتح|مش\s+فاتح|ما\s+بشتغل|مش\s+شغال|عطل|مشكله)|(?:مش\s+راضي|ما\s+بقدر).{0,28}(?:يفتح|يوديني|يدخل).{0,25}(?:الموقع|الصفحه|الرابط)/.test(q);
+  const applicationFormIssue = applicationFormIssueText(q, ctx);
+  const foreignApplicantFormIssue = foreignApplicantGeneralFormIssueText(q);
+  const siteIssue = directSiteIssue || applicationFormIssue || foreignApplicantFormIssue;
   if (siteIssue) topics.add("website");
 
   const trackingLinkRequest = /(?:اعطيني|ابعث|ابعت|ارسل|بدي).{0,25}(?:رابط).{0,25}(?:التتبع|طلبي)|(?:كيف\s+اشوف|كيف\s+اتتبع|بدي\s+اتتبع).{0,25}(?:طلبي|الطلب)?|(?:رابط\s+التتبع)/.test(q);
@@ -85,6 +130,19 @@ export function contextualTurnSignals(input: {
     topics.add("refund");
   }
 
+  const noPriorApplication = explicitNoPriorApplicationText(q)
+    || (/^(?:لا|لاا|لأ|no)$/.test(q) && /(?:عندك|معك).{0,18}(?:طلب|ملف|رقم\s+تتبع)/.test(ctx));
+  if (noPriorApplication) topics.add(applicationFormIssue || foreignApplicantFormIssue ? "website" : "products");
+
+  const generalRequirements = generalRequirementsQuestionText(q);
+  if (generalRequirements) topics.add("requirements");
+
+  const financingStructure = financingStructureQuestionText(q);
+  if (financingStructure) topics.add("requirements");
+
+  const installmentAdjustment = installmentAdjustmentQuestionText(q);
+  if (installmentAdjustment) topics.add("installment_amount");
+
   return {
     topics: Array.from(topics),
     reviewTiming,
@@ -97,6 +155,12 @@ export function contextualTurnSignals(input: {
     trackingLinkRequest,
     refundMeaning,
     continueAfterCancellation,
+    noPriorApplication,
+    applicationFormIssue,
+    foreignApplicantFormIssue,
+    generalRequirements,
+    financingStructure,
+    installmentAdjustment,
     shortFollowUpResolved: (shortTiming || shortAffirmative(q)) && topics.size > 0,
   };
 }

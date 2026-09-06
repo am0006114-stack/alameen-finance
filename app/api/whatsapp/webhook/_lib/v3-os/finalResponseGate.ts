@@ -1,6 +1,6 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
-import { containsRestrictedPaymentExecutionDetail, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
+import { containsRestrictedPaymentExecutionDetail, customerTextIsNonFeePaymentContext, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { normalizeArabic } from "./text";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 import { mutationQuestion, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
@@ -55,6 +55,36 @@ function trackingLinkRequest(turn: InterpretedTurn) {
 function siteIssue(turn: InterpretedTurn) {
   const q = normalized(turn.rawText);
   return turn.topics.includes("website") || /(?:الموقع|الصفحه|الرابط).{0,45}(?:مش\s+راضي|ما\s+بفتح|مش\s+فاتح|ما\s+بشتغل|مش\s+شغال|عطل|مشكله)/.test(q);
+}
+
+function noPriorApplicationTurn(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:^|\s)(?:لا|ما)\s*(?:عندي|معي)\s+(?:طلب|ملف)(?:\s+سابق)?(?:\s|$)|(?:ماعندي|ما عندي|ما معي)\s+(?:طلب|ملف)(?:\s+سابق)?|(?:لا|ما)\s*(?:عندي|معي)\s+(?:رقم\s+)?تتبع/.test(q);
+}
+
+function applicationFormIssueTurn(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return turn.topics.includes("website") || /(?:حطيت|عبيت|عبّيت|دخلت).{0,35}(?:كلشي|كل\s+شي|البيانات).{0,30}(?:ما\s*كمل|ما\s+بكمل|وقف|علق)|(?:كل\s+شوي).{0,28}(?:بعطيني|بطلعلي|بيطلعلي).{0,20}(?:هيك|خطا|خطأ|رساله|رسالة)|(?:ما\s+عم\s+بقدر|ما\s+بقدر|مش\s+قادر).{0,30}(?:احط|ادخل|اكمل|اعبي).{0,30}(?:معلومات|بيانات|التقديم|الطلب)/.test(q);
+}
+
+function generalRequirementsTurn(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return turn.topics.includes("requirements") || /(?:شو|ما|ايش).{0,18}(?:الشروط|المتطلبات|الاوراق)|(?:لازم|ضروري).{0,22}(?:كشف\s+راتب|شهاده\s+راتب|هويه|هوية|كفيل)|(?:بزبط|بصير|ينفع).{0,28}(?:ع\s*الهويه|على\s+الهويه|بالهوية|بالهويه|بدون\s+كشف\s+راتب)|(?:الهويه|الهوية).{0,25}(?:لحال|فقط|بس)/.test(q);
+}
+
+function financingStructureTurn(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:التقسيط|الاقساط|الأقساط|المعامله|المعاملة).{0,30}(?:عن\s+طريق|من\s+خلال).{0,18}(?:بنك|البنك)|(?:عن\s+طريق|من\s+خلال)\s+(?:بنك|البنك).{0,30}(?:التقسيط|الشروط|المعامله|المعاملة)|(?:بنك|البنك).{0,22}(?:وشو|وما|شو).{0,18}(?:الشروط|المتطلبات)/.test(q);
+}
+
+function installmentAdjustmentTurn(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:ازود|زود|زياده|زيادة|ادفع|اسدد).{0,34}(?:القسط|الاقساط|الدفعات)|(?:القسط|الاقساط|الدفعات).{0,35}(?:ازود|زود|زياده|زيادة|اكثر|مقدم|مرتين|دفعتين)|(?:تسديد|سداد).{0,25}(?:مبكر|مسبق|زياده)/.test(q);
+}
+
+function unsupportedGuarantorAcceptanceRule(reply: string) {
+  const n = normalized(reply);
+  return /(?:الكفيل).{0,35}(?:ما|مش|مو).{0,15}(?:لازم|ضروري).{0,20}(?:موظف)|(?:المهم).{0,25}(?:قادر|قدره).{0,20}(?:التغطيه|التغطية)|(?:حركه|حركة)\s+الحساب.{0,25}(?:بتساعد|تكفي|مقبول)/.test(n);
 }
 
 function refundMeaningQuestion(turn: InterpretedTurn) {
@@ -252,6 +282,33 @@ function buildRefundMeaningReply(input: { truth: TruthBundle }) {
   return "الاسترداد هو مسار إرجاع مبلغ مدفوع بعد إلغاء/توقف الطلب. بعتمد فقط الحالة الفعلية المسجلة على ملفك لتحديد إذا هذا المسار مفتوح عندك أو لا.";
 }
 
+function buildGeneralRequirementsReply() {
+  return "إذا سؤالك هل الهوية لحالها بتكفي: لا، إثبات الدخل من المتطلبات الأساسية مع الهوية. بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. وأي مستند حساس بنطلبه فقط من الرابط الرسمي الآمن، مش عبر واتساب.";
+}
+
+function buildFinancingStructureReply() {
+  return "التقسيط عند الأمين للأقساط مش قرض بنكي من جهتنا. التقديم بيكون مباشرة على طلب الجهاز عبر الموقع، وبعدها الملف بيمر بالمراجعة حسب الشروط. من الأساسيات الهوية وإثبات الدخل، وبيانات الكفيل ممكن تُطلب حسب حالة الملف فقط.";
+}
+
+function buildInstallmentAdjustmentReply() {
+  return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو أكثر من دفعة مرة وحدة: ما عندي قاعدة موثقة أقدر أقول إنها تلقائيًا تقلل مدة العقد أو تغيّر الحسبة. آلية السداد بعد العقد لازم تتبع الشروط النهائية المثبتة بالعقد، وسؤالك هذا مش عن رسوم فتح الملف.";
+}
+
+function buildApplicationFormIssueReply() {
+  return "واضح إن المشكلة أثناء تعبئة الطلب قبل ما يكتمل، لذلك ما بحتاج منك رقم تتبع. ابعث نص رسالة الخطأ أو اسم الخانة اللي بتوقف عندها، وإذا عندك صورة للشاشة ابعثها وبنركز على سبب توقف النموذج نفسه. لا تدخل بيانات غير صحيحة حتى يمر النموذج.";
+}
+
+function buildNoPriorApplicationReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  const products = links.relevant.products || "https://www.ameenfinance.co/products";
+  return `تمام، بما إنه ما عندك طلب سابق ما بحتاج منك رقم تتبع. إذا بدك تبدأ طلب جديد، ابدأ من صفحة المنتجات الرسمية وكمل نموذج التقديم:
+${products}`;
+}
+
+function buildSafeGuarantorReply() {
+  return "بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. ما عندي معيار موثق أقدر أقول منه إن الكفيل لازم أو مش لازم يكون موظف؛ إذا احتاج الملف بيانات كفيل أو مستند إضافي بنطلبه بشكل محدد عبر الرابط الرسمي الآمن.";
+}
+
 function buildReplacement(input: {
   reply: string;
   turn: InterpretedTurn;
@@ -269,6 +326,12 @@ function buildReplacement(input: {
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  if (applicationFormIssueTurn(input.turn)) return buildApplicationFormIssueReply();
+  if (noPriorApplicationTurn(input.turn)) return buildNoPriorApplicationReply({ turn: input.turn, truth: input.truth });
+  if (financingStructureTurn(input.turn)) return buildFinancingStructureReply();
+  if (generalRequirementsTurn(input.turn)) return buildGeneralRequirementsReply();
+  if (installmentAdjustmentTurn(input.turn)) return buildInstallmentAdjustmentReply();
+  if (unsupportedGuarantorAcceptanceRule(input.reply)) return buildSafeGuarantorReply();
   if (input.unsupportedRefundEta || (input.repeatedMutationPrompt && refundTimingQuestion(input.turn))) return buildSafeRefundTimingReply();
   if ((input.unsupportedOperationalPromise || input.repeatedMutationPrompt) && delayComplaint(input.turn)) return buildDelayComplaintReply({ truth: input.truth });
   if (input.repeatedEmpathy) return withoutRepeatedEmpathyOpener(input.reply);
@@ -324,6 +387,10 @@ export function enforceFinalResponseGate(input: {
     violations.push(`payment_execution_details_not_allowed:${paymentDecision.reason}`);
     severity = "p0";
   }
+  if (customerTextIsNonFeePaymentContext(input.turn.rawText) && containsRestrictedPaymentExecutionDetail(reply, input.truth.policy)) {
+    if (!violations.includes("non_fee_payment_context_leaked_file_opening_details")) violations.push("non_fee_payment_context_leaked_file_opening_details");
+    severity = "p0";
+  }
   if (reply && roboticPhrase(reply)) violations.push("robotic_escape_phrase");
   if (directProductAvailabilityQuestion(input.turn) && /(?:ابعث|ابعت|ارسل|أرسل).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("product_question_wrong_tracking_fallback");
   if (receiptUploadConfirmation(input.turn) && !/(?:وصل|اثبات\s+الدفع|الدفع).{0,45}(?:بانتظار|مراجعه|مراجعة|موكد|مؤكد|اعتماد|اعتماده)|(?:بانتظار|مراجعه|مراجعة|موكد|مؤكد|اعتماد).{0,45}(?:وصل|الدفع)/.test(normalized(reply))) violations.push("receipt_confirmation_status_not_answered");
@@ -340,6 +407,10 @@ export function enforceFinalResponseGate(input: {
   }
   if (trackingLinkRequest(input.turn) && !/(?:https?:\/\/|رابط\s+التتبع)/i.test(reply)) violations.push("tracking_link_request_not_answered");
   if (siteIssue(input.turn) && /(?:ابعث|ابعت|ارسل).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("site_issue_wrong_tracking_fallback");
+  if ((applicationFormIssueTurn(input.turn) || noPriorApplicationTurn(input.turn)) && /(?:ابعث|ابعت|ارسل|بدي|لازم).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)|(?:ما\s+عندي|ما\s+في).{0,35}(?:طلب\s+موثوق|طلب\s+مربوط)/.test(normalized(reply))) violations.push("no_application_or_form_issue_wrong_tracking_fallback");
+  if ((generalRequirementsTurn(input.turn) || financingStructureTurn(input.turn)) && /(?:ما\s+عندي|ما\s+في).{0,45}(?:طلب\s+موثوق|خطوه\s+دفع|خطوة\s+دفع)|(?:ابعث|ابعت).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("general_requirements_not_answered");
+  if (installmentAdjustmentTurn(input.turn) && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || /رسوم\s+فتح\s+الملف|خطوه\s+دفع|خطوة\s+دفع/.test(normalized(reply)))) violations.push("installment_adjustment_misrouted_to_file_opening_payment");
+  if (unsupportedGuarantorAcceptanceRule(reply)) violations.push("unsupported_guarantor_acceptance_rule");
   if (refundMeaningQuestion(input.turn) && /(?:طلب\s+الاسترداد\s+مسجل|ما\s+في\s+خطوه\s+ناقصه)/.test(normalized(reply))) violations.push("refund_meaning_question_not_answered");
   if (wantsContinueAfterCancellation(input.turn) && applicationJourneyStage(input.truth.application) === "refund_requested" && /(?:الطلب\s+(?:شغال|مكمل|طبيعي)|ما\s+لغينا|ما\s+انلغي)/.test(normalized(reply))) {
     violations.push("refund_state_falsely_claimed_active");

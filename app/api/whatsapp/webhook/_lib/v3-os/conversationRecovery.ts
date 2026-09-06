@@ -4,7 +4,7 @@ import { isContinuationRevenueReady } from "./continuationPersistence";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
-import { contextualTurnSignals } from "./contextualTurnResolver";
+import { applicationFormIssueText, contextualTurnSignals, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, installmentAdjustmentQuestionText } from "./contextualTurnResolver";
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
@@ -70,8 +70,8 @@ export function reviewTimingQuestionText(value: string | null | undefined) {
 
 export function foreignApplicantFormBlocker(value: string | null | undefined) {
   const q = normalized(value);
-  const foreignIdentity = /(?:مصري|اجنبي|أجنبي|جواز\s+سفر|اقامه\s+اردنيه|إقامة\s+أردنية|رقم\s+الاقامه|رقم\s+الإقامة|رقم\s+قومي)/.test(q);
-  const fieldProblem = /(?:الرقم\s+الوطني|national\s*id).{0,80}(?:10|١٠|عشر)|(?:14|١٤|اربعه\s+عشر|أربعة\s+عشر).{0,40}(?:رقم|خانه|خانة)|(?:لا\s+تقبل|ما\s+بتقبل|لا\s+استطيع|ما\s+بقدر).{0,60}(?:الطلب|التقديم|الخانه|الخانة)/.test(q);
+  const foreignIdentity = /(?:سوري|سوريه|سورية|مصري|مصريه|مصرية|فلسطيني|فلسطينيه|فلسطينية|عراقي|عراقيه|عراقية|اجنبي|أجنبي|اجنبيه|أجنبية|غير\s+اردني|غير\s+أردني|جواز\s+سفر|اقامه|إقامة|رقم\s+الاقامه|رقم\s+الإقامة|رقم\s+قومي)/.test(q);
+  const fieldProblem = /(?:الرقم\s+الوطني|national\s*id).{0,80}(?:10|١٠|عشر)|(?:14|١٤|اربعه\s+عشر|أربعة\s+عشر).{0,40}(?:رقم|خانه|خانة)|(?:لا\s+تقبل|ما\s+بتقبل|لا\s+استطيع|ما\s+بقدر|ما\s+عم\s+بقدر|مش\s+قادر).{0,70}(?:الطلب|التقديم|الخانه|الخانة|المعلومات|البيانات)/.test(q);
   return foreignIdentity && fieldProblem;
 }
 
@@ -110,7 +110,7 @@ function asksInstallment(value: string | null | undefined) {
 }
 
 function asksRequirements(value: string | null | undefined) {
-  return /(?:المستندات|الاوراق|الأوراق|المتطلبات)/.test(normalized(value));
+  return /(?:المستندات|الاوراق|الأوراق|المتطلبات|الشروط|كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب|الهويه|الهوية)/.test(normalized(value)) || generalRequirementsQuestionText(value);
 }
 
 function addAct(acts: DialogueAct[], turn: InterpretedTurn, partial: Omit<DialogueAct, "id" | "text" | "source">) {
@@ -148,6 +148,29 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
   }
 
   const dialogueSignals = contextualTurnSignals({ turn, state: input.state, recentTurns: input.recentTurns });
+
+  // Phase 7.3.4: explicit "I do not have a previous application" is a routing veto.
+  // Never let a weak model order_status/tracking label override what the customer just said.
+  if (dialogueSignals.noPriorApplication) {
+    acts = acts.filter((a) => !["application_status", "tracking"].includes(a.topic) && !["cancel_application", "request_refund", "reopen_application"].includes(String(a.action || "")));
+  }
+
+  if (dialogueSignals.applicationFormIssue || dialogueSignals.foreignApplicantFormIssue) {
+    acts = acts.filter((a) => !["application_status", "tracking"].includes(a.topic));
+    addAct(acts, turn, { type: "ask", topic: "website", confidence: 0.997, action: "none", value: dialogueSignals.foreignApplicantFormIssue ? "foreign_form_issue" : "application_form_issue" });
+  }
+
+  if (dialogueSignals.generalRequirements || dialogueSignals.financingStructure) {
+    acts = acts.filter((a) => !["payment_method", "payment_recipient", "payment_timing", "payment_fee", "application_status", "tracking", "continuation"].includes(a.topic) && a.action !== "continue_application");
+    addAct(acts, turn, { type: "ask", topic: "requirements", confidence: 0.997, action: "none", value: dialogueSignals.financingStructure ? "financing_structure" : "general_requirements" });
+  }
+
+  if (dialogueSignals.installmentAdjustment) {
+    // Generic intent=payment must never reinterpret a monthly-installment question as
+    // permission to expose the 5 JOD transfer path or as a continuation decision.
+    acts = acts.filter((a) => !["payment_method", "payment_recipient", "payment_timing", "payment_fee", "receipt_upload", "payment_confirmation", "continuation"].includes(a.topic) && a.action !== "continue_application");
+    addAct(acts, turn, { type: "ask", topic: "installment_amount", confidence: 0.997, action: "none", value: "installment_adjustment" });
+  }
 
   if (reviewTimingQuestionText(turn.rawText) || dialogueSignals.reviewTiming) {
     addAct(acts, turn, { type: "ask", topic: "review_timing", confidence: 0.995, action: "none", value: dialogueSignals.shortFollowUpResolved ? "contextual_followup" : null });
@@ -275,6 +298,7 @@ function reviewTimingReply(truth: TruthBundle, humanRequest: boolean) {
 }
 
 export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedTurn; state: ConversationState; recentTurns?: string[] }) {
+  const signals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
   return explicitDoNotContinueText(input.turn.rawText)
     || isNewApplicationFlow(input)
     || explicitContinuationText(input.turn.rawText)
@@ -282,12 +306,18 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || foreignApplicantFormBlocker(input.turn.rawText)
     || showroomBrowsingRequest(input.turn.rawText)
     || explicitContactNumberChangeRequest(input.turn.rawText)
-    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).siteIssue
-    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).productAvailability
+    || signals.siteIssue
+    || signals.productAvailability
+    || signals.noPriorApplication
+    || signals.applicationFormIssue
+    || signals.foreignApplicantFormIssue
+    || signals.generalRequirements
+    || signals.financingStructure
+    || signals.installmentAdjustment
     || explicitReceiptUploadConfirmationText(input.turn.rawText)
-    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).trackingLinkRequest
-    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).refundMeaning
-    || contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns }).continueAfterCancellation;
+    || signals.trackingLinkRequest
+    || signals.refundMeaning
+    || signals.continueAfterCancellation;
 }
 
 export function buildConversationRecoveryReply(input: {
@@ -305,6 +335,33 @@ export function buildConversationRecoveryReply(input: {
   const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
   const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
+
+  if (dialogueSignals.foreignApplicantFormIssue || foreignApplicantGeneralFormIssueText(raw)) {
+    return "فهمت: المشكلة صارت أثناء تعبئة الطلب لأن بياناتك غير أردنية أو النموذج ما قبل بعض الخانات. لا تدخل بيانات غير صحيحة ولا تستبدل الرقم الوطني برقم جواز/إقامة من عندك. ما عندي مسار بديل موثق خارج النموذج أقدر أضمنه؛ ابعث اسم الخانة اللي واقفة أو نص رسالة الخطأ/صورة الشاشة، وبنحدد المشكلة نفسها بدون ما أطلب رقم تتبع لأن الطلب لسا ما اكتمل.";
+  }
+
+  if (dialogueSignals.applicationFormIssue || applicationFormIssueText(raw, input.state.lastAssistantText)) {
+    return "واضح إن المشكلة أثناء تعبئة الطلب قبل ما يكتمل، لذلك ما بحتاج منك رقم تتبع. لا تعيد إدخال بيانات عشوائية. ابعث نص رسالة الخطأ أو اسم الخانة اللي بتوقف عندها، وإذا عندك صورة للشاشة ابعثها وبنركز على سبب توقف النموذج نفسه.";
+  }
+
+  if (dialogueSignals.financingStructure || financingStructureQuestionText(raw)) {
+    return "التقسيط عند الأمين للأقساط مش قرض بنكي من جهتنا. التقديم بيكون مباشرة على طلب الجهاز عبر الموقع، وبعدها الملف بيمر بالمراجعة حسب الشروط. من الأساسيات الهوية وإثبات الدخل، وبيانات الكفيل ممكن تُطلب حسب حالة الملف فقط؛ والمستندات الحساسة بتنرفع من الرابط الرسمي الآمن، مش واتساب.";
+  }
+
+  if (dialogueSignals.generalRequirements || generalRequirementsQuestionText(raw)) {
+    return "إذا سؤالك هل الهوية لحالها بتكفي: لا، إثبات الدخل من المتطلبات الأساسية مع الهوية. بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. وأي مستند حساس بنطلبه فقط من الرابط الرسمي الآمن، مش عبر واتساب.";
+  }
+
+  if (dialogueSignals.installmentAdjustment || installmentAdjustmentQuestionText(raw)) {
+    return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو أكثر من دفعة مرة وحدة بعد الاتفاق: ما عندي قاعدة موثقة أقدر أقول إنها تلقائيًا تقلل مدة العقد أو تغيّر الحسبة. آلية السداد بعد العقد لازم تتبع الشروط النهائية المثبتة بالعقد. وسؤالك هذا عن الأقساط، لذلك ما رح أخلطه مع رسوم فتح الملف أو أعطيك بيانات تحويل الـ5 دنانير.";
+  }
+
+  if (dialogueSignals.noPriorApplication || explicitNoPriorApplicationText(raw)) {
+    const products = links.relevant.products || "https://www.ameenfinance.co/products";
+    return `تمام، بما إنه ما عندك طلب سابق ما بحتاج منك رقم تتبع. إذا بدك تبدأ طلب جديد، ابدأ من صفحة المنتجات الرسمية واختار الجهاز وكمل نموذج التقديم:
+${products}
+وإذا المشكلة إن النموذج ما بكمل، احكيلي اسم الخانة أو رسالة الخطأ بدل رقم التتبع.`;
+  }
 
   if (dialogueSignals.trackingLinkRequest) {
     if (links.relevant.tracking) return `أكيد، هذا رابط التتبع الرسمي لطلبك:
@@ -348,7 +405,7 @@ ${products}`;
   }
 
   if (foreignApplicantFormBlocker(raw)) {
-    return "فهمت المشكلة بالضبط. إذا خانة الرقم الوطني عندك لا تقبل إلا 10 أرقام وأنت ما عندك رقم وطني أردني، ما عندي مسار بديل موثق أقدر أطلب منك تحط فيه الرقم القومي المصري أو رقم الجواز أو الإقامة بدل الرقم الوطني. لا تختصر الرقم ولا تغيّره حتى يمر النموذج. بهالحالة ما بدي أعطيك حل غير معتمد؛ التقديم الإلكتروني من النموذج الحالي ما بقدر أؤكد إنه يدعم حالتك كأجنبي قبل وجود مسار رسمي واضح لها.";
+    return "فهمت المشكلة بالضبط. إذا النموذج يطلب رقمًا وطنيًا أردنيًا وأنت ما عندك الرقم المطلوب، ما عندي مسار بديل موثق أقدر أطلب منك تحط فيه رقم الجواز أو الإقامة أو أي رقم أجنبي مكانه. لا تختصر الرقم ولا تغيّره حتى يمر النموذج. ابعث اسم الخانة أو رسالة الخطأ نفسها، وبنحدد المشكلة بدون ما نخترع طريقة غير معتمدة.";
   }
 
   if (explicitContactNumberChangeRequest(raw)) {

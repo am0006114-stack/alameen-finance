@@ -54,7 +54,7 @@ export function explicitMutationRequest(action: ActionKey, value: string | null 
 
 function lastAssistantAskedForConfirmation(state: ConversationState, action: ActionKey) {
   const q = normalized(state.lastAssistantText);
-  if (!/(?:اكدلي|اكد|للتاكيد|قبل\s+ما\s+انفذ|قبل\s+التنفيذ)/.test(q)) return false;
+  if (!/(?:اكدلي|اكد|تاكيد|للتاكيد|بدي\s+تاكيد|اكتب.{0,18}نعم|قبل\s+ما\s+انفذ|قبل\s+التنفيذ)/.test(q)) return false;
   return action === "cancel_application" ? cancelWords(q) : action === "request_refund" ? refundWords(q) : false;
 }
 
@@ -65,6 +65,23 @@ export function explicitMutationConfirmation(input: { action: ActionKey; value: 
   const explicit = /(?:نعم|اه|ايوه|اكيد|اكد|موافق).{0,28}/.test(q) && actionMentioned;
   const shortYes = /^(?:نعم|اه|ايوه|اكيد|موافق|تم)$/.test(q) && lastAssistantAskedForConfirmation(input.state, input.action);
   return explicit || shortYes;
+}
+
+function pendingScopeMatchesTruth(state: ConversationState, truth: TruthBundle) {
+  if (!truth.application) return false;
+  const payload = state.pendingActionPayload || {};
+  const appId = String(payload._scopeApplicationId || "").trim();
+  const trackingId = String(payload._scopeTrackingId || "").trim();
+  if (appId && appId !== truth.application.id) return false;
+  if (trackingId && trackingId !== String(truth.application.trackingId || "")) return false;
+  return true;
+}
+
+function missingApplicationMutationReply(action: ActionKey, state: ConversationState) {
+  const known = String(state.activeTrackingId || "").trim();
+  const label = action === "cancel_application" ? "الإلغاء" : "الاسترداد";
+  if (known) return `طلب ${label} واضح، لكن تفاصيل الطلب ${known} مش محمّلة بشكل موثوق بهاللحظة. حفاظًا على طلبك ما رح أنفذ أو أعتبر الإجراء بدأ قبل ما أقرأ الطلب الصحيح فعليًا. جرّب متابعة الطلب من جديد أو ابعث رقم التتبع نفسه مرة واحدة إذا ظلّت المشكلة.`;
+  return `طلب ${label} واضح، لكن ما عندي طلب موثوق مربوط بالمحادثة هسا. حفاظًا على طلبك ما رح أنفذ الإجراء على تخمين؛ ابعث رقم التتبع للطلب اللي بدك ${action === "cancel_application" ? "تلغيه" : "تسترد رسومه"} مرة واحدة.`;
 }
 
 function payloadWithConfirmationScope(action: PlannedAction, truth: TruthBundle, turnId: string) {
@@ -122,14 +139,34 @@ export function enforceMutationConfirmationGate(input: {
   let prompt: string | null = null;
   let info: string | null = null;
 
+  const q = normalized(input.turn.rawText);
+  const explicitConfirmationFromLastPrompt = Array.from(REAL_MUTATIONS).find((action) =>
+    lastAssistantAskedForConfirmation(input.state, action)
+    && explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state })
+  ) || null;
+
+  // If the runtime/state reducer failed to persist the pending confirmation token but
+  // the immediately previous assistant message asked for this exact confirmation, the
+  // second customer message can still complete the two-step flow. Never infer this
+  // across a different application or without current authoritative truth.
+  const recoverableConfirmation = !pending && explicitConfirmationFromLastPrompt && input.truth.application
+    ? explicitConfirmationFromLastPrompt
+    : null;
+
+  if (pending && !pendingScopeMatchesTruth(input.state, input.truth)) {
+    clearPendingConfirmation = true;
+    info = missingApplicationMutationReply(pending, input.state);
+  }
+
   if (pending && mutationDecline(pending, input.turn.rawText)) {
     clearPendingConfirmation = true;
   }
 
-  if (pending && explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })) {
+  if (pending && pendingScopeMatchesTruth(input.state, input.truth) && explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })) {
     confirmedAction = pending;
-  } else if (pending && !mutationDecline(pending, input.turn.rawText)) {
-    const q = normalized(input.turn.rawText);
+  } else if (recoverableConfirmation) {
+    confirmedAction = recoverableConfirmation;
+  } else if (pending && !mutationDecline(pending, input.turn.rawText) && !clearPendingConfirmation) {
     const stillTalkingAboutPending = pending === "cancel_application" ? cancelWords(q) : refundWords(q);
     if (!stillTalkingAboutPending && q.length > 2) clearPendingConfirmation = true;
   }
@@ -144,6 +181,11 @@ export function enforceMutationConfirmationGate(input: {
     if (mutationQuestion(action.action, input.turn.rawText)) {
       blockedQuestionAction = action.action;
       info = informationalReply(action.action, input.truth);
+      continue;
+    }
+    if (!input.truth.application && (explicitMutationRequest(action.action, input.turn.rawText) || explicitMutationConfirmation({ action: action.action, value: input.turn.rawText, state: input.state }))) {
+      clearPendingConfirmation = true;
+      info = missingApplicationMutationReply(action.action, input.state);
       continue;
     }
     if (mutationDecline(action.action, input.turn.rawText)) {
@@ -163,6 +205,12 @@ export function enforceMutationConfirmationGate(input: {
     // Model/planner inference alone can never authorize a real mutation.
   }
 
+  if (confirmedAction && !input.truth.application) {
+    clearPendingConfirmation = true;
+    info = missingApplicationMutationReply(confirmedAction, input.state);
+    confirmedAction = null;
+  }
+
   if (confirmedAction && !output.some((x) => x.action === confirmedAction)) {
     output.push({
       action: confirmedAction,
@@ -180,7 +228,12 @@ export function enforceMutationConfirmationGate(input: {
   }
 
   for (const action of REAL_MUTATIONS) {
-    if (prompt || confirmedAction || blockedQuestionAction) break;
+    if (prompt || confirmedAction || blockedQuestionAction || info) break;
+    if (!input.truth.application && (explicitMutationRequest(action, input.turn.rawText) || explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state }))) {
+      clearPendingConfirmation = true;
+      info = missingApplicationMutationReply(action, input.state);
+      break;
+    }
     if (explicitMutationRequest(action, input.turn.rawText)) {
       const staged: PlannedAction = {
         action,
