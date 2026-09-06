@@ -79,6 +79,58 @@ function socialCloseTurn(turn: InterpretedTurn) {
   return /^(?:تمام|اوك|اوكي)$/.test(q) && turn.topics.some((t) => ["thanks","reaction"].includes(t));
 }
 
+function refundTimingQuestion(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:كم|قديش|متى|امتى|ايمتى|مدة|مده|وقت).{0,35}(?:الاسترداد|استرداد|الاسترجاع|استرجاع)|(?:الاسترداد|استرداد|الاسترجاع|استرجاع).{0,35}(?:كم|قديش|متى|امتى|ايمتى|مدة|مده|وقت|يوم)/.test(q);
+}
+
+function delayComplaint(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return turn.topics.includes("complaint")
+    || /(?:مماطله|مماطلة|تاخير|تأخير|طولتو|طولتوا|صارلي|صارو|اسبوع|اسبوعين|\d+\s*(?:يوم|ايام|أيام))/.test(q);
+}
+
+function unsupportedExpeditePromise(reply: string) {
+  const n = normalized(reply);
+  return /(?:اقدر|بقدر|رح|راح).{0,25}(?:ارفع|اسجل|اضيف|اسوي|اعمل).{0,25}(?:ملاحظه|ملاحظة|طلب).{0,22}(?:استعجال|تسريع)|(?:ارفع|اسجل|اضيف).{0,22}(?:ملاحظه\s+استعجال|ملاحظة\s+استعجال|طلب\s+استعجال)/.test(n);
+}
+
+function mutationExecutionPromiseWithoutReceipt(reply: string, actions: ActionResult[]) {
+  const n = normalized(reply);
+  const promisesMutation = /(?:رح|راح|هسا|الان|الآن).{0,30}(?:ارفع|اسجل|ابلش|ابدا|ابدأ|انفذ|اعمل).{0,50}(?:الالغاء|الإلغاء|الاسترداد|الاسترجاع|طلب\s+الالغاء|طلب\s+الإلغاء|طلب\s+الاسترداد)|(?:طلب\s+الالغاء|طلب\s+الإلغاء|طلب\s+الاسترداد).{0,55}(?:رح|راح).{0,20}(?:ارفع|اسجل|ابلش|ابدا|ابدأ|انفذ)|(?:رح|راح).{0,15}(?:ابلش|ابدا|ابدأ).{0,15}(?:فيه|بالاجراء|بالإجراء)/.test(n);
+  if (!promisesMutation) return false;
+  return !actions.some((x) => x.executed && ["cancel_application","request_refund"].includes(x.action) && ["executed","already_done"].includes(x.outcome));
+}
+
+function unsupportedRefundEtaClaim(reply: string, turn: InterpretedTurn) {
+  if (!refundTimingQuestion(turn)) return false;
+  const n = normalized(reply);
+  return /(?:ما|مش|مو).{0,8}(?:رح|راح).{0,25}(?:ياخذ|يوخذ|يطول).{0,28}(?:سنه|سنة|هالقد|لهالدرجه|لهالدرجة)|(?:اكيد|بالتاكيد|بالتأكيد).{0,35}(?:مش|ما).{0,20}(?:سنه|سنة|يطول|ياخذ|يوخذ)/.test(n);
+}
+
+function currentTurnExplicitMutationRequest(turn: InterpretedTurn) {
+  const q = normalized(turn.rawText);
+  return /(?:بدي|اريد|أريد|حاب|حابب).{0,24}(?:الغي|إلغاء|الغاء|استرد|استرجع|استرداد|استرجاع)|^(?:الغي|إلغاء|الغاء|استرداد|استرجاع)\b/.test(q)
+    || /(?:نعم|اه|ايوه|أكيد|اكيد|موافق).{0,28}(?:الغي|إلغاء|الغاء|استرد|استرجع|استرداد|استرجاع)/.test(q);
+}
+
+function repeatedMutationCta(reply: string, turn: InterpretedTurn) {
+  if (currentTurnExplicitMutationRequest(turn)) return false;
+  const n = normalized(reply);
+  return /(?:بدك|هل\s+تريد|اذا\s+بدك|إذا\s+بدك).{0,38}(?:ارفع|أرفع|اسجل|أسجل|اتابع|أتابع|نبلش|نبدأ|ابدأ|أبدأ).{0,36}(?:الالغاء|الإلغاء|الاسترداد|الاسترجاع|الطلب)|(?:بدك\s+(?:ارفع|أرفع|اتابع|أتابع)).{0,35}(?:طلب\s+الالغاء|طلب\s+الإلغاء|طلب\s+الاسترداد)/.test(n);
+}
+
+function repeatedEmpathyOpener(reply: string, state: ConversationState) {
+  const now = normalized(reply);
+  const prev = normalized(state.lastAssistantText);
+  return /^معك\s+حق(?:\s|$)/.test(now) && /^معك\s+حق(?:\s|$)/.test(prev);
+}
+
+function withoutRepeatedEmpathyOpener(reply: string) {
+  const cleaned = String(reply || "").replace(/^\s*معك\s+حق(?:[،,]\s*|\s+)/, "").trim();
+  return cleaned || "فاهم عليك.";
+}
+
 function normalizedReviewWindow(value: string | null | undefined) {
   const raw = String(value || "").trim();
   if (!raw) return "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل";
@@ -180,6 +232,16 @@ function buildReceiptConfirmationReply(input: { truth: TruthBundle; turn: Interp
   return "تمام، وصلتني متابعتك بخصوص الوصل. تأكيد الدفع النهائي يتم يدويًا بعد مراجعة الإثبات المرفوع من الرابط الرسمي، وما رح أعتبر الدفع مؤكد قبل ما يظهر الاعتماد على الملف.";
 }
 
+function buildSafeRefundTimingReply() {
+  return "ما عندي مدة ثابتة وموثقة أقدر أضمنها للاسترداد. الإجراء إله مراجعة وتنفيذ إداري، وأول ما يتم التحويل فعليًا بنبلغك مباشرة؛ لذلك ما بدي أعطيك رقم أيام أو حد زمني من عندي.";
+}
+
+function buildDelayComplaintReply(input: { truth: TruthBundle }) {
+  const app = input.truth.application;
+  if (!app) return "فاهم إن الانتظار طول. ما عندي طلب موثوق مربوط هسا حتى أعطيك مدة تخص ملفك، وما بدي أخمّن عليك.";
+  return `فاهم إن الانتظار طول. طلبك ${customerFacingStatusLabel(app)}، وما في موعد نهائي موثق أقدر أضمنه. ${normalizedReviewWindow(input.truth.policy.normalReviewWindow)}، وحاليًا في ضغط مراجعات شديد وبعض الملفات بتتأخر أكثر من الطبيعي.`;
+}
+
 function buildRefundMeaningReply(input: { truth: TruthBundle }) {
   const app = input.truth.application;
   if (!app) return "الاسترداد يعني إرجاع مبلغ مدفوع بعد توقف الطلب. ما عندي طلب موثوق مربوط هسا حتى أحدد إذا في استرداد فعلي على ملفك.";
@@ -191,16 +253,25 @@ function buildRefundMeaningReply(input: { truth: TruthBundle }) {
 }
 
 function buildReplacement(input: {
+  reply: string;
   turn: InterpretedTurn;
   state: ConversationState;
   truth: TruthBundle;
+  actions: ActionResult[];
   paymentViolation: boolean;
+  unsupportedOperationalPromise: boolean;
+  unsupportedRefundEta: boolean;
+  repeatedMutationPrompt: boolean;
+  repeatedEmpathy: boolean;
 }) {
   const decision = paymentDisclosureDecision({
     application: input.truth.application,
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  if (input.unsupportedRefundEta || (input.repeatedMutationPrompt && refundTimingQuestion(input.turn))) return buildSafeRefundTimingReply();
+  if ((input.unsupportedOperationalPromise || input.repeatedMutationPrompt) && delayComplaint(input.turn)) return buildDelayComplaintReply({ truth: input.truth });
+  if (input.repeatedEmpathy) return withoutRepeatedEmpathyOpener(input.reply);
   if (input.paymentViolation) {
     if (decision.alreadyPaid) return "الدفع مؤكد إداريًا على طلبك، فما في داعي لأي دفعة أو وصل جديد. الملف مكمل بالمرحلة المسجلة عليه.";
     if (decision.receiptPending) return "وصل الدفع موجود على الملف وبانتظار مراجعة الإدارة، فما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.";
@@ -289,6 +360,15 @@ export function enforceFinalResponseGate(input: {
     severity = "p0";
   }
 
+  const unsupportedOperationalPromise = unsupportedExpeditePromise(reply) || mutationExecutionPromiseWithoutReceipt(reply, input.actions);
+  if (unsupportedOperationalPromise) violations.push("unsupported_operational_promise_without_execution");
+  const unsupportedRefundEta = unsupportedRefundEtaClaim(reply, input.turn);
+  if (unsupportedRefundEta) violations.push("unsupported_refund_eta_certainty");
+  const repeatedMutationPrompt = repeatedMutationCta(reply, input.turn);
+  if (repeatedMutationPrompt) violations.push("repeated_mutation_cta_without_current_request");
+  const repeatedEmpathy = repeatedEmpathyOpener(reply, input.state);
+  if (repeatedEmpathy) violations.push("repeated_empathy_opener");
+
   const optOut = /(?:لا\s+ارغب|لا\s+أرغب|لا\s+اريد|لا\s+أريد|ما\s+بدي|مش\s+حاب).{0,35}(?:استمر|الاستمرار|اكمل|أكمل)/.test(normalized(input.turn.rawText));
   if (optOut && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || /(?:أود\s+الاستمرار|بدك\s+تكمل|هل\s+تود\s+الاستمرار)/.test(reply))) {
     violations.push("opt_out_must_not_trigger_continuation_or_payment");
@@ -301,7 +381,18 @@ export function enforceFinalResponseGate(input: {
   return {
     pass: violations.length === 0,
     violations,
-    replacementReply: violations.length ? buildReplacement({ turn: input.turn, state: input.state, truth: input.truth, paymentViolation: paymentLeak }) : null,
+    replacementReply: violations.length ? buildReplacement({
+      reply,
+      turn: input.turn,
+      state: input.state,
+      truth: input.truth,
+      actions: input.actions,
+      paymentViolation: paymentLeak,
+      unsupportedOperationalPromise,
+      unsupportedRefundEta,
+      repeatedMutationPrompt,
+      repeatedEmpathy,
+    }) : null,
     severity,
   };
 }
