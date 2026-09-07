@@ -19,6 +19,61 @@ function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function postContinuationAcknowledgementText(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const q = normalized(value);
+  if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|ان\s+شاء\s+الله|إن\s+شاء\s+الله|شكرا|شكرًا|يسلمو|يعطيك\s+العافيه|يعطيك\s+العافية)$/.test(q)) return true;
+  return Boolean(raw) && /^(?:👍|❤️|❤|🌹|🙏|👌|✅|☑️|😁|🙂|😊)+$/u.test(raw);
+}
+
+function asksCurrentPaymentDetails(value: string | null | undefined) {
+  const q = normalized(value);
+  const payment = /(?:دفع|ادفع|أدفع|تحويل|احول|أحول|بحول|كليك|cliq|محفظه|محفظة|المستفيد|رسوم\s+فتح\s+الملف)/i.test(q);
+  const detail = /(?:كيف|وين|طريقه|طريقة|بيانات|اسم|معرف|رقم|على\s+مين|لمين)/.test(q);
+  return payment && detail;
+}
+
+function postContinuationPaymentDeferralText(value: string | null | undefined) {
+  const q = normalized(value);
+  if (asksCurrentPaymentDetails(value)) return false;
+  return /(?:بكرا|غدا|غدًا|بعدين|لاحقا|لاحقًا|بعدها|بعد\s+شوي|لما|اول\s+ما|أول\s+ما|بس\s+يوصل|بس\s+يجهز|وقت\s+ما).{0,55}(?:ادفع|أدفع|بدفع|بحول|احول|أحول|التحويل)|(?:ادفع|أدفع|بدفع|بحول|احول|أحول|التحويل).{0,45}(?:بكرا|غدا|غدًا|بعدين|لاحقا|لاحقًا|بعدها|لما|اول\s+ما|أول\s+ما)/.test(q);
+}
+
+function reviewMeaningQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:شو|ما|ايش|إيش).{0,18}(?:هي|يعني|المقصود).{0,20}(?:الدراسه|الدراسة|المراجعه|المراجعة)|(?:شو|ايش|إيش).{0,18}(?:بتدرسوا|بتراجعوا|بتشوفوا).{0,25}(?:بالملف|بالطلب)?|(?:ليش|لماذا).{0,18}(?:الدراسه|الدراسة|المراجعه|المراجعة).{0,25}(?:طويله|طويلة|كل\s+هالقد|كل\s+هاد)?/.test(q);
+}
+
+function keepCurrentReviewDecisionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /^(?:كملو|كملوا|كمل|خليكم\s+مكملين|ضلو\s+مكملين|ضلوا\s+مكملين)(?:\s+بس.{0,45})?$/.test(q)
+    || /(?:كملو|كملوا|خليكم\s+مكملين|ضلو\s+مكملين|ضلوا\s+مكملين).{0,35}(?:بدي|بدنا).{0,25}(?:حل|نتيجه|نتيجة|خبر).{0,20}(?:قريب|بسرعه|بسرعة)?/.test(q);
+}
+
+function progressedCommercialStage(truth: TruthBundle, decision?: ReturnType<typeof paymentDisclosureDecision>) {
+  const d = decision || paymentDisclosureDecision({ application: truth.application, customerText: "", explicitContinuationThisTurn: false });
+  return d.paymentExecutionDetailsAllowed || d.receiptPending || d.alreadyPaid;
+}
+
+function buildPostContinuationDeferralReply(value: string | null | undefined) {
+  const q = normalized(value);
+  const attendance = /(?:اجي|أجي|باجي|المعرض|المكتب|استلم|استلام)/.test(q);
+  const attendanceNote = attendance ? " وبالنسبة للحضور، المكتب مش معرض مفتوح؛ الاستلام بيكون فقط لما يوصل الطلب لمرحلة الاستلام وبموعد رسمي مؤكد." : "";
+  return `تمام، خذ راحتك. لما تكون جاهز للدفع بنكمّل من نفس الطلب، وما في داعي أعيد بيانات التحويل هسا.${attendanceNote}`;
+}
+
+function buildReviewMeaningReply(truth: TruthBundle) {
+  const paid = paymentHistoricallyConfirmed(truth.application);
+  const payment = paid ? " والدفع عندك مؤكد إداريًا، فما في داعي تعيد الدفع أو ترفع الوصل." : "";
+  return `الدراسة النهائية هي مراجعة الملف والبيانات والمستندات الموجودة قبل إصدار القرار النهائي. ما رح أخمّن بمعايير داخلية مش موثقة عندي.${payment} إذا ما في خطوة ناقصة ظاهرة على الطلب، المطلوب منك هسا فقط انتظار نتيجة المراجعة.`;
+}
+
+function buildKeepCurrentReviewReply(truth: TruthBundle) {
+  const paid = paymentHistoricallyConfirmed(truth.application);
+  const payment = paid ? " والدفع مؤكد إداريًا." : "";
+  return `تمام، بنكمل على الطلب الحالي وما رح أبدأ إلغاء أو استرداد من هالحكي.${payment} بخصوص إنك بدك حل قريب: ما عندي موعد مؤكد أضمنه، وأول ما يصدر قرار فعلي رح يصلك التحديث.`;
+}
+
 function commercialPauseOrDeclineText(value: string | null | undefined, context?: string | null) {
   const q = normalized(value);
   const ctx = normalized(context);
@@ -521,6 +576,10 @@ function buildReplacement(input: {
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  if (progressedCommercialStage(input.truth, decision) && postContinuationPaymentDeferralText(input.turn.rawText)) return buildPostContinuationDeferralReply(input.turn.rawText);
+  if (progressedCommercialStage(input.truth, decision) && postContinuationAcknowledgementText(input.turn.rawText)) return "تمام، الله يعطيك العافية.";
+  if (reviewMeaningQuestionText(input.turn.rawText)) return buildReviewMeaningReply(input.truth);
+  if (paymentHistoricallyConfirmed(input.truth.application) && keepCurrentReviewDecisionText(input.turn.rawText)) return buildKeepCurrentReviewReply(input.truth);
   if (commercialPauseTurn(input.turn, input.state)) return buildCommercialPauseReply();
   if (paymentFailureOrDestinationProblemText(input.turn.rawText)) {
     const links = buildOfficialLinkContext(input.turn, input.truth);
@@ -696,6 +755,23 @@ export function enforceFinalResponseGate(input: {
   if (repeatedMutationPrompt) violations.push("repeated_mutation_cta_without_current_request");
   const repeatedEmpathy = repeatedEmpathyOpener(reply, input.state);
   if (repeatedEmpathy) violations.push("repeated_empathy_opener");
+
+  const progressedCommercial = progressedCommercialStage(input.truth, paymentDecision);
+  const postContinuationDeferral = progressedCommercial && postContinuationPaymentDeferralText(input.turn.rawText);
+  const postContinuationAck = progressedCommercial && postContinuationAcknowledgementText(input.turn.rawText);
+  if ((postContinuationDeferral || postContinuationAck) && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || containsFiveJodFeeExplanation(reply))) {
+    violations.push(postContinuationDeferral ? "post_continuation_deferral_must_not_replay_payment" : "post_continuation_ack_must_not_replay_payment");
+    severity = "p0";
+  }
+  if (postContinuationAck && /(?:رغبتك\s+بالاستمرار\s+مسجله|رغبتك\s+بالاستمرار\s+مسجلة|جاوبني\s+بالنقطه|جاوبني\s+بالنقطة|تفاصيل\s+الطلب\s+مش\s+كامله|تفاصيل\s+الطلب\s+مش\s+كاملة)/.test(normalized(reply))) {
+    violations.push("post_continuation_ack_wrong_stage_fallback");
+  }
+  if (reviewMeaningQuestionText(input.turn.rawText) && /(?:تفاصيل\s+الطلب\s+مش\s+كامله|تفاصيل\s+الطلب\s+مش\s+كاملة|ما\s+بدي\s+اخمن\s+بحاله|ما\s+بدي\s+أخمن\s+بحالة)/.test(normalized(reply))) {
+    violations.push("review_meaning_question_abandoned_for_missing_details");
+  }
+  if (paymentHistoricallyConfirmed(input.truth.application) && keepCurrentReviewDecisionText(input.turn.rawText) && /(?:تفاصيل\s+الطلب\s+مش\s+كامله|تفاصيل\s+الطلب\s+مش\s+كاملة|اود\s+الاستمرار|أود\s+الاستمرار|رغبتك\s+بالاستمرار\s+مسجله|رغبتك\s+بالاستمرار\s+مسجلة)/.test(normalized(reply))) {
+    violations.push("keep_review_decision_not_acknowledged");
+  }
 
   const commercialPause = commercialPauseTurn(input.turn, input.state);
   if (commercialPause && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || containsFiveJodFeeExplanation(reply) || /(?:اخترت|قررت).{0,18}(?:تكمل|الاستمرار)|(?:اود|أود)\s+الاستمرار/.test(normalized(reply)))) {
