@@ -1,4 +1,4 @@
-export const V2_POLICY_VERSION = "2026-09-01-v2.1-no-legacy";
+export const V2_POLICY_VERSION = "2026-09-07-v2.1-emergency-payment-destination";
 
 export const V2_POLICY = {
   businessName: "الأمين للأقساط",
@@ -8,12 +8,13 @@ export const V2_POLICY = {
   fileOpeningFeeTiming: "تُطلب فقط بعد التأهيل المبدئي إذا اختار العميل الاستمرار",
   firstInstallment: "القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد",
   delivery: "لا يوجد توصيل؛ الاستلام من المكتب بموعد",
-  paymentAliases: ["AMEEENPAY", "AMENPAY"] as const,
+  paymentAliases: ["PAYAMEEEN", "AMEEN1ST", "AM500337"] as const,
+  paymentPhone: "0788500337",
   paymentBeneficiary: "ABDUL RAHMAN ALHARAHSHEH",
   independence:
     "الأمين للأقساط جهة مستقلة تمامًا، ولا توجد أي علاقة أو شراكة أو تبعية بينها وبين شركة الأمين للتمويل الأصغر على الإطلاق",
   forbiddenBusinessNames: ["الأمين للأقساط والتمويل"],
-  forbiddenPaymentAliases: ["PAYAMEN", "PAYAMEEN", "AMEENPAY"],
+  forbiddenPaymentAliases: ["AMEEENPAY", "AMENPAY", "PAYAMEN", "PAYAMEEN", "AMEENPAY"],
 } as const;
 
 export function policyTruthForPrompt() {
@@ -27,6 +28,7 @@ export function policyTruthForPrompt() {
     first_installment_rule: V2_POLICY.firstInstallment,
     delivery_policy: V2_POLICY.delivery,
     payment_aliases: V2_POLICY.paymentAliases,
+    payment_phone: V2_POLICY.paymentPhone,
     payment_beneficiary: V2_POLICY.paymentBeneficiary,
     independence_statement: V2_POLICY.independence,
   };

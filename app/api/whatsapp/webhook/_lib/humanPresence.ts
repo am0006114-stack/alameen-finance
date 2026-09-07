@@ -170,7 +170,7 @@ export function contextualHumanIntentHint(input: {
   if (
     String(input.currentIntent) === "installment_info" &&
     hasAny(current, ["كم مده فعاليتها", "كم مدة فعاليتها", "مده فعاليتها", "مدة فعاليتها", "قديش فعاليتها", "كم بتضل", "كم بظل"]) &&
-    hasAny(recent, ["5 دنانير", "٥ دنانير", "رسوم فتح الملف", "تعليمات الدفع", "ameeenpay", "amenpay", "رفع الوصل", "وصل الدفع"])
+    hasAny(recent, ["5 دنانير", "٥ دنانير", "رسوم فتح الملف", "تعليمات الدفع", "payameeen", "ameen1st", "am500337", "0788500337", "ameeenpay", "amenpay", "رفع الوصل", "وصل الدفع"])
   ) {
     return "payment_timing" as CustomerIntent;
   }

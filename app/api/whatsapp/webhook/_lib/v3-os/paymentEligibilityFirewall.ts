@@ -2,6 +2,7 @@ import { applicationJourneyStage } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { normalizeArabic } from "./text";
 import type { ApplicationTruth, PolicyTruth, TruthBundle } from "./types";
+import { allFileOpeningPaymentExecutionTokens, FILE_OPENING_PAYMENT_BENEFICIARY } from "./paymentDestinationOverride";
 
 export type PaymentDisclosureDecision = {
   feeExplanationAllowed: boolean;
@@ -149,11 +150,14 @@ export function paymentDisclosureDecision(input: {
 }
 
 export function containsRestrictedPaymentExecutionDetail(reply: string, policy?: PolicyTruth | null) {
+  const text = String(reply || "");
+  const activeAndLegacy = allFileOpeningPaymentExecutionTokens();
+  if (activeAndLegacy.some((token) => text.toUpperCase().includes(String(token).toUpperCase()))) return true;
   const aliases = (policy?.paymentAliases || []).filter(Boolean);
-  if (aliases.some((alias) => String(reply || "").includes(alias))) return true;
-  const beneficiary = String(policy?.paymentBeneficiaryName || "").trim();
-  if (beneficiary && String(reply || "").toLowerCase().includes(beneficiary.toLowerCase())) return true;
-  return /\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,60}(?:كليك|cliq|محفظه|محفظة|orange\s*money)|(?:محفظه|محفظة)\s*orange\s*money/i.test(String(reply || ""));
+  if (aliases.some((alias) => text.includes(alias))) return true;
+  const beneficiary = String(policy?.paymentBeneficiaryName || FILE_OPENING_PAYMENT_BENEFICIARY).trim();
+  if (beneficiary && text.toLowerCase().includes(beneficiary.toLowerCase())) return true;
+  return /\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,60}(?:كليك|cliq|محفظه|محفظة|orange\s*money)|(?:محفظه|محفظة)\s*orange\s*money/i.test(text);
 }
 
 export function containsFiveJodFeeExplanation(reply: string) {

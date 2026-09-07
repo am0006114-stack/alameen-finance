@@ -5,6 +5,7 @@ import { normalizeArabic } from "./text";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 import { mutationQuestion, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
+import { containsLegacyFileOpeningPaymentDestination, currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -490,6 +491,12 @@ function buildConfirmedPaymentReply(input: { truth: TruthBundle; turn: Interpret
     : "الدفع مؤكد إداريًا على الطلب، وما في داعي تعيد الدفع أو ترفع الوصل. الملف مكمل حسب مرحلته الحالية، ومراجعة الملف نفسها هي اللي بتستمر بعد الدفع.";
 }
 
+function buildCurrentPaymentExecutionReply(input: { truth: TruthBundle; turn: InterpretedTurn }) {
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  const receipt = links.relevant.receipt ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${links.relevant.receipt}` : "";
+  return `تمام، هيك بنكمّل. رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول، ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ${currentFileOpeningPaymentRule()}${receipt}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
+}
+
 function buildReplacement(input: {
   reply: string;
   turn: InterpretedTurn;
@@ -497,6 +504,7 @@ function buildReplacement(input: {
   truth: TruthBundle;
   actions: ActionResult[];
   paymentViolation: boolean;
+  legacyPaymentDestination: boolean;
   unsupportedOperationalPromise: boolean;
   unsupportedRefundEta: boolean;
   repeatedMutationPrompt: boolean;
@@ -513,6 +521,11 @@ function buildReplacement(input: {
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
   if (commercialPauseTurn(input.turn, input.state)) return buildCommercialPauseReply();
+  if (input.legacyPaymentDestination) {
+    if (decision.paymentExecutionDetailsAllowed) return buildCurrentPaymentExecutionReply({ truth: input.truth, turn: input.turn });
+    if (decision.alreadyPaid) return "الدفع مؤكد إداريًا على طلبك، فما في داعي لأي بيانات تحويل جديدة.";
+    if (decision.receiptPending) return "وصل الدفع موجود على الملف وبانتظار مراجعة الإدارة، فما في داعي لأي تحويل جديد.";
+  }
   if (orderChangeRetractionText(input.turn.rawText)) return buildOrderChangeReply({ truth: input.truth, retracted: true });
   if (orderChangeRequestText(input.turn.rawText)) return buildOrderChangeReply({ truth: input.truth });
   if (multipleDeviceEligibilityQuestionText(input.turn.rawText, input.state.lastCustomerText)) return buildMultiDeviceReply();
@@ -584,9 +597,14 @@ export function enforceFinalResponseGate(input: {
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  const legacyPaymentDestination = Boolean(reply && containsLegacyFileOpeningPaymentDestination(reply));
   const paymentLeak = Boolean(reply && containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) && !paymentDecision.paymentExecutionDetailsAllowed);
   if (paymentLeak) {
     violations.push(`payment_execution_details_not_allowed:${paymentDecision.reason}`);
+    severity = "p0";
+  }
+  if (legacyPaymentDestination) {
+    violations.push("legacy_payment_destination_forbidden");
     severity = "p0";
   }
   if (customerTextIsNonFeePaymentContext(input.turn.rawText) && containsRestrictedPaymentExecutionDetail(reply, input.truth.policy)) {
@@ -698,6 +716,7 @@ export function enforceFinalResponseGate(input: {
       truth: input.truth,
       actions: input.actions,
       paymentViolation: paymentLeak,
+      legacyPaymentDestination,
       unsupportedOperationalPromise,
       unsupportedRefundEta,
       repeatedMutationPrompt,

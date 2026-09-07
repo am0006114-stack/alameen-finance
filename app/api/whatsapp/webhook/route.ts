@@ -3275,17 +3275,25 @@ function scamAccusationReply(baseUrl: string, from: string, app?: ApplicationRec
 }
 
 const PAYMENT_WALLET_TYPE = "Orange Money";
-const PAYMENT_DESTINATION_PRIMARY = "AMEEENPAY";
-const PAYMENT_DESTINATION_SECONDARY = "AMENPAY";
+const PAYMENT_DESTINATION_PRIMARY = "PAYAMEEEN";
+const PAYMENT_DESTINATION_SECONDARY = "AMEEN1ST";
+const PAYMENT_DESTINATION_TERTIARY = "AM500337";
+const PAYMENT_DESTINATION_PHONE = "0788500337";
 const PAYMENT_BENEFICIARY_NAME = "ABDUL RAHMAN ALHARAHSHEH";
 
 function paymentDestinationBlock() {
-  return `نوع المحفظة: ${PAYMENT_WALLET_TYPE}
+  return `نعتذر عن أي لخبطة بسبب مشكلة طارئة بالمحفظة وتم تحديث بيانات الدفع.
+
+نوع المحفظة: ${PAYMENT_WALLET_TYPE}
 
 التحويل إلى:
 ${PAYMENT_DESTINATION_PRIMARY}
 أو
 ${PAYMENT_DESTINATION_SECONDARY}
+او
+${PAYMENT_DESTINATION_TERTIARY}
+او على الرقم
+${PAYMENT_DESTINATION_PHONE}
 
 اسم المستفيد الظاهر:
 ${PAYMENT_BENEFICIARY_NAME}`;
@@ -8189,7 +8197,7 @@ async function generateAiReply(input: AiReplyInput) {
 - العنوان التفصيلي الكامل (محمي قبل الموافقة): ${BUSINESS_ADDRESS}
 - رسوم فتح الملف الرسمية: ${FILE_OPENING_FEE_JOD} دنانير فقط.
 - التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية؛ مش شرط يكون عند العميل محفظة Orange Money.
-- الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى AMEEENPAY أو AMENPAY، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
+- الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى PAYAMEEEN أو AMEEN1ST أو AM500337 أو الرقم 0788500337، ويجب أن يظهر اسم المستفيد ${PAYMENT_BENEFICIARY_NAME} قبل التأكيد.
 - ممنوع القول إن التحويل البنكي لا ينفع، أو إن الدفع من Orange Money فقط، أو إن الحل الوحيد أن يدفع شخص لديه محفظة أورنج.
 - ممنوع اختراع أي رقم هاتف أو رابط أو عنوان أو رسوم أو موعد.
 - إذا سأل العميل عن رقم الشركة أو معلومات التواصل، استخدم هذه البيانات فقط ولا تضف أي رقم آخر.

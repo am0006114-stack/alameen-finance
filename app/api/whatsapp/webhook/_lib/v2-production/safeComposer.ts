@@ -94,7 +94,7 @@ export function composeV2TruthOnlyReply(input: {
     else parts.push("رسوم فتح الملف ما بتنطلب قبل التأهيل المبدئي؛ بتنطلب فقط إذا تأهلت مبدئيًا واخترت تكمل.");
   }
   if (topics.has("payment_method") || topics.has("payment_recipient")) {
-    parts.push(`بيانات الدفع المعتمدة عند الحاجة لرسوم فتح الملف: ${V2_POLICY.paymentAliases.join(" أو ")}، واسم المستفيد ${V2_POLICY.paymentBeneficiary}.`);
+    parts.push(`نعتذر عن أي لخبطة بسبب تحديث طارئ ببيانات المحفظة. بيانات الدفع المعتمدة الآن لرسوم فتح الملف: ${V2_POLICY.paymentAliases.join(" أو ")}، أو الرقم ${V2_POLICY.paymentPhone}. الجهة المستلمة Orange Money، واسم المستفيد ${V2_POLICY.paymentBeneficiary}.`);
   }
   if (topics.has("receipt_upload")) {
     const url = linkFor(input.truth, "receipt");

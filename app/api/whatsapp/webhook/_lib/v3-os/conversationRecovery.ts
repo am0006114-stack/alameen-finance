@@ -7,6 +7,7 @@ import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } fro
 import { applicationFormIssueText, commercialPauseOrDeclineText, contextualTurnSignals, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, installmentAdjustmentQuestionText, managementInfoQuestionText, mapLocationRequestText, multipleDeviceEligibilityQuestionText, orderChangeRequestText, orderChangeRetractionText, productPriceStructureQuestionText, punctuationOnlyTurnText } from "./contextualTurnResolver";
 import { buildSafeContractingPartyReply, buildSafeRegistrationReply, buildSafeTrustReply, contractingPartyQuestionText, registrationOrLicensingQuestionText, safetyTrustQuestionText } from "./legalTrustGuard";
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
+import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
@@ -282,7 +283,7 @@ function continuationReply(turn: InterpretedTurn, truth: TruthBundle) {
   if (isContinuationRevenueReady(app)) {
     const receipt = links.relevant.receipt;
     const upload = receipt ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : "\nرابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن، لذلك ما رح أعطيك رابطًا عامًا بدل الصحيح.";
-    return `تمام، هيك بنكمّل. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول، ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ${p.paymentMethodRule}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
+    return `تمام، هيك بنكمّل. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول، ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ${currentFileOpeningPaymentRule()}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
   }
   if (commercial === "no_application") return "تمام، فهمت إنك بدك تستمر، بس ما عندي طلب موثوق مربوط بالمحادثة الآن. ما رح أعطيك بيانات دفع قبل ربط الطلب الصحيح.";
   const stage = applicationJourneyStage(app);

@@ -11,6 +11,7 @@ import { buildSafePaymentFirewallReply, paymentDisclosureDecision } from "./paym
 import { contextualTurnSignals } from "./contextualTurnResolver";
 import { pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
+import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 
 const ACTION_LABELS: Record<string,string> = {
   cancel_application: "إلغاء الطلب",
@@ -265,14 +266,14 @@ ${products}`;
       if (links.relevant.receipt) parts.push(`تأكيد الدفع يتم يدويًا من الإدارة بعد مراجعة الوصل. رابط رفع الوصل الرسمي المرتبط بطلبك: ${links.relevant.receipt}`);
       else parts.push(app?.trackingId ? "تأكيد الدفع يتم يدويًا من الإدارة، لكن رابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن؛ ما رح أعطيك رابط غير موثق." : "تأكيد الدفع يتم يدويًا من الإدارة، لكن ما عندي رابط مرتبط بطلب موثوق هسا، وما رح أعطيك رابط عام بدل الصحيح.");
     } else {
-      parts.push(p.paymentMethodRule);
+      parts.push(currentFileOpeningPaymentRule());
     }
   }
 
   if (topics.has("continuation")) {
     const commercial = continuationCommercialState(app);
     if (commercial === "payment_ready") {
-      parts.push(`تمام. بما إن عندك موافقة مبدئية واخترت تكمل، رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير. ${p.fileOpeningFeePurposeRule} ${p.fileOpeningFeeRefundRule} وهي منفصلة عن ثمن الجهاز والقسط الأول. ${p.paymentMethodRule}`);
+      parts.push(`تمام. بما إن عندك موافقة مبدئية واخترت تكمل، رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير. ${p.fileOpeningFeePurposeRule} ${p.fileOpeningFeeRefundRule} وهي منفصلة عن ثمن الجهاز والقسط الأول. ${currentFileOpeningPaymentRule()}`);
       if (links.relevant.receipt) parts.push(`بعد التحويل ارفع الوصل من الرابط الرسمي: ${links.relevant.receipt}`);
       parts.push("اعتماد الدفع النهائي يتم يدويًا من الإدارة بعد مراجعة الوصل.");
     } else if (commercial === "already_paid") parts.push("الدفع مؤكد إداريًا أصلًا، فما في داعي تعيد الدفع أو ترفع وصل جديد.");

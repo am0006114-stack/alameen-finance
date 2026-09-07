@@ -9,6 +9,7 @@ import { buildOfficialLinkContext, detectReplyLinkViolations } from "./linkInteg
 import { appointmentCoordinationOverclaim, asksOfficeSchedule, bankStatementDurationQuestion, productAvailabilityOverclaim, safeCustomerFirstName, resolveOfficeScheduleTarget } from "./operationalPrecision";
 import { explicitNewApplicationText, foreignApplicantFormBlocker, showroomBrowsingRequest } from "./conversationRecovery";
 import { containsRestrictedPaymentExecutionDetail, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
+import { containsCurrentFileOpeningPaymentDestination, containsLegacyFileOpeningPaymentDestination } from "./paymentDestinationOverride";
 
 function claimExecuted(text: string, action: string[]) {
   const t = normalizeArabic(text);
@@ -111,7 +112,7 @@ function hasContinuationDecisionQuestion(reply: string) {
 
 function hasPaymentDetail(reply: string) {
   const n = normalizeArabic(reply);
-  return /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,40}(?:كليك|cliq|محفظه|محفظة)/i.test(reply) ||
+  return /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,40}(?:كليك|cliq|محفظه|محفظة)/i.test(reply) ||
     n.includes(normalizeArabic("رسوم فتح الملف"));
 }
 
@@ -226,7 +227,7 @@ function explicitFeeQuestion(turn: InterpretedTurn) {
 }
 
 function restrictedPaymentDestinationDetail(reply: string) {
-  return /AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,45}(?:كليك|cliq|محفظه|محفظة)|(?:رقم|معرف)[^\n]{0,25}(?:الدفع|المحفظه|المحفظة)/i.test(reply);
+  return /PAYAMEEEN|AMEEN1ST|AM500337|0788500337|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,45}(?:كليك|cliq|محفظه|محفظة)|(?:رقم|معرف)[^\n]{0,25}(?:الدفع|المحفظه|المحفظة)/i.test(reply);
 }
 
 function excessiveLaughter(reply: string) {
@@ -554,14 +555,16 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (paymentConfirmed && /(?:ارفع|رفع|ابعث|ارسل|أرسل)[^\n]{0,60}(?:وصل الدفع|اثبات الدفع|إثبات الدفع)/.test(t)) truthContradictions.push("payment_already_confirmed_receipt_re_requested");
   if (paymentConfirmed && /(?:بانتظار الدفع|لازم تدفع|ادفع الرسوم|ادفع 5|ادفع ٥)/.test(t)) truthContradictions.push("payment_already_confirmed_but_reply_requests_payment");
 
+  if (containsLegacyFileOpeningPaymentDestination(reply)) policyViolations.push("legacy_payment_destination_forbidden");
+
   if (input.turn.topics.includes("continuation")) {
     const commercial = continuationCommercialState(input.truth.application);
     if (commercial === "payment_ready") {
       const feeMentioned = /(?:5|٥)\s*(?:دنانير|دينار)/.test(reply) && /رسوم\s*فتح\s*الملف/.test(t);
       if (!feeMentioned) policyViolations.push("continuation_payment_ready_missing_5_jod_fee");
       if (/لا\s*يوجد\s*اي\s*دفع\s*مطلوب|ما\s*في\s*دفع\s*مطلوب|لا\s*دفع\s*مطلوب/.test(t)) truthContradictions.push("continuation_payment_ready_wrong_no_payment_claim");
-      const aliases = input.truth.policy.paymentAliases || [];
-      if (aliases.length && !aliases.some((alias) => reply.includes(alias))) policyViolations.push("continuation_payment_ready_missing_payment_destination");
+      if (!containsCurrentFileOpeningPaymentDestination(reply)) policyViolations.push("continuation_payment_ready_missing_current_payment_destination");
+      if (containsLegacyFileOpeningPaymentDestination(reply)) policyViolations.push("legacy_payment_destination_forbidden");
       const receiptLink = buildOfficialLinkContext(input.turn, input.truth).relevant.receipt;
       if (receiptLink && !reply.includes(receiptLink)) policyViolations.push("continuation_payment_ready_missing_receipt_link");
       if (!/القسط\s*الاول|القسط\s*الأول/.test(t)) policyViolations.push("continuation_payment_ready_first_installment_distinction_missing");
