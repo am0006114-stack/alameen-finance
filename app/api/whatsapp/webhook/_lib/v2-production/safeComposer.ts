@@ -29,6 +29,41 @@ function linkFor(truth: V2ResolvedTruth, path: string) {
 }
 
 
+function paymentFailureOrDestinationProblemText(value: string | null | undefined) {
+  const raw = String(value || "");
+  const q = raw.toLowerCase();
+  const mentionsLegacy = V2_POLICY.forbiddenPaymentAliases.some((alias) => q.includes(String(alias).toLowerCase()));
+  const paymentContext = /(?:دفع|ادفع|أدفع|تحويل|احول|أحول|حواله|حوالة|كليك|cliq|محفظه|محفظة|wallet|alias|معرف|المستفيد|اسم\s+المستفيد)/i.test(raw);
+  const failureContext = /(?:فشل|فاشل|ما\s+زبط|ما\s+بزبط|مش\s+زابط|مو\s+زابط|مش\s+راضي|مو\s+راضي|ما\s+رضي|رفض|مرفوض|خطا|خطأ|تعذر|error|invalid|not\s+found|unable|cannot|can'?t|مش\s+موجود|مو\s+موجود|ما\s+بطلع|ما\s+طلع|ما\s+ظهر|ما\s+بيظهر|مش\s+لاقي|ما\s+لقيت)/i.test(raw);
+  return mentionsLegacy || (paymentContext && failureContext);
+}
+
+function v2PaymentFailureRecoveryReply(truth: V2ResolvedTruth) {
+  const app = truth.application;
+  const paymentStatus = String(app?.payment_status || "").trim().toLowerCase();
+  const status = String(app?.status || "").trim().toLowerCase();
+  const confirmed = truth.confidence === "high" && (paymentStatus === "confirmed" || Boolean(app?.payment_confirmed_at));
+
+  if (confirmed) {
+    return "تمام، الدفع مؤكد إداريًا على طلبك. لا تعيد الدفع ولا تستخدم أي بيانات تحويل جديدة.";
+  }
+
+  const paymentReady = truth.confidence === "high"
+    && (["customer_confirmed_continue", "payment_info_sent"].includes(status)
+      || ["pending_payment", "payment_info_sent"].includes(paymentStatus));
+
+  const intro = "نعتذر منك عن المشكلة. صار تحديث طارئ على أسماء CliQ الخاصة بمحفظة دفع رسوم فتح الملف، فإذا كنت تستخدم بيانات دفع أرسلناها سابقًا تجاهلها وما تعيد المحاولة عليها.";
+
+  if (!paymentReady) {
+    return `${intro} بيانات التحويل الحالية بنعطيك إياها فقط لما تكون خطوة الدفع مفتوحة فعليًا على طلبك.`;
+  }
+
+  const receipt = linkFor(truth, "receipt");
+  const receiptText = receipt ? `\n\nبعد نجاح التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : "";
+  return `${intro}\n\nالبيانات المعتمدة الآن: ${V2_POLICY.paymentAliases.join(" أو ")}، أو الرقم ${V2_POLICY.paymentPhone}. الجهة المستلمة Orange Money، واسم المستفيد ${V2_POLICY.paymentBeneficiary}.${receiptText}\n\nإذا ظل التحويل يرفض، ابعث نص رسالة الخطأ فقط بدون أي معلومات بنكية حساسة.`;
+}
+
+
 function actionResultFor(input: V2ActionExecution | null | undefined, intents: string[]) {
   return input?.results?.find((item) => intents.includes(String(item.intent))) || null;
 }
@@ -81,6 +116,10 @@ export function composeV2TruthOnlyReply(input: {
 
   if (topics.has("greeting") && topics.size === 1) return "أهلًا فيك، تفضل.";
   if (topics.has("acknowledgement") && topics.size === 1) return "تمام، وصلتني.";
+
+  if (paymentFailureOrDestinationProblemText(input.customerText)) {
+    return v2PaymentFailureRecoveryReply(input.truth);
+  }
 
   if (topics.has("application_status")) parts.push(applicationContext(input.truth));
   if (topics.has("review_timing")) {

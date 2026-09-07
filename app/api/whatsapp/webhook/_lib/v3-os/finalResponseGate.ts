@@ -6,6 +6,7 @@ import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } fr
 import { mutationQuestion, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 import { containsLegacyFileOpeningPaymentDestination, currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
+import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemText, paymentFailureRecoveryReplyIsCurrent } from "./paymentFailureRecovery";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -521,6 +522,14 @@ function buildReplacement(input: {
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
   if (commercialPauseTurn(input.turn, input.state)) return buildCommercialPauseReply();
+  if (paymentFailureOrDestinationProblemText(input.turn.rawText)) {
+    const links = buildOfficialLinkContext(input.turn, input.truth);
+    return buildPaymentFailureRecoveryReply({
+      turn: input.turn,
+      truth: input.truth,
+      receiptLink: links.relevant.receipt || null,
+    });
+  }
   if (input.legacyPaymentDestination) {
     if (decision.paymentExecutionDetailsAllowed) return buildCurrentPaymentExecutionReply({ truth: input.truth, turn: input.turn });
     if (decision.alreadyPaid) return "الدفع مؤكد إداريًا على طلبك، فما في داعي لأي بيانات تحويل جديدة.";
@@ -598,6 +607,12 @@ export function enforceFinalResponseGate(input: {
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
   const legacyPaymentDestination = Boolean(reply && containsLegacyFileOpeningPaymentDestination(reply));
+  const paymentFailureTurn = paymentFailureOrDestinationProblemText(input.turn.rawText);
+  const paymentFailureRecoveryMissing = paymentFailureTurn && !paymentFailureRecoveryReplyIsCurrent(reply, paymentDecision);
+  if (paymentFailureRecoveryMissing) {
+    violations.push("payment_failure_recovery_required");
+    severity = "p0";
+  }
   const paymentLeak = Boolean(reply && containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) && !paymentDecision.paymentExecutionDetailsAllowed);
   if (paymentLeak) {
     violations.push(`payment_execution_details_not_allowed:${paymentDecision.reason}`);

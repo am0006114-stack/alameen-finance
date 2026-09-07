@@ -8,6 +8,7 @@ import { applicationFormIssueText, commercialPauseOrDeclineText, contextualTurnS
 import { buildSafeContractingPartyReply, buildSafeRegistrationReply, buildSafeTrustReply, contractingPartyQuestionText, registrationOrLicensingQuestionText, safetyTrustQuestionText } from "./legalTrustGuard";
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
+import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemText } from "./paymentFailureRecovery";
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
@@ -215,6 +216,10 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
     addAct(acts, turn, { type: "provide_fact", topic: "payment_status", confidence: 0.98, action: "none", value: "customer_claimed_payment" });
   }
 
+  if (paymentFailureOrDestinationProblemText(turn.rawText)) {
+    addAct(acts, turn, { type: "ask", topic: "payment_method", confidence: 0.999, action: "none", value: "payment_failure_or_destination_problem" });
+  }
+
   if (dialogueSignals.siteIssue) {
     addAct(acts, turn, { type: "ask", topic: "website", confidence: 0.995, action: "none", value: "site_issue" });
   }
@@ -345,6 +350,7 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || signals.contractingPartyQuestion
     || signals.safetyTrustQuestion
     || explicitReceiptUploadConfirmationText(input.turn.rawText)
+    || paymentFailureOrDestinationProblemText(input.turn.rawText)
     || signals.trackingLinkRequest
     || signals.refundMeaning
     || signals.continueAfterCancellation;
@@ -380,6 +386,14 @@ export function buildConversationRecoveryReply(input: {
 
   if (dialogueSignals.commercialPause || commercialPauseOrDeclineText(raw, input.state.lastAssistantText)) {
     return "تمام، بنخلي خطوة الاستمرار لبعدين. ما في دفع مطلوب هسا، وما رح أرسل تعليمات تحويل على قرار مؤجل. لما تقرر تكمل لاحقًا بنعتمد حالة الطلب وقتها بدون ضغط.";
+  }
+
+  if (paymentFailureOrDestinationProblemText(raw)) {
+    return buildPaymentFailureRecoveryReply({
+      turn: input.turn,
+      truth: input.truth,
+      receiptLink: links.relevant.receipt || null,
+    });
   }
 
   if (dialogueSignals.orderChangeRetraction || orderChangeRetractionText(raw)) {
