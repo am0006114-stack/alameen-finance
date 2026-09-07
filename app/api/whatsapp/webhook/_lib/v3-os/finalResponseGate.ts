@@ -1,6 +1,6 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
-import { containsRestrictedPaymentExecutionDetail, customerTextIsNonFeePaymentContext, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
+import { containsFiveJodFeeExplanation, containsRestrictedPaymentExecutionDetail, customerTextIsNonFeePaymentContext, explicitFeePolicyQuestionText, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { normalizeArabic } from "./text";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 import { mutationQuestion, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
@@ -17,6 +17,51 @@ function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function registrationOrLicensingQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:مسجلين|مسجله|مسجلة|مسجل|معتمدين|معتمده|معتمدة|مرخصين|مرخصه|مرخصة|ترخيص|سجل\s+تجاري|السجل\s+التجاري|الحكومه|الحكومة).{0,45}(?:الشركه|الشركة|الجهه|الجهة|انتو|انتم|عندكم)?|(?:الشركه|الشركة|الجهه|الجهة|انتو|انتم).{0,45}(?:مسجل|معتمد|مرخص|ترخيص|سجل\s+تجاري|الحكومه|الحكومة)/.test(q);
+}
+
+function contractingPartyQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:مين|من).{0,30}(?:الشركه|الشركة|الجهه|الجهة).{0,35}(?:القانونيه|القانونية).{0,40}(?:العقد|باسمها)|(?:العقد).{0,35}(?:باسم\s+مين|باسم\s+من|مع\s+مين|مع\s+من|بين\s+مين|بين\s+من|طرف|الطرف)|(?:مين|من).{0,25}(?:طرف\s+العقد|اطراف\s+العقد|أطراف\s+العقد)|(?:هل|هو).{0,25}(?:البنك|شركة\s+تمويل|شركه\s+تمويل).{0,30}(?:طرف|بالعقد|في\s+العقد)/.test(q);
+}
+
+function safetyTrustQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:هل|يعني|صراحه|صراحة)?.{0,12}(?:امنه|آمنة|امن|آمن|موثوقه|موثوقة|موثوق|مضمونه|مضمونة)|(?:نصب|نصاب|نصابين|احتيال|مصداقيه|مصداقية|ثقه|ثقة|فيد\s*باك|feedback|خايف|خايفه|خايفة|متخوف|متخوفه|متخوفة)/i.test(q);
+}
+
+function legalOrTrustQuestionText(value: string | null | undefined) {
+  return registrationOrLicensingQuestionText(value) || contractingPartyQuestionText(value) || safetyTrustQuestionText(value);
+}
+
+function buildSafeContractingPartyReply() {
+  return "العقد بيكون مباشرة بين الشركة والعميل، ومش مع بنك أو شركة تمويل خارجية كطرف بالعقد. أما الاسم القانوني المثبت على العقد، المرجع هو الاسم المكتوب في العقد وبيانات الشركة الرسمية؛ ما رح أخمّن باسم قانوني من الاسم التشغيلي وحده.";
+}
+
+function buildSafeRegistrationReply(truth: TruthBundle) {
+  return `بالنسبة للتسجيل أو الترخيص أو الاعتماد، ما عندي حقيقة موثقة ضمن بيانات المحادثة أقدر أأكد منها رقم تسجيل أو جهة ترخيص، لذلك ما رح أخمّن. اللي بقدر أؤكده هو: ${truth.policy.independenceStatement}`;
+}
+
+function buildSafeLegalTrustReply(truth: TruthBundle) {
+  return `مفهوم إنك بدك تطمّن قبل ما تكمل. ما رح أعطيك ضمان عام أو أؤكد تسجيل/ترخيص بدون حقيقة موثقة. اللي بقدر أؤكده إن التعامل على الطلب بيكون مباشرة مع الشركة، وكل حالة دفع أو تعديل أو موافقة بنعتبرها صحيحة فقط لما تكون مثبتة فعليًا على الطلب. ${truth.policy.independenceStatement}`;
+}
+
+function unsupportedLegalEntityClaim(reply: string, truth: TruthBundle) {
+  const n = normalized(reply);
+  const business = normalized(truth.policy.businessName || "");
+  const assertsRegistered = /(?:احنا|نحن|الشركه|الشركة|الجهه|الجهة).{0,35}(?:مسجلين|مسجله|مسجلة|مرخصين|مرخصه|مرخصة|معتمدين|معتمده|معتمدة)|(?:مسجلين|مرخصين|معتمدين).{0,25}(?:قانونيا|قانونيًا|بالحكومه|بالحكومة|رسميا|رسميًا)/.test(n);
+  const assertsLegalName = /(?:الاسم\s+القانوني|الشركه\s+القانونيه|الشركة\s+القانونية).{0,35}(?:هو|هي|اسمها)|(?:العقد).{0,30}(?:رح|راح|بيكون|بكون).{0,20}(?:باسم)/.test(n)
+    && Boolean(business) && n.includes(business);
+  return assertsRegistered || assertsLegalName;
+}
+
+function trustLegalCommercialNudge(reply: string) {
+  const n = normalized(reply);
+  return /(?:رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار)|اود\s+الاستمرار|أود\s+الاستمرار|بدك\s+تكمل|بانتظارك\s+تدفع|ادفع\s+رسوم|دفع\s+رسوم|حول\s+المبلغ|حوّل\s+المبلغ|\/receipt)/.test(n);
+}
+
 function roboticPhrase(reply: string) {
   const n = normalized(reply);
   return /الطلب\s+AM-\d+\s+مربوط\s+(?:بالمحادثه|بالمحادثة)|احكيلي\s+النقطه\s+اللي\s+بدك\s+تعرفها|إذا\s+في\s+نقطه\s+محدده\s+بالطلب|اذا\s+في\s+نقطه\s+محدده\s+بالطلب|إذا\s+سؤالك\s+عن\s+طلب\s+سابق\s+ابعث\s+رقم\s+التتبع|اذا\s+سؤالك\s+عن\s+طلب\s+سابق\s+ابعث\s+رقم\s+التتبع|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+حاله|ما\s+في\s+تحديث\s+جديد\s+عن\s+آخر\s+حالة|على\s+الموجود\s+فعليا\s+بدون\s+ما\s+الفك\s+بنفس\s+الكلام/.test(n);
@@ -29,7 +74,9 @@ function directProductAvailabilityQuestion(turn: InterpretedTurn) {
 
 function trustConcern(turn: InterpretedTurn) {
   const q = normalized(turn.rawText);
-  return turn.topics.includes("trust") || turn.topics.includes("complaint") || /(?:نصب|نصاب|مصداقيه|مصداقية|اضمن|أضمن|يضمن|ثقه|ثقة|مسجلين\s+قانون|قانونيا|قانونيًا|خايف|خايفة|متخوف)/.test(q);
+  return turn.topics.includes("trust") || turn.topics.includes("legal") || turn.topics.includes("complaint")
+    || legalOrTrustQuestionText(turn.rawText)
+    || /(?:نصب|نصاب|مصداقيه|مصداقية|اضمن|أضمن|يضمن|ثقه|ثقة|قانونيا|قانونيًا|خايف|خايفة|متخوف)/.test(q);
 }
 
 function customerClaimsPaid(turn: InterpretedTurn) {
@@ -84,7 +131,24 @@ function installmentAdjustmentTurn(turn: InterpretedTurn) {
 
 function unsupportedGuarantorAcceptanceRule(reply: string) {
   const n = normalized(reply);
-  return /(?:الكفيل).{0,35}(?:ما|مش|مو).{0,15}(?:لازم|ضروري).{0,20}(?:موظف)|(?:المهم).{0,25}(?:قادر|قدره).{0,20}(?:التغطيه|التغطية)|(?:حركه|حركة)\s+الحساب.{0,25}(?:بتساعد|تكفي|مقبول)/.test(n);
+  return /(?:الكفيل).{0,35}(?:ما|مش|مو).{0,15}(?:لازم|ضروري).{0,20}(?:موظف)|(?:المهم).{0,25}(?:قادر|قدره).{0,20}(?:التغطيه|التغطية)|(?:حركه|حركة)\s+الحساب.{0,25}(?:بتساعد|تكفي|مقبول)|(?:الكفيل|بيانات\s+الكفيل).{0,30}(?:هو|هي|يكون|تكون).{0,18}(?:الحل|حل\s+مناسب)|(?:ممكن).{0,22}(?:الكفيل|بيانات\s+الكفيل).{0,22}(?:الحل|حل\s+مناسب)/.test(n);
+}
+
+function unsupportedEligibilityDecisionRule(reply: string) {
+  const n = normalized(reply);
+  return /(?:الاهليه|الأهلية).{0,25}(?:بتعتمد|تعتمد).{0,45}(?:الدخل).{0,25}(?:الالتزامات)|(?:الدخل\s+والالتزامات).{0,35}(?:الاهليه|الأهلية|القبول)|(?:عدد\s+الاجهزه|عدد\s+الأجهزة).{0,35}(?:ما\s+باثر|ما\s+بياثر|مش\s+مهم).{0,25}(?:الاهليه|الأهلية)/.test(n);
+}
+
+function confirmedPaymentRegressedToPending(reply: string, truth: TruthBundle) {
+  if (!paymentHistoricallyConfirmed(truth.application)) return false;
+  const n = normalized(reply);
+  return /(?:وصل|اثبات\s+الدفع|إثبات\s+الدفع).{0,55}(?:بانتظار|قيد).{0,35}(?:مراجعه|مراجعة|اعتماد)|(?:بانتظار|قيد).{0,35}(?:مراجعه|مراجعة|اعتماد).{0,55}(?:وصل|اثبات\s+الدفع|إثبات\s+الدفع)|(?:الدفع).{0,35}(?:بانتظار).{0,25}(?:التاكيد|التأكيد|الاعتماد)/.test(n);
+}
+
+function reviewTimingAbandonedForMissingDetails(reply: string, turn: InterpretedTurn) {
+  if (!reviewTimingQuestion(turn)) return false;
+  const n = normalized(reply);
+  return /(?:تفاصيل\s+الطلب).{0,25}(?:مش|مو|غير).{0,20}(?:كامله|كاملة|مكتمله|مكتملة)|(?:ما\s+عندي).{0,30}(?:تفاصيل\s+كامله|تفاصيل\s+كاملة)/.test(n);
 }
 
 function refundMeaningQuestion(turn: InterpretedTurn) {
@@ -204,12 +268,17 @@ function buildReviewTimingReply(input: { truth: TruthBundle; state: Conversation
     };
     return `طلب ${labels[pendingManual] || "التعديل"} بانتظار تنفيذ الإدارة على نفس الملف. ما عندي وقت ثابت وموثق لتنفيذه، لذلك ما بدي أعطيك موعد من عندي. الحالة الحالية ما بتتغير عندي إلا بعد التنفيذ الفعلي.`;
   }
-  if (!app) return `${normalizedReviewWindow(p.normalReviewWindow)}، وحاليًا في ضغط مراجعات شديد. إذا بدك مدة تخص طلبك نفسه لازم يكون الطلب مربوط بشكل موثوق أولًا.`;
+  if (!app) {
+    const tracking = input.state.activeTrackingId;
+    const bound = tracking ? `طلبك ${tracking} مربوط بالمحادثة، لكن ما عندي نتيجة موافقة جديدة موثقة بهاللحظة. ` : "";
+    return `${bound}${normalizedReviewWindow(p.normalReviewWindow)}، وحاليًا في ضغط مراجعات شديد وبعض الملفات بتتأخر أكثر من الطبيعي. ما عندي موعد نهائي موثق أقدر أضمنه.`;
+  }
   const stage = applicationJourneyStage(app);
   if (stage === "cancelled") return "الطلب متوقف/ملغي حاليًا، لذلك ما في مراجعة فعالة ماشية عليه الآن. إذا كان في طلب إعادة فتح، بضل بانتظار التنفيذ الفعلي قبل ما أحكي عن مدة مراجعة جديدة.";
   if (stage === "refund_requested") return "الاسترداد مسجل وقيد المعالجة. ما عندي موعد تحويل ثابت وموثق أقدر أضمنه، وبعتمد فقط التنفيذ الفعلي لما يتم.";
   if (stage === "preliminary_approved_waiting_decision") return `الموافقة المبدئية صدرت، لكن الدراسة النهائية ما بتبدأ قبل اختيار الاستمرار وفتح الملف. بعد هالخطوة ${normalizedReviewWindow(p.normalReviewWindow)}، وحاليًا في ضغط مراجعات قد يطيل بعض الملفات.`;
-  return `طلبك ${customerFacingStatusLabel(app)}. ${normalizedReviewWindow(p.normalReviewWindow)}، لكن حاليًا في ضغط مراجعات شديد وبعض الملفات بتتأخر أكثر من الطبيعي. ما عندي موعد نهائي موثق أقدر أضمنه.`;
+  const paid = paymentHistoricallyConfirmed(app) ? "الدفع مؤكد إداريًا، وما في داعي تعيد الدفع أو ترفع الوصل. " : "";
+  return `${paid}طلبك ${customerFacingStatusLabel(app)}. ${normalizedReviewWindow(p.normalReviewWindow)}، لكن حاليًا في ضغط مراجعات شديد وبعض الملفات بتتأخر أكثر من الطبيعي. ما عندي موعد نهائي موثق أقدر أضمنه.`;
 }
 
 function buildProductReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
@@ -219,7 +288,7 @@ function buildProductReply(input: { turn: InterpretedTurn; truth: TruthBundle })
 }
 
 function buildTrustReply(input: { truth: TruthBundle }) {
-  return `مفهوم تخوفك، خصوصًا مع كثرة حالات الاحتيال. اللي بقدر أؤكده بدون مبالغة: ${input.truth.policy.independenceStatement} كل خطوة على الطلب بنعتمدها من حالته الفعلية، وما بنعتبر دفع أو تعديل أو موافقة نهائية تمت إلا إذا كانت مثبتة فعليًا. إذا عندك نقطة محددة مخوفتك احكيها وبجاوبك عليها مباشرة.`;
+  return buildSafeLegalTrustReply(input.truth);
 }
 
 function buildStatusReply(input: { truth: TruthBundle }) {
@@ -306,7 +375,18 @@ ${products}`;
 }
 
 function buildSafeGuarantorReply() {
-  return "بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. ما عندي معيار موثق أقدر أقول منه إن الكفيل لازم أو مش لازم يكون موظف؛ إذا احتاج الملف بيانات كفيل أو مستند إضافي بنطلبه بشكل محدد عبر الرابط الرسمي الآمن.";
+  return "بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. ما عندي معيار موثق أقدر أقول منه إن الكفيل لازم أو مش لازم يكون موظف، ولا بعتبره حلًا تلقائيًا لغياب إثبات الدخل. إذا احتاج الملف بيانات كفيل أو مستند إضافي بنطلبه بشكل محدد عبر الرابط الرسمي الآمن.";
+}
+
+function buildSafeEligibilityReply() {
+  return "ما بقدر أحكم على الأهلية من عدد الأجهزة أو من معيار واحد من عندي. القبول بيتحدد بعد دراسة الطلب نفسه وفق المتطلبات المعتمدة، وما رح أنسب قرار القبول لمعايير غير موثقة بالمحادثة.";
+}
+
+function buildConfirmedPaymentReply(input: { truth: TruthBundle; turn: InterpretedTurn; state: ConversationState }) {
+  if (reviewTimingQuestion(input.turn)) return buildReviewTimingReply({ truth: input.truth, turn: input.turn, state: input.state });
+  const app = input.truth.application;
+  const status = app ? customerFacingStatusLabel(app) : "المرحلة الحالية";
+  return `الدفع مؤكد إداريًا على الطلب، وما في داعي تعيد الدفع أو ترفع الوصل. الحالة الحالية: ${status}.`;
 }
 
 function buildReplacement(input: {
@@ -320,18 +400,29 @@ function buildReplacement(input: {
   unsupportedRefundEta: boolean;
   repeatedMutationPrompt: boolean;
   repeatedEmpathy: boolean;
+  paymentRegression: boolean;
+  legalTruthViolation: boolean;
+  trustCommercialNudgeViolation: boolean;
+  unsupportedEligibility: boolean;
+  reviewTimingMissingDetails: boolean;
 }) {
   const decision = paymentDisclosureDecision({
     application: input.truth.application,
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  if (contractingPartyQuestionText(input.turn.rawText)) return buildSafeContractingPartyReply();
+  if (registrationOrLicensingQuestionText(input.turn.rawText)) return buildSafeRegistrationReply(input.truth);
+  if (safetyTrustQuestionText(input.turn.rawText) || input.trustCommercialNudgeViolation || input.legalTruthViolation) return buildSafeLegalTrustReply(input.truth);
+  if (input.paymentRegression) return buildConfirmedPaymentReply({ truth: input.truth, turn: input.turn, state: input.state });
+  if (input.reviewTimingMissingDetails) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
   if (applicationFormIssueTurn(input.turn)) return buildApplicationFormIssueReply();
   if (noPriorApplicationTurn(input.turn)) return buildNoPriorApplicationReply({ turn: input.turn, truth: input.truth });
   if (financingStructureTurn(input.turn)) return buildFinancingStructureReply();
   if (generalRequirementsTurn(input.turn)) return buildGeneralRequirementsReply();
   if (installmentAdjustmentTurn(input.turn)) return buildInstallmentAdjustmentReply();
   if (unsupportedGuarantorAcceptanceRule(input.reply)) return buildSafeGuarantorReply();
+  if (input.unsupportedEligibility) return buildSafeEligibilityReply();
   if (input.unsupportedRefundEta || (input.repeatedMutationPrompt && refundTimingQuestion(input.turn))) return buildSafeRefundTimingReply();
   if ((input.unsupportedOperationalPromise || input.repeatedMutationPrompt) && delayComplaint(input.turn)) return buildDelayComplaintReply({ truth: input.truth });
   if (input.repeatedEmpathy) return withoutRepeatedEmpathyOpener(input.reply);
@@ -397,9 +488,27 @@ export function enforceFinalResponseGate(input: {
   if (receiptUploadConfirmation(input.turn) && /رسوم\s+فتح\s+الملف.{0,18}(?:5|٥|خمس)/.test(normalized(reply))) violations.push("receipt_confirmation_replayed_fee_education");
   if (socialCloseTurn(input.turn) && /(?:حاله\s+طلبك|حالة\s+طلبك|رقم\s+طلبك|قيد\s+الدراسه|قيد\s+الدراسة|رابط\s+التتبع|رسوم\s+فتح\s+الملف)/.test(normalized(reply))) violations.push("social_close_should_not_dump_status");
   if (continuationStageRegression(reply, input.truth)) violations.push("continuation_stage_regression");
-  if (trustConcern(input.turn) && /(?:جهة\s+معروفه|جهة\s+معروفة|مسجلين\s+قانونيا|مسجلين\s+قانونيًا|مرخصين|مرخصة)/.test(normalized(reply))) violations.push("unsupported_trust_or_registration_claim");
+  const legalTruthViolation = unsupportedLegalEntityClaim(reply, input.truth)
+    || (trustConcern(input.turn) && /(?:جهة\s+معروفه|جهة\s+معروفة|مسجلين\s+قانونيا|مسجلين\s+قانونيًا|مرخصين|مرخصة)/.test(normalized(reply)));
+  if (legalTruthViolation) {
+    violations.push("unsupported_legal_registration_or_contracting_entity_claim");
+    // Backward-compatible integrity label retained for Phase 7.3.0 regression tests/telemetry.
+    violations.push("unsupported_trust_or_registration_claim");
+  }
+  const trustCommercialNudgeViolation = legalOrTrustQuestionText(input.turn.rawText)
+    && !explicitFeePolicyQuestionText(input.turn.rawText)
+    && (trustLegalCommercialNudge(reply) || containsFiveJodFeeExplanation(reply) || containsRestrictedPaymentExecutionDetail(reply, input.truth.policy));
+  if (trustCommercialNudgeViolation) violations.push("trust_or_legal_turn_must_not_push_commercial_step");
+  if (contractingPartyQuestionText(input.turn.rawText) && !/(?:العقد).{0,45}(?:بين|مباشره|مباشرة).{0,35}(?:الشركه|الشركة).{0,25}(?:العميل)|(?:العقد).{0,45}(?:الشركه|الشركة).{0,25}(?:العميل)/.test(normalized(reply))) {
+    violations.push("contracting_party_question_not_answered");
+  }
   if (customerClaimsPaid(input.turn) && /(?:لسه|لسا|ما).{0,40}(?:وصل|وصلت).{0,25}(?:مرحله|مرحلة).{0,25}(?:رسوم|الدفع)|(?:ما\s+في|لا\s+يوجد).{0,25}(?:مرحله|مرحلة).{0,20}(?:دفع|رسوم)/.test(normalized(reply))) {
     violations.push("customer_payment_claim_contradicted_by_stage_template");
+  }
+  const paymentRegression = confirmedPaymentRegressedToPending(reply, input.truth);
+  if (paymentRegression) {
+    violations.push("confirmed_payment_regressed_to_receipt_pending");
+    severity = "p0";
   }
   if (paymentHistoricallyConfirmed(input.truth.application) && /(?:ما\s+في|لا\s+يوجد|مش\s+موجود).{0,28}(?:دفع\s+موكد|دفع\s+مؤكد|دفع).{0,20}(?:اصلا|أصلا)?/.test(normalized(reply))) {
     violations.push("historically_confirmed_payment_cannot_be_denied");
@@ -411,6 +520,10 @@ export function enforceFinalResponseGate(input: {
   if ((generalRequirementsTurn(input.turn) || financingStructureTurn(input.turn)) && /(?:ما\s+عندي|ما\s+في).{0,45}(?:طلب\s+موثوق|خطوه\s+دفع|خطوة\s+دفع)|(?:ابعث|ابعت).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("general_requirements_not_answered");
   if (installmentAdjustmentTurn(input.turn) && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || /رسوم\s+فتح\s+الملف|خطوه\s+دفع|خطوة\s+دفع/.test(normalized(reply)))) violations.push("installment_adjustment_misrouted_to_file_opening_payment");
   if (unsupportedGuarantorAcceptanceRule(reply)) violations.push("unsupported_guarantor_acceptance_rule");
+  const unsupportedEligibility = unsupportedEligibilityDecisionRule(reply);
+  if (unsupportedEligibility) violations.push("unsupported_eligibility_decision_rule");
+  const reviewTimingMissingDetails = reviewTimingAbandonedForMissingDetails(reply, input.turn);
+  if (reviewTimingMissingDetails) violations.push("review_timing_abandoned_for_missing_details");
   if (refundMeaningQuestion(input.turn) && /(?:طلب\s+الاسترداد\s+مسجل|ما\s+في\s+خطوه\s+ناقصه)/.test(normalized(reply))) violations.push("refund_meaning_question_not_answered");
   if (wantsContinueAfterCancellation(input.turn) && applicationJourneyStage(input.truth.application) === "refund_requested" && /(?:الطلب\s+(?:شغال|مكمل|طبيعي)|ما\s+لغينا|ما\s+انلغي)/.test(normalized(reply))) {
     violations.push("refund_state_falsely_claimed_active");
@@ -463,6 +576,11 @@ export function enforceFinalResponseGate(input: {
       unsupportedRefundEta,
       repeatedMutationPrompt,
       repeatedEmpathy,
+      paymentRegression,
+      legalTruthViolation,
+      trustCommercialNudgeViolation,
+      unsupportedEligibility,
+      reviewTimingMissingDetails,
     }) : null,
     severity,
   };

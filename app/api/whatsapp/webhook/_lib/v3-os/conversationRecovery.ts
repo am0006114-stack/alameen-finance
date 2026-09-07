@@ -5,6 +5,8 @@ import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
 import { applicationFormIssueText, contextualTurnSignals, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, installmentAdjustmentQuestionText } from "./contextualTurnResolver";
+import { buildSafeContractingPartyReply, buildSafeRegistrationReply, buildSafeTrustReply, contractingPartyQuestionText, registrationOrLicensingQuestionText, safetyTrustQuestionText } from "./legalTrustGuard";
+import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
@@ -294,7 +296,8 @@ function reviewTimingReply(truth: TruthBundle, humanRequest: boolean) {
   const p = truth.policy;
   const state = app ? `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}. ` : "";
   const human = humanRequest ? "أنا متابع معك من نفس الواتساب، وبعطيك الموجود فعليًا على الطلب بدون ما أوعدك بشي مش مؤكد. " : "";
-  return `${human}${state}${normalizedReviewWindow(p.normalReviewWindow)}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد نهائي أقدر أضمنه، وإذا تأخر طلبك عن الطبيعي بعطيك نفس الحقيقة بدون تدوير أو إعادة نفس القالب.`;
+  const payment = app && paymentHistoricallyConfirmed(app) ? "الدفع مؤكد إداريًا، وما في داعي تعيد الدفع أو ترفع الوصل. " : "";
+  return `${human}${payment}${state}${normalizedReviewWindow(p.normalReviewWindow)}، لكن حاليًا ضغط المراجعات شديد وبعض الملفات بتتجاوز هالمدة. ما عندي موعد نهائي أقدر أضمنه.`;
 }
 
 export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedTurn; state: ConversationState; recentTurns?: string[] }) {
@@ -314,6 +317,9 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || signals.generalRequirements
     || signals.financingStructure
     || signals.installmentAdjustment
+    || signals.registrationQuestion
+    || signals.contractingPartyQuestion
+    || signals.safetyTrustQuestion
     || explicitReceiptUploadConfirmationText(input.turn.rawText)
     || signals.trackingLinkRequest
     || signals.refundMeaning
@@ -335,6 +341,18 @@ export function buildConversationRecoveryReply(input: {
   const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
   const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
+
+  if (dialogueSignals.contractingPartyQuestion || contractingPartyQuestionText(raw)) {
+    return buildSafeContractingPartyReply();
+  }
+
+  if (dialogueSignals.registrationQuestion || registrationOrLicensingQuestionText(raw)) {
+    return buildSafeRegistrationReply(input.truth.policy);
+  }
+
+  if (dialogueSignals.safetyTrustQuestion || safetyTrustQuestionText(raw)) {
+    return buildSafeTrustReply(input.truth);
+  }
 
   if (dialogueSignals.foreignApplicantFormIssue || foreignApplicantGeneralFormIssueText(raw)) {
     return "فهمت: المشكلة صارت أثناء تعبئة الطلب لأن بياناتك غير أردنية أو النموذج ما قبل بعض الخانات. لا تدخل بيانات غير صحيحة ولا تستبدل الرقم الوطني برقم جواز/إقامة من عندك. ما عندي مسار بديل موثق خارج النموذج أقدر أضمنه؛ ابعث اسم الخانة اللي واقفة أو نص رسالة الخطأ/صورة الشاشة، وبنحدد المشكلة نفسها بدون ما أطلب رقم تتبع لأن الطلب لسا ما اكتمل.";
@@ -385,7 +403,7 @@ ${products}`;
   if (explicitReceiptUploadConfirmationText(raw)) {
     const app = input.truth.application;
     const commercial = continuationCommercialState(app);
-    if (commercial === "already_paid") return "تمام، الدفع مؤكد إداريًا على طلبك، وما في عليك أي دفعة أو وصل جديد. الملف مكمل حسب مرحلته الحالية.";
+    if (paymentHistoricallyConfirmed(app) || commercial === "already_paid") return "تمام، الدفع مؤكد إداريًا على طلبك، وما في عليك أي دفعة أو وصل جديد. الملف مكمل حسب مرحلته الحالية.";
     if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded) return "تمام، وصل الدفع موجود على ملفك وبانتظار مراجعة الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية؛ أول ما يتم اعتماده بتتحدث حالة الطلب.";
     return "تمام، وصلتني متابعتك بخصوص الوصل. تأكيد الدفع النهائي يتم يدويًا بعد مراجعة الإثبات المرفوع من الرابط الرسمي، وما رح أعتبر الدفع مؤكد قبل ما يظهر الاعتماد على الملف.";
   }

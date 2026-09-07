@@ -40,8 +40,13 @@ export function stabilizeTruthSnapshot(input: {
   const previous = input.previousTruth?.application || input.state?.lastVerifiedApplication?.application || null;
   if (!sameApplication(current, previous)) return input.truth;
 
+  const previousConfirmed = paymentHistoricallyConfirmed(previous);
+  const currentConfirmed = paymentHistoricallyConfirmed(current);
   const merged: ApplicationTruth = {
     ...current,
+    paymentStatus: previousConfirmed && !currentConfirmed
+      ? (previous?.paymentStatus || "payment_confirmed")
+      : current.paymentStatus,
     paymentConfirmedAt: current.paymentConfirmedAt || previous?.paymentConfirmedAt || null,
     paymentReference: current.paymentReference || previous?.paymentReference || null,
     preliminaryQualifiedAt: current.preliminaryQualifiedAt || previous?.preliminaryQualifiedAt || null,

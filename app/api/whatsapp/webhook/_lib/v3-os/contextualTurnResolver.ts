@@ -5,6 +5,21 @@ function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function registrationOrLicensingQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:مسجلين|مسجله|مسجلة|مسجل|معتمدين|معتمده|معتمدة|مرخصين|مرخصه|مرخصة|ترخيص|سجل\s+تجاري|السجل\s+التجاري|الحكومه|الحكومة).{0,45}(?:الشركه|الشركة|الجهه|الجهة|انتو|انتم|عندكم)?|(?:الشركه|الشركة|الجهه|الجهة|انتو|انتم).{0,45}(?:مسجل|معتمد|مرخص|ترخيص|سجل\s+تجاري|الحكومه|الحكومة)/.test(q);
+}
+
+function contractingPartyQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:مين|من).{0,30}(?:الشركه|الشركة|الجهه|الجهة).{0,35}(?:القانونيه|القانونية).{0,40}(?:العقد|باسمها)|(?:العقد).{0,35}(?:باسم\s+مين|باسم\s+من|مع\s+مين|مع\s+من|بين\s+مين|بين\s+من|طرف|الطرف)|(?:مين|من).{0,25}(?:طرف\s+العقد|اطراف\s+العقد|أطراف\s+العقد)|(?:هل|هو).{0,25}(?:البنك|شركة\s+تمويل|شركه\s+تمويل).{0,30}(?:طرف|بالعقد|في\s+العقد)/.test(q);
+}
+
+function safetyTrustQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:هل|يعني|صراحه|صراحة)?.{0,12}(?:امنه|آمنة|امن|آمن|موثوقه|موثوقة|موثوق|مضمونه|مضمونة)|(?:نصب|نصاب|نصابين|احتيال|مصداقيه|مصداقية|ثقه|ثقة|فيد\s*باك|feedback|خايف|خايفه|خايفة|متخوف|متخوفه|متخوفة)/i.test(q);
+}
+
 function lastRelevantContext(state: ConversationState, recentTurns?: string[]) {
   const lines = (recentTurns || []).filter(Boolean);
   const tail = lines.slice(-10).join("\n");
@@ -27,7 +42,7 @@ export function installmentAdjustmentQuestionText(value: string | null | undefin
 
 export function generalRequirementsQuestionText(value: string | null | undefined) {
   const q = normalized(value);
-  return /(?:شو|ما|ايش|إيش).{0,18}(?:الشروط|المتطلبات|الاوراق|الأوراق)|(?:شو|ما).{0,18}(?:لازم|required)|(?:لازم|ضروري).{0,22}(?:كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب|هويه|هوية|كفيل)|(?:بزبط|بصير|ينفع).{0,28}(?:ع\s*الهويه|على\s+الهويه|بالهوية|بالهويه|بدون\s+كشف\s+راتب)|(?:كشف\s+راتب).{0,20}(?:لازم|ضروري|مطلوب)|(?:الهويه|الهوية).{0,25}(?:لحال|فقط|بس)/.test(q);
+  return /(?:شو|ما|ايش|إيش).{0,18}(?:الشروط|المتطلبات|الاوراق|الأوراق)|(?:شو|ما).{0,18}(?:لازم|required)|(?:لازم|ضروري).{0,22}(?:كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب|اثبات\s+دخل|إثبات\s+دخل|هويه|هوية|كفيل)|(?:بزبط|بصير|ينفع).{0,28}(?:ع\s*الهويه|على\s+الهويه|بالهوية|بالهويه|بدون\s+كشف\s+راتب)|(?:كشف\s+راتب|اثبات\s+دخل|إثبات\s+دخل).{0,20}(?:لازم|ضروري|مطلوب)|(?:الهويه|الهوية).{0,25}(?:لحال|فقط|بس)|(?:ما\s+عندي|بدون).{0,25}(?:كشف\s+راتب|اثبات\s+دخل|إثبات\s+دخل)|(?:طالب|طالبه|طالبة|جامعه|جامعة).{0,35}(?:كشف\s+راتب|اثبات\s+دخل|إثبات\s+دخل)/.test(q);
 }
 
 export function financingStructureQuestionText(value: string | null | undefined) {
@@ -57,6 +72,9 @@ export type ContextualTurnSignals = {
   nextStep: boolean;
   productAvailability: boolean;
   trustConcern: boolean;
+  registrationQuestion: boolean;
+  contractingPartyQuestion: boolean;
+  safetyTrustQuestion: boolean;
   humanRequest: boolean;
   paymentStatusClaim: boolean;
   siteIssue: boolean;
@@ -100,10 +118,15 @@ export function contextualTurnSignals(input: {
   const productAvailability = /(?:متوفر|موجود|في\s+عندكم|عندكم).{0,35}(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme|جهاز)|(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme).{0,35}(?:متوفر|موجود|عندكم)|^(?:في|فيه)\s+(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme)(?:\s|\d|$)|(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme).{0,30}(?:كم\s+سعر|قديش\s+سعر|شو\s+سعر|سعرو|سعره|سعرها|بكم)/i.test(q);
   if (productAvailability) topics.add("products");
 
-  const trustConcern = /(?:نصب|نصاب|نصابين|مصداقيه|اضمن|يضمن|ثقه|مسجلين\s+قانون|قانونيا|خايف|خايفه|متخوف|متخوفه)/.test(q);
+  const registrationQuestion = registrationOrLicensingQuestionText(q);
+  const contractingPartyQuestion = contractingPartyQuestionText(q);
+  const safetyTrustQuestion = safetyTrustQuestionText(q);
+  const trustConcern = registrationQuestion || contractingPartyQuestion || safetyTrustQuestion
+    || /(?:نصب|نصاب|نصابين|مصداقيه|اضمن|يضمن|ثقه|قانونيا|خايف|خايفه|متخوف|متخوفه)/.test(q);
   if (trustConcern) {
     topics.add("trust");
-    if (/(?:نصب|نصاب|نصابين|لا\s+يوجد\s+مصداقيه|مش\s+مصداقيه|مو\s+مصداقيه)/.test(q)) topics.add("complaint");
+    if (registrationQuestion || contractingPartyQuestion) topics.add("legal");
+    if (/(?:نصب|نصاب|نصابين|احتيال|لا\s+يوجد\s+مصداقيه|مش\s+مصداقيه|مو\s+مصداقيه)/.test(q)) topics.add("complaint");
   }
 
   const humanRequest = /(?:بدي|اريد).{0,30}(?:شخص|موظف|موضف|حدا|انسان).{0,25}(?:احكي|اتكلم|اكلم|يرد|افهمه)|(?:حولني|وصلني|وصلوني).{0,25}(?:موظف|شخص|الاداره)|(?:رقم\s+تواصل|بدي\s+رقم).{0,25}(?:احكي|اتصل)/.test(q);
@@ -134,7 +157,9 @@ export function contextualTurnSignals(input: {
     || (/^(?:لا|لاا|لأ|no)$/.test(q) && /(?:عندك|معك).{0,18}(?:طلب|ملف|رقم\s+تتبع)/.test(ctx));
   if (noPriorApplication) topics.add(applicationFormIssue || foreignApplicantFormIssue ? "website" : "products");
 
-  const generalRequirements = generalRequirementsQuestionText(q);
+  const contextualRequirementShort = /^(?:بيزبط|بزبط|ينفع|بصير|طيب\s+بيزبط|طيب\s+بزبط)$/.test(q)
+    && /(?:كشف\s+راتب|اثبات\s+دخل|إثبات\s+دخل|الهويه|الهوية|كفيل|طالب|طالبه|طالبة)/.test(ctx);
+  const generalRequirements = generalRequirementsQuestionText(q) || contextualRequirementShort;
   if (generalRequirements) topics.add("requirements");
 
   const financingStructure = financingStructureQuestionText(q);
@@ -149,6 +174,9 @@ export function contextualTurnSignals(input: {
     nextStep,
     productAvailability,
     trustConcern,
+    registrationQuestion,
+    contractingPartyQuestion,
+    safetyTrustQuestion,
     humanRequest,
     paymentStatusClaim,
     siteIssue,

@@ -12,6 +12,7 @@ import { personaWritingContract } from "./personas";
 import { paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { contextualTurnSignals } from "./contextualTurnResolver";
 import { continuationCommercialState } from "./commercialProgression";
+import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -75,16 +76,15 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
         } : {}),
         forbiddenClaims: fullPolicy.forbiddenClaims,
       };
-  const writerApplication = !paymentDetailsAllowed && input.truth.application
+  const paymentConfirmedTruth = paymentHistoricallyConfirmed(input.truth.application);
+  const receiptPendingTruth = !paymentConfirmedTruth && input.truth.application?.documents?.paymentReceiptUploaded === true;
+  const writerApplication = input.truth.application
     ? {
         ...input.truth.application,
-        paymentStatus: null,
-        paymentConfirmedAt: null,
-        paymentReference: null,
-        paidClickedAt: null,
-        documents: input.truth.application.documents
-          ? { ...input.truth.application.documents, paymentReceiptUploaded: null }
-          : input.truth.application.documents,
+        // Keep payment-state truth visible so confirmed payment cannot regress
+        // into "receipt awaiting approval" wording. Hide only the reference token
+        // when execution details are not needed.
+        paymentReference: paymentDetailsAllowed ? input.truth.application.paymentReference : null,
       }
     : input.truth.application;
   const writerTruth = { ...input.truth, application: writerApplication, policy: writerPolicy };
@@ -100,6 +100,9 @@ EXPLICIT_CONTINUATION_NOW=${continuationNow}
 EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
 PAYMENT_EXECUTION_DETAILS_ALLOWED=${paymentDetailsAllowed}
 PAYMENT_FIREWALL_REASON=${paymentFirewall.reason}
+PAYMENT_CONFIRMED_TRUTH=${paymentConfirmedTruth}
+RECEIPT_PENDING_TRUTH=${receiptPendingTruth}
+DIRECT_CONTRACT_RULE=العقد مباشرة بين الشركة والعميل، وليس مع بنك أو شركة تمويل خارجية كطرف بالعقد.
 CONTEXTUAL_DIALOGUE_SIGNALS=${JSON.stringify(dialogueSignals)}
 APPLICATION_SCOPE_RESET=${input.turn.warnings.includes("application_scope_reset")}
 INSTALLMENT_PAYMENT_CHANNEL_QUESTION=${installmentPaymentChannelQuestion}
@@ -142,7 +145,12 @@ ${personaWritingContract(roleName)}
 - إذا رسالة العميل تقول إنه رفع وصل الدفع أو يريد متابعة تأكيد الوصل، جاوب حالة الوصل نفسها: إما بانتظار مراجعة الإدارة أو الدفع مؤكد حسب TRUTH. لا تكتفِ برابط التتبع ولا تعيد شرح فلسفة رسوم الـ5 دنانير من البداية.
 - رسائل الإغلاق الاجتماعي مثل "يسلمو" و"شكراً" و"تمام يسلمو" تُجاب برد اجتماعي قصير. لا تحولها إلى ملخص حالة طلب أو رابط تتبع ما لم يسأل العميل عن الحالة في نفس الرسالة.
 - إذا CONTEXTUAL_DIALOGUE_SIGNALS.trustConcern=true، عالج التخوف نفسه في نفس الرد. ممنوع ادعاء "جهة معروفة" أو "مسجلين قانونيًا" أو "مرخصين" بدون حقيقة موثقة في TRUTH. استخدم فقط الحقائق والسياسة الموجودة.
-- إذا CONTEXTUAL_DIALOGUE_SIGNALS.reviewTiming=true، جاوب المدة مباشرة. لا تحول سؤال "متى؟" إلى ملخص حالة أو موضوع دفع.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.contractingPartyQuestion=true: الحقيقة المعتمدة هي أن العقد مباشرة بين الشركة والعميل، وليس مع بنك أو شركة تمويل خارجية كطرف بالعقد. POLICY.businessName اسم تشغيلي ولا يثبت وحده الاسم القانوني المسجل على العقد؛ ممنوع قول "العقد باسم الأمين للأقساط" كاسم قانوني إلا إذا وُجدت حقيقة صريحة مستقلة بذلك.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.registrationQuestion=true: لا تؤكد تسجيلًا أو ترخيصًا أو اعتمادًا أو رقم سجل أو جهة رقابية بدون حقيقة موثقة. قل بوضوح إن هذه المعلومة غير موثقة لديك بدل الاستنتاج من الاسم التشغيلي.
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.safetyTrustQuestion=true أو trustConcern=true، جاوب سؤال الثقة/الأمان نفسه فقط. لا تحوّل الرد إلى تذكير بالـ5 دنانير أو "أود الاستمرار" أو دعوة للدفع ما لم يكن العميل قد سأل في نفس الرسالة عن الرسوم أو طريقة دفعها.
+- PAYMENT_CONFIRMED_TRUTH=true حقيقة رتيبة داخل المحادثة: ممنوع بعدها قول إن الوصل "بانتظار مراجعة/اعتماد الإدارة" أو إن الدفع غير مؤكد. يجوز فقط القول إن الدفع مؤكد إداريًا وإن الملف/الدراسة نفسها بانتظار المرحلة التالية.
+- RECEIPT_PENDING_TRUTH=true تستخدم فقط عندما PAYMENT_CONFIRMED_TRUTH=false. لا تخلط بين "مراجعة الوصل" وبين "الدراسة النهائية".
+- إذا CONTEXTUAL_DIALOGUE_SIGNALS.reviewTiming=true، جاوب المدة مباشرة. لا تحول سؤال "متى؟" إلى ملخص حالة أو موضوع دفع. وإذا PAYMENT_CONFIRMED_TRUTH=true حافظ على هذه الحقيقة في نفس الرد ولا ترجع الوصل لحالة pending.
 - إذا APPLICATION_SCOPE_RESET=true، هذه الرسالة ربطت طلبًا مختلفًا عن سياق الطلب السابق. تعامل مع الطلب الحالي كحدود جديدة: لا تستخدم pending action أو tracking أو جهاز أو خطوة مالية من الطلب السابق، ولا تذكر القديم إلا إذا العميل نفسه طلب المقارنة.
 - سؤال العميل عن إمكانية الإلغاء أو الاسترداد ليس طلب تنفيذ. أمثلة: "بزبط ألغي؟"، "ممكن ألغي؟"، "لو لغيت شو بصير؟"، "كيف أسترد؟" = اشرح فقط، ولا تقل تم ولا تطلب تنفيذًا من مجرد السؤال. الإلغاء والاسترداد الحقيقيان يحتاجان طلبًا صريحًا ثم تأكيدًا منفصلًا في رسالة لاحقة قبل أي Real Action.
 - وجود pending action يدوي في STATE هو معلومة خلفية فقط، وليس موضوع الرد الإجباري. إذا العميل سأل عن رابط التتبع أو حالة الطلب أو الموقع أو معنى الاسترداد، جاوب سؤاله أولًا؛ اذكر الإجراء المعلق بسطر إضافي فقط إذا كان مفيدًا. ممنوع تكرار نفس جملة "بانتظار تنفيذ الإدارة" على كل رسالة غير مرتبطة بالإجراء.
@@ -198,6 +206,7 @@ ${personaWritingContract(roleName)}
 - DOCUMENT_TRUTH داخل TRUTH هو المرجع الوحيد لمعرفة ما رُفع فعليًا. ممنوع تطلب إعادة الهوية/كشف الراتب/بيانات الكفيل/وصل الدفع إذا DOCUMENT_TRUTH يقول إنها وصلت.
 - DOCUMENT_TRUTH يثبت ما وصل فعليًا، لكنه لا يحتوي قائمة إلزام شخصية كاملة لكل عميل. لا تحوّل غياب بيانات الكفيل إلى مستند ناقص إلزامي. بيانات الكفيل تُذكر دائمًا بصيغة مشروطة "قد تُطلب حسب حالة الملف" ما لم توجد حقيقة مستقلة وصريحة تلزمها. وإذا DOCUMENT_TRUTH غير محمّل، ممنوع أن تقول "ضل عليك" أو "ناقصك" مستند محدد كحقيقة على الملف.
 - في الأهلية والمتطلبات لا تقل "أكيد بزبط"، ولا تضمن القبول، ولا تقل إن مستندًا غير مطلوب نهائيًا لمجرد وجود كفيل. استخدم صياغة مشروطة: المتطلبات تعتمد على مراجعة الملف، وقد تُطلب بيانات الكفيل حسب الحالة.
+- لا تقل إن الكفيل "هو الحل" لغياب كشف الراتب، ولا إن حركة حسابه "بتساعد"، ولا إن الأهلية تعتمد على "الدخل والالتزامات" كمعايير قرار رسمية ما لم توجد حقيقة مخصصة بذلك. المسموح: الهوية وإثبات الدخل من الأساسيات، وبيانات الكفيل قد تُطلب حسب حالة الملف، والقرار النهائي بعد الدراسة.
 - PAYMENT POLICY داخل POLICY (المحفظة/المستفيد/AMEEENPAY/AMENPAY/paymentMethodRule) يخص حصريًا رسوم فتح الملف 5 دنانير قبل الدراسة النهائية، وليس قناة سداد الأقساط الشهرية بعد استلام الجهاز. ممنوع تمامًا قول إن الأقساط الشهرية تُحوّل إلى نفس المحفظة أو نفس المستفيد أو نفس alias. إذا سأل العميل أين/كيف يدفع الأقساط الشهرية ولم توجد حقيقة مخصصة لذلك في TRUTH، قل فقط إن أول قسط بعد شهر من الاستلام وتوقيع العقد، وإن جهة/طريقة سداد الأقساط الشهرية غير موثقة لديك الآن ولا يجوز استخدام بيانات رسوم فتح الملف كبديل.
 - إذا سأل العميل هل جهة عمله موجودة في السجل التجاري، لا تقل "بالتأكيد بنتحقق" كأنه جواب نعم، ولا تؤكد التسجيل بدون مصدر حقيقة مخصص. إذا لا توجد نتيجة سجل تجاري موثقة في TRUTH، قل بوضوح إنك لا تملك نتيجة موثقة تؤكد ذلك وأن التحقق يتم ضمن دراسة الملف.
 - لا تعرض للعميل رموز status أو payment_status الخام ولا تضع اسم الحالة بين اقتباسات كأنه حقل قاعدة بيانات؛ استخدم CUSTOMER_ORDER_SNAPSHOT وحالة العميل المفهومة فقط.
