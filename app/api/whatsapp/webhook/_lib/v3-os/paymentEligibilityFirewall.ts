@@ -16,6 +16,11 @@ function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
 }
 
+function commercialPauseOrDeclineText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:نخليها|خليها|خلينا).{0,22}(?:بعدين|لاحقا|لاحقًا)|(?:مش|مو|ما\s+بدي|لا\s+بدي).{0,18}(?:هسا|الان|الآن|حاليا|حاليًا).{0,28}(?:ادفع|أدفع|اكمل|أكمل|استمر)?|(?:بعدين|لاحقا|لاحقًا).{0,32}(?:بكمل|بنكمل|نكمل|بستمر|بنستمر|نستمر|بدفع)|(?:ليس\s+لدي|ما\s+معي|ما\s+عندي).{0,24}(?:المال|المبلغ|مصاري|فلوس).{0,24}(?:الان|الآن|هسا|حاليا|حاليًا)|(?:مش|مو|غير)\s+مقتنع/.test(q);
+}
+
 export function explicitFeePolicyQuestionText(value: string | null | undefined) {
   const q = normalized(value);
   return /(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|رسوم\s*الطلب|ليش\s*(?:في|بدكم)\s*(?:رسوم|خمس|5|٥)|شو\s*رسوم/.test(q);
@@ -47,8 +52,9 @@ export function customerTextIsNonFeePaymentContext(value: string | null | undefi
   const requirementsContext = /(?:شو|ما|ايش).{0,18}(?:الشروط|المتطلبات|الاوراق|الأوراق)|(?:لازم|ضروري).{0,22}(?:كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب|اثبات\s+دخل|إثبات\s+دخل|هويه|هوية|كفيل)|(?:بزبط|بصير|ينفع).{0,28}(?:ع\s*الهويه|على\s+الهويه|بالهوية|بالهويه|بدون\s+كشف\s+راتب)|(?:ما\s+عندي|بدون).{0,25}(?:كشف\s+راتب|اثبات\s+دخل|إثبات\s+دخل)/.test(q);
   const trustLegalContext = /(?:مسجلين|معتمدين|مرخصين|ترخيص|سجل\s+تجاري|الحكومه|الحكومة|الشركه\s+القانونيه|الشركة\s+القانونية|العقد\s+باسم|طرف\s+العقد|امنه|آمنة|موثوق|نصب|احتيال|مصداقيه|مصداقية|خايف|خايفه|خايفة|فيد\s*باك|feedback)/i.test(q);
   const explanationOnly = feeExplanationOnlyContext(q);
+  const commercialPause = commercialPauseOrDeclineText(q);
 
-  return installmentContext || installmentAdjustment || financingStructure || requirementsContext || trustLegalContext || explanationOnly;
+  return commercialPause || installmentContext || installmentAdjustment || financingStructure || requirementsContext || trustLegalContext || explanationOnly;
 }
 
 export function paymentDisclosureDecision(input: {
@@ -172,6 +178,7 @@ export function buildSafePaymentFirewallReply(input: {
     return `رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وهي منفصلة عن ثمن الجهاز والقسط الأول، وبتدخل بعد الموافقة المبدئية واختيار الاستمرار. إذا سؤالك عن سببها أو استردادها بجاوبك مباشرة؛ بيانات التحويل ما رح أعيدها إلا إذا طلبت طريقة الدفع نفسها وكانت الخطوة مفتوحة على الطلب.`;
   }
   if (input.decision.reason === "non_fee_payment_context") {
+    if (commercialPauseOrDeclineText(input.customerText)) return "تمام، بنخلي خطوة الاستمرار لبعدين. ما في دفع مطلوب هسا، وما رح أرسل بيانات تحويل على قرار مؤجل. لما تقرر تكمل لاحقًا بنعتمد حالة الطلب وقتها.";
     return "سؤالك هون عن موضوع مختلف عن تنفيذ دفع رسوم فتح الملف، لذلك ما رح أخلط المسارات أو أعطي بيانات تحويل على سؤال ثاني. بجاوبك على سؤالك نفسه حسب الحقيقة المتاحة.";
   }
   const stage = applicationJourneyStage(app);

@@ -37,7 +37,7 @@ export function explicitNoPriorApplicationText(value: string | null | undefined)
 
 export function installmentAdjustmentQuestionText(value: string | null | undefined) {
   const q = normalized(value);
-  return /(?:ازود|أزود|زود|زياده|زيادة|ادفع|أدفع|اسدد|أسدد).{0,32}(?:القسط|الاقساط|الأقساط|الدفعات)|(?:القسط|الاقساط|الأقساط|الدفعات).{0,35}(?:ازود|أزود|زياده|زيادة|اكثر|أكثر|مقدم|مرتين|دفعتين)|(?:دفعات|دفعه|دفعة).{0,24}(?:اكبر|أكبر|اكثر|أكثر).{0,24}(?:شهري|القسط)|(?:تسديد|سداد).{0,25}(?:مبكر|مبكرًا|مسبق|زياده|زيادة)/.test(q);
+  return /(?:ازود|أزود|زود|زياده|زيادة|ادفع|أدفع|اسدد|أسدد).{0,32}(?:القسط|الاقساط|الأقساط|الدفعات)|(?:القسط|الاقساط|الأقساط|الدفعات).{0,35}(?:ازود|أزود|زياده|زيادة|اكثر|أكثر|مقدم|مرتين|دفعتين)|(?:دفعات|دفعه|دفعة).{0,24}(?:اكبر|أكبر|عاليه|عالية|اكثر|أكثر).{0,30}(?:شهري|القسط|السعر|سعر\s+الجهاز)?|(?:تسديد|سداد).{0,25}(?:مبكر|مبكرًا|مسبق|زياده|زيادة)|(?:دفعه|دفعة).{0,30}(?:بتخفف|تخفف|بتقلل|تقلل).{0,25}(?:السعر|سعر\s+الجهاز|القسط)/.test(q);
 }
 
 export function generalRequirementsQuestionText(value: string | null | undefined) {
@@ -66,6 +66,54 @@ export function foreignApplicantGeneralFormIssueText(value: string | null | unde
   return nationality && formProblem;
 }
 
+export function commercialPauseOrDeclineText(value: string | null | undefined, context?: string | null) {
+  const q = normalized(value);
+  const ctx = normalized(context);
+  const direct = /(?:نخليها|خليها|خلينا).{0,22}(?:بعدين|لاحقا|لاحقًا)|(?:مش|مو|ما\s+بدي|لا\s+بدي).{0,18}(?:هسا|الان|الآن|حاليا|حاليًا).{0,28}(?:ادفع|أدفع|اكمل|أكمل|استمر)?|(?:بعدين|لاحقا|لاحقًا).{0,32}(?:بكمل|بنكمل|نكمل|بستمر|بنستمر|نستمر|بدفع)|(?:لما|اذا|إذا).{0,28}(?:يتوفر|يصير).{0,22}(?:معي|مصاري|المبلغ|فلوس).{0,28}(?:بكمل|بستمر|بدفع|نكمل)?|(?:ليس\s+لدي|ما\s+معي|ما\s+عندي).{0,24}(?:المال|المبلغ|مصاري|فلوس).{0,24}(?:الان|الآن|هسا|حاليا|حاليًا)|(?:مش|مو|غير)\s+مقتنع/.test(q);
+  const contextualNo = /^(?:لا|لاا|لأ|مش\s+هسا|مو\s+هسا|بعدين)$/.test(q)
+    && /(?:رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار)|اود\s+الاستمرار|أود\s+الاستمرار|بدك\s+تكمل|هل\s+(?:تود|تريد).{0,20}الاستمرار)/.test(ctx);
+  return direct || contextualNo;
+}
+
+export function orderChangeRequestText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:بزبط|بصير|ممكن|بدي|حاب|حابب|اريد|أريد).{0,26}(?:اعدل|أعدل|اغير|أغير|غير|غيّر|تغيير|بدل|استبدل).{0,35}(?:اللون|لون|الجهاز|الموديل|السعه|السعة|الذاكره|الذاكرة|الحجم)|(?:اعدل|أعدل|اغير|أغير|غير|غيّر|تغيير|بدل|استبدل).{0,28}(?:اللون|لون|الجهاز|الموديل|السعه|السعة|الذاكره|الذاكرة|الحجم)|(?:اللون|لون|الجهاز|الموديل|السعه|السعة).{0,28}(?:اعدل|أعدل|اغير|أغير|يتغير|تغيير)/.test(q);
+}
+
+export function orderChangeRetractionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:لا\s+خلص|خلص|بطلت|بلاش).{0,28}(?:بدي\s+)?(?:اعدل|أعدل|اغير|أغير|التعديل|التغيير)|(?:ما\s+بدي|مش\s+بدي).{0,22}(?:اعدل|أعدل|اغير|أغير|التعديل|التغيير)/.test(q);
+}
+
+export function multipleDeviceEligibilityQuestionText(value: string | null | undefined, context?: string | null) {
+  const q = normalized(value);
+  const ctx = normalized(context);
+  const direct = /(?:بيطلعلي|بطلعلي|بزبط|بقدر|ممكن).{0,28}(?:اكثر|أكثر).{0,18}(?:من\s+)?(?:جهاز|ايفون|آيفون|iphone)|(?:اكثر|أكثر).{0,18}(?:من\s+)?(?:جهاز|ايفون|آيفون|iphone).{0,28}(?:بيطلع|بزبط|بقدر|ممكن)|(?:لو\s+بدي|بدي).{0,12}(?:[2-9٢-٩]|اثنين|ثلاث|اربع|أربع|خمس).{0,12}(?:اجهزه|أجهزة|ايفون|آيفون|iphone)/i.test(q);
+  const contextualCount = /^(?:لو\s+بدي\s+)?(?:[2-9٢-٩]|اثنين|ثلاث|اربع|أربع|خمس)(?:\s+مثلا|\s+مثلاً)?$/.test(q)
+    && /(?:اكثر|أكثر).{0,18}(?:جهاز|ايفون|آيفون|iphone)/i.test(ctx);
+  return direct || contextualCount;
+}
+
+export function mapLocationRequestText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:ابعث|ابعت|ارسل|أرسل|بدي|هات).{0,30}(?:الموقع|اللوكيشن|location|المكان).{0,24}(?:الخريطه|الخريطة|map)|(?:your\s+location\s+on\s+map|location\s+on\s+map)|(?:envoie|envoyer).{0,25}(?:localisation|location)|(?:schick|sende).{0,25}(?:standort|location)|(?:الموقع).{0,18}(?:على\s+الخريطه|على\s+الخريطة)/i.test(q);
+}
+
+export function managementInfoQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:مين|من).{0,24}(?:المسؤول|المسوول|المدير).{0,30}(?:الاداره|الإدارة|الماليه|المالية)?|(?:اسم).{0,18}(?:المدير|المسؤول|المسوول)|(?:المسؤول|المسوول).{0,25}(?:في\s+)?(?:الاداره|الإدارة|الماليه|المالية)/.test(q);
+}
+
+export function productPriceStructureQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:السعر|سعر).{0,30}(?:مع|شامل).{0,18}(?:القسط|الاقساط|الأقساط)|(?:السعر|سعر).{0,30}(?:بدون).{0,18}(?:القسط|الاقساط|الأقساط)|(?:المتجر|الموقع).{0,35}(?:بيعطي|بعطي|بعرض|يعرض).{0,28}(?:السعر).{0,25}(?:مع\s+الاقساط|مع\s+الأقساط|بدون)/.test(q);
+}
+
+export function punctuationOnlyTurnText(value: string | null | undefined) {
+  const raw = String(value || '').trim();
+  return Boolean(raw) && /^[.،,،…!؟?\-_=+\s]+$/.test(raw);
+}
+
 export type ContextualTurnSignals = {
   topics: TopicKey[];
   reviewTiming: boolean;
@@ -87,6 +135,14 @@ export type ContextualTurnSignals = {
   generalRequirements: boolean;
   financingStructure: boolean;
   installmentAdjustment: boolean;
+  commercialPause: boolean;
+  orderChange: boolean;
+  orderChangeRetraction: boolean;
+  multiDeviceEligibility: boolean;
+  mapLocationRequest: boolean;
+  managementInfoQuestion: boolean;
+  productPriceStructure: boolean;
+  punctuationOnly: boolean;
   shortFollowUpResolved: boolean;
 };
 
@@ -168,6 +224,20 @@ export function contextualTurnSignals(input: {
   const installmentAdjustment = installmentAdjustmentQuestionText(q);
   if (installmentAdjustment) topics.add("installment_amount");
 
+  const commercialPause = commercialPauseOrDeclineText(q, ctx);
+  const orderChangeRetraction = orderChangeRetractionText(q);
+  const orderChange = !orderChangeRetraction && orderChangeRequestText(q);
+  if (orderChange || orderChangeRetraction) topics.add("application_correction");
+
+  const multiDeviceEligibility = multipleDeviceEligibilityQuestionText(q, ctx);
+  if (multiDeviceEligibility) topics.add("products");
+
+  const mapLocationRequest = mapLocationRequestText(q);
+  const managementInfoQuestion = managementInfoQuestionText(q);
+  const productPriceStructure = productPriceStructureQuestionText(q);
+  if (productPriceStructure) topics.add("products");
+  const punctuationOnly = punctuationOnlyTurnText(input.turn.rawText);
+
   return {
     topics: Array.from(topics),
     reviewTiming,
@@ -189,6 +259,14 @@ export function contextualTurnSignals(input: {
     generalRequirements,
     financingStructure,
     installmentAdjustment,
+    commercialPause,
+    orderChange,
+    orderChangeRetraction,
+    multiDeviceEligibility,
+    mapLocationRequest,
+    managementInfoQuestion,
+    productPriceStructure,
+    punctuationOnly,
     shortFollowUpResolved: (shortTiming || shortAffirmative(q)) && topics.size > 0,
   };
 }

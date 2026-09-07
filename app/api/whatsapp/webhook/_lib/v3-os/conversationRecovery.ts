@@ -4,7 +4,7 @@ import { isContinuationRevenueReady } from "./continuationPersistence";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
-import { applicationFormIssueText, contextualTurnSignals, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, installmentAdjustmentQuestionText } from "./contextualTurnResolver";
+import { applicationFormIssueText, commercialPauseOrDeclineText, contextualTurnSignals, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, installmentAdjustmentQuestionText, managementInfoQuestionText, mapLocationRequestText, multipleDeviceEligibilityQuestionText, orderChangeRequestText, orderChangeRetractionText, productPriceStructureQuestionText, punctuationOnlyTurnText } from "./contextualTurnResolver";
 import { buildSafeContractingPartyReply, buildSafeRegistrationReply, buildSafeTrustReply, contractingPartyQuestionText, registrationOrLicensingQuestionText, safetyTrustQuestionText } from "./legalTrustGuard";
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 
@@ -131,7 +131,8 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
   let acts = turn.acts.map((a) => ({ ...a }));
   const newApplication = isNewApplicationFlow(input);
   const newApplicationContext = newApplicationConversationContext(input.state, input.recentTurns) && !hasExplicitTracking(turn.rawText);
-  const explicitStop = explicitDoNotContinueText(turn.rawText);
+  const commercialPause = commercialPauseOrDeclineText(turn.rawText, contextText(input.state, input.recentTurns));
+  const explicitStop = explicitDoNotContinueText(turn.rawText) || commercialPause;
   if (explicitStop) {
     // Explicit opt-out is a veto, not a dialogue act. Strip any continuation action
     // and let the deterministic opt-out reply/runtime gate handle the customer-facing path.
@@ -150,6 +151,20 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
   }
 
   const dialogueSignals = contextualTurnSignals({ turn, state: input.state, recentTurns: input.recentTurns });
+
+  if (dialogueSignals.commercialPause) {
+    acts = acts.filter((a) => a.action !== "continue_application" && !["continuation","payment_method","payment_recipient","payment_timing","payment_fee","receipt_upload"].includes(a.topic));
+  }
+
+  if (dialogueSignals.orderChangeRetraction) {
+    acts = acts.filter((a) => !["change_device","change_application_data"].includes(String(a.action || "")) && !["device_change","device_recalculation"].includes(a.topic));
+    addAct(acts, turn, { type: "ask", topic: "application_correction", confidence: 0.997, action: "none", value: "order_change_retracted" });
+  } else if (dialogueSignals.orderChange) {
+    addAct(acts, turn, { type: "ask", topic: "application_correction", confidence: 0.997, action: "none", value: "order_change_request" });
+  }
+
+  if (dialogueSignals.multiDeviceEligibility) addAct(acts, turn, { type: "ask", topic: "products", confidence: 0.997, action: "none", value: "multiple_devices_eligibility" });
+  if (dialogueSignals.productPriceStructure) addAct(acts, turn, { type: "ask", topic: "products", confidence: 0.997, action: "none", value: "product_price_structure" });
 
   // Phase 7.3.4: explicit "I do not have a previous application" is a routing veto.
   // Never let a weak model order_status/tracking label override what the customer just said.
@@ -317,6 +332,14 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || signals.generalRequirements
     || signals.financingStructure
     || signals.installmentAdjustment
+    || signals.commercialPause
+    || signals.orderChange
+    || signals.orderChangeRetraction
+    || signals.multiDeviceEligibility
+    || signals.mapLocationRequest
+    || signals.managementInfoQuestion
+    || signals.productPriceStructure
+    || signals.punctuationOnly
     || signals.registrationQuestion
     || signals.contractingPartyQuestion
     || signals.safetyTrustQuestion
@@ -337,7 +360,7 @@ export function buildConversationRecoveryReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const newApplication = explicitNewApplicationText(raw) || contextualNewApplicationYes(input.turn, input.state, input.recentTurns);
   const newApplicationContext = newApplicationConversationContext(input.state, input.recentTurns) && !hasExplicitTracking(raw);
-  const stopContinuation = explicitDoNotContinueText(raw);
+  const stopContinuation = explicitDoNotContinueText(raw) || commercialPauseOrDeclineText(raw, input.state.lastAssistantText);
   const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
   const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
@@ -352,6 +375,42 @@ export function buildConversationRecoveryReply(input: {
 
   if (dialogueSignals.safetyTrustQuestion || safetyTrustQuestionText(raw)) {
     return buildSafeTrustReply(input.truth);
+  }
+
+  if (dialogueSignals.commercialPause || commercialPauseOrDeclineText(raw, input.state.lastAssistantText)) {
+    return "تمام، بنخلي خطوة الاستمرار لبعدين. ما في دفع مطلوب هسا، وما رح أرسل تعليمات تحويل على قرار مؤجل. لما تقرر تكمل لاحقًا بنعتمد حالة الطلب وقتها بدون ضغط.";
+  }
+
+  if (dialogueSignals.orderChangeRetraction || orderChangeRetractionText(raw)) {
+    return "تمام، فهمت إنك تراجعت عن التعديل. ما رح أعتبر أي لون أو جهاز تغيّر من المحادثة، والطلب يبقى على بياناته الحالية لحد ما يظهر تعديل فعلي موثق.";
+  }
+
+  if (dialogueSignals.orderChange || orderChangeRequestText(raw)) {
+    const paid = paymentHistoricallyConfirmed(input.truth.application);
+    const payment = paid ? " والدفع الحالي مؤكد إداريًا، فما في داعي تعيد الدفع أو ترفع الوصل لمجرد طلب التعديل." : "";
+    return `ممكن تطلب تعديل اللون أو المواصفات، بس التعديل نفسه ما بنعتبره منفذ من المحادثة؛ يحتاج تنفيذ إداري على الطلب، والقيمة الحالية في الطلب بتظل هي المعتمدة لحد ما تتحدث فعليًا.${payment} إذا التعديل أثر على السعر أو الحسبة، بنعتمد الحسبة الجديدة فقط بعد ما تظهر رسميًا على الطلب.`;
+  }
+
+  if (dialogueSignals.multiDeviceEligibility || multipleDeviceEligibilityQuestionText(raw, input.state.lastCustomerText)) {
+    return "ما بقدر أضمن موافقة على أكثر من جهاز أو على عدد معيّن مثل 4 أجهزة. كل طلب إضافي إله دراسة وموافقة مستقلة، وموافقة جهاز واحد ما تعني موافقة تلقائية على أجهزة ثانية.";
+  }
+
+  if (dialogueSignals.productPriceStructure || productPriceStructureQuestionText(raw)) {
+    const products = links.relevant.products || "https://www.ameenfinance.co/products";
+    return `بالنسبة للسعر المعروض وحسبة الأقساط، المرجع هو صفحة المنتج والحسبة اللي تظهر وقت التقديم؛ ما رح أفترض إن أي رقم ظاهر هو سعر نقدي أو إجمالي تقسيط إذا الصفحة نفسها ما وضحته. شوف تفاصيل الجهاز من هون:
+${products}`;
+  }
+
+  if (dialogueSignals.mapLocationRequest || mapLocationRequestText(raw)) {
+    return `ما عندي رابط خريطة رسمي موثق أبعثه، وما رح أرسل رابط الموقع الإلكتروني كأنه موقع على الخريطة. العنوان العام المتاح هو ${input.truth.policy.generalLocation}، والحضور للمكتب فقط بموعد رسمي مؤكد.`;
+  }
+
+  if (dialogueSignals.managementInfoQuestion || managementInfoQuestionText(raw)) {
+    return "إذا قصدك اسم المدير أو المسؤول الإداري/المالي، ما عندي اسم رسمي موثق ومخوّل أذكره بالمحادثة. بقدر أكمل معك على طلبك من نفس واتساب وأعطيك فقط المعلومات المؤكدة على الملف.";
+  }
+
+  if (dialogueSignals.punctuationOnly || punctuationOnlyTurnText(raw)) {
+    return "أنا معك.";
   }
 
   if (dialogueSignals.foreignApplicantFormIssue || foreignApplicantGeneralFormIssueText(raw)) {
@@ -371,7 +430,7 @@ export function buildConversationRecoveryReply(input: {
   }
 
   if (dialogueSignals.installmentAdjustment || installmentAdjustmentQuestionText(raw)) {
-    return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو أكثر من دفعة مرة وحدة بعد الاتفاق: ما عندي قاعدة موثقة أقدر أقول إنها تلقائيًا تقلل مدة العقد أو تغيّر الحسبة. آلية السداد بعد العقد لازم تتبع الشروط النهائية المثبتة بالعقد. وسؤالك هذا عن الأقساط، لذلك ما رح أخلطه مع رسوم فتح الملف أو أعطيك بيانات تحويل الـ5 دنانير.";
+    return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو دفعة أكبر أو أكثر من قسط مرة وحدة: ما عندي سياسة موثقة أقدر أقول منها إنك تختار دفعة أولى عالية أو إن المبلغ الإضافي يخفض سعر الجهاز تلقائيًا. القاعدة المؤكدة إن القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد، وأي تغيير بالحسبة أو آلية السداد لازم يكون مثبتًا على الطلب أو بالعقد. وسؤالك هذا مش عن رسوم فتح الملف، لذلك ما رح أخلطه معها.";
   }
 
   if (dialogueSignals.noPriorApplication || explicitNoPriorApplicationText(raw)) {
