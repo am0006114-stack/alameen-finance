@@ -24,6 +24,7 @@ import { enforceFinalResponseGate } from "./finalResponseGate";
 import { logIntegrityTelemetry } from "./integrityTelemetry";
 import { enforceMutationConfirmationGate, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
+import { dataDeletionConfirmationText, explicitExpediteRequestText, explicitTrackingFromText } from "./dailyConversationIntegrity";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -153,6 +154,13 @@ function isLowInformationCustomerTurn(value: string | null | undefined) {
   if (/AM-\d{8,}/i.test(q)) return false;
   if (q.length > 18) return false;
   return /^(?:\.|؟|\?|تمام|اوك|اوكي|اه|أه|نعم|شكرا|شكرًا|مرحبا|هلا|السلام عليكم|وعليكم السلام|طيب|تم)$/i.test(q);
+}
+
+
+function repeatedStatusCustomerTurn(turn: InterpretedTurn) {
+  if (!turn.topics.includes("application_status") && !turn.topics.includes("tracking")) return false;
+  const q = String(turn.rawText || "");
+  return /(?:أرغب\s+بمعرفة\s+آخر\s+تحديث|ارغب\s+بمعرفة\s+اخر\s+تحديث|متابعة\s+طلبي|متابعه\s+طلبي|الحالة\s+الحالية|الحاله\s+الحاليه).{0,120}(?:الخطوة\s+التالية|الخطوه\s+التاليه|آخر\s+تحديث|اخر\s+تحديث)?/i.test(q);
 }
 
 function buildRepeatDeltaReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
@@ -353,13 +361,39 @@ export async function runV3ProductionLive(input: {
     ? { ...reducedState, pendingAction: null, pendingActionPayload: null }
     : reducedState;
 
-  const rawTruthBeforeActions = await resolveV3ProductionTruth({
+  let rawTruthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
     customerText: input.customerText,
     state: preliminaryState,
     recentTurns: safeRecentTurns,
     topics: turn.topics,
   });
+
+  // Production truth retry: a bare tracking number, a delay question, or a weak
+  // classifier result must not fall straight into "details incomplete" when the
+  // conversation is already bound to a concrete application. Retry once with a
+  // canonical tracking/status read before failing closed.
+  const retryTracking = explicitTrackingFromText(input.customerText) || preliminaryState.activeTrackingId || null;
+  if (!rawTruthBeforeActions.application && retryTracking) {
+    try {
+      const retryTruth = await resolveV3ProductionTruth({
+        waId: input.waId,
+        customerText: `${retryTracking}\n${input.customerText}`,
+        state: { ...preliminaryState, activeTrackingId: retryTracking },
+        recentTurns: safeRecentTurns,
+        topics: Array.from(new Set([...turn.topics, "application_status", "tracking"])) as typeof turn.topics,
+      });
+      if (retryTruth.application) {
+        rawTruthBeforeActions = {
+          ...retryTruth,
+          readWarnings: Array.from(new Set([...(retryTruth.readWarnings || []), "authoritative_truth_retry_recovered_application"])),
+        };
+      }
+    } catch (error) {
+      console.error("V3 authoritative truth retry failed:", error);
+    }
+  }
+
   const truthBeforeActions = stabilizeTruthSnapshot({ truth: rawTruthBeforeActions, state: preliminaryState });
 
   const scopeResult = scopeStateToCurrentApplication({
@@ -381,6 +415,52 @@ export async function runV3ProductionLive(input: {
           : { application: truthBeforeActions.application, fetchedAt: truthBeforeActions.fetchedAt },
       }
     : scopedState;
+
+  // Manual operational requests that are intentionally outside Real Actions still
+  // need to reach administration. Discord is best-effort and never turns into a
+  // false customer-facing claim that the requested operation has already happened.
+  const deletionContext = [stateBefore.lastAssistantText || "", ...safeRecentTurns.slice(-6)].join("\n");
+  if (dataDeletionConfirmationText(input.customerText, deletionContext)) {
+    try {
+      await notifyV3Discord({
+        event: "manual_action_required",
+        applicationId: truthBeforeActions.application?.id || null,
+        trackingId: truthBeforeActions.application?.trackingId || boundState.activeTrackingId || null,
+        waId: input.waId,
+        actionKey: "delete_personal_data",
+        title: "🗑️ طلب حذف بيانات شخصية — يحتاج تنفيذ الإدارة",
+        description: "العميل أكد صراحةً طلب حذف بياناته الشخصية. إلغاء الطلب لا يعني حذف السجلات، ولا يجوز اعتبار الحذف منفذًا قبل تنفيذ الإدارة الفعلي.",
+        details: {
+          action: "delete_personal_data",
+          "حالة الطلب": truthBeforeActions.application?.status || "—",
+          "حالة الدفع": truthBeforeActions.application?.paymentStatus || "—",
+        },
+      });
+    } catch (error) {
+      console.error("V3 personal-data deletion Discord notification failed", error);
+    }
+  }
+
+  if (explicitExpediteRequestText(input.customerText)) {
+    try {
+      await notifyV3Discord({
+        event: "manual_action_required",
+        applicationId: truthBeforeActions.application?.id || null,
+        trackingId: truthBeforeActions.application?.trackingId || boundState.activeTrackingId || null,
+        waId: input.waId,
+        actionKey: "expedite_review",
+        title: "⏱️ العميل طلب استعجال المراجعة",
+        description: "العميل طلب بوضوح إيصال استعجاله للإدارة. لا يوجد وعد بموعد أو تغيير أولوية تلقائي؛ يحتاج قرار/تنفيذ إداري.",
+        details: {
+          action: "expedite_review",
+          "حالة الطلب": truthBeforeActions.application?.status || "—",
+          "حالة الدفع": truthBeforeActions.application?.paymentStatus || "—",
+        },
+      });
+    } catch (error) {
+      console.error("V3 expedite-review Discord notification failed", error);
+    }
+  }
 
   if (scopeResult.droppedPendingAction) {
     logIntegrityTelemetry({
@@ -824,7 +904,7 @@ export async function runV3ProductionLive(input: {
   }
 
   // Phase 7.1.6A compatibility anchor: `!protectedFiveJodStep && runtimeNearDuplicate` remains true, now additionally restricted to low-information customer turns.
-  if (reply && !protectedFiveJodStep && isLowInformationCustomerTurn(input.customerText) && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
+  if (reply && !protectedFiveJodStep && (isLowInformationCustomerTurn(input.customerText) || repeatedStatusCustomerTurn(turn)) && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
     fallbackUsed = true;
     reply = buildRepeatDeltaReply({ turn, truth: truthAfterActions });
     verification = verifyReply({

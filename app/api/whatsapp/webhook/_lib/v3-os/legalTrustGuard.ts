@@ -17,6 +17,7 @@ export function contractingPartyQuestionText(value: string | null | undefined) {
 
 export function safetyTrustQuestionText(value: string | null | undefined) {
   const q = normalized(value);
+  if (/(?:^|\s)(?:الامن|الأمن|امن|أمن)\s+العام(?:\s|$)/.test(q)) return false;
   return /(?:هل|يعني|صراحه|صراحة)?.{0,12}(?:امنه|آمنة|امن|آمن|موثوقه|موثوقة|موثوق|مضمونه|مضمونة)|(?:نصب|نصاب|نصابين|احتيال|مصداقيه|مصداقية|ثقه|ثقة|فيد\s*باك|feedback|خايف|خايفه|خايفة|متخوف|متخوفه|متخوفة)/i.test(q);
 }
 

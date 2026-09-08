@@ -1,0 +1,92 @@
+const fs=require("fs"),path=require("path");
+const root=process.argv[2]||process.cwd(); let p=0,f=0;
+const ok=(v,m)=>{if(v){console.log(`PASS ${++p}: ${m}`)}else{f++;console.error(`FAIL: ${m}`)}};
+const read=r=>fs.readFileSync(path.join(root,r),"utf8");
+const base="app/api/whatsapp/webhook/_lib/v3-os/";
+const helper=read(base+"dailyConversationIntegrity.ts");
+const ctx=read(base+"contextualTurnResolver.ts");
+const legal=read(base+"legalTrustGuard.ts");
+const recovery=read(base+"conversationRecovery.ts");
+const gate=read(base+"finalResponseGate.ts");
+const runtime=read(base+"runtimeLive.ts");
+const writer=read(base+"writerContract.ts");
+
+ok(helper.includes("pureGreetingText"),"pure greeting detector exists");
+ok(helper.includes("staffIdentityQuestionText"),"staff identity detector exists");
+ok(helper.includes("feeNowOrPickupQuestionText"),"fee-now-vs-pickup detector exists");
+ok(helper.includes("refundFeeQuestionText"),"refund-fee question detector exists");
+ok(recovery.split("from \"./dailyConversationIntegrity\"")[0].includes("refundFeeQuestionText"),"recovery imports refund-fee detector it calls");
+ok(gate.split("from \"./dailyConversationIntegrity\"")[0].includes("refundFeeQuestionText"),"final gate imports refund-fee detector it calls");
+ok(helper.includes("dataDeletionRequestText"),"data deletion request detector exists");
+ok(helper.includes("dataDeletionConfirmationText"),"data deletion confirmation detector exists");
+ok(helper.includes("explicitExpediteRequestText"),"expedite detector exists");
+ok(helper.includes("genericDocumentLinkRequestText"),"contextual document-link detector exists");
+ok(helper.includes("internalPlaceholderLeakText"),"internal placeholder leak detector exists");
+ok(helper.includes("reviewDelayQuestionText"),"broad review delay detector exists");
+ok(helper.includes("applicationStartQuestionText"),"application start detector exists");
+ok(helper.includes("additionalIncomeQuestionText"),"additional income detector exists");
+ok(helper.includes("barePhoneNumberText"),"bare phone contextual detector exists");
+ok(helper.includes("legalThreatOrPublicEscalationText"),"legal/public escalation detector exists");
+ok(helper.includes("customerOffersHomeAddressText"),"home-address offer detector exists");
+
+ok(ctx.includes('(?:الامن|الأمن|امن|أمن)\\s+العام'),"context resolver excludes public-security phrase from trust");
+ok(legal.includes('(?:الامن|الأمن|امن|أمن)\\s+العام'),"legal trust guard excludes public-security phrase");
+
+ok(recovery.includes('return "أهلاً فيك، كيف أقدر أساعدك؟"'),"pure greeting stays short");
+ok(recovery.includes("buildStaffIdentityReply"),"staff identity has deterministic answer");
+ok(recovery.includes("معك ${name} من الأمين للأقساط"),"current persona name is surfaced");
+ok(recovery.includes("التقديم يبدأ من صفحة المنتجات الرسمية"),"application start uses products page");
+ok(recovery.includes("القسط الأول مش عند الاستلام؛ يستحق بعد شهر من استلام الجهاز وتوقيع العقد"),"first installment timing corrected");
+ok(recovery.includes("سؤالك الحالي لحاله ما بوقف الطلب وما بنفذ إلغاء"),"refund question does not mutate");
+ok(recovery.includes("حذف البيانات إجراء إداري منفصل"),"data deletion separated from cancellation");
+ok(recovery.includes("ما رح أقول إن بياناتك انحذفت"),"data deletion never falsely completed");
+ok(recovery.includes("وصلتني إنك طالب استعجال واضح"),"expedite request gets direct safe response");
+ok(recovery.includes("ما رح أوعدك بموعد أو أقول إن الأولوية تغيرت"),"expedite response makes no unsupported priority promise");
+ok(recovery.includes("ما في داعي تبعث عنوان بيتك على واتساب"),"home address is not solicited");
+ok(recovery.includes("ما بنعتبر صورة واتساب رفعًا رسميًا"),"WhatsApp receipt image is not official upload");
+ok(recovery.includes("بيانات الكفيل مش شرط ثابت لكل طلب"),"guarantor remains conditional");
+ok(recovery.includes("ما بقدر أأكد إن الاسم لحاله بكفي"),"guarantor name-only claim blocked");
+ok(recovery.includes("ممكن تطلب إضافة إثبات دخل إضافي"),"additional income question answered");
+ok(recovery.includes("ما بنعتبره مضاف من واتساب"),"additional income is not falsely added");
+ok(recovery.includes("وصل الرقم. ما رح أعتبره تغييرًا"),"bare phone number is not mistaken for mutation");
+ok(recovery.includes("التهديد أو الشكوى بحد ذاتها ما بعتبرها طلب إلغاء"),"legal threat does not execute cancellation");
+ok(recovery.includes("applicationStartQuestionText(input.turn.rawText)"),"application start is recovery-prioritized");
+ok(recovery.includes("reviewDelayQuestionText(input.turn.rawText)"),"delay question is recovery-prioritized");
+
+ok(gate.includes("internal_placeholder_or_official_links_token_leaked"),"final gate blocks internal link placeholders");
+ok(gate.includes("pure_greeting_must_not_trigger_commercial_journey"),"final gate blocks commercial dump on greeting");
+ok(gate.includes("staff_identity_question_not_answered"),"final gate requires staff identity answer");
+ok(gate.includes("data_deletion_falsely_claimed_executed"),"final gate blocks false data deletion completion");
+ok(gate.includes("refund_fee_question_misrouted_to_continuation"),"refund fee question cannot fall to continuation CTA");
+ok(gate.includes("fee_now_vs_pickup_question_not_answered"),"fee timing question must answer both fee and first installment");
+ok(gate.includes("whatsapp_image_must_not_count_as_official_receipt_upload"),"gate protects official receipt path");
+ok(gate.includes("post_continuation_payment_details_require_current_payment_event"),"payment details are event-driven after continuation");
+ok(gate.includes("expedite_request_must_not_claim_unexecuted_priority_change"),"gate blocks fake expedite capability");
+ok(gate.includes("application_status_misrouted_to_contact_info"),"status cannot misroute to contact reply");
+ok(gate.includes("application_start_missing_products_link"),"application start must point to products");
+ok(gate.includes("additional_income_question_wrong_status_fallback"),"additional income cannot fall to status template");
+ok(gate.includes("bare_phone_number_wrong_missing_details_fallback"),"bare phone cannot fall to missing-details template");
+ok(gate.includes("legal_threat_reply_claimed_unexecuted_or_guaranteed_action"),"legal threat reply cannot guarantee mutation/refund");
+ok(gate.includes("buildStatusAndTrackingReply"),"status misroute repair has grounded tracking response");
+
+ok(runtime.includes("authoritative_truth_retry_recovered_application"),"runtime retries authoritative truth before missing-details fallback");
+ok(runtime.includes('topics: Array.from(new Set([...turn.topics, "application_status", "tracking"]))'),"truth retry forces status/tracking lookup");
+ok(runtime.includes('actionKey: "delete_personal_data"'),"confirmed data deletion sends Discord admin alert");
+ok(runtime.includes('actionKey: "expedite_review"'),"explicit expedite request sends Discord admin alert");
+ok(runtime.includes("repeatedStatusCustomerTurn"),"repeated status templates get delta reply");
+ok(runtime.includes("(isLowInformationCustomerTurn(input.customerText) || repeatedStatusCustomerTurn(turn))"),"repeat suppression covers full status template");
+
+ok(writer.includes("التحية الصافية"),"writer contract restrains greeting");
+ok(writer.includes("تفاصيل دفع رسوم فتح الملف أصبحت event-driven"),"writer contract makes payment details event-driven");
+ok(writer.includes("صورة وصل على واتساب ليست رفعًا رسميًا"),"writer contract protects receipt channel");
+ok(writer.includes("ممنوع تمامًا إخراج OFFICIAL_LINKS"),"writer contract forbids placeholder leakage");
+ok(writer.includes("إذا العميل قال إنه «أمن عام»"),"writer contract distinguishes public-security occupation");
+ok(writer.includes("إذا العميل يطلب حذف بياناته"),"writer contract covers deletion");
+ok(writer.includes("إذا العميل يطلب استعجالًا"),"writer contract covers expedite");
+ok(writer.includes("عند سؤال «كيف أقدم؟/أقدم عن طريق الرابط؟»"),"writer contract routes apply to products");
+ok(writer.includes("القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد"),"writer contract preserves first installment truth");
+
+ok(!recovery.includes("AMEEENPAY")&&!recovery.includes("AMENPAY"),"recovery introduces no legacy payment aliases");
+ok(!gate.includes("AMEEENPAY")&&!gate.includes("AMENPAY"),"gate introduces no legacy payment aliases");
+
+console.log(`RESULT: ${p}/${p+f} PASS`); if(f)process.exit(1);

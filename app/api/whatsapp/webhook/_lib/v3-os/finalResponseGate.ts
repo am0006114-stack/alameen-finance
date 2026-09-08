@@ -7,6 +7,7 @@ import { mutationQuestion, pendingActionIsCurrentTurnFocus } from "./mutationCon
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 import { containsLegacyFileOpeningPaymentDestination, currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemText, paymentFailureRecoveryReplyIsCurrent } from "./paymentFailureRecovery";
+import { additionalIncomeQuestionText, applicationStartQuestionText, barePhoneNumberText, currentPaymentExecutionRequested, customerOffersHomeAddressText, dataDeletionConfirmationText, dataDeletionRequestText, documentContextKind, explicitExpediteRequestText, feeNowOrPickupQuestionText, genericDocumentLinkRequestText, guarantorNameOnlyQuestionText, internalPlaceholderLeakText, legalThreatOrPublicEscalationText, paymentMethodQuestionText, politeClosureText, pureGreetingText, recentPaymentOrReceiptContext, refundFeeQuestionText, reviewDelayQuestionText, roleDisplayName, staffIdentityQuestionText, whatsappImageMessageText } from "./dailyConversationIntegrity";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -20,6 +21,7 @@ function normalized(value: string | null | undefined) {
 }
 
 function postContinuationAcknowledgementText(value: string | null | undefined) {
+  if (politeClosureText(value)) return true;
   const raw = String(value || "").trim();
   const q = normalized(value);
   if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|ان\s+شاء\s+الله|إن\s+شاء\s+الله|شكرا|شكرًا|يسلمو|يعطيك\s+العافيه|يعطيك\s+العافية)$/.test(q)) return true;
@@ -101,6 +103,7 @@ function contractingPartyQuestionText(value: string | null | undefined) {
 
 function safetyTrustQuestionText(value: string | null | undefined) {
   const q = normalized(value);
+  if (/(?:^|\s)(?:الامن|الأمن|امن|أمن)\s+العام(?:\s|$)/.test(q)) return false;
   return /(?:هل|يعني|صراحه|صراحة)?.{0,12}(?:امنه|آمنة|امن|آمن|موثوقه|موثوقة|موثوق|مضمونه|مضمونة)|(?:نصب|نصاب|نصابين|احتيال|مصداقيه|مصداقية|ثقه|ثقة|فيد\s*باك|feedback|خايف|خايفه|خايفة|متخوف|متخوفه|متخوفة)/i.test(q);
 }
 
@@ -300,7 +303,7 @@ function delayComplaint(turn: InterpretedTurn) {
 
 function unsupportedExpeditePromise(reply: string) {
   const n = normalized(reply);
-  return /(?:اقدر|بقدر|رح|راح).{0,25}(?:ارفع|اسجل|اضيف|اسوي|اعمل).{0,25}(?:ملاحظه|ملاحظة|طلب).{0,22}(?:استعجال|تسريع)|(?:ارفع|اسجل|اضيف).{0,22}(?:ملاحظه\s+استعجال|ملاحظة\s+استعجال|طلب\s+استعجال)/.test(n);
+  return /(?:اقدر|بقدر|رح|راح).{0,25}(?:ارفع|اسجل|اضيف|اسوي|اعمل).{0,25}(?:ملاحظه|ملاحظة|طلب).{0,22}(?:استعجال|تسريع)|(?:ارفع|اسجل|اضيف).{0,22}(?:ملاحظه\s+استعجال|ملاحظة\s+استعجال|طلب\s+استعجال)|(?:بدفع|بقدم|بقدّم|بسرع|بسرّع).{0,28}(?:الملف|الطلب).{0,20}(?:قدام|اولوية|أولوية|بسرعه|بسرعة)?|(?:متابع|متابعه).{0,20}(?:طلبك|ملفك).{0,15}(?:شخصيا|شخصيًا)/.test(n);
 }
 
 function mutationExecutionPromiseWithoutReceipt(reply: string, actions: ActionResult[]) {
@@ -429,6 +432,13 @@ ${links.relevant.tracking}`;
   return "ما عندي رابط تتبع مرتبط بطلب موثوق هسا، وما رح أعطيك رابط عام ممكن يوديك لطلب غلط.";
 }
 
+
+function buildStatusAndTrackingReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const status = buildStatusReply({ truth: input.truth });
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  return links.relevant.tracking ? `${status}\n\nرابط التتبع الرسمي:\n${links.relevant.tracking}` : status;
+}
+
 function buildSiteIssueReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const products = links.relevant.products || "https://www.ameenfinance.co/products";
@@ -553,6 +563,96 @@ function buildCurrentPaymentExecutionReply(input: { truth: TruthBundle; turn: In
   return `تمام، هيك بنكمّل. رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول، ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ${currentFileOpeningPaymentRule()}${receipt}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
 }
 
+
+function buildStaffIdentityReply(state: ConversationState) {
+  return `معك ${roleDisplayName(state.role.currentRole)} من الأمين للأقساط، تفضل.`;
+}
+
+function buildFeeTimingReply(input: { truth: TruthBundle; turn: InterpretedTurn }) {
+  const decision = paymentDisclosureDecision({
+    application: input.truth.application,
+    customerText: input.turn.rawText,
+    explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
+  });
+  const firstInstallment = "القسط الأول مش عند الاستلام؛ يستحق بعد شهر من استلام الجهاز وتوقيع العقد.";
+  if (decision.alreadyPaid) return `الدفع مؤكد إداريًا، فما في داعي تدفع رسوم فتح الملف مرة ثانية. ${firstInstallment}`;
+  if (decision.receiptPending) return `وصل الدفع موجود على الملف وبانتظار مراجعة الإدارة، فما في داعي تعيد الدفع. ${firstInstallment}`;
+
+  if (applicationJourneyStage(input.truth.application) === "preliminary_approved_waiting_decision") {
+    return `رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير بتصير فقط بعد ما تختار الاستمرار، ومش عند الاستلام. ${firstInstallment}`;
+  }
+
+  if (decision.paymentExecutionDetailsAllowed && paymentMethodQuestionText(input.turn.rawText)) {
+    const links = buildOfficialLinkContext(input.turn, input.truth);
+    const receipt = links.relevant.receipt ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${links.relevant.receipt}` : "";
+    return `نعم، بهالمرحلة المطلوب ${input.truth.policy.fileOpeningFeeJod} دنانير رسوم فتح الملف حتى تبدأ الدراسة النهائية. ${currentFileOpeningPaymentRule({ includeApology: false })}${receipt}\n${firstInstallment}`;
+  }
+
+  if (decision.paymentExecutionDetailsAllowed) {
+    return `نعم، بهالمرحلة المطلوب فقط ${input.truth.policy.fileOpeningFeeJod} دنانير رسوم فتح الملف حتى تبدأ الدراسة النهائية. ${firstInstallment}`;
+  }
+  return `رسوم فتح الملف مرتبطة بمرحلة ما بعد الموافقة المبدئية واختيار الاستمرار، وما رح أطلب منك مبلغ قبل ما تكون الخطوة مفتوحة فعليًا. ${firstInstallment}`;
+}
+
+function buildRefundFeeQuestionReply(truth: TruthBundle) {
+  const stage = applicationJourneyStage(truth.application);
+  const paid = paymentHistoricallyConfirmed(truth.application);
+  if (stage === "refund_requested") return "رسوم فتح الملف المدفوعة داخلة بمسار الاسترداد الحالي، والاسترداد قيد المعالجة حسب الحالة الفعلية.";
+  if (stage === "cancelled" && paid) return "بما إن الطلب ملغي والدفع مؤكد، رسوم فتح الملف بتدخل مسار الاسترداد الرسمي. ما رح أقول إن التحويل تم قبل التنفيذ الفعلي.";
+  if (paid) return "إذا قررت تلغي لاحقًا وطلبت الإلغاء بشكل صريح وأكدته، رسوم فتح الملف المدفوعة بتدخل مسار الاسترداد الرسمي. سؤالك الحالي لحاله ما بوقف الطلب وما بنفذ إلغاء.";
+  return "إذا ما في دفع مؤكد على الطلب، ما بيكون في مبلغ مدفوع نفتح له استرداد. وسؤالك الحالي لحاله ما بوقف الطلب ولا بنفذ إلغاء.";
+}
+
+function buildDocumentLinkRepair(input: {
+  turn: InterpretedTurn;
+  state: ConversationState;
+  truth: TruthBundle;
+}) {
+  const kind = documentContextKind(input.state);
+  if (kind === "ambiguous" || !kind) return "حدّدلي أي رابط مستند بدك بالضبط: الهوية، إثبات الدخل/كشف الراتب، ولا بيانات الكفيل؟ ما رح أعطيك رابط غلط أو placeholder داخلي.";
+  if (!input.truth.application) return "رابط رفع المستند لازم يكون مرتبط بطلب فعلي. إذا عندك رقم تتبع ابعثه، وإذا لسا ما قدمت ابدأ من صفحة المنتجات الرسمية أولًا.";
+  const rawByKind = {
+    identity: "رابط رفع الهوية",
+    salarySlip: "رابط رفع كشف الراتب",
+    guarantor: "رابط رفع بيانات الكفيل",
+  } as const;
+  const labels = {
+    identity: "رفع الهوية",
+    salarySlip: "رفع إثبات الدخل",
+    guarantor: "رفع بيانات الكفيل",
+  } as const;
+  const syntheticTurn: InterpretedTurn = {
+    ...input.turn,
+    rawText: rawByKind[kind],
+    topics: Array.from(new Set([...input.turn.topics, "requirements"])) as InterpretedTurn["topics"],
+  };
+  const links = buildOfficialLinkContext(syntheticTurn, input.truth);
+  const url = links.relevant[kind];
+  return url
+    ? `هذا رابط ${labels[kind]} الرسمي المرتبط بطلبك:\n${url}`
+    : `رابط ${labels[kind]} مش متاح على حالة الطلب الحالية بشكل موثق. ما رح أختلق رابط، وما تبعث المستند على واتساب.`;
+}
+
+function buildReceiptImageReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  if (paymentHistoricallyConfirmed(input.truth.application)) return "الدفع مؤكد إداريًا، فما في داعي تعيد الدفع أو ترفع وصل جديد.";
+  const syntheticTurn: InterpretedTurn = {
+    ...input.turn,
+    rawText: "رفع وصل الدفع",
+    topics: Array.from(new Set([...input.turn.topics, "receipt_upload", "payment_confirmation"])) as InterpretedTurn["topics"],
+  };
+  const links = buildOfficialLinkContext(syntheticTurn, input.truth);
+  return links.relevant.receipt
+    ? `وصلت الصورة على واتساب، لكن اعتماد وصل الدفع لازم يكون من الرابط الرسمي المرتبط بالطلب، وما بنعتبر صورة واتساب رفعًا رسميًا:\n${links.relevant.receipt}`
+    : "وصلت الصورة على واتساب، لكن ما رح أعتبرها رفع وصل رسمي أو تأكيد دفع. رابط الوصل المرتبط بالطلب مش متاح عندي هسا بشكل موثق.";
+}
+
+function buildExpediteSafeReply(input: { truth: TruthBundle }) {
+  const app = input.truth.application;
+  const status = app ? ` طلبك حالته ${customerFacingStatusLabel(app)}.` : "";
+  const paid = paymentHistoricallyConfirmed(app) ? " الدفع مؤكد إداريًا." : "";
+  return `وصلتني مطالبتك بالاستعجال.${status}${paid} ما رح أوعدك بموعد أو أقول إن الأولوية تغيرت قبل تنفيذ الإدارة فعليًا. أول ما يصدر قرار موثق بنبلغك.`;
+}
+
 function buildReplacement(input: {
   reply: string;
   turn: InterpretedTurn;
@@ -576,6 +676,41 @@ function buildReplacement(input: {
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  if (staffIdentityQuestionText(input.turn.rawText, input.state.lastCustomerText)) return buildStaffIdentityReply(input.state);
+  if (pureGreetingText(input.turn.rawText)) return "أهلاً فيك، كيف أقدر أساعدك؟";
+  if (legalThreatOrPublicEscalationText(input.turn.rawText)) {
+    const paid = paymentHistoricallyConfirmed(input.truth.application);
+    const status = input.truth.application ? ` حالة طلبك الحالية ${customerFacingStatusLabel(input.truth.application)}.` : "";
+    const refund = paid ? " وإذا قررت الإلغاء فعليًا وكان الدفع مؤكد، مسار الاسترداد الرسمي يفتح بعد الإلغاء المؤكد." : "";
+    return `فاهم إنك معترض ومتوتر من الموضوع.${status} إذا بدك تلغي، اطلب الإلغاء بشكل صريح وبطلب منك تأكيد منفصل قبل أي تنفيذ.${refund} التهديد أو الشكوى بحد ذاتها ما بعتبرها طلب إلغاء، وما رح أوعدك بشي غير منفذ.`;
+  }
+  if (dataDeletionConfirmationText(input.turn.rawText, input.state.lastAssistantText)) return "تأكيدك واضح. حذف البيانات إجراء إداري منفصل عن إلغاء الطلب، وما رح أقول إن بياناتك انحذفت قبل التنفيذ الفعلي.";
+  if (dataDeletionRequestText(input.turn.rawText)) return "أكيد، حذف البيانات الشخصية إجراء منفصل عن إلغاء الطلب. إذا قصدك فعليًا حذف بياناتك من النظام، اكتب: نعم، أؤكد طلب حذف بياناتي. وما رح أقول إن الحذف تم قبل التنفيذ الإداري الفعلي.";
+  if (explicitExpediteRequestText(input.turn.rawText)) return buildExpediteSafeReply({ truth: input.truth });
+  if (customerOffersHomeAddressText(input.turn.rawText)) return "ما في داعي تبعث عنوان بيتك على واتساب. إذا احتاج الطلب بيانات إضافية بنطلبها من المسار الرسمي المناسب، والحضور للمكتب فقط بموعد رسمي مؤكد.";
+  if (refundFeeQuestionText(input.turn.rawText)) return buildRefundFeeQuestionReply(input.truth);
+  if (feeNowOrPickupQuestionText(input.turn.rawText)) return buildFeeTimingReply({ truth: input.truth, turn: input.turn });
+  if (additionalIncomeQuestionText(input.turn.rawText)) {
+    const syntheticTurn: InterpretedTurn = { ...input.turn, rawText: "رابط رفع كشف الراتب", topics: Array.from(new Set([...input.turn.topics, "requirements"])) as InterpretedTurn["topics"] };
+    const links = buildOfficialLinkContext(syntheticTurn, input.truth);
+    return links.relevant.salarySlip
+      ? `ممكن تطلب إضافة إثبات دخل إضافي، بس ما بنعتبره مضاف من واتساب. ارفعه من الرابط الرسمي المرتبط بطلبك:
+${links.relevant.salarySlip}
+وما بقدر أضمن إن المستند الإضافي يغيّر قرار الموافقة بحد ذاته.`
+      : "ممكن تطلب إضافة إثبات دخل إضافي، بس ما بنعتبره مضاف من واتساب. رابط إثبات الدخل الإضافي مش متاح على حالة طلبك الحالية بشكل موثق، وما رح أختلق رابط أو أطلب منك تبعث المستند هون.";
+  }
+  if (barePhoneNumberText(input.turn.rawText) && input.truth.application) return "وصل الرقم. ما رح أعتبره تغييرًا لرقم التواصل من مجرد إرساله؛ إذا قصدك تعديل الرقم المسجل على الطلب اطلب التغيير صراحةً.";
+  if (applicationStartQuestionText(input.turn.rawText)) {
+    const links = buildOfficialLinkContext(input.turn, input.truth);
+    return `التقديم يبدأ من صفحة المنتجات الرسمية: اختار الجهاز وكمل طلب الموافقة المبدئية من هون:
+${links.baseUrl}/products
+بعد إرسال الطلب بيطلع لك رقم تتبع خاص فيه.`;
+  }
+  if (genericDocumentLinkRequestText(input.turn.rawText, input.state)) return buildDocumentLinkRepair({ turn: input.turn, state: input.state, truth: input.truth });
+  if (guarantorNameOnlyQuestionText(input.turn.rawText)) return "بيانات الكفيل مش شرط ثابت لكل طلب، وإذا انطلبت ما بقدر أأكد إن الاسم لحاله بكفي؛ بنعتمد فقط البيانات المطلوبة فعليًا على الملف ومن الرابط الرسمي الآمن.";
+  if (whatsappImageMessageText(input.turn.rawText) && recentPaymentOrReceiptContext(input.state)) return buildReceiptImageReply({ turn: input.turn, truth: input.truth });
+  if (reviewDelayQuestionText(input.turn.rawText)) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
+  if (politeClosureText(input.turn.rawText)) return "العفو، الله يعطيك العافية.";
   if (progressedCommercialStage(input.truth, decision) && postContinuationPaymentDeferralText(input.turn.rawText)) return buildPostContinuationDeferralReply(input.turn.rawText);
   if (progressedCommercialStage(input.truth, decision) && postContinuationAcknowledgementText(input.turn.rawText)) return "تمام، الله يعطيك العافية.";
   if (reviewMeaningQuestionText(input.turn.rawText)) return buildReviewMeaningReply(input.truth);
@@ -602,6 +737,9 @@ function buildReplacement(input: {
   if (managementInfoQuestionText(input.turn.rawText)) return buildManagementInfoReply();
   if (refundTimingContextualFollowup(input.turn, input.truth)) return buildRefundFollowupReply(input.turn);
   if (phoneContactQuestionText(input.turn.rawText)) return buildPhoneContactReply();
+  if (input.turn.topics.includes("application_status") && /(?:المتابعه\s+الاساسيه|المتابعة\s+الأساسية).{0,35}(?:واتساب)|(?:رقم\s+هاتف\s+اضافي|رقم\s+هاتف\s+إضافي)/.test(normalized(input.reply))) {
+    return buildStatusAndTrackingReply({ turn: input.turn, truth: input.truth });
+  }
   if (punctuationOnlyTurnText(input.turn.rawText)) return "أنا معك.";
   if (contractingPartyQuestionText(input.turn.rawText)) return buildSafeContractingPartyReply();
   if (registrationOrLicensingQuestionText(input.turn.rawText)) return buildSafeRegistrationReply(input.truth);
@@ -681,6 +819,62 @@ export function enforceFinalResponseGate(input: {
     violations.push("legacy_payment_destination_forbidden");
     severity = "p0";
   }
+
+  if (internalPlaceholderLeakText(reply)) {
+    violations.push("internal_placeholder_or_official_links_token_leaked");
+    severity = "p0";
+  }
+
+  if (legalThreatOrPublicEscalationText(input.turn.rawText) && /(?:بقدر\s+اسجل|بقدر\s+أسجل|بحللك|مضمون).{0,35}(?:الغاء|إلغاء|استرداد|الاسترداد)?/.test(normalized(reply))) {
+    violations.push("legal_threat_reply_claimed_unexecuted_or_guaranteed_action");
+  }
+
+  if (applicationStartQuestionText(input.turn.rawText) && !/(?:\/products|صفحه\s+المنتجات|صفحة\s+المنتجات)/.test(reply)) {
+    violations.push("application_start_missing_products_link");
+  }
+
+  if (additionalIncomeQuestionText(input.turn.rawText) && /(?:طلبك).{0,40}(?:قيد\s+الدراسه|قيد\s+الدراسة).{0,60}(?:اذا\s+رسالتك|إذا\s+رسالتك)/.test(normalized(reply))) {
+    violations.push("additional_income_question_wrong_status_fallback");
+  }
+
+  if (barePhoneNumberText(input.turn.rawText) && input.truth.application && /(?:تفاصيل\s+الطلب\s+مش\s+كامله|تفاصيل\s+الطلب\s+مش\s+كاملة)/.test(normalized(reply))) {
+    violations.push("bare_phone_number_wrong_missing_details_fallback");
+  }
+
+  if (pureGreetingText(input.turn.rawText) && (containsFiveJodFeeExplanation(reply) || containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || /(?:طلبك|الموافقه|الموافقة|الدراسه|الدراسة).{0,60}(?:5|٥|الاستمرار)/.test(normalized(reply)))) {
+    violations.push("pure_greeting_must_not_trigger_commercial_journey");
+  }
+
+  if (staffIdentityQuestionText(input.turn.rawText, input.state.lastCustomerText) && !/(?:معك).{0,18}(?:تالا|فدوه|فدوة|عبدالله|عبدالرحمن|عمران).{0,30}(?:الامين|الأمين)/.test(normalized(reply))) {
+    violations.push("staff_identity_question_not_answered");
+  }
+
+  if ((dataDeletionRequestText(input.turn.rawText) || dataDeletionConfirmationText(input.turn.rawText, input.state.lastAssistantText))
+      && /(?:تم|انحذفت|انمسحت|حذفنا|مسحنا).{0,30}(?:بياناتك|البيانات|معلوماتك)/.test(normalized(reply))) {
+    violations.push("data_deletion_falsely_claimed_executed");
+    severity = "p0";
+  }
+
+  if (refundFeeQuestionText(input.turn.rawText) && /(?:رغبتك\s+بالاستمرار\s+مسجله|رغبتك\s+بالاستمرار\s+مسجلة|أود\s+الاستمرار|اود\s+الاستمرار)/.test(reply)) {
+    violations.push("refund_fee_question_misrouted_to_continuation");
+  }
+
+  if (feeNowOrPickupQuestionText(input.turn.rawText) && !/(?:رسوم\s+فتح\s+الملف|5\s+دنانير|٥\s+دنانير).{0,120}(?:القسط\s+الاول|القسط\s+الأول)|(?:القسط\s+الاول|القسط\s+الأول).{0,120}(?:رسوم\s+فتح\s+الملف|5\s+دنانير|٥\s+دنانير)/.test(normalized(reply))) {
+    violations.push("fee_now_vs_pickup_question_not_answered");
+  }
+
+  if (customerOffersHomeAddressText(input.turn.rawText) && /(?:جهه\s+معروفه|جهة\s+معروفة|شغلها\s+واضح|اجراءات\s+رسميه\s+وموثقه|إجراءات\s+رسمية\s+وموثقة)/.test(normalized(reply))) {
+    violations.push("unsupported_reputation_reassurance_on_home_address");
+  }
+
+  if (genericDocumentLinkRequestText(input.turn.rawText, input.state) && !/(?:https?:\/\/|حدّدلي|حددلي|مش\s+متاح|رقم\s+تتبع|صفحه\s+المنتجات|صفحة\s+المنتجات)/i.test(reply)) {
+    violations.push("document_link_request_not_resolved");
+  }
+
+  if (whatsappImageMessageText(input.turn.rawText) && recentPaymentOrReceiptContext(input.state) && /(?:وصل\s+الدفع\s+وصل|الوصل\s+وصل|بمجرد\s+ما\s+الاداره\s+تأكده).{0,40}(?:بنبلش|نكمل)/.test(normalized(reply))) {
+    violations.push("whatsapp_image_must_not_count_as_official_receipt_upload");
+    severity = "p0";
+  }
   if (customerTextIsNonFeePaymentContext(input.turn.rawText) && containsRestrictedPaymentExecutionDetail(reply, input.truth.policy)) {
     if (!violations.includes("non_fee_payment_context_leaked_file_opening_details")) violations.push("non_fee_payment_context_leaked_file_opening_details");
     severity = "p0";
@@ -718,6 +912,10 @@ export function enforceFinalResponseGate(input: {
     severity = "p0";
   }
   if (trackingLinkRequest(input.turn) && !/(?:https?:\/\/|رابط\s+التتبع)/i.test(reply)) violations.push("tracking_link_request_not_answered");
+  if (input.turn.topics.includes("application_status")
+      && /(?:المتابعه\s+الاساسيه|المتابعة\s+الأساسية).{0,35}(?:واتساب)|(?:ما\s+عندي\s+رقم\s+هاتف\s+اضافي|ما\s+عندي\s+رقم\s+هاتف\s+إضافي)/.test(normalized(reply))) {
+    violations.push("application_status_misrouted_to_contact_info");
+  }
   if (siteIssue(input.turn) && /(?:ابعث|ابعت|ارسل).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("site_issue_wrong_tracking_fallback");
   if ((applicationFormIssueTurn(input.turn) || noPriorApplicationTurn(input.turn)) && /(?:ابعث|ابعت|ارسل|بدي|لازم).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)|(?:ما\s+عندي|ما\s+في).{0,35}(?:طلب\s+موثوق|طلب\s+مربوط)/.test(normalized(reply))) violations.push("no_application_or_form_issue_wrong_tracking_fallback");
   if ((generalRequirementsTurn(input.turn) || financingStructureTurn(input.turn)) && /(?:ما\s+عندي|ما\s+في).{0,45}(?:طلب\s+موثوق|خطوه\s+دفع|خطوة\s+دفع)|(?:ابعث|ابعت).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("general_requirements_not_answered");
@@ -749,6 +947,9 @@ export function enforceFinalResponseGate(input: {
 
   const unsupportedOperationalPromise = unsupportedExpeditePromise(reply) || mutationExecutionPromiseWithoutReceipt(reply, input.actions);
   if (unsupportedOperationalPromise) violations.push("unsupported_operational_promise_without_execution");
+  if (explicitExpediteRequestText(input.turn.rawText) && /(?:بدفع|بقدم|بقدّم|بسرع|بسرّع).{0,28}(?:الملف|الطلب)|(?:متابع).{0,20}(?:طلبك|ملفك).{0,12}(?:شخصيا|شخصيًا)/.test(normalized(reply))) {
+    violations.push("expedite_request_must_not_claim_unexecuted_priority_change");
+  }
   const unsupportedRefundEta = unsupportedRefundEtaClaim(reply, input.turn);
   if (unsupportedRefundEta) violations.push("unsupported_refund_eta_certainty");
   const repeatedMutationPrompt = repeatedMutationCta(reply, input.turn);
@@ -759,6 +960,14 @@ export function enforceFinalResponseGate(input: {
   const progressedCommercial = progressedCommercialStage(input.truth, paymentDecision);
   const postContinuationDeferral = progressedCommercial && postContinuationPaymentDeferralText(input.turn.rawText);
   const postContinuationAck = progressedCommercial && postContinuationAcknowledgementText(input.turn.rawText);
+  const currentPaymentEvent = currentPaymentExecutionRequested(input.turn)
+    || paymentFailureOrDestinationProblemText(input.turn.rawText)
+    || feeNowOrPickupQuestionText(input.turn.rawText);
+  if (progressedCommercial && !currentPaymentEvent
+      && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || containsFiveJodFeeExplanation(reply))) {
+    violations.push("post_continuation_payment_details_require_current_payment_event");
+    severity = "p0";
+  }
   if ((postContinuationDeferral || postContinuationAck) && (containsRestrictedPaymentExecutionDetail(reply, input.truth.policy) || containsFiveJodFeeExplanation(reply))) {
     violations.push(postContinuationDeferral ? "post_continuation_deferral_must_not_replay_payment" : "post_continuation_ack_must_not_replay_payment");
     severity = "p0";

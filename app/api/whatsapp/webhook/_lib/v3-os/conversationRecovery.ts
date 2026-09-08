@@ -9,6 +9,7 @@ import { buildSafeContractingPartyReply, buildSafeRegistrationReply, buildSafeTr
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemText } from "./paymentFailureRecovery";
+import { additionalIncomeQuestionText, applicationStartQuestionText, barePhoneNumberText, customerOffersHomeAddressText, dataDeletionConfirmationText, dataDeletionRequestText, documentContextKind, explicitExpediteRequestText, feeNowOrPickupQuestionText, genericDocumentLinkRequestText, guarantorNameOnlyQuestionText, legalThreatOrPublicEscalationText, paymentMethodQuestionText, politeClosureText, pureGreetingText, recentPaymentOrReceiptContext, refundFeeQuestionText, reviewDelayQuestionText, roleDisplayName, staffIdentityQuestionText, whatsappImageMessageText } from "./dailyConversationIntegrity";
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || "")).replace(/[؟?!.,،؛:]+/g, " ").replace(/\s+/g, " ").trim();
@@ -20,6 +21,7 @@ function postContinuationStageOpen(truth: TruthBundle) {
 }
 
 function postContinuationAcknowledgementText(value: string | null | undefined) {
+  if (politeClosureText(value)) return true;
   const raw = String(value || "").trim();
   const q = normalized(value);
   if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|ان\s+شاء\s+الله|إن\s+شاء\s+الله|شكرا|شكرًا|يسلمو|يعطيك\s+العافيه|يعطيك\s+العافية)$/.test(q)) return true;
@@ -67,6 +69,128 @@ function buildKeepReviewReply(truth: TruthBundle) {
   const paid = paymentHistoricallyConfirmed(truth.application);
   const payment = paid ? " والدفع مؤكد إداريًا." : "";
   return `تمام، بنكمل على الطلب الحالي وما رح أبدأ إلغاء أو استرداد من هالحكي.${payment} بخصوص إنك بدك حل قريب: ما عندي موعد مؤكد أضمنه، وأول ما يصدر قرار فعلي رح يصلك التحديث.`;
+}
+
+
+function buildStaffIdentityReply(state: ConversationState) {
+  const name = roleDisplayName(state.role.currentRole);
+  return `معك ${name} من الأمين للأقساط، تفضل.`;
+}
+
+function buildFeeTimingReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const app = input.truth.application;
+  const commercial = continuationCommercialState(app);
+  const firstInstallment = "القسط الأول مش عند الاستلام؛ يستحق بعد شهر من استلام الجهاز وتوقيع العقد.";
+  if (paymentHistoricallyConfirmed(app) || commercial === "already_paid") {
+    return `الدفع مؤكد إداريًا على طلبك، فما في داعي تدفع 5 دنانير مرة ثانية. ${firstInstallment}`;
+  }
+  if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded) {
+    return `وصل الدفع موجود على الملف وبانتظار مراجعة الإدارة، فما في داعي تدفع مرة ثانية. ${firstInstallment}`;
+  }
+
+  const stage = applicationJourneyStage(app);
+  if (stage === "preliminary_approved_waiting_decision") {
+    return `رسوم فتح الملف 5 دنانير ما بتنطلب قبل اختيار الاستمرار. إذا قررت تكمل، بتدفعها لفتح الدراسة النهائية، مش عند الاستلام. ${firstInstallment}`;
+  }
+
+  if (isContinuationRevenueReady(app)) {
+    if (paymentMethodQuestionText(input.turn.rawText)) {
+      const syntheticTurn: InterpretedTurn = {
+        ...input.turn,
+        topics: Array.from(new Set([...input.turn.topics, "payment_method", "receipt_upload"])) as InterpretedTurn["topics"],
+      };
+      const links = buildOfficialLinkContext(syntheticTurn, input.truth);
+      const receipt = links.relevant.receipt
+        ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${links.relevant.receipt}`
+        : "";
+      return `نعم، بهالمرحلة المطلوب 5 دنانير رسوم فتح الملف حتى تبدأ الدراسة النهائية. ${currentFileOpeningPaymentRule({ includeApology: false })}${receipt}\n${firstInstallment}`;
+    }
+    return `نعم، بعد ما اخترت الاستمرار المطلوب بهالمرحلة فقط 5 دنانير رسوم فتح الملف حتى تبدأ الدراسة النهائية. ${firstInstallment}`;
+  }
+
+  return `رسوم فتح الملف مرتبطة بمرحلة ما بعد الموافقة المبدئية واختيار الاستمرار، وما رح أطلب منك مبلغ قبل ما تكون الخطوة مفتوحة فعليًا على الطلب. ${firstInstallment}`;
+}
+
+function buildRefundFeeQuestionReply(truth: TruthBundle) {
+  const app = truth.application;
+  const stage = applicationJourneyStage(app);
+  const paid = paymentHistoricallyConfirmed(app);
+
+  if (stage === "refund_requested") {
+    return "رسوم فتح الملف المدفوعة داخلة بمسار الاسترداد الحالي. الاسترداد قيد المعالجة، وما في خطوة ناقصة منك حسب الحالة الحالية.";
+  }
+  if (stage === "cancelled" && paid) {
+    return "بما إن الطلب ملغي والدفع مؤكد، رسوم فتح الملف بتدخل مسار الاسترداد الرسمي. ما رح أقول إن التحويل تم قبل ما يظهر التنفيذ الفعلي.";
+  }
+  if (paid) {
+    return "إذا قررت تلغي الطلب لاحقًا وطلبت الإلغاء بشكل صريح وأكدته، رسوم فتح الملف المدفوعة بتدخل مسار الاسترداد الرسمي. سؤالك الحالي لحاله ما بوقف الطلب وما بنفذ إلغاء.";
+  }
+  return "إذا ما في دفع مؤكد على الطلب، ما بيكون في مبلغ مدفوع نفتح له استرداد. وسؤالك الحالي لحاله ما بوقف الطلب ولا بنفذ إلغاء.";
+}
+
+function buildDocumentLinkReply(input: {
+  turn: InterpretedTurn;
+  state: ConversationState;
+  truth: TruthBundle;
+  recentTurns?: string[];
+}) {
+  const kind = documentContextKind(input.state, input.recentTurns);
+  if (kind === "ambiguous") {
+    return "أكيد، بس حدّدلي أي رابط بدك بالضبط: رفع الهوية، إثبات الدخل/كشف الراتب، ولا بيانات الكفيل؟ ما بدي أعطيك رابط غلط.";
+  }
+  if (!kind) {
+    return "أكيد، بس حدّدلي أي مستند بدك ترفعه حتى أعطيك الرابط الرسمي المرتبط بالطلب، وما رح أستخدم رابط الوصل أو التتبع بدل رابط المستند.";
+  }
+  if (!input.truth.application) {
+    return "رابط رفع المستند لازم يكون مرتبط بطلب فعلي. إذا عندك رقم تتبع ابعثه، وإذا لسا ما قدمت ابدأ من صفحة المنتجات الرسمية أولًا.";
+  }
+
+  const textByKind = {
+    identity: "رفع الهوية",
+    salarySlip: "رفع إثبات الدخل",
+    guarantor: "رفع بيانات الكفيل",
+  } as const;
+  const rawByKind = {
+    identity: "رابط رفع الهوية",
+    salarySlip: "رابط رفع كشف الراتب",
+    guarantor: "رابط رفع بيانات الكفيل",
+  } as const;
+  const syntheticTurn: InterpretedTurn = {
+    ...input.turn,
+    rawText: rawByKind[kind],
+    topics: Array.from(new Set([...input.turn.topics, "requirements"])) as InterpretedTurn["topics"],
+  };
+  const links = buildOfficialLinkContext(syntheticTurn, input.truth);
+  const url = links.relevant[kind];
+  if (url) return `أكيد، هذا رابط ${textByKind[kind]} الرسمي المرتبط بطلبك:\n${url}`;
+  return `رابط ${textByKind[kind]} مش متاح على حالة الطلب الحالية بشكل موثق. ما رح أختلق رابط، وما تبعث المستند على واتساب.`;
+}
+
+function buildReceiptImageReply(input: {
+  turn: InterpretedTurn;
+  truth: TruthBundle;
+}) {
+  const app = input.truth.application;
+  if (paymentHistoricallyConfirmed(app)) {
+    return "الدفع مؤكد إداريًا على طلبك، فما في داعي تعيد الدفع أو ترفع وصل جديد.";
+  }
+  const syntheticTurn: InterpretedTurn = {
+    ...input.turn,
+    rawText: "رفع وصل الدفع",
+    topics: Array.from(new Set([...input.turn.topics, "receipt_upload", "payment_confirmation"])) as InterpretedTurn["topics"],
+  };
+  const links = buildOfficialLinkContext(syntheticTurn, input.truth);
+  if (links.relevant.receipt) {
+    return `وصلت الصورة على واتساب، لكن اعتماد وصل دفع رسوم فتح الملف لازم يكون من الرابط الرسمي المرتبط بالطلب، وما بنعتبر صورة واتساب رفعًا رسميًا:\n${links.relevant.receipt}`;
+  }
+  return "وصلت الصورة على واتساب، لكن ما رح أعتبرها رفع وصل رسمي أو تأكيد دفع. رابط الوصل المرتبط بطلبك مش متاح عندي هسا بشكل موثق، وما رح أعطيك رابط عام بدل الصحيح.";
+}
+
+function buildExpediteReply(truth: TruthBundle) {
+  const app = truth.application;
+  const paid = paymentHistoricallyConfirmed(app) ? " والدفع مؤكد إداريًا." : "";
+  const status = app ? ` طلبك حالته ${customerFacingStatusLabel(app)}.${paid}` : "";
+  return `وصلتني إنك طالب استعجال واضح.${status} ما رح أوعدك بموعد أو أقول إن الأولوية تغيرت قبل تنفيذ الإدارة فعليًا. أول ما يصدر قرار موثق بنبلغك.`;
 }
 
 function contextText(state: ConversationState, recentTurns?: string[]) {
@@ -275,6 +399,30 @@ export function hardenTurnForConversationRecovery(input: { turn: InterpretedTurn
     addAct(acts, turn, { type: "ask", topic: "payment_method", confidence: 0.999, action: "none", value: "payment_failure_or_destination_problem" });
   }
 
+  const identityContext = contextText(input.state, input.recentTurns);
+  if (staffIdentityQuestionText(turn.rawText, identityContext)) {
+    addAct(acts, turn, { type: "request_role", topic: "human_request", confidence: 0.999, action: "none", value: "staff_identity_question" });
+  }
+  if (feeNowOrPickupQuestionText(turn.rawText)) {
+    addAct(acts, turn, { type: "ask", topic: "payment_timing", confidence: 0.999, action: "none", value: "file_opening_fee_timing" });
+    addAct(acts, turn, { type: "ask", topic: "first_installment", confidence: 0.999, action: "none", value: "first_installment_timing" });
+  }
+  if (refundFeeQuestionText(turn.rawText)) {
+    addAct(acts, turn, { type: "ask", topic: "refund", confidence: 0.999, action: "none", value: "file_opening_fee_refund_question" });
+  }
+  if (dataDeletionRequestText(turn.rawText) || dataDeletionConfirmationText(turn.rawText, input.state.lastAssistantText)) {
+    addAct(acts, turn, { type: "ask", topic: "application_correction", confidence: 0.999, action: "none", value: "personal_data_deletion_request" });
+  }
+  if (explicitExpediteRequestText(turn.rawText)) {
+    addAct(acts, turn, { type: "complaint", topic: "review_timing", confidence: 0.999, action: "none", value: "explicit_expedite_request" });
+  }
+  if (reviewDelayQuestionText(turn.rawText)) {
+    addAct(acts, turn, { type: "ask", topic: "review_timing", confidence: 0.998, action: "none", value: "review_delay_question" });
+  }
+  if (genericDocumentLinkRequestText(turn.rawText, input.state, input.recentTurns) || guarantorNameOnlyQuestionText(turn.rawText)) {
+    addAct(acts, turn, { type: "ask", topic: "requirements", confidence: 0.998, action: "none", value: "document_link_or_guarantor_detail" });
+  }
+
   if (dialogueSignals.siteIssue) {
     addAct(acts, turn, { type: "ask", topic: "website", confidence: 0.995, action: "none", value: "site_issue" });
   }
@@ -406,6 +554,23 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || signals.safetyTrustQuestion
     || explicitReceiptUploadConfirmationText(input.turn.rawText)
     || paymentFailureOrDestinationProblemText(input.turn.rawText)
+    || pureGreetingText(input.turn.rawText)
+    || applicationStartQuestionText(input.turn.rawText)
+    || legalThreatOrPublicEscalationText(input.turn.rawText)
+    || additionalIncomeQuestionText(input.turn.rawText)
+    || barePhoneNumberText(input.turn.rawText)
+    || staffIdentityQuestionText(input.turn.rawText, input.state.lastCustomerText)
+    || politeClosureText(input.turn.rawText)
+    || feeNowOrPickupQuestionText(input.turn.rawText)
+    || refundFeeQuestionText(input.turn.rawText)
+    || dataDeletionRequestText(input.turn.rawText)
+    || dataDeletionConfirmationText(input.turn.rawText, input.state.lastAssistantText)
+    || explicitExpediteRequestText(input.turn.rawText)
+    || customerOffersHomeAddressText(input.turn.rawText)
+    || genericDocumentLinkRequestText(input.turn.rawText, input.state, input.recentTurns)
+    || guarantorNameOnlyQuestionText(input.turn.rawText)
+    || (whatsappImageMessageText(input.turn.rawText) && recentPaymentOrReceiptContext(input.state, input.recentTurns))
+    || reviewDelayQuestionText(input.turn.rawText)
     || postContinuationAcknowledgementText(input.turn.rawText)
     || postContinuationPaymentDeferralText(input.turn.rawText)
     || reviewMeaningQuestionText(input.turn.rawText)
@@ -430,6 +595,101 @@ export function buildConversationRecoveryReply(input: {
   const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
   const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });
+  const identityContext = contextText(input.state, input.recentTurns);
+
+  if (staffIdentityQuestionText(raw, identityContext)) {
+    return buildStaffIdentityReply(input.state);
+  }
+
+  if (pureGreetingText(raw)) {
+    return "أهلاً فيك، كيف أقدر أساعدك؟";
+  }
+
+  if (legalThreatOrPublicEscalationText(raw)) {
+    const paid = paymentHistoricallyConfirmed(input.truth.application);
+    const stage = applicationJourneyStage(input.truth.application);
+    const status = input.truth.application ? ` حالة طلبك الحالية ${customerFacingStatusLabel(input.truth.application)}.` : "";
+    const refund = paid ? " وإذا قررت الإلغاء فعليًا وكان الدفع مؤكد، مسار الاسترداد الرسمي يفتح بعد الإلغاء المؤكد." : "";
+    const cancelled = stage === "cancelled" ? " الطلب ظاهر ملغي حاليًا." : "";
+    return `فاهم إنك معترض ومتوتر من الموضوع.${status}${cancelled} إذا بدك تلغي، اطلب الإلغاء بشكل صريح وبطلب منك تأكيد منفصل قبل أي تنفيذ.${refund} التهديد أو الشكوى بحد ذاتها ما بعتبرها طلب إلغاء، وما رح أوعدك بشي غير منفذ.`;
+  }
+
+  if (dataDeletionConfirmationText(raw, input.state.lastAssistantText)) {
+    return "تأكيدك واضح. حذف البيانات إجراء إداري منفصل عن إلغاء الطلب، وما رح أقول إن بياناتك انحذفت قبل ما يتم التنفيذ الفعلي.";
+  }
+
+  if (dataDeletionRequestText(raw)) {
+    return "أكيد، حذف البيانات الشخصية إجراء منفصل عن إلغاء الطلب. إذا قصدك فعليًا حذف بياناتك من النظام، اكتب: نعم، أؤكد طلب حذف بياناتي. وما رح أقول إن الحذف تم قبل التنفيذ الإداري الفعلي.";
+  }
+
+  if (explicitExpediteRequestText(raw)) {
+    return buildExpediteReply(input.truth);
+  }
+
+  if (customerOffersHomeAddressText(raw)) {
+    return "ما في داعي تبعث عنوان بيتك على واتساب. إذا احتاج الطلب أي بيانات إضافية بنطلبها من المسار الرسمي المناسب، والحضور للمكتب نفسه بكون فقط بموعد رسمي مؤكد.";
+  }
+
+  if (refundFeeQuestionText(raw)) {
+    return buildRefundFeeQuestionReply(input.truth);
+  }
+
+  if (feeNowOrPickupQuestionText(raw)) {
+    return buildFeeTimingReply({ turn: input.turn, truth: input.truth });
+  }
+
+  if (additionalIncomeQuestionText(raw)) {
+    if (!input.truth.application) {
+      return "ممكن تطلب إضافة إثبات دخل إضافي، بس لازم يكون ضمن طلب فعلي ومن الرابط الرسمي المناسب؛ ما بنستلم إثباتات الدخل على واتساب. وما بقدر أضمن إن مصدر الدخل الإضافي يغيّر قرار الموافقة بحد ذاته.";
+    }
+    const syntheticTurn: InterpretedTurn = {
+      ...input.turn,
+      rawText: "رابط رفع كشف الراتب",
+      topics: Array.from(new Set([...input.turn.topics, "requirements"])) as InterpretedTurn["topics"],
+    };
+    const docLinks = buildOfficialLinkContext(syntheticTurn, input.truth);
+    return docLinks.relevant.salarySlip
+      ? `ممكن تطلب إضافة إثبات دخل إضافي، بس ما بنعتبره مضاف من واتساب. ارفعه من الرابط الرسمي المرتبط بطلبك:
+${docLinks.relevant.salarySlip}
+وما بقدر أضمن إن المستند الإضافي يغيّر قرار الموافقة بحد ذاته.`
+      : "ممكن تطلب إضافة إثبات دخل إضافي، بس ما بنعتبره مضاف من واتساب. رابط إثبات الدخل الإضافي مش متاح على حالة طلبك الحالية بشكل موثق، وما رح أختلق رابط أو أطلب منك تبعث المستند هون.";
+  }
+
+  if (barePhoneNumberText(raw) && input.truth.application) {
+    return "وصل الرقم. ما رح أعتبره تغييرًا لرقم التواصل من مجرد إرساله؛ إذا قصدك تعديل الرقم المسجل على الطلب اطلب التغيير صراحةً، ولحد ما يتنفذ إداريًا بضل الرقم الموجود على الطلب هو المعتمد.";
+  }
+
+  if (genericDocumentLinkRequestText(raw, input.state, input.recentTurns)) {
+    return buildDocumentLinkReply({
+      turn: input.turn,
+      state: input.state,
+      truth: input.truth,
+      recentTurns: input.recentTurns,
+    });
+  }
+
+  if (guarantorNameOnlyQuestionText(raw)) {
+    return "بيانات الكفيل مش شرط ثابت لكل طلب، وإذا انطلبت ما بقدر أأكد إن الاسم لحاله بكفي؛ بنعتمد فقط البيانات المطلوبة فعليًا على الملف ومن الرابط الرسمي الآمن.";
+  }
+
+  if (whatsappImageMessageText(raw) && recentPaymentOrReceiptContext(input.state, input.recentTurns)) {
+    return buildReceiptImageReply({ turn: input.turn, truth: input.truth });
+  }
+
+  if (reviewDelayQuestionText(raw)) {
+    return reviewTimingReply(input.truth, human);
+  }
+
+  if (applicationStartQuestionText(raw)) {
+    const products = `${links.baseUrl}/products`;
+    return `التقديم يبدأ من صفحة المنتجات الرسمية: اختار الجهاز وكمل طلب الموافقة المبدئية من هون:
+${products}
+بعد إرسال الطلب بيطلع لك رقم تتبع خاص فيه.`;
+  }
+
+  if (politeClosureText(raw)) {
+    return "العفو، الله يعطيك العافية.";
+  }
 
   if (dialogueSignals.contractingPartyQuestion || contractingPartyQuestionText(raw)) {
     return buildSafeContractingPartyReply();
@@ -516,7 +776,7 @@ ${products}`;
   }
 
   if (dialogueSignals.generalRequirements || generalRequirementsQuestionText(raw)) {
-    return "إذا سؤالك هل الهوية لحالها بتكفي: لا، إثبات الدخل من المتطلبات الأساسية مع الهوية. بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. وأي مستند حساس بنطلبه فقط من الرابط الرسمي الآمن، مش عبر واتساب.";
+    return "الهوية وإثبات الدخل من المتطلبات الأساسية. بيانات الكفيل مش شرط ثابت لكل طلب، وإذا انطلبت بنطلب البيانات المطلوبة حسب حالة الملف وما بقدر أأكد إن اسم الكفيل لحاله بكفي. وأي مستند حساس بنستلمه فقط من الرابط الرسمي الآمن، مش عبر واتساب.";
   }
 
   if (dialogueSignals.installmentAdjustment || installmentAdjustmentQuestionText(raw)) {
