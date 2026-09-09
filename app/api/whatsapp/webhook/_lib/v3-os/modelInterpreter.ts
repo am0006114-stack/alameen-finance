@@ -2,6 +2,7 @@ import type { ActionKey, ConversationState, DialogueAct, DialogueActType, Interp
 import { interpretTurn } from "./interpreter";
 import type { V3TextProvider } from "./provider";
 import { normalizeArabic } from "./text";
+import { explicitContactRequestText } from "./currentTurnAuthority";
 
 const TOPICS: TopicKey[] = [
   "greeting","thanks","acknowledgement","unknown","application_status","application_correction","requirements","guarantor",
@@ -141,7 +142,7 @@ function enrichOperationalActs(turn: InterpretedTurn, customerText: string): Int
   if (/(?:متى|امتى|ايمتى|موعد).{0,30}(?:اجي|أجي|استلم)|(?:اجي|أجي).{0,30}(?:استلم|موعد)/.test(q)) additions.push({ topic: "appointment", type: "ask", value: "pickup_time" });
   if (/(?:وين|اين|أين).{0,24}(?:استلم|اجي|أجي)|(?:موقع|عنوان).{0,20}(?:المكتب|الاستلام)/.test(q)) additions.push({ topic: "office_location", type: "ask", value: "pickup_location" });
   if (/(?:كم|قديش|شو).{0,20}(?:قسط|القسط)|(?:القسط|قسطه|قسطو).{0,20}(?:كم|قديش)/.test(q)) additions.push({ topic: "device_recalculation", type: "ask", value: "installment_amount" });
-  if (/(?:رقم\s*(?:تواصل|اتصال|هاتف|واتساب)|مكالمة|اتصل\s+عليكم)/.test(q)) additions.push({ topic: "call_request", type: "ask", value: "official_contact" });
+  if (explicitContactRequestText(customerText)) additions.push({ topic: "call_request", type: "ask", value: "official_contact" });
   if (/(?:الجهاز|التلفون|الموبايل).{0,25}(?:جديد|بالكرتونه|بالكرتونة|مختوم)|(?:جديد|بالكرتونه|بالكرتونة|مختوم).{0,25}(?:الجهاز|التلفون|الموبايل)/.test(q)) additions.push({ topic: "products", type: "ask", value: "product_condition" });
   if (/(?:خمس|5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|بدون\s*(?:خمس|5|٥)|ما\s*بتفتحو[^\n]{0,30}(?:خمس|5|٥)/.test(q)) additions.push({ topic: "payment_fee", type: "ask", value: "fee_policy" });
   if (!additions.length) return turn;

@@ -20,6 +20,7 @@ function paid(a){ return Boolean(a && (a.paymentConfirmedAt || a.paymentReferenc
 const syntaxFiles=['contextualTurnResolver.ts','conversationRecovery.ts','paymentEligibilityFirewall.ts','truthSnapshotLock.ts','writerContract.ts','finalResponseGate.ts','legalTrustGuard.ts'].map(rel);
 for(const f of syntaxFiles){ const out=ts.transpileModule(read(f),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true},reportDiagnostics:true,fileName:f}); const errs=(out.diagnostics||[]).filter(d=>d.category===ts.DiagnosticCategory.Error); ok(errs.length===0,'TypeScript syntax '+f); }
 
+const cta=loadTs(rel('currentTurnAuthority.ts'),{'./text':{normalizeArabic},'./types':{}});
 const ctx=loadTs(rel('contextualTurnResolver.ts'),{'./text':{normalizeArabic}});
 ok(ctx.commercialPauseOrDeclineText('تمام التمام نخليها بعدين و باذن الله بنستمر'),'future continuation with "later" is a pause, not current consent');
 ok(ctx.commercialPauseOrDeclineText('❌ ليس لدي المال الكافي للدفع الان'),'cannot-pay-now is commercial pause');
@@ -98,6 +99,7 @@ const gate=loadTs(rel('finalResponseGate.ts'),{
     whatsappImageMessageText:()=>false
   },
   './humanFirstJourneyIntelligence':{buildJourneyLockRepairReply:()=>null,journeyStageReplyRegression:()=>false,refundDataFormTroubleText:()=>false,humanFirstJourneyWriterContext:()=>({})},
+  './currentTurnAuthority':cta,
   './text':{normalizeArabic},
 });
 function runGate({reply,raw,a=app(),topics=[],stateExtra={},requestedActions=[],actions=[]}){ const t=turn(raw,topics); t.requestedActions=requestedActions; return gate.enforceFinalResponseGate({reply,turn:t,state:state(stateExtra),truth:truth(a),actions,applicationChanged:false}); }

@@ -12,6 +12,7 @@ import { contextualTurnSignals } from "./contextualTurnResolver";
 import { pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
+import { explicitContactRequestText, explicitOrderStatusRequestText } from "./currentTurnAuthority";
 
 const ACTION_LABELS: Record<string,string> = {
   cancel_application: "إلغاء الطلب",
@@ -55,7 +56,7 @@ function rawAsksFeePolicy(q: string) {
 }
 
 function rawAsksContactNumber(q: string) {
-  return /(?:رقم\s*(?:تواصل|اتصال|هاتف|واتساب)|في\s+رقم\s+تواصل|بدي\s+احكي\s+تلفون|اتصل\s+عليكم|مكالمة)/.test(q);
+  return explicitContactRequestText(q);
 }
 
 function rawAsksPickupWhen(q: string) {
@@ -173,6 +174,14 @@ ${products}`;
 
   if (dialogueSignals.trustConcern) {
     return `مفهوم تخوفك، خصوصًا مع انتشار الاحتيال. اللي بقدر أؤكده بدون مبالغة: ${p.independenceStatement} وكل خطوة على الطلب بنعتمدها من الحالة الفعلية، وما بنعتبر دفع أو تعديل أو موافقة نهائية تمت إلا إذا كانت مثبتة فعليًا.`;
+  }
+
+  // Current-turn authority: a tracking/status request must be answered as status
+  // even when the structured template contains the label "رقم الهاتف".
+  if (explicitOrderStatusRequestText(input.turn.rawText) && input.truth.application && !explicitContactRequestText(input.turn.rawText)) {
+    const status = shortStatus(input.truth);
+    const tracking = buildOfficialLinkContext(input.turn, input.truth).relevant.tracking;
+    return tracking ? `${status}\n\nرابط التتبع الرسمي: ${tracking}` : String(status || "طلبك مربوط عندي، وبعطيك الحالة الفعلية بدون ما أخمّن.");
   }
 
   // A customer number is never an official company contact number. If no explicit

@@ -1,5 +1,6 @@
 import { applicationJourneyStage, type ApplicationJourneyStage } from "./applicationJourney";
 import { normalizeArabic } from "./text";
+import { currentTurnAuthorityKind } from "./currentTurnAuthority";
 import type { ConversationState, DialogueAct, InterpretedTurn, TopicKey, TruthBundle } from "./types";
 
 function normalized(value: string | null | undefined) {
@@ -296,6 +297,7 @@ export function humanFirstJourneyWriterContext(input: {
     currentGoal: input.state.currentGoal,
     staleTopicsInvalidated: stale,
     mergedCustomerBurst: input.turn.rawText.includes("\n"),
-    rule: "current_customer_meaning_and_authoritative_journey_beat_stale_open_loops",
+    currentTurnAuthority: currentTurnAuthorityKind(input.turn.rawText),
+    rule: "explicit_current_turn_meaning_beats_stale_topics; authoritative_journey_beats_stale_open_loops",
   };
 }

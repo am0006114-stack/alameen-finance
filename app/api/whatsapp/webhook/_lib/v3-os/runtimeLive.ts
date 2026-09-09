@@ -26,6 +26,7 @@ import { enforceMutationConfirmationGate, pendingActionIsCurrentTurnFocus } from
 import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
 import { dataDeletionConfirmationText, explicitExpediteRequestText, explicitTrackingFromText } from "./dailyConversationIntegrity";
 import { buildHumanFirstCustomerBurst, enrichHumanFirstTurn, supersedeConversationStateForJourney } from "./humanFirstJourneyIntelligence";
+import { enforceCurrentTurnAuthority, explicitContactRequestText } from "./currentTurnAuthority";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -102,7 +103,7 @@ export function buildV3LastResortReply(input?: { truth: TruthBundle; state: Conv
   if (/^(?:تمام|اوك|اوكي|شكرا|شكرًا|يسلمو|يعطيك العافيه|يعطيك العافية|على خير|ان شاء الله|إن شاء الله|الحمد لله)[\s!]*$/i.test(nq)) {
     return "العفو، الله يعطيك العافية.";
   }
-  if (/(?:رقم\s*(?:تواصل|اتصال|واتساب)|مكالمة|اتصل عليكم)/i.test(nq)) {
+  if (explicitContactRequestText(q)) {
     return "المتابعة الأساسية للطلبات من نفس الواتساب. إذا بدك تغيّر رقم التواصل المسجل على الطلب، لازم يتحدث فعليًا على الطلب قبل ما أقول إنه تغيّر.";
   }
   if (/(?:شروط|تقسيط|طريقة التقديم|كيف اقدم|كيف أقدم)/i.test(q)) {
@@ -340,7 +341,8 @@ export async function runV3ProductionLive(input: {
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
 }): Promise<V3LiveResult> {
-  const safeRecentTurns = sanitizeRecentTurnsForModel(input.recentTurns);
+  const truthRecentTurns = input.recentTurns || [];
+  const safeRecentTurns = sanitizeRecentTurnsForModel(truthRecentTurns);
   const humanBurst = buildHumanFirstCustomerBurst({ customerText: input.customerText, recentTurns: safeRecentTurns });
   const effectiveCustomerText = humanBurst.combinedText || input.customerText;
   const loadedState = await loadV3ConversationState(input.waId);
@@ -354,11 +356,11 @@ export async function runV3ProductionLive(input: {
     recentTurns: safeRecentTurns,
     provider: interpreter,
   });
-  let turn = enrichHumanFirstTurn(hardenTurnForConversationRecovery({
+  let turn = enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
     turn: interpreted.turn,
     state: stateBefore,
     recentTurns: safeRecentTurns,
-  }));
+  })));
   const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
   const reducedState = reduceState({ state: stateBefore, turn });
   const preliminaryState = newApplicationFlow && ["reopen_application", "change_device", "change_application_data", "stop_refund"].includes(String(reducedState.pendingAction || ""))
@@ -369,7 +371,7 @@ export async function runV3ProductionLive(input: {
     waId: input.waId,
     customerText: effectiveCustomerText,
     state: preliminaryState,
-    recentTurns: safeRecentTurns,
+    recentTurns: truthRecentTurns,
     topics: turn.topics,
   });
 
@@ -384,7 +386,7 @@ export async function runV3ProductionLive(input: {
         waId: input.waId,
         customerText: `${retryTracking}\n${effectiveCustomerText}`,
         state: { ...preliminaryState, activeTrackingId: retryTracking },
-        recentTurns: safeRecentTurns,
+        recentTurns: truthRecentTurns,
         topics: Array.from(new Set([...turn.topics, "application_status", "tracking"])) as typeof turn.topics,
       });
       if (retryTruth.application) {

@@ -9,6 +9,7 @@ import { containsLegacyFileOpeningPaymentDestination, currentFileOpeningPaymentR
 import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemText, paymentFailureRecoveryReplyIsCurrent } from "./paymentFailureRecovery";
 import { additionalIncomeQuestionText, applicationStartQuestionText, barePhoneNumberText, currentPaymentExecutionRequested, customerOffersHomeAddressText, dataDeletionConfirmationText, dataDeletionRequestText, documentContextKind, explicitExpediteRequestText, feeNowOrPickupQuestionText, genericDocumentLinkRequestText, guarantorNameOnlyQuestionText, internalPlaceholderLeakText, legalThreatOrPublicEscalationText, paymentMethodQuestionText, politeClosureText, pureGreetingText, recentPaymentOrReceiptContext, refundFeeQuestionText, reviewDelayQuestionText, roleDisplayName, staffIdentityQuestionText, whatsappImageMessageText } from "./dailyConversationIntegrity";
 import { buildJourneyLockRepairReply, journeyStageReplyRegression, refundDataFormTroubleText } from "./humanFirstJourneyIntelligence";
+import { explicitContactRequestText, explicitOrderStatusRequestText, replyMisalignedWithCurrentTurn } from "./currentTurnAuthority";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -228,8 +229,7 @@ function refundTimingContextualFollowup(turn: InterpretedTurn, truth: TruthBundl
 }
 
 function phoneContactQuestionText(value: string | null | undefined) {
-  const q = normalized(value);
-  return /(?:كيف|كيفية|ليش|لماذا|وين).{0,28}(?:اتواصل|التواصل|اتصل|اتصال).{0,24}(?:هاتف|هاتفيا|هاتفيًا|رقم)|(?:رقم).{0,22}(?:تواصل|هاتف|اتصال)|(?:ليش|لماذا).{0,25}(?:ما\s+في|لا\s+يوجد).{0,18}(?:رقم)/.test(q);
+  return explicitContactRequestText(value);
 }
 
 function unsupportedPhoneAbsenceClaim(reply: string) {
@@ -741,10 +741,13 @@ ${links.baseUrl}/products
   if (mapLocationRequestText(input.turn.rawText)) return buildMapLocationReply(input.truth);
   if (managementInfoQuestionText(input.turn.rawText)) return buildManagementInfoReply();
   if (refundTimingContextualFollowup(input.turn, input.truth)) return buildRefundFollowupReply(input.turn);
-  if (phoneContactQuestionText(input.turn.rawText)) return buildPhoneContactReply();
+  if (explicitOrderStatusRequestText(input.turn.rawText) && input.truth.application && !explicitContactRequestText(input.turn.rawText)) {
+    return buildStatusAndTrackingReply({ turn: input.turn, truth: input.truth });
+  }
   if (input.turn.topics.includes("application_status") && /(?:المتابعه\s+الاساسيه|المتابعة\s+الأساسية).{0,35}(?:واتساب)|(?:رقم\s+هاتف\s+اضافي|رقم\s+هاتف\s+إضافي)/.test(normalized(input.reply))) {
     return buildStatusAndTrackingReply({ turn: input.turn, truth: input.truth });
   }
+  if (phoneContactQuestionText(input.turn.rawText)) return buildPhoneContactReply();
   if (punctuationOnlyTurnText(input.turn.rawText)) return "أنا معك.";
   if (contractingPartyQuestionText(input.turn.rawText)) return buildSafeContractingPartyReply();
   if (registrationOrLicensingQuestionText(input.turn.rawText)) return buildSafeRegistrationReply(input.truth);
@@ -928,6 +931,9 @@ export function enforceFinalResponseGate(input: {
   if (input.turn.topics.includes("application_status")
       && /(?:المتابعه\s+الاساسيه|المتابعة\s+الأساسية).{0,35}(?:واتساب)|(?:ما\s+عندي\s+رقم\s+هاتف\s+اضافي|ما\s+عندي\s+رقم\s+هاتف\s+إضافي)/.test(normalized(reply))) {
     violations.push("application_status_misrouted_to_contact_info");
+  }
+  if (replyMisalignedWithCurrentTurn({ turn: input.turn, reply })) {
+    if (!violations.includes("current_turn_relevance_violation")) violations.push("current_turn_relevance_violation");
   }
   if (siteIssue(input.turn) && /(?:ابعث|ابعت|ارسل).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("site_issue_wrong_tracking_fallback");
   if ((applicationFormIssueTurn(input.turn) || noPriorApplicationTurn(input.turn)) && /(?:ابعث|ابعت|ارسل|بدي|لازم).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)|(?:ما\s+عندي|ما\s+في).{0,35}(?:طلب\s+موثوق|طلب\s+مربوط)/.test(normalized(reply))) violations.push("no_application_or_form_issue_wrong_tracking_fallback");
