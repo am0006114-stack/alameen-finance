@@ -13,6 +13,7 @@ import { pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { explicitContactRequestText, explicitOrderStatusRequestText } from "./currentTurnAuthority";
+import { buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 
 const ACTION_LABELS: Record<string,string> = {
   cancel_application: "إلغاء الطلب",
@@ -115,6 +116,14 @@ export function buildZeroFallbackReply(input: {
     explicitContinuationThisTurn: explicitContinuationText(input.turn.rawText) || input.turn.requestedActions.includes("continue_application"),
   });
   const explicitDocumentKind = explicitDocumentUploadKind(input.turn.rawText);
+  const humanAuthority = buildHumanFirstConversationAuthorityReply({
+    turn: input.turn,
+    state: input.state,
+    truth: input.truth,
+    actions: input.actions,
+  });
+  if (humanAuthority) return humanAuthority;
+
   const conversationRecovery = buildConversationRecoveryReply({
     turn: input.turn,
     state: input.state,

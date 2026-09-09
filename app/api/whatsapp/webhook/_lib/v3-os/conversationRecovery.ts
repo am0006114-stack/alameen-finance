@@ -772,11 +772,11 @@ ${products}`;
   }
 
   if (dialogueSignals.financingStructure || financingStructureQuestionText(raw)) {
-    return "التقسيط عند الأمين للأقساط مش قرض بنكي من جهتنا. التقديم بيكون مباشرة على طلب الجهاز عبر الموقع، وبعدها الملف بيمر بالمراجعة حسب الشروط. من الأساسيات الهوية وإثبات الدخل، وبيانات الكفيل ممكن تُطلب حسب حالة الملف فقط؛ والمستندات الحساسة بتنرفع من الرابط الرسمي الآمن، مش واتساب.";
+    return `${input.truth.policy.commercialStructureRule} ${input.truth.policy.additionalFeesRule} التقديم بيكون مباشرة على طلب الجهاز عبر الموقع، والقرار النهائي بعد دراسة الملف. المستندات الحساسة بتنرفع من الرابط الرسمي الآمن، مش واتساب.`;
   }
 
   if (dialogueSignals.generalRequirements || generalRequirementsQuestionText(raw)) {
-    return "الهوية وإثبات الدخل من المتطلبات الأساسية. بيانات الكفيل مش شرط ثابت لكل طلب، وإذا انطلبت بنطلب البيانات المطلوبة حسب حالة الملف وما بقدر أأكد إن اسم الكفيل لحاله بكفي. وأي مستند حساس بنستلمه فقط من الرابط الرسمي الآمن، مش عبر واتساب.";
+    return `${input.truth.policy.requirementsGuidanceRule} وأي مستند حساس بنستلمه فقط من الرابط الرسمي الآمن، مش عبر واتساب.`;
   }
 
   if (dialogueSignals.installmentAdjustment || installmentAdjustmentQuestionText(raw)) {

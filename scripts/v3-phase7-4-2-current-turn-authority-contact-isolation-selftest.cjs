@@ -51,6 +51,6 @@ ok(gate.indexOf('explicitOrderStatusRequestText(input.turn.rawText)') < gate.ind
 ok(zero.includes('explicitOrderStatusRequestText(input.turn.rawText)') && zero.indexOf('explicitOrderStatusRequestText(input.turn.rawText)') < zero.indexOf('if (rawAsksContactNumber(q)'), 'zero fallback prioritizes status before contact');
 ok(model.includes('if (explicitContactRequestText(customerText)) additions.push'), 'model operational enrichment no longer treats bare phone field as call request');
 ok(writer.includes('وجود سطر «رقم الهاتف:» داخل رسالة التتبع مجرد بيانات تعريف للطلب'), 'human writer contract explicitly isolates tracking phone field from contact intent');
-ok(types.includes('v3.0.0-phase7.4.2-current-turn-authority-contact-isolation'), 'runtime version identifies Phase 7.4.2');
+ok(types.includes('v3.0.0-phase7.4.2-current-turn-authority-contact-isolation') || types.includes('v3.0.0-phase7.4.3-action-commercial-human-authority'), 'runtime version preserves Phase 7.4.2 behavior or advances to 7.4.3');
 ok(!runtime.includes('LIVE_SCOPED_MUTATIONS.add'), 'Phase 7.4.2 does not widen Real Actions');
 console.log(`RESULT: ${passed}/${passed+failed} PASS`); if(failed) process.exit(1);

@@ -12,10 +12,10 @@ function truthNeeded(topic: string) {
 function requirementsInstruction(truth: TruthBundle) {
   const app = truth.application;
   const p = truth.policy;
-  if (!app) return `${p.secureDocumentsRule} لا تخصص مستندات ناقصة لعميل بعينه بدون ربط الطلب الصحيح.`;
+  if (!app) return `${p.requirementsGuidanceRule} ${p.secureDocumentsRule} لا تخصص مستندات ناقصة لعميل بعينه بدون ربط الطلب الصحيح ولا تضمن القبول.`;
   const docs = app.documents;
   const status = String(app.status || "").toLowerCase();
-  if (!docs?.loaded) return `${p.secureDocumentsRule} حالة المستندات التفصيلية غير متاحة الآن؛ لا تقل إن مستندًا ناقص أو مرفوع بدون دليل.`;
+  if (!docs?.loaded) return `${p.requirementsGuidanceRule} ${p.secureDocumentsRule} حالة المستندات التفصيلية غير متاحة الآن؛ لا تقل إن مستندًا بعينه ناقص أو مرفوع بدون دليل، لكن جاوب سؤال العميل العام عن الشروط/البدائل مباشرة.`;
 
   const received: string[] = [];
   if (docs.identityComplete) received.push("الهوية أمامي وخلفي");
@@ -110,12 +110,12 @@ function instructionFor(topic: string, truth: TruthBundle, turn: InterpretedTurn
           ? "الدفع مؤكد إداريًا على الطلب، لذلك لا ترسل رابط رفع وصل ولا تطلب إعادة الرفع. وضح أن الخطوة منتهية."
           : `${p.secureDocumentsRule} أعطِ رابط receipt الموجود حرفيًا في OFFICIAL_LINKS إذا كان موجودًا، ووضّح أن اعتماد الدفع بعد الرفع يبقى بيد الإدارة/الأدمن وليس تلقائيًا من المحادثة.`
         : `لا يوجد طلب موثوق مربوط بالمحادثة الآن. اطلب رقم التتبع أو رقم الطلب حتى يتم توليد رابط رفع الوصل الرسمي. ممنوع إعطاء أي URL قبل ربط الطلب.`,
-    requirements: requirementsInstruction(truth),
-    guarantor: requirementsInstruction(truth),
+    requirements: `${requirementsInstruction(truth)} إذا سأل العميل كيف يقوي ملفه أو ما البدائل لإثبات الدخل، استخدم القاعدة المعتمدة: ${p.requirementsGuidanceRule}` ,
+    guarantor: `${requirementsInstruction(truth)} بيانات الكفيل ليست شرطًا ثابتًا، والملف القوي قد يمشي بدون كفيل حسب الدراسة؛ لا تضمن القبول النهائي.` ,
     tracking: truth.application
       ? `أعطِ رابط tracking المربوط بالطلب الموجود حرفيًا في OFFICIAL_LINKS. هذا رابط تتبع فقط وليس رابط رفع مستندات. استخدم اسم العميل طبيعيًا إذا كان متوفرًا.`
       : "إذا طلب رابط التتبع ولم يتم ربط طلب موثوق، أعطِ رابط التتبع العام من OFFICIAL_LINKS فقط بدون اختراع معلومات طلب.",
-    trust: `استخدم اسم ${p.businessName} فقط، وإذا كان السؤال عن الجهة المشابهة استخدم بيان الاستقلالية الرسمي.`,
+    trust: `استخدم اسم ${p.businessName} فقط، وإذا كان السؤال عن الجهة المشابهة استخدم بيان الاستقلالية الرسمي. إذا كان السؤال عن طبيعة النظام التجاري فالحقيقة المعتمدة: ${p.commercialStructureRule}`,
     human_request: "العميل طلب موظفًا: أنت الموظف الرسمي داخل نفس المحادثة. عرّف بنفسك فقط إذا لزم ولم يسبق التعريف، ثم حل المشكلة مباشرة. لا تقل تم التحويل ولا تنتظر إنسانًا.",
     manager_request: "عمران هو المسؤول عن الحالة الآن. إذا لم يسبق أن عرّف بنفسه، يكفي أن يقول: معك عمران. بعدها يدخل بالمشكلة مباشرة. لا يشرح أي مستوى أو تحويل أو بنية داخلية.",
     call_request: "اعترف بتفضيل المكالمة لكن لا تعد بمكالمة غير منفذة؛ استمر بحل الموضوع على واتساب الآن.",

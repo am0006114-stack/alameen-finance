@@ -27,6 +27,8 @@ import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
 import { dataDeletionConfirmationText, explicitExpediteRequestText, explicitTrackingFromText } from "./dailyConversationIntegrity";
 import { buildHumanFirstCustomerBurst, enrichHumanFirstTurn, supersedeConversationStateForJourney } from "./humanFirstJourneyIntelligence";
 import { enforceCurrentTurnAuthority, explicitContactRequestText } from "./currentTurnAuthority";
+import { applyAuthoritativeActionConversationMemory } from "./actionConversationMemory";
+import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -708,10 +710,16 @@ export async function runV3ProductionLive(input: {
   // stale continuation/payment loops are cancelled before any writer/fallback sees
   // the state. This is the hard boundary that prevents refund/cancel conversations
   // from being dragged back to an older commercial step.
-  const conversationState = supersedeConversationStateForJourney({
+  let conversationState = supersedeConversationStateForJourney({
     state: executionState,
     truth: truthAfterActions,
     turn,
+  });
+  conversationState = applyAuthoritativeActionConversationMemory({
+    state: conversationState,
+    truth: truthAfterActions,
+    actions,
+    turnId: turn.turnId,
   });
 
   // HUMAN JOURNEY FIRST: transactional truth is already resolved above. From here,
@@ -743,6 +751,13 @@ export async function runV3ProductionLive(input: {
     recentTurns: scopedRecentTurns,
   });
 
+  const humanAuthorityReply = buildHumanFirstConversationAuthorityReply({
+    turn,
+    state: conversationState,
+    truth: truthAfterActions,
+    actions,
+  });
+
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   let reply: string | null = null;
   let verification: VerificationReport = PASS;
@@ -762,6 +777,18 @@ export async function runV3ProductionLive(input: {
     } else if (scopedMutationReply) {
       reply = scopedMutationReply;
       verification = PASS;
+    } else if (humanAuthorityReply) {
+      reply = humanAuthorityReply;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
     } else if (prioritizeRecovery && recoveryReply) {
       // Only truth-critical recovery paths pre-empt the writer: explicit
       // continuation/opt-out, new application, foreign form blocker, showroom
@@ -890,7 +917,23 @@ export async function runV3ProductionLive(input: {
     }
   }
 
-  if (reply) reply = clampRepeatedCharacters(reply);
+  if (reply) {
+    const identityAugmented = appendSafeIdentityAnswerIfAsked({ reply, turn, state: conversationState });
+    if (identityAugmented !== reply) {
+      reply = identityAugmented;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
+    }
+    reply = clampRepeatedCharacters(reply);
+  }
 
   // Absolute production guard: while Real Actions are disabled, no language that
   // claims a business mutation completed may leave the runtime, even if an upstream

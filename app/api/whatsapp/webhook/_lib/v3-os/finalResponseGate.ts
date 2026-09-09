@@ -10,6 +10,7 @@ import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemTex
 import { additionalIncomeQuestionText, applicationStartQuestionText, barePhoneNumberText, currentPaymentExecutionRequested, customerOffersHomeAddressText, dataDeletionConfirmationText, dataDeletionRequestText, documentContextKind, explicitExpediteRequestText, feeNowOrPickupQuestionText, genericDocumentLinkRequestText, guarantorNameOnlyQuestionText, internalPlaceholderLeakText, legalThreatOrPublicEscalationText, paymentMethodQuestionText, politeClosureText, pureGreetingText, recentPaymentOrReceiptContext, refundFeeQuestionText, reviewDelayQuestionText, roleDisplayName, staffIdentityQuestionText, whatsappImageMessageText } from "./dailyConversationIntegrity";
 import { buildJourneyLockRepairReply, journeyStageReplyRegression, refundDataFormTroubleText } from "./humanFirstJourneyIntelligence";
 import { explicitContactRequestText, explicitOrderStatusRequestText, replyMisalignedWithCurrentTurn } from "./currentTurnAuthority";
+import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply, falseLiteralHumanIdentityClaim, replyMisalignedWithHumanFirstAuthority } from "./humanFirstConversationAuthority";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -519,12 +520,12 @@ function buildPhoneContactReply() {
   return "المتابعة الأساسية للطلبات من نفس واتساب. ما عندي رقم هاتف إضافي رسمي موثق أقدر أعطيك إياه، لذلك ما رح أختلق رقم أو أقول إن ما في رقم للشركة بشكل عام.";
 }
 
-function buildGeneralRequirementsReply() {
-  return "إذا سؤالك هل الهوية لحالها بتكفي: لا، إثبات الدخل من المتطلبات الأساسية مع الهوية. بيانات الكفيل مش شرط ثابت لكل طلب وبتتحدد حسب دراسة الملف. وأي مستند حساس بنطلبه فقط من الرابط الرسمي الآمن، مش عبر واتساب.";
+function buildGeneralRequirementsReply(truth: TruthBundle) {
+  return `${truth.policy.requirementsGuidanceRule} وأي مستند حساس بنستلمه فقط من الرابط الرسمي الآمن، مش عبر واتساب.`;
 }
 
-function buildFinancingStructureReply() {
-  return "التقسيط عند الأمين للأقساط مش قرض بنكي من جهتنا. التقديم بيكون مباشرة على طلب الجهاز عبر الموقع، وبعدها الملف بيمر بالمراجعة حسب الشروط. من الأساسيات الهوية وإثبات الدخل، وبيانات الكفيل ممكن تُطلب حسب حالة الملف فقط.";
+function buildFinancingStructureReply(truth: TruthBundle) {
+  return `${truth.policy.commercialStructureRule} ${truth.policy.additionalFeesRule} التقديم بيكون مباشرة على طلب الجهاز عبر الموقع، والقرار النهائي بعد دراسة الملف.`;
 }
 
 function buildInstallmentAdjustmentReply() {
@@ -681,6 +682,13 @@ function buildReplacement(input: {
     ? buildJourneyLockRepairReply({ turn: input.turn, truth: input.truth })
     : null;
   if (journeyRepair) return journeyRepair;
+  const humanAuthorityRepair = buildHumanFirstConversationAuthorityReply({
+    turn: input.turn,
+    state: input.state,
+    truth: input.truth,
+    actions: input.actions,
+  });
+  if (humanAuthorityRepair) return humanAuthorityRepair;
   if (staffIdentityQuestionText(input.turn.rawText, input.state.lastCustomerText)) return buildStaffIdentityReply(input.state);
   if (pureGreetingText(input.turn.rawText)) return "أهلاً فيك، كيف أقدر أساعدك؟";
   if (legalThreatOrPublicEscalationText(input.turn.rawText)) {
@@ -756,8 +764,8 @@ ${links.baseUrl}/products
   if (input.reviewTimingMissingDetails) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
   if (applicationFormIssueTurn(input.turn)) return buildApplicationFormIssueReply();
   if (noPriorApplicationTurn(input.turn)) return buildNoPriorApplicationReply({ turn: input.turn, truth: input.truth });
-  if (financingStructureTurn(input.turn)) return buildFinancingStructureReply();
-  if (generalRequirementsTurn(input.turn)) return buildGeneralRequirementsReply();
+  if (financingStructureTurn(input.turn)) return buildFinancingStructureReply(input.truth);
+  if (generalRequirementsTurn(input.turn)) return buildGeneralRequirementsReply(input.truth);
   if (installmentAdjustmentTurn(input.turn)) return buildInstallmentAdjustmentReply();
   if (unsupportedGuarantorAcceptanceRule(input.reply)) return buildSafeGuarantorReply();
   if (input.unsupportedEligibility) return buildSafeEligibilityReply();
@@ -934,6 +942,12 @@ export function enforceFinalResponseGate(input: {
   }
   if (replyMisalignedWithCurrentTurn({ turn: input.turn, reply })) {
     if (!violations.includes("current_turn_relevance_violation")) violations.push("current_turn_relevance_violation");
+  }
+  if (replyMisalignedWithHumanFirstAuthority({ turn: input.turn, state: input.state, truth: input.truth, reply })) {
+    violations.push("human_first_current_turn_authority_violation");
+  }
+  if (aiIdentityQuestionText(input.turn.rawText) && falseLiteralHumanIdentityClaim(reply)) {
+    violations.push("false_literal_human_identity_claim");
   }
   if (siteIssue(input.turn) && /(?:ابعث|ابعت|ارسل).{0,30}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("site_issue_wrong_tracking_fallback");
   if ((applicationFormIssueTurn(input.turn) || noPriorApplicationTurn(input.turn)) && /(?:ابعث|ابعت|ارسل|بدي|لازم).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)|(?:ما\s+عندي|ما\s+في).{0,35}(?:طلب\s+موثوق|طلب\s+مربوط)/.test(normalized(reply))) violations.push("no_application_or_form_issue_wrong_tracking_fallback");

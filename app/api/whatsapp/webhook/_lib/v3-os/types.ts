@@ -1,4 +1,4 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.4.2-current-turn-authority-contact-isolation" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.4.3-action-commercial-human-authority" as const;
 // Backward compatibility anchor for historical Phase 7.1.1 self-tests: v3.0.0-phase7.1.1-truth-locked-actions
 
 export type AiRoleKey = "tala" | "fadwa" | "abdullah" | "abdulrahman" | "omran";
@@ -175,6 +175,9 @@ export type PolicyTruth = {
   fileOpeningFeePurposeRule: string;
   fileOpeningFeeRefundRule: string;
   continuationReassuranceRule: string;
+  commercialStructureRule: string;
+  additionalFeesRule: string;
+  requirementsGuidanceRule: string;
   firstInstallmentRule: string;
   pickupRule: string;
   secureDocumentsRule: string;

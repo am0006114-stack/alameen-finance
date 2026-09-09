@@ -72,7 +72,12 @@ export function customerFacingStatusLabel(app: ApplicationTruth | null | undefin
     case "needs_salary_slip": return "بانتظار كشف/شهادة الراتب";
     case "needs_guarantor": return "بانتظار استكمال بيانات الكفيل";
     case "approved": return "موافق عليه";
-    case "cancelled": return "الطلب متوقف";
+    case "cancelled": {
+      const rawStatus = String(app?.status || "").trim().toLowerCase();
+      if (["cancelled", "customer_declined_continue"].includes(rawStatus)) return "الطلب ملغي";
+      if (rawStatus === "rejected") return "الطلب غير مستمر";
+      return "الطلب متوقف";
+    }
     case "refund_requested": return "الاسترداد قيد المعالجة";
     case "refund_completed": return "تم الاسترداد";
     default: return "قيد المتابعة";

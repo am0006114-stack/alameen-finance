@@ -1,4 +1,5 @@
 import { normalizeArabic } from "./text";
+import { applicationJourneyStage } from "./applicationJourney";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, TruthBundle } from "./types";
 
 const REAL_MUTATIONS = new Set<ActionKey>(["cancel_application", "request_refund"]);
@@ -128,6 +129,24 @@ export function enforceMutationConfirmationGate(input: {
   state: ConversationState;
   truth: TruthBundle;
 }): MutationConfirmationGateResult {
+  const authoritativeStage = applicationJourneyStage(input.truth.application);
+  const currentQ = normalized(input.turn.rawText);
+  const alreadyCancelled = ["cancelled", "refund_requested", "refund_completed"].includes(authoritativeStage);
+  if (alreadyCancelled && cancelWords(currentQ)) {
+    const info = authoritativeStage === "refund_requested"
+      ? "طلبك ملغي بالفعل، وطلب الاسترداد مسجل وقيد المعالجة. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية."
+      : authoritativeStage === "refund_completed"
+        ? "طلبك ملغي بالفعل، والاسترداد مكتمل حسب الحالة الحالية. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية."
+        : "طلبك ملغي بالفعل. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية.";
+    return {
+      actions: input.actions.filter((action) => action.action !== "cancel_application"),
+      confirmationPrompt: null,
+      informationalReply: info,
+      clearPendingConfirmation: true,
+      confirmedAction: null,
+      blockedQuestionAction: "cancel_application",
+    };
+  }
   const pending = input.state.pendingAction && REAL_MUTATIONS.has(input.state.pendingAction)
     && input.state.pendingActionPayload?._mutationConfirmationRequired === true
     ? input.state.pendingAction
