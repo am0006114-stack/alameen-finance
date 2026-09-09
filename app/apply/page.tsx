@@ -1,25 +1,7 @@
 import { Suspense } from "react";
-import { redirect } from "next/navigation";
-import { getProductById } from "@/lib/products";
 import ApplyClient from "./ApplyClient";
 
-type PageProps = {
-  searchParams?: Promise<{
-    product?: string | string[];
-    months?: string | string[];
-    downPayment?: string | string[];
-  }>;
-};
-
-export default async function ApplyPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const rawProduct = Array.isArray(params?.product) ? params?.product[0] : params?.product;
-  const productId = String(rawProduct || "").trim();
-
-  if (!productId || !getProductById(productId)) {
-    redirect("/products?reason=device-required#devices");
-  }
-
+export default function ApplyPage() {
   return (
     <Suspense fallback={<ApplyLoading />}>
       <ApplyClient />

@@ -9,9 +9,14 @@ type ApplicationRecord = {
   phone?: string | null;
   status?: string | null;
   payment_status?: string | null;
+  payment_confirmed_at?: string | null;
   device_name?: string | null;
+  device_price?: number | string | null;
   monthly_payment?: number | string | null;
   installment_months?: number | string | null;
+  down_payment?: number | string | null;
+  total_with_interest?: number | string | null;
+  paid_clicked_at?: string | null;
   delivery_delay_until?: string | null;
 };
 
@@ -409,9 +414,14 @@ export async function GET(request: Request) {
       phone,
       status,
       payment_status,
+      payment_confirmed_at,
       device_name,
+      device_price,
       monthly_payment,
       installment_months,
+      down_payment,
+      total_with_interest,
+      paid_clicked_at,
       delivery_delay_until
     `
     )
@@ -454,9 +464,16 @@ export async function GET(request: Request) {
     customerName: firstTwoNames(app.full_name),
     trackingId,
     phone: app.phone || phone,
+    createdAt: app.created_at || null,
+    paymentConfirmedAt: app.payment_confirmed_at || null,
     deviceName: app.device_name || null,
+    devicePrice: app.device_price ?? null,
     installmentMonths: app.installment_months || null,
+    downPayment: app.down_payment ?? null,
     monthlyPayment: formatMoney(app.monthly_payment),
+    monthlyPaymentRaw: app.monthly_payment ?? null,
+    totalWithInterest: app.total_with_interest ?? null,
+    paidClickedAt: app.paid_clicked_at || null,
     status: app.status || null,
     paymentStatus: app.payment_status || null,
     statusText: safeStatus.statusText,
