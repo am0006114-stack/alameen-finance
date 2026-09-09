@@ -8,6 +8,7 @@ import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 import { containsLegacyFileOpeningPaymentDestination, currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { buildPaymentFailureRecoveryReply, paymentFailureOrDestinationProblemText, paymentFailureRecoveryReplyIsCurrent } from "./paymentFailureRecovery";
 import { additionalIncomeQuestionText, applicationStartQuestionText, barePhoneNumberText, currentPaymentExecutionRequested, customerOffersHomeAddressText, dataDeletionConfirmationText, dataDeletionRequestText, documentContextKind, explicitExpediteRequestText, feeNowOrPickupQuestionText, genericDocumentLinkRequestText, guarantorNameOnlyQuestionText, internalPlaceholderLeakText, legalThreatOrPublicEscalationText, paymentMethodQuestionText, politeClosureText, pureGreetingText, recentPaymentOrReceiptContext, refundFeeQuestionText, reviewDelayQuestionText, roleDisplayName, staffIdentityQuestionText, whatsappImageMessageText } from "./dailyConversationIntegrity";
+import { buildJourneyLockRepairReply, journeyStageReplyRegression, refundDataFormTroubleText } from "./humanFirstJourneyIntelligence";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -676,6 +677,10 @@ function buildReplacement(input: {
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  const journeyRepair = (journeyStageReplyRegression(input.reply, input.truth) || refundDataFormTroubleText(input.turn.rawText))
+    ? buildJourneyLockRepairReply({ turn: input.turn, truth: input.truth })
+    : null;
+  if (journeyRepair) return journeyRepair;
   if (staffIdentityQuestionText(input.turn.rawText, input.state.lastCustomerText)) return buildStaffIdentityReply(input.state);
   if (pureGreetingText(input.turn.rawText)) return "أهلاً فيك، كيف أقدر أساعدك؟";
   if (legalThreatOrPublicEscalationText(input.turn.rawText)) {
@@ -885,6 +890,14 @@ export function enforceFinalResponseGate(input: {
   if (receiptUploadConfirmation(input.turn) && /رسوم\s+فتح\s+الملف.{0,18}(?:5|٥|خمس)/.test(normalized(reply))) violations.push("receipt_confirmation_replayed_fee_education");
   if (socialCloseTurn(input.turn) && /(?:حاله\s+طلبك|حالة\s+طلبك|رقم\s+طلبك|قيد\s+الدراسه|قيد\s+الدراسة|رابط\s+التتبع|رسوم\s+فتح\s+الملف)/.test(normalized(reply))) violations.push("social_close_should_not_dump_status");
   if (continuationStageRegression(reply, input.truth)) violations.push("continuation_stage_regression");
+  if (journeyStageReplyRegression(reply, input.truth)) {
+    violations.push("authoritative_journey_stage_regression");
+    severity = "p0";
+  }
+  if (refundDataFormTroubleText(input.turn.rawText) && applicationJourneyStage(input.truth.application) === "refund_requested"
+      && !/(?:الاسترداد|الرابط|الصفحه|الصفحة|البيانات|الحقول|رساله\s+خطا|رسالة\s+خطأ)/.test(normalized(reply))) {
+    violations.push("refund_data_form_followup_not_resolved");
+  }
   const legalTruthViolation = unsupportedLegalEntityClaim(reply, input.truth)
     || (trustConcern(input.turn) && /(?:جهة\s+معروفه|جهة\s+معروفة|مسجلين\s+قانونيا|مسجلين\s+قانونيًا|مرخصين|مرخصة)/.test(normalized(reply)));
   if (legalTruthViolation) {

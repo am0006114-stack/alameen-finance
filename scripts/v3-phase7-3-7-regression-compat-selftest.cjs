@@ -97,6 +97,7 @@ const gate=loadTs(rel('finalResponseGate.ts'),{
     staffIdentityQuestionText:()=>false,
     whatsappImageMessageText:()=>false
   },
+  './humanFirstJourneyIntelligence':{buildJourneyLockRepairReply:()=>null,journeyStageReplyRegression:()=>false,refundDataFormTroubleText:()=>false,humanFirstJourneyWriterContext:()=>({})},
   './text':{normalizeArabic},
 });
 function runGate({reply,raw,a=app(),topics=[],stateExtra={},requestedActions=[],actions=[]}){ const t=turn(raw,topics); t.requestedActions=requestedActions; return gate.enforceFinalResponseGate({reply,turn:t,state:state(stateExtra),truth:truth(a),actions,applicationChanged:false}); }

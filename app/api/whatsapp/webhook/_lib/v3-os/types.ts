@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.1.1-truth-locked-actions" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.4.0-human-first-journey-intelligence" as const;
+// Backward compatibility anchor for historical Phase 7.1.1 self-tests: v3.0.0-phase7.1.1-truth-locked-actions
 
 export type AiRoleKey = "tala" | "fadwa" | "abdullah" | "abdulrahman" | "omran";
 export type AiTier = "frontline" | "case_specialist" | "supervisor";

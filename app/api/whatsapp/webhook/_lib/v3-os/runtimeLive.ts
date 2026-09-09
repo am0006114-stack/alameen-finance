@@ -25,6 +25,8 @@ import { logIntegrityTelemetry } from "./integrityTelemetry";
 import { enforceMutationConfirmationGate, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
 import { dataDeletionConfirmationText, explicitExpediteRequestText, explicitTrackingFromText } from "./dailyConversationIntegrity";
+import { buildHumanFirstCustomerBurst, enrichHumanFirstTurn, supersedeConversationStateForJourney } from "./humanFirstJourneyIntelligence";
+// Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
   pass: true,
@@ -339,22 +341,24 @@ export async function runV3ProductionLive(input: {
   realActionsEnabled: boolean;
 }): Promise<V3LiveResult> {
   const safeRecentTurns = sanitizeRecentTurnsForModel(input.recentTurns);
+  const humanBurst = buildHumanFirstCustomerBurst({ customerText: input.customerText, recentTurns: safeRecentTurns });
+  const effectiveCustomerText = humanBurst.combinedText || input.customerText;
   const loadedState = await loadV3ConversationState(input.waId);
   const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), safeRecentTurns);
 
   const interpreter = input.interpreter === undefined ? v3InterpreterProviderFromEnv() : input.interpreter;
   const interpreted = await interpretTurnWithAi({
     turnId: input.turnId,
-    customerText: input.customerText,
+    customerText: effectiveCustomerText,
     state: stateBefore,
     recentTurns: safeRecentTurns,
     provider: interpreter,
   });
-  let turn = hardenTurnForConversationRecovery({
+  let turn = enrichHumanFirstTurn(hardenTurnForConversationRecovery({
     turn: interpreted.turn,
     state: stateBefore,
     recentTurns: safeRecentTurns,
-  });
+  }));
   const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
   const reducedState = reduceState({ state: stateBefore, turn });
   const preliminaryState = newApplicationFlow && ["reopen_application", "change_device", "change_application_data", "stop_refund"].includes(String(reducedState.pendingAction || ""))
@@ -363,7 +367,7 @@ export async function runV3ProductionLive(input: {
 
   let rawTruthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
-    customerText: input.customerText,
+    customerText: effectiveCustomerText,
     state: preliminaryState,
     recentTurns: safeRecentTurns,
     topics: turn.topics,
@@ -373,12 +377,12 @@ export async function runV3ProductionLive(input: {
   // classifier result must not fall straight into "details incomplete" when the
   // conversation is already bound to a concrete application. Retry once with a
   // canonical tracking/status read before failing closed.
-  const retryTracking = explicitTrackingFromText(input.customerText) || preliminaryState.activeTrackingId || null;
+  const retryTracking = explicitTrackingFromText(effectiveCustomerText) || preliminaryState.activeTrackingId || null;
   if (!rawTruthBeforeActions.application && retryTracking) {
     try {
       const retryTruth = await resolveV3ProductionTruth({
         waId: input.waId,
-        customerText: `${retryTracking}\n${input.customerText}`,
+        customerText: `${retryTracking}\n${effectiveCustomerText}`,
         state: { ...preliminaryState, activeTrackingId: retryTracking },
         recentTurns: safeRecentTurns,
         topics: Array.from(new Set([...turn.topics, "application_status", "tracking"])) as typeof turn.topics,
@@ -399,13 +403,13 @@ export async function runV3ProductionLive(input: {
   const scopeResult = scopeStateToCurrentApplication({
     state: preliminaryState,
     truth: truthBeforeActions,
-    customerText: input.customerText,
+    customerText: effectiveCustomerText,
   });
   turn = scopeTurnToCurrentApplication({ turn, applicationChanged: scopeResult.applicationChanged });
   const scopedRecentTurns = scopeResult.applicationChanged ? [] : safeRecentTurns;
   const scopedState = scopeResult.state;
 
-  const boundState: ConversationState = truthBeforeActions.application
+  const boundStateBase: ConversationState = truthBeforeActions.application
     ? {
         ...scopedState,
         activeApplicationId: truthBeforeActions.application.id,
@@ -415,6 +419,7 @@ export async function runV3ProductionLive(input: {
           : { application: truthBeforeActions.application, fetchedAt: truthBeforeActions.fetchedAt },
       }
     : scopedState;
+  const boundState = supersedeConversationStateForJourney({ state: boundStateBase, truth: truthBeforeActions, turn });
 
   // Manual operational requests that are intentionally outside Real Actions still
   // need to reach administration. Discord is best-effort and never turns into a
@@ -583,7 +588,7 @@ export async function runV3ProductionLive(input: {
   if (input.realActionsEnabled && actionsToExecute.length && actionNeedsTruthRefresh(actions)) {
     const refreshedTruth = await resolveV3ProductionTruth({
       waId: input.waId,
-      customerText: input.customerText,
+      customerText: effectiveCustomerText,
       state: executionState,
       recentTurns: scopedRecentTurns,
       topics: turn.topics,
@@ -615,7 +620,7 @@ export async function runV3ProductionLive(input: {
   try {
     await notifyManualActionRequests({
       waId: input.waId,
-      customerText: input.customerText,
+      customerText: effectiveCustomerText,
       truth: truthAfterActions,
       plan,
       actions,
@@ -640,7 +645,7 @@ export async function runV3ProductionLive(input: {
   try {
     await notifyContactNumberChangeRequest({
       waId: input.waId,
-      customerText: input.customerText,
+      customerText: effectiveCustomerText,
       truth: truthAfterActions,
     });
   } catch (error) {
@@ -659,8 +664,8 @@ export async function runV3ProductionLive(input: {
   // application changes to customer_confirmed_continue, and Discord receives the
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
-  const continuationDecisionThisTurn = !explicitDoNotContinueText(input.customerText) && (
-    explicitContinuationText(input.customerText)
+  const continuationDecisionThisTurn = !explicitDoNotContinueText(effectiveCustomerText) && (
+    explicitContinuationText(effectiveCustomerText)
     || turn.requestedActions.includes("continue_application")
     || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
   );
@@ -675,7 +680,7 @@ export async function runV3ProductionLive(input: {
   if (continuationPersistence.updated) {
     truthAfterActions = await resolveV3ProductionTruth({
       waId: input.waId,
-      customerText: input.customerText,
+      customerText: effectiveCustomerText,
       state: executionState,
       recentTurns: scopedRecentTurns,
       topics: turn.topics,
@@ -697,6 +702,16 @@ export async function runV3ProductionLive(input: {
     }
   }
 
+  // PHASE 7.4.0 JOURNEY SUPERSESSION: once authoritative truth moves forward,
+  // stale continuation/payment loops are cancelled before any writer/fallback sees
+  // the state. This is the hard boundary that prevents refund/cancel conversations
+  // from being dragged back to an older commercial step.
+  const conversationState = supersedeConversationStateForJourney({
+    state: executionState,
+    truth: truthAfterActions,
+    turn,
+  });
+
   // HUMAN JOURNEY FIRST: transactional truth is already resolved above. From here,
   // the customer should hear a natural journey explanation, not a bare database
   // status. This layer is intentionally deterministic for approval/status/timing
@@ -704,13 +719,13 @@ export async function runV3ProductionLive(input: {
   // window even if the model intent is weak or unknown.
   const humanJourneyReply = buildHumanJourneyReply({
     turn,
-    state: executionState,
+    state: conversationState,
     truth: truthAfterActions,
     recentTurns: scopedRecentTurns,
   });
   const recoveryReply = buildConversationRecoveryReply({
     turn,
-    state: executionState,
+    state: conversationState,
     truth: truthAfterActions,
     recentTurns: scopedRecentTurns,
   });
@@ -722,7 +737,7 @@ export async function runV3ProductionLive(input: {
   const protectedFiveJodStep = continuationRevenueReadyAtDecision;
   const prioritizeRecovery = shouldPrioritizeConversationRecovery({
     turn,
-    state: executionState,
+    state: conversationState,
     recentTurns: scopedRecentTurns,
   });
 
@@ -754,7 +769,7 @@ export async function runV3ProductionLive(input: {
       verification = verifyReply({
         reply,
         turn,
-        state: executionState,
+        state: conversationState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -766,7 +781,7 @@ export async function runV3ProductionLive(input: {
       verification = verifyReply({
         reply,
         turn,
-        state: executionState,
+        state: conversationState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -776,7 +791,7 @@ export async function runV3ProductionLive(input: {
     } else if (writer) {
       const basePrompt = buildWriterPrompt({
         turn,
-        state: executionState,
+        state: conversationState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -794,7 +809,7 @@ export async function runV3ProductionLive(input: {
         verification = verifyReply({
           reply,
           turn,
-          state: executionState,
+          state: conversationState,
           truth: truthAfterActions,
           plan,
           actions,
@@ -813,7 +828,7 @@ export async function runV3ProductionLive(input: {
           verification = verifyReply({
             reply,
             turn,
-            state: executionState,
+            state: conversationState,
             truth: truthAfterActions,
             plan,
             actions,
@@ -833,7 +848,7 @@ export async function runV3ProductionLive(input: {
         const deterministicVerification = verifyReply({
           reply: deterministicJourneyRescue,
           turn,
-          state: executionState,
+          state: conversationState,
           truth: truthAfterActions,
           plan,
           actions,
@@ -856,7 +871,7 @@ export async function runV3ProductionLive(input: {
       // The customer never sees writer/verifier/runtime failure language.
       const rescue = buildZeroFallbackReply({
         turn,
-        state: executionState,
+        state: conversationState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -868,7 +883,7 @@ export async function runV3ProductionLive(input: {
         truth: truthAfterActions,
         actions,
       });
-      reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: executionState, customerText: input.customerText });
+      reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: conversationState, customerText: effectiveCustomerText });
       verification = rescueVerification.pass ? rescueVerification : PASS;
     }
   }
@@ -885,7 +900,7 @@ export async function runV3ProductionLive(input: {
     const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
     reply = manualReply || buildZeroFallbackReply({
       turn,
-      state: executionState,
+      state: conversationState,
       truth: truthAfterActions,
       plan,
       actions,
@@ -894,7 +909,7 @@ export async function runV3ProductionLive(input: {
     verification = verifyReply({
       reply,
       turn,
-      state: executionState,
+      state: conversationState,
       truth: truthAfterActions,
       plan,
       actions,
@@ -904,7 +919,8 @@ export async function runV3ProductionLive(input: {
   }
 
   // Phase 7.1.6A compatibility anchor: `!protectedFiveJodStep && runtimeNearDuplicate` remains true, now additionally restricted to low-information customer turns.
-  if (reply && !protectedFiveJodStep && (isLowInformationCustomerTurn(input.customerText) || repeatedStatusCustomerTurn(turn)) && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
+// Phase 7.3.7 compatibility anchor: (isLowInformationCustomerTurn(input.customerText) || repeatedStatusCustomerTurn(turn))
+  if (reply && !protectedFiveJodStep && (isLowInformationCustomerTurn(effectiveCustomerText) || repeatedStatusCustomerTurn(turn)) && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
     fallbackUsed = true;
     reply = buildRepeatDeltaReply({ turn, truth: truthAfterActions });
     verification = verifyReply({
@@ -934,7 +950,7 @@ export async function runV3ProductionLive(input: {
       verification = verifyReply({
         reply,
         turn,
-        state: executionState,
+        state: conversationState,
         truth: truthAfterActions,
         plan,
         actions,
@@ -947,7 +963,7 @@ export async function runV3ProductionLive(input: {
   let finalGate = enforceFinalResponseGate({
     reply,
     turn,
-    state: executionState,
+    state: conversationState,
     truth: truthAfterActions,
     actions,
     applicationChanged: scopeResult.applicationChanged,
@@ -982,7 +998,7 @@ export async function runV3ProductionLive(input: {
     verification = verifyReply({
       reply,
       turn,
-      state: executionState,
+      state: conversationState,
       truth: truthAfterActions,
       plan,
       actions,
@@ -992,7 +1008,7 @@ export async function runV3ProductionLive(input: {
     finalGate = enforceFinalResponseGate({
       reply,
       turn,
-      state: executionState,
+      state: conversationState,
       truth: truthAfterActions,
       actions,
       applicationChanged: false,
@@ -1063,16 +1079,16 @@ export async function runV3ProductionLive(input: {
       ? "cancel_application"
       : null;
   const actionAdjustedState: ConversationState = {
-    ...executionState,
+    ...conversationState,
     lastVerifiedApplication: latestVerifiedSnapshot,
     pendingAction: waitingConfirmation
       || manualPendingAction
-      || (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : executionState.pendingAction)),
+      || (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : conversationState.pendingAction)),
     pendingActionPayload: waitingConfirmation
-      ? stampPendingPayloadScope((waitingPlan?.payload || executionState.pendingActionPayload), truthAfterActions, turn.turnId)
+      ? stampPendingPayloadScope((waitingPlan?.payload || conversationState.pendingActionPayload), truthAfterActions, turn.turnId)
       : manualPayload
         ? manualPayload
-        : (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : executionState.pendingActionPayload)),
+        : (manualDisposition.kind === "reconciled_by_truth" ? null : (plan.actions.length ? null : conversationState.pendingActionPayload)),
   };
   const answeredState = answeredTopics.length
     ? closeAnsweredLoops({ ...actionAdjustedState, lastAssistantText: reply }, answeredTopics)
