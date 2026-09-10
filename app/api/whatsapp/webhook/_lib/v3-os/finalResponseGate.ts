@@ -11,6 +11,7 @@ import { additionalIncomeQuestionText, applicationStartQuestionText, barePhoneNu
 import { buildJourneyLockRepairReply, journeyStageReplyRegression, refundDataFormTroubleText } from "./humanFirstJourneyIntelligence";
 import { explicitContactRequestText, explicitOrderStatusRequestText, replyMisalignedWithCurrentTurn } from "./currentTurnAuthority";
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply, falseLiteralHumanIdentityClaim, replyMisalignedWithHumanFirstAuthority } from "./humanFirstConversationAuthority";
+import { buildCurrentQuestionAnswerContractReply, replyViolatesCurrentQuestionAnswerContract } from "./currentQuestionAnswerContract";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -678,6 +679,12 @@ function buildReplacement(input: {
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
+  const currentQuestionRepair = buildCurrentQuestionAnswerContractReply({
+    turn: input.turn,
+    state: input.state,
+    truth: input.truth,
+  });
+  if (currentQuestionRepair) return currentQuestionRepair;
   const journeyRepair = (journeyStageReplyRegression(input.reply, input.truth) || refundDataFormTroubleText(input.turn.rawText))
     ? buildJourneyLockRepairReply({ turn: input.turn, truth: input.truth })
     : null;
@@ -942,6 +949,9 @@ export function enforceFinalResponseGate(input: {
   }
   if (replyMisalignedWithCurrentTurn({ turn: input.turn, reply })) {
     if (!violations.includes("current_turn_relevance_violation")) violations.push("current_turn_relevance_violation");
+  }
+  if (replyViolatesCurrentQuestionAnswerContract({ turn: input.turn, truth: input.truth, reply })) {
+    violations.push("current_question_answer_contract_violation");
   }
   if (replyMisalignedWithHumanFirstAuthority({ turn: input.turn, state: input.state, truth: input.truth, reply })) {
     violations.push("human_first_current_turn_authority_violation");

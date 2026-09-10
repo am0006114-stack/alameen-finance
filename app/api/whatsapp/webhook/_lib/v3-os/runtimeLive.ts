@@ -29,6 +29,7 @@ import { buildHumanFirstCustomerBurst, enrichHumanFirstTurn, supersedeConversati
 import { enforceCurrentTurnAuthority, explicitContactRequestText } from "./currentTurnAuthority";
 import { applyAuthoritativeActionConversationMemory } from "./actionConversationMemory";
 import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
+import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -751,6 +752,11 @@ export async function runV3ProductionLive(input: {
     recentTurns: scopedRecentTurns,
   });
 
+  const currentQuestionReply = buildCurrentQuestionAnswerContractReply({
+    turn,
+    state: conversationState,
+    truth: truthAfterActions,
+  });
   const humanAuthorityReply = buildHumanFirstConversationAuthorityReply({
     turn,
     state: conversationState,
@@ -777,6 +783,18 @@ export async function runV3ProductionLive(input: {
     } else if (scopedMutationReply) {
       reply = scopedMutationReply;
       verification = PASS;
+    } else if (currentQuestionReply) {
+      reply = currentQuestionReply;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
     } else if (humanAuthorityReply) {
       reply = humanAuthorityReply;
       verification = verifyReply({

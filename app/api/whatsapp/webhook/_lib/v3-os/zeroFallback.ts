@@ -14,6 +14,7 @@ import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, Truth
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { explicitContactRequestText, explicitOrderStatusRequestText } from "./currentTurnAuthority";
 import { buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
+import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 
 const ACTION_LABELS: Record<string,string> = {
   cancel_application: "إلغاء الطلب",
@@ -116,6 +117,13 @@ export function buildZeroFallbackReply(input: {
     explicitContinuationThisTurn: explicitContinuationText(input.turn.rawText) || input.turn.requestedActions.includes("continue_application"),
   });
   const explicitDocumentKind = explicitDocumentUploadKind(input.turn.rawText);
+  const currentQuestion = buildCurrentQuestionAnswerContractReply({
+    turn: input.turn,
+    state: input.state,
+    truth: input.truth,
+  });
+  if (currentQuestion) return currentQuestion;
+
   const humanAuthority = buildHumanFirstConversationAuthorityReply({
     turn: input.turn,
     state: input.state,
