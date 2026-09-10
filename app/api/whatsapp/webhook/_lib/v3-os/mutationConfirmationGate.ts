@@ -64,8 +64,14 @@ export function explicitMutationConfirmation(input: { action: ActionKey; value: 
   if (!q || mutationQuestion(input.action, q) || mutationDecline(input.action, q)) return false;
   const actionMentioned = input.action === "cancel_application" ? cancelWords(q) : input.action === "request_refund" ? refundWords(q) : false;
   const explicit = /(?:نعم|اه|ايوه|اكيد|اكد|موافق).{0,28}/.test(q) && actionMentioned;
-  const shortYes = /^(?:نعم|اه|ايوه|اكيد|موافق|تم)$/.test(q) && lastAssistantAskedForConfirmation(input.state, input.action);
-  return explicit || shortYes;
+  const lastAsked = lastAssistantAskedForConfirmation(input.state, input.action);
+  const shortYes = /^(?:نعم|اه|ايوه|اكيد|موافق|تم)$/.test(q) && lastAsked;
+  const contextualYes = lastAsked && (
+    /(?:كتبت|حكيت|قلت|جاوبت).{0,18}(?:نعم|اه|ايوه|اكيد|موافق)/.test(q)
+    || /(?:نعم|اه|ايوه|اكيد|موافق).{0,18}(?:مره|مرة|مرات|مليون|من\s+قبل|قبل\s+شوي)/.test(q)
+    || /^(?:نعم|اه|ايوه|اكيد|موافق)(?:\s+\S+){0,4}$/.test(q)
+  );
+  return explicit || shortYes || contextualYes;
 }
 
 function pendingScopeMatchesTruth(state: ConversationState, truth: TruthBundle) {

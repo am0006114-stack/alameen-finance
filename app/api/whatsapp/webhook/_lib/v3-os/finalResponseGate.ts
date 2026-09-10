@@ -12,6 +12,7 @@ import { buildJourneyLockRepairReply, journeyStageReplyRegression, refundDataFor
 import { explicitContactRequestText, explicitOrderStatusRequestText, replyMisalignedWithCurrentTurn } from "./currentTurnAuthority";
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply, falseLiteralHumanIdentityClaim, replyMisalignedWithHumanFirstAuthority } from "./humanFirstConversationAuthority";
 import { buildCurrentQuestionAnswerContractReply, replyViolatesCurrentQuestionAnswerContract } from "./currentQuestionAnswerContract";
+import { arbitrateProductionReply, responseHasKnownBadFallbackSignature } from "./responseArbiter";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -674,6 +675,16 @@ function buildReplacement(input: {
   unsupportedEligibility: boolean;
   reviewTimingMissingDetails: boolean;
 }) {
+  const arbitration = arbitrateProductionReply({
+    candidate: input.reply,
+    turn: input.turn,
+    state: input.state,
+    truth: input.truth,
+    actions: input.actions,
+    forceRepair: true,
+  });
+  if (arbitration.repaired && arbitration.reply) return arbitration.reply;
+
   const decision = paymentDisclosureDecision({
     application: input.truth.application,
     customerText: input.turn.rawText,
@@ -952,6 +963,9 @@ export function enforceFinalResponseGate(input: {
   }
   if (replyViolatesCurrentQuestionAnswerContract({ turn: input.turn, truth: input.truth, reply })) {
     violations.push("current_question_answer_contract_violation");
+  }
+  if (responseHasKnownBadFallbackSignature(reply) && !input.turn.requestedActions.some((a) => ["cancel_application","request_refund","stop_refund","reopen_application","change_device","change_application_data"].includes(a))) {
+    violations.push("single_response_authority_stale_or_missing_details_reply");
   }
   if (replyMisalignedWithHumanFirstAuthority({ turn: input.turn, state: input.state, truth: input.truth, reply })) {
     violations.push("human_first_current_turn_authority_violation");

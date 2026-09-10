@@ -30,6 +30,7 @@ import { enforceCurrentTurnAuthority, explicitContactRequestText } from "./curre
 import { applyAuthoritativeActionConversationMemory } from "./actionConversationMemory";
 import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
+import { arbitrateProductionReply } from "./responseArbiter";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -1010,6 +1011,46 @@ export async function runV3ProductionLive(input: {
     if (mandatoryContinuationReply) {
       reply = mandatoryContinuationReply;
       fallbackUsed = true;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
+    }
+  }
+
+  // PHASE 7.4.5 SINGLE RESPONSE AUTHORITY: every conversational path above
+  // produces only a candidate. Before egress, one arbiter checks the customer's
+  // current answer obligation against authoritative truth. Stale continuation,
+  // pending-action context, or zero-fallback text can no longer become the answer
+  // to a different current question. Mutation execution truth remains authoritative.
+  if (plan.shouldRespond) {
+    const arbitration = arbitrateProductionReply({
+      candidate: reply,
+      turn,
+      state: conversationState,
+      truth: truthAfterActions,
+      actions,
+    });
+    if (arbitration.repaired) {
+      fallbackUsed = true;
+      logIntegrityTelemetry({
+        event: "single_response_authority_repair",
+        waId: input.waId,
+        turnId: input.turnId,
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        severity: "warning",
+        details: { obligation: arbitration.obligation, reason: arbitration.reason },
+      });
+    }
+    reply = arbitration.reply;
+    if (reply) {
       verification = verifyReply({
         reply,
         turn,

@@ -102,6 +102,7 @@ const gate=loadTs(rel('finalResponseGate.ts'),{
   './currentTurnAuthority':cta,
   './humanFirstConversationAuthority':{aiIdentityQuestionText:()=>false,buildHumanFirstConversationAuthorityReply:()=>null,falseLiteralHumanIdentityClaim:()=>false,replyMisalignedWithHumanFirstAuthority:()=>false},
   './currentQuestionAnswerContract':{buildCurrentQuestionAnswerContractReply:()=>null,replyViolatesCurrentQuestionAnswerContract:()=>false},
+  './responseArbiter':{arbitrateProductionReply:({candidate})=>({reply:candidate||null,obligation:'none',repaired:false,reason:'compat'}),responseHasKnownBadFallbackSignature:()=>false},
   './text':{normalizeArabic},
 });
 function runGate({reply,raw,a=app(),topics=[],stateExtra={},requestedActions=[],actions=[]}){ const t=turn(raw,topics); t.requestedActions=requestedActions; return gate.enforceFinalResponseGate({reply,turn:t,state:state(stateExtra),truth:truth(a),actions,applicationChanged:false}); }
