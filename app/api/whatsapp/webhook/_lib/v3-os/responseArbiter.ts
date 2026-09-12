@@ -7,12 +7,19 @@ import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } fr
 
 export type ResponseObligation =
   | "mutation_truth"
+  | "mutation_request"
   | "tracking_link"
   | "contact_channel"
   | "application_exists"
   | "approval_status"
   | "review_timing"
   | "refund_meaning"
+  | "refund_timing"
+  | "fee_question"
+  | "product_availability"
+  | "pickup_delivery"
+  | "post_payment_next_step"
+  | "external_system_question"
   | "general_eligibility"
   | "application_start"
   | "current_question_contract"
@@ -36,23 +43,33 @@ function n(value: string | null | undefined) {
     .trim();
 }
 
-function hasExecutedMutation(actions: ActionResult[]) {
-  return actions.some((a) => a.executed && ["cancel_application", "request_refund"].includes(a.action));
+function hasAuthoritativeMutationResult(actions: ActionResult[]) {
+  return actions.some((a) => ["cancel_application", "request_refund"].includes(a.action)
+    && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome)));
 }
 
 function hasCurrentSensitiveMutation(turn: InterpretedTurn) {
-  if (turn.requestedActions.some((action) => [
-    "cancel_application",
-    "request_refund",
-    "stop_refund",
-    "reopen_application",
-    "change_device",
-    "change_application_data",
-  ].includes(action))) return true;
+  // Never trust a model/planner action label by itself here. Production showed that
+  // informational phrases such as "وين مصاري الإلغاء" can be mislabelled as a
+  // mutation. Only explicit imperative customer language is allowed to become a
+  // mutation obligation; actual executed/confirmation truth is handled separately.
   const q = n(turn.rawText);
-  const explicitCancel = /^(?:الغي|الغاء|الغوا)\s*(?:الطلب|طلبي|المعامله)?$|(?:بدي|اريد|أريد|حاب).{0,18}(?:الغي|الغاء).{0,22}(?:الطلب|طلبي)/.test(q);
-  const explicitRefund = /^(?:استرداد|استرجاع)$|(?:بدي|اريد|أريد|حاب).{0,20}(?:استرد|استرجع|استرداد|استرجاع)|(?:رجعلي|رجعولي).{0,18}(?:المبلغ|الرسوم|المصاري)/.test(q);
+  if (!q) return false;
+  const interrogative = /^(?:وين|متى|امتى|ليش|ليه|شو|ايش|كيف|قديش|كم|هل|ممكن|بقدر|اقدر)\b/.test(q);
+  if (interrogative) return false;
+  const explicitCancel = /^(?:الغي|الغاء|الغوا)\s*(?:الطلب|طلبي|المعامله)?(?:\s+بشكل\s+صريح)?$|^(?:الغاء|إلغاء)\s+بشكل\s+صريح$|(?:بدي|اريد|أريد|حاب).{0,18}(?:الغي|الغاء).{0,22}(?:الطلب|طلبي)/.test(q);
+  const explicitRefund = /^(?:استرداد|استرجاع)$|(?:بدي|اريد|أريد|حاب).{0,20}(?:استرد|استرجع|استرداد|استرجاع)|(?:رجعلي|رجعولي).{0,18}(?:المبلغ|الرسوم|المصاري|الخمس|الخمسه|5|٥)/.test(q);
   return explicitCancel || explicitRefund;
+}
+
+function repairContextTurn(turn: InterpretedTurn, state: ConversationState) {
+  const q = n(turn.rawText);
+  const repairCue = turn.topics.includes("repair")
+    || (!q && /[؟?]/.test(String(turn.rawText || "")))
+    || /^(?:مش\s+فاهم|ما\s+فهمت|مش\s+فاهك|شو\s+يعني|وضحلي|فسرلي|سؤالي|جاوبني|رد\s+علي|يزلمه|يا\s+حج)$/.test(q);
+  if (!repairCue || !state.lastCustomerText) return turn;
+  const rawText = `${state.lastCustomerText}\n${turn.rawText}`;
+  return { ...turn, rawText, normalizedText: n(rawText) };
 }
 
 function staleContinuationReply(reply: string | null | undefined) {
@@ -113,6 +130,52 @@ function asksRefundMeaning(value: string | null | undefined) {
   return /(?:شو|ايش|اش|ليش|ليه|لشو|ما\s+معنى|مغزى|مغزاه).{0,35}(?:الاسترداد|استرداد)|(?:الاسترداد|استرداد).{0,35}(?:شو|تبع\s+شو|ليش|ليه|لشو|يعني|معناه|مغزاه)/.test(q);
 }
 
+function asksRefundTiming(value: string | null | undefined, truth: TruthBundle) {
+  const q = n(value);
+  const stage = applicationJourneyStage(truth.application);
+  const timingWord = /(?:^|\s)(?:وين|متى|امتى|اميت|قديش|كم)(?:\s|$)/.test(q);
+  const moneyWord = /(?:مصاري|المصاري|المبلغ|الاسترداد|استرداد|الخمس|الخمسه|5|٥)/.test(q);
+  const explicit = (timingWord && moneyWord)
+    || /(?:بترجع|برجع|بيرجع|يرجع).{0,30}(?:متى|امتى|اميت|قديش|كم)(?:\s|$)/.test(q)
+    || /^(?:وينهم|اميت|متى|امتى)$/.test(q);
+  if (explicit) return true;
+  return stage === "refund_requested" && /^(?:وينها|وينهم|شو\s+هسا|شو\s+صار|[؟?]+)$/.test(q);
+}
+
+function asksFeeQuestion(value: string | null | undefined) {
+  const q = n(value);
+  const fee = /(?:5|٥|الخمس|الخمسه|خمسه|خمسة|رسوم\s+فتح\s+الملف|فتح\s+الملف)/.test(q);
+  const required = /(?:لازم|لزم|مطلوب|ضروري).{0,28}(?:ادفع|أدفع|دفع|رسوم|5|٥|الخمس|الخمسه)|(?:هل).{0,22}(?:ادفع|دفع).{0,20}(?:5|٥|رسوم)/.test(q);
+  const purpose = /(?:ليش|ليه|لشو|شو\s+سبب|شو\s+فايده|شو\s+فائدة).{0,30}(?:فتح\s+الملف|الرسوم|5|٥|الخمس|الخمسه)|(?:فتح\s+الملف).{0,25}(?:ليش|لشو|شو\s+يعني)/.test(q);
+  const refundable = /(?:بترجع|برجع|مسترده|مستردة|برجعو|بترجعو|بترجعهم).{0,30}(?:5|٥|الخمس|الخمسه|الرسوم)|(?:5|٥|الخمس|الخمسه|الرسوم).{0,30}(?:بترجع|مسترده|مستردة)/.test(q);
+  const noDownPayment = /(?:بدون|ما\s+في|مفيش).{0,16}(?:دفعه|دفعة).{0,8}(?:اولي|اولا|أولى|اولى)|(?:يعني).{0,20}(?:بدون\s+(?:دفعه|دفعة)|ما\s+في\s+(?:دفعه|دفعة))/.test(q);
+  return noDownPayment || (fee && (required || purpose || refundable));
+}
+
+function asksProductAvailability(value: string | null | undefined) {
+  const q = n(value);
+  const asksAvailability = /(?:موجود|متوفر|في\s+عندكم|عندكم).{0,38}(?:ايفون|آيفون|iphone|ايباد|آيباد|ipad|سامسونج|samsung|جهاز)|(?:ايفون|آيفون|iphone|ايباد|آيباد|ipad|سامسونج|samsung).{0,38}(?:موجود|متوفر|عندكم)/.test(q);
+  const absentFromSite = /(?:مش|مو|ما).{0,18}(?:موجود|ظاهر).{0,24}(?:الموقع|الويبسايت|صفحه\s+المنتجات|صفحة\s+المنتجات)|(?:الموقع|الويبسايت|صفحه\s+المنتجات|صفحة\s+المنتجات).{0,24}(?:ما\s+في|ما\s+فيه|مش\s+موجود|مو\s+موجود)/.test(q);
+  return asksAvailability || absentFromSite;
+}
+
+function asksPickupDelivery(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:يوجد|في|عندكم).{0,15}(?:توصيل|دليفري)|(?:التوصيل|توصيل).{0,20}(?:موجود|في|عندكم|ولا)|(?:الاستلام).{0,20}(?:توصيل|مكتب)/.test(q);
+}
+
+function asksPostPaymentNextStep(value: string | null | undefined) {
+  const q = n(value);
+  const paidClaim = /(?:تم\s+دفع|دفعت|حولت|حوّلت).{0,20}(?:5|٥|الخمس|الخمسه|الرسوم|دنانير)?/.test(q);
+  const next = /(?:ما|شو|ايش|إيش).{0,18}(?:الاجراء|الإجراء|الخطوه|الخطوة|بعد\s+ذلك|بعد\s+هيك)|(?:شو\s+بصير|وش\s+يصير).{0,18}(?:بعد|هسا)?/.test(q);
+  return paidClaim && next;
+}
+
+function asksExternalSystemQuestion(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:كريف|crif|نظام\s+ائتماني|استعلام\s+ائتماني).{0,50}(?:تظهر|يظهر|تطلع|يبين|شركتكم|الامين|الأمين)|(?:تظهر|يظهر|تطلع|يبين).{0,45}(?:كريف|crif|نظام\s+ائتماني)/i.test(q);
+}
+
 function asksGeneralEligibility(value: string | null | undefined) {
   const q = n(value);
   const asksCanApply = /(?:هل|ممكن|بقدر|اقدر|اگدر|بنفع|بصير).{0,35}(?:اقدم|التقديم|ينقبل|تقبلو|تقبلوا)|(?:تقبلو|تقبلوا|بتقبلو|بتقبلوا).{0,45}(?:هويه|هوية|اقامه|إقامة|جواز|طالب|سوري|مصري|اردنيه|أردنية)/.test(q);
@@ -151,20 +214,27 @@ export function resolveResponseObligation(input: {
   truth: TruthBundle;
   actions: ActionResult[];
 }): ResponseObligation {
-  if (hasExecutedMutation(input.actions) || hasCurrentSensitiveMutation(input.turn)) return "mutation_truth";
-  if (asksTrackingLink(input.turn.rawText)) return "tracking_link";
-  if (asksContactChannel(input.turn.rawText, input.turn)) return "contact_channel";
-  if (asksApplicationExists(input.turn.rawText)) return "application_exists";
-  if (asksApprovalStatus(input.turn.rawText)) return "approval_status";
-  if (asksReviewTiming(input.turn.rawText, input.turn)) return "review_timing";
-  if (asksRefundMeaning(input.turn.rawText)) return "refund_meaning";
-  if (asksGeneralEligibility(input.turn.rawText)) return "general_eligibility";
-  if (asksApplicationStart(input.turn.rawText)) return "application_start";
-  if (buildCurrentQuestionAnswerContractReply({ turn: input.turn, state: input.state, truth: input.truth })) return "current_question_contract";
-  if (aiIdentityQuestionText(input.turn.rawText)) return "identity";
-  if (isMediaEnvelope(input.turn)) return "media";
-  if (asksApplicationStatus(input.turn)) return "application_status";
-  if (pastedForeignContent(input.turn.rawText)) return "foreign_content_clarification";
+  if (hasAuthoritativeMutationResult(input.actions) || hasCurrentSensitiveMutation(input.turn)) return "mutation_truth";
+  const turn = repairContextTurn(input.turn, input.state);
+  if (asksTrackingLink(turn.rawText)) return "tracking_link";
+  if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
+  if (asksApplicationExists(turn.rawText)) return "application_exists";
+  if (asksApprovalStatus(turn.rawText)) return "approval_status";
+  if (asksRefundTiming(turn.rawText, input.truth)) return "refund_timing";
+  if (asksReviewTiming(turn.rawText, turn)) return "review_timing";
+  if (asksRefundMeaning(turn.rawText)) return "refund_meaning";
+  if (asksFeeQuestion(turn.rawText)) return "fee_question";
+  if (asksProductAvailability(turn.rawText)) return "product_availability";
+  if (asksPickupDelivery(turn.rawText)) return "pickup_delivery";
+  if (asksPostPaymentNextStep(turn.rawText)) return "post_payment_next_step";
+  if (asksExternalSystemQuestion(turn.rawText)) return "external_system_question";
+  if (asksGeneralEligibility(turn.rawText)) return "general_eligibility";
+  if (asksApplicationStart(turn.rawText)) return "application_start";
+  if (buildCurrentQuestionAnswerContractReply({ turn, state: input.state, truth: input.truth })) return "current_question_contract";
+  if (aiIdentityQuestionText(turn.rawText)) return "identity";
+  if (isMediaEnvelope(turn)) return "media";
+  if (asksApplicationStatus(turn)) return "application_status";
+  if (pastedForeignContent(turn.rawText)) return "foreign_content_clarification";
   return "none";
 }
 
@@ -219,6 +289,89 @@ function refundMeaningReply(truth: TruthBundle) {
   return `${basic} وحالة طلبك الحالية: ${customerFacingStatusLabel(app)}.`;
 }
 
+function mutationRequestReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const app = input.truth.application;
+  const stage = applicationJourneyStage(app);
+  const cancel = /(?:الغي|الغاء|إلغاء|الغوا)/.test(q);
+  if (cancel) {
+    if (["cancelled", "refund_requested", "refund_completed"].includes(stage)) {
+      if (stage === "refund_requested") return "طلبك ملغي بالفعل، وطلب الاسترداد مفتوح وقيد المعالجة؛ ما في داعي تعيد الإلغاء.";
+      if (stage === "refund_completed") return "طلبك ملغي والاسترداد مكتمل حسب الحالة الحالية؛ ما في داعي تعيد الإلغاء.";
+      return "طلبك ملغي بالفعل حسب الحالة الحالية؛ ما في داعي تعيد الإلغاء.";
+    }
+    return `وصلني طلب الإلغاء${app?.trackingId ? ` للطلب ${app.trackingId}` : ""}. قبل ما أنفذ أي تغيير، أكدلي مرة واحدة: نعم، ألغي الطلب.`;
+  }
+  if (stage === "refund_requested") return "طلب الاسترداد مسجل بالفعل وقيد المعالجة؛ ما في داعي تعيد طلبه.";
+  if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية؛ ما في داعي تعيد طلبه.";
+  return "وصلني طلب استرداد الرسوم. قبل ما أسجل الإجراء فعليًا، أكدلي مرة واحدة: نعم، أريد استرداد الرسوم.";
+}
+
+function refundTimingReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const app = input.truth.application;
+  const stage = applicationJourneyStage(app);
+  if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية.";
+  if (stage === "refund_requested") return "مصاري الاسترداد لسا ما ظهرت كتحويل مكتمل؛ الطلب مسجل وقيد المعالجة. ما عندي موعد تحويل ثابت وموثق أقدر أضمنه، وأول ما يتم التحويل فعليًا بتتحدث الحالة وبنبلغك.";
+  if (stage === "cancelled") return "الطلب ملغي، لكن ما بقدر أقول إن مبلغ الاسترداد بالطريق إلا إذا كان الدفع مؤكد ومسار الاسترداد مفتوح فعليًا على الملف.";
+  return "إذا قصدك متى ترجع الرسوم: ما عندي تنفيذ استرداد موثق أقدر أحدد له موعد من الحالة الحالية. بعتمد فقط حالة الدفع والاسترداد الفعلية على الطلب.";
+}
+
+function feeQuestionReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const fee = input.truth.policy.fileOpeningFeeJod || 5;
+  const stage = applicationJourneyStage(input.truth.application);
+  if (/(?:بدون|ما\s+في|مفيش).{0,16}(?:دفعه|دفعة).{0,8}(?:اولي|اولا|أولى|اولى)/.test(q)) {
+    return `نعم، ما في دفعة أولى للجهاز. القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد. ورسوم فتح الملف ${fee} دنانير خطوة منفصلة بعد الموافقة المبدئية واختيار الاستمرار.`;
+  }
+  if (/(?:بترجع|برجع|مسترده|مستردة|بترجعو|برجعو)/.test(q)) {
+    return `نعم، رسوم فتح الملف ${fee} دنانير مستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ما بعتبر الاسترداد منفذ إلا لما تتحدث الحالة فعليًا.`;
+  }
+  if (/(?:ليش|ليه|لشو|شو\s+سبب|شو\s+فايده|شو\s+فائدة)/.test(q)) {
+    return `رسوم فتح الملف ${fee} دنانير هي خطوة فتح الملف واستكماله للدراسة النهائية بعد الموافقة المبدئية واختيار الاستمرار. هي مش ثمن الجهاز، ومش قسط مقدم، ومش القسط الأول.`;
+  }
+  if (["payment_confirmed_under_review", "payment_proof_pending_admin"].includes(stage)) return "لا، ما تدفع 5 دنانير مرة ثانية؛ الدفع/الوصل موجود على الملف حسب الحالة الحالية.";
+  if (stage === "continuation_confirmed_fee_due") return `نعم، إذا بدك تكمل من المرحلة الحالية فالمطلوب ${fee} دنانير رسوم فتح الملف. بعدها ترفع الوصل من الرابط الرسمي، وبعد اعتماد الدفع يدخل الملف للدراسة النهائية.`;
+  if (stage === "preliminary_approved_waiting_decision") return `رسوم فتح الملف ${fee} دنانير ما بتصير إلا بعد الموافقة المبدئية لما تختار الاستمرار. قبل اختيار الاستمرار ما بطلب منك دفعها.`;
+  return `رسوم فتح الملف ${fee} دنانير مرتبطة بمرحلة ما بعد الموافقة المبدئية واختيار الاستمرار، وهي منفصلة عن القسط الأول.`;
+}
+
+function productAvailabilityReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  const products = links.relevant.products || `${links.baseUrl}/products`;
+  if (/(?:مش|مو|ما).{0,18}(?:موجود|ظاهر).{0,24}(?:الموقع|الويبسايت|صفحه\s+المنتجات|صفحة\s+المنتجات)|(?:الموقع|الويبسايت|صفحه\s+المنتجات|صفحة\s+المنتجات).{0,24}(?:ما\s+في|ما\s+فيه|مش\s+موجود|مو\s+موجود)/.test(q)) {
+    return `إذا الجهاز مش ظاهر بصفحة المنتجات الرسمية، ما بقدر أعتبره متوفر حاليًا أو أفتح عليه طلب من عندي. الموجود المتاح للتقديم هو اللي ظاهر هون:
+${products}`;
+  }
+  return `توفر الموديلات بيتغير، والمرجع الحالي هو صفحة المنتجات الرسمية. إذا الموديل ظاهر هناك تقدر تقدم عليه؛ وإذا مش ظاهر ما بقدر أؤكد توفره حاليًا:
+${products}`;
+}
+
+function pickupDeliveryReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const requirements = /(?:الاوراق|الأوراق|الوثائق|الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل)/.test(q)
+    ? `${input.truth.policy.requirementsGuidanceRule} `
+    : "";
+  return `${requirements}ما في توصيل. الاستلام من المكتب فقط وبموعد رسمي مؤكد بعد استحقاق مرحلة الاستلام. ${input.truth.policy.generalLocation}.`;
+}
+
+function postPaymentNextStepReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const stage = applicationJourneyStage(input.truth.application);
+  if (stage === "payment_confirmed_under_review") return "الدفع مؤكد إداريًا، والخطوة الحالية هي الدراسة النهائية. ما في داعي تدفع أو ترفع وصل مرة ثانية؛ أول ما يصدر تحديث فعلي على الدراسة بنبلغك.";
+  if (stage === "payment_proof_pending_admin") return "الخطوة الحالية انتظار اعتماد الوصل إداريًا. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية، وبعد الاعتماد يدخل الملف للدراسة النهائية.";
+  const receiptTurn: InterpretedTurn = {
+    ...input.turn,
+    topics: Array.from(new Set([...input.turn.topics, "payment_fee", "payment_method", "receipt_upload", "continuation"])) as InterpretedTurn["topics"],
+  };
+  const links = buildOfficialLinkContext(receiptTurn, input.truth);
+  const receipt = links.relevant.receipt;
+  return `وصلتني إنك بتقول إنك دفعت، لكن ما بعتبر الدفع مؤكد من الرسالة نفسها. ${receipt ? `إذا ما رفعت الوصل من الرابط الرسمي، ارفعه مرة واحدة من هون:\n${receipt}` : "تأكيد الدفع النهائي يتم فقط بعد ظهوره إداريًا على الطلب."} وبعد اعتماد الدفع بتكون الخطوة التالية الدراسة النهائية.`;
+}
+
+function externalSystemReply() {
+  return "ما عندي معلومة موثقة أو تكامل ظاهر عندي يخليني أأكد إن الأمين يظهر على كريف/نظام استعلام ائتماني معيّن. ما رح أعطيك نعم أو لا من غير توثيق رسمي.";
+}
+
 function generalEligibilityReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const q = n(input.turn.rawText);
   const guidance = input.truth.policy.requirementsGuidanceRule;
@@ -254,21 +407,29 @@ function directRepair(input: {
   truth: TruthBundle;
   actions: ActionResult[];
 }) {
-  const currentQuestion = buildCurrentQuestionAnswerContractReply({ turn: input.turn, state: input.state, truth: input.truth });
-  const humanAuthority = buildHumanFirstConversationAuthorityReply({ turn: input.turn, state: input.state, truth: input.truth, actions: input.actions });
+  const turn = repairContextTurn(input.turn, input.state);
+  const currentQuestion = buildCurrentQuestionAnswerContractReply({ turn, state: input.state, truth: input.truth });
+  const humanAuthority = buildHumanFirstConversationAuthorityReply({ turn, state: input.state, truth: input.truth, actions: input.actions });
   switch (input.obligation) {
-    case "tracking_link": return trackingReply(input);
+    case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
+    case "tracking_link": return trackingReply({ turn, truth: input.truth });
     case "contact_channel": return "المتابعة الأساسية للطلبات من خلال واتساب الحالي. ما عندي رقم تواصل إضافي رسمي موثق أقدر أعطيك إياه.";
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
-    case "review_timing": return reviewTimingReply(input);
+    case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
+    case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
     case "refund_meaning": return refundMeaningReply(input.truth);
-    case "general_eligibility": return generalEligibilityReply(input);
-    case "application_start": return applicationStartReply(input);
+    case "fee_question": return feeQuestionReply({ turn, truth: input.truth });
+    case "product_availability": return productAvailabilityReply({ turn, truth: input.truth });
+    case "pickup_delivery": return pickupDeliveryReply({ turn, truth: input.truth });
+    case "post_payment_next_step": return postPaymentNextStepReply({ turn, truth: input.truth });
+    case "external_system_question": return externalSystemReply();
+    case "general_eligibility": return generalEligibilityReply({ turn, truth: input.truth });
+    case "application_start": return applicationStartReply({ turn, truth: input.truth });
     case "current_question_contract": return currentQuestion;
     case "identity": return humanAuthority || "معك فريق الأمين للأقساط من نفس المحادثة، واحكيلي المطلوب مباشرة وبجاوبك على قد السؤال.";
     case "media": return currentQuestion || humanAuthority || "وصلني المرفق. إذا هو لتوضيح مشكلة أو سؤال، اكتبلي باختصار شو بدك أتأكد منه منه وبمشي معك من نفس السياق.";
-    case "application_status": return currentQuestion || statusReply(input);
+    case "application_status": return currentQuestion || statusReply({ turn, truth: input.truth });
     case "foreign_content_clarification": return "وصلني النص اللي بعثته. احكيلي شو بدك أعمل فيه بالضبط—أشرحه، ألخصه، أو أساعدك ترد عليه—وبجاوبك على نفس الموضوع.";
     default: return null;
   }
@@ -281,6 +442,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
   const q = n(raw);
   const stage = applicationJourneyStage(input.truth.application);
   switch (input.obligation) {
+    case "mutation_request": return /(?:اكدلي|أكدلي|نعم).{0,30}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
     case "application_exists": return /(?:نعم|لا|ما\s+ظهر|مسجل|موجود)/.test(q);
@@ -290,8 +452,14 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
       if (["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due", "payment_proof_pending_admin", "payment_confirmed_under_review"].includes(stage)) return /موافقه\s+مبدئيه|ليست\s+نهائيه|مش\s+موافقه\s+نهائيه|الدراسه\s+النهائيه/.test(q);
       return /حاله|حالة|ملغي|استرداد/.test(q);
     }
+    case "refund_timing": return /(?:تحويل|متى|امتى|موعد|مدة|لسا).{0,45}(?:الاسترداد|المبلغ|المصاري)|(?:الاسترداد|المبلغ|المصاري).{0,45}(?:تحويل|موعد|مكتمل)/.test(q) && !/^(?:نعم\s+)?طلبك\s+ملغي\s+بالفعل/.test(q);
     case "review_timing": return /(?:يومين|3\s+ايام|3\s+أيام|ضغط\s+مراجعات|موعد\s+مؤكد|ما\s+بقدر\s+اعطيك\s+موعد|ما\s+عندي\s+موعد)/.test(q);
     case "refund_meaning": return /(?:ارجاع|إرجاع|يرجع|مبلغ\s+مدفوع|معنى\s+الاسترداد|الاسترداد\s+يعني)/.test(q);
+    case "fee_question": return false;
+    case "product_availability": return false;
+    case "pickup_delivery": return /(?:ما\s+في\s+توصيل|الاستلام\s+من\s+المكتب)/.test(q);
+    case "post_payment_next_step": return false;
+    case "external_system_question": return /(?:ما\s+عندي).{0,35}(?:معلومه\s+موثقه|تكامل).{0,45}(?:كريف|crif|ائتماني)/i.test(q);
     case "general_eligibility": return /(?:دراسه\s+الملف|دراسة\s+الملف|اثبات\s+الدخل|إثبات\s+الدخل|كشف\s+حساب|عقد\s+عمل|كفيل)/.test(q) && !/(?:طلبك\s+ملغي|طلبك\s+موافقه\s+مبدئيه)/.test(q);
     case "application_start": return /products|صفحه\s+المنتجات|صفحة\s+المنتجات|الموقع\s+الرسمي/.test(q);
     case "current_question_contract": return !staleContinuationReply(raw) && !missingDetailsReply(raw);
@@ -315,7 +483,16 @@ export function arbitrateProductionReply(input: {
   const candidate = String(input.candidate || "").trim() || null;
 
   if (obligation === "mutation_truth") {
-    return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
+    if (hasAuthoritativeMutationResult(input.actions)) {
+      return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
+    }
+    // An explicit customer mutation request still needs the two-step confirmation
+    // contract, but a stale continuation/status candidate must not hijack it.
+    const q = n(candidate);
+    const alreadyGood = /(?:اكدلي|أكدلي|اكتب).{0,35}(?:نعم).{0,35}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
+    if (alreadyGood) return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
+    const repair = mutationRequestReply({ turn: input.turn, truth: input.truth });
+    return { reply: repair, obligation, repaired: repair !== candidate, reason: "explicit mutation request repaired to confirmation contract" };
   }
   if (obligation === "none") {
     return { reply: candidate, obligation, repaired: false, reason: "no higher-priority current-answer obligation detected" };

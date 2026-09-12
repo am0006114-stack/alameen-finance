@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.4.5-single-response-authority" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.4.6-conversation-repair-true-single-egress" as const;
+// Backward compatibility anchor for Phase 7.4.5 self-tests: v3.0.0-phase7.4.5-single-response-authority
 // Backward compatibility anchor for Phase 7.4.4 self-tests: v3.0.0-phase7.4.4-current-question-answer-contract
 // Backward compatibility anchor for Phase 7.4.3 self-tests: v3.0.0-phase7.4.3-action-commercial-human-authority
 // Backward compatibility anchor for historical Phase 7.1.1 self-tests: v3.0.0-phase7.1.1-truth-locked-actions

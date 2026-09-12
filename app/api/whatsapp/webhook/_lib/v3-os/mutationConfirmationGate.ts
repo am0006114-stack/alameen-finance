@@ -45,7 +45,7 @@ export function explicitMutationRequest(action: ActionKey, value: string | null 
   const q = normalized(value);
   if (!q || mutationQuestion(action, q) || mutationDecline(action, q)) return false;
   if (action === "cancel_application") {
-    return /(?:بدي|اريد|حاب|حابب).{0,18}(?:الغي|الغاء).{0,30}(?:الطلب|المعامله)?|^(?:الغي|الغوا|الغاء)\s*(?:الطلب|المعامله)?$|(?:الغاء|الغي).{0,16}(?:طلبي|الطلب)$/.test(q);
+    return /(?:بدي|اريد|حاب|حابب).{0,18}(?:الغي|الغاء).{0,30}(?:الطلب|المعامله)?|^(?:الغي|الغوا|الغاء)\s*(?:الطلب|المعامله)?(?:\s+بشكل\s+صريح)?$|^(?:الغاء|إلغاء)\s+بشكل\s+صريح$|(?:الغاء|الغي).{0,16}(?:طلبي|الطلب)$/.test(q);
   }
   if (action === "request_refund") {
     return /(?:بدي|اريد|حاب|حابب).{0,20}(?:استرد|استرجع|استرداد|استرجاع)|(?:رجعلي|رجعولي).{0,20}(?:الرسوم|المبلغ|المصاري)|^(?:استرداد|استرجاع)$/.test(q);
@@ -138,7 +138,9 @@ export function enforceMutationConfirmationGate(input: {
   const authoritativeStage = applicationJourneyStage(input.truth.application);
   const currentQ = normalized(input.turn.rawText);
   const alreadyCancelled = ["cancelled", "refund_requested", "refund_completed"].includes(authoritativeStage);
-  if (alreadyCancelled && cancelWords(currentQ)) {
+  const cancellationInfoQuestion = /^(?:وين|متى|امتى|ليش|ليه|شو|كيف|قديش|كم|هل)\b/.test(currentQ)
+    || /(?:مصاري|المبلغ|الاسترداد|استرداد).{0,28}(?:وين|متى|امتى)|(?:وين|متى|امتى).{0,28}(?:مصاري|المبلغ|الاسترداد|استرداد)/.test(currentQ);
+  if (alreadyCancelled && cancelWords(currentQ) && !cancellationInfoQuestion) {
     const info = authoritativeStage === "refund_requested"
       ? "طلبك ملغي بالفعل، وطلب الاسترداد مسجل وقيد المعالجة. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية."
       : authoritativeStage === "refund_completed"

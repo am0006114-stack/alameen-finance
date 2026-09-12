@@ -1119,6 +1119,57 @@ export async function runV3ProductionLive(input: {
     });
   }
 
+  // PHASE 7.4.6 TRUE SINGLE EGRESS: any text produced or repaired by the
+  // final safety gate is still only a candidate. The arbiter gets the last
+  // conversational word; after that the final gate is veto-only and may not
+  // author another customer-facing reply. This closes the 7.4.5 bypass where
+  // a legacy replacement could re-introduce stale continuation/refund templates
+  // after the arbiter had already done the right thing.
+  if (plan.shouldRespond && reply) {
+    const egressArbitration = arbitrateProductionReply({
+      candidate: reply,
+      turn,
+      state: conversationState,
+      truth: truthAfterActions,
+      actions,
+    });
+    if (egressArbitration.repaired) {
+      fallbackUsed = true;
+      logIntegrityTelemetry({
+        event: "true_single_egress_repair",
+        waId: input.waId,
+        turnId: input.turnId,
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        severity: "warning",
+        details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
+      });
+    }
+    reply = egressArbitration.reply;
+    if (reply) {
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
+      // Veto-only safety pass: if this fails we fail closed below. We do not
+      // accept another authored replacement after the true single egress.
+      finalGate = enforceFinalResponseGate({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        actions,
+        applicationChanged: false,
+      });
+    }
+  }
+
   const finalSafetyPass = !plan.shouldRespond || Boolean(reply && verification.pass && finalGate.pass);
   if (!finalSafetyPass) {
     await notifyV3Discord({

@@ -811,7 +811,7 @@ ${links.baseUrl}/products
   if (reviewTimingQuestion(input.turn)) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
   if (trustConcern(input.turn)) return buildTrustReply({ truth: input.truth });
   if (humanRequest(input.turn)) return "فاهم إنك بدك تحكي مع شخص مباشرة. المتابعة الرسمية لدى الأمين للطلب من نفس واتساب، وما رح أوهمك بتحويل أو اتصال إذا ما في تحويل فعلي. احكيلي شو الإجراء أو المعلومة اللي بدك إياها وبعطيك الجواب الموجود على الطلب بدون تدوير.";
-  if (decision.paymentExecutionDetailsAllowed || decision.receiptPending || decision.alreadyPaid) return "رغبتك بالاستمرار مسجلة بالفعل، فما في داعي تعيد خطوة «أود الاستمرار». جاوبني بالنقطة اللي بدك تعرفها وبكمل معك من المرحلة الحالية.";
+  if (decision.paymentExecutionDetailsAllowed || decision.receiptPending || decision.alreadyPaid) return buildStatusReply({ truth: input.truth });
   return buildStatusReply({ truth: input.truth });
 }
 
@@ -857,6 +857,13 @@ export function enforceFinalResponseGate(input: {
   if (internalPlaceholderLeakText(reply)) {
     violations.push("internal_placeholder_or_official_links_token_leaked");
     severity = "p0";
+  }
+  if (/(?:يشرح|يُشرح)\s+ذلك\s+بصراحه|(?:من\s+دون|بدون)\s+اعطاء\s+موعد\s+مؤكد\s+او\s+وعد\s+بالتنفيذ|CURRENT QUESTION|SINGLE RESPONSE|customer journey|truth gate/i.test(reply)) {
+    violations.push("internal_policy_instruction_leaked_to_customer");
+    severity = "p0";
+  }
+  if (/(?:مش|مو)\s+(?:رد\s+الي|رد\s+آلي|روبوت)|انا\s+(?:مش|مو)\s+(?:روبوت|ذكاء)/i.test(normalized(reply))) {
+    violations.push("assistant_identity_defense_leaked");
   }
 
   if (legalThreatOrPublicEscalationText(input.turn.rawText) && /(?:بقدر\s+اسجل|بقدر\s+أسجل|بحللك|مضمون).{0,35}(?:الغاء|إلغاء|استرداد|الاسترداد)?/.test(normalized(reply))) {
