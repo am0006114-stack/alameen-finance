@@ -1,5 +1,6 @@
 import { normalizeArabic } from "./text";
 import { applicationJourneyStage } from "./applicationJourney";
+import { stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, TruthBundle } from "./types";
 
 const REAL_MUTATIONS = new Set<ActionKey>(["cancel_application", "request_refund"]);
@@ -137,6 +138,23 @@ export function enforceMutationConfirmationGate(input: {
 }): MutationConfirmationGateResult {
   const authoritativeStage = applicationJourneyStage(input.truth.application);
   const currentQ = normalized(input.turn.rawText);
+
+  // PHASE 7.5.0 ACTION INTENT SEPARATION: "stop the refund and keep my device order"
+  // is never a cancel_application or request_refund command. Real mutations are
+  // stripped before confirmation logic; manual stop/reopen actions may continue
+  // through their existing administrative path, while customer-facing truth stays
+  // unchanged until authoritative state actually moves.
+  if (stopRefundKeepRequest(input.turn.rawText)) {
+    return {
+      actions: input.actions.filter((action) => !REAL_MUTATIONS.has(action.action)),
+      confirmationPrompt: null,
+      informationalReply: "فهمت عليك: بدك توقف/تلغي طلب الاسترداد وتكمل بطلب الجهاز، مش تلغي طلب التقسيط. ما رح أنفذ إلغاء جديد ولا أفتح استرداد جديد من هالرسالة؛ الحالة الحالية بتظل معتمدة لحد ما يتنفذ التغيير فعليًا وتتحدث على الطلب.",
+      clearPendingConfirmation: true,
+      confirmedAction: null,
+      blockedQuestionAction: null,
+    };
+  }
+
   const alreadyCancelled = ["cancelled", "refund_requested", "refund_completed"].includes(authoritativeStage);
   const cancellationInfoQuestion = /^(?:وين|متى|امتى|ليش|ليه|شو|كيف|قديش|كم|هل)\b/.test(currentQ)
     || /(?:مصاري|المبلغ|الاسترداد|استرداد).{0,28}(?:وين|متى|امتى)|(?:وين|متى|امتى).{0,28}(?:مصاري|المبلغ|الاسترداد|استرداد)/.test(currentQ);

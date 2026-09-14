@@ -1,6 +1,7 @@
 import { actionRequiresOmran, initialRoleState, resolveAiRole, roleDisplayName } from "./hierarchy";
 import { V3_OS_VERSION, type ConversationState, type InterpretedTurn, type OpenLoop } from "./types";
 import { normalizeArabic } from "./text";
+import { BUSINESS_REGISTRATION_PROTECTION_REPLY } from "./unifiedConversationDecisionPlane";
 
 function now() { return new Date().toISOString(); }
 
@@ -39,6 +40,12 @@ export function reduceState(input: { state: ConversationState; turn: Interpreted
   s.lastTurnId = input.turn.turnId;
   s.lastCustomerText = input.turn.rawText;
   s.lastAssistantText = input.assistantText || s.lastAssistantText;
+  if (input.assistantText && normalizeArabic(input.assistantText).includes(normalizeArabic(BUSINESS_REGISTRATION_PROTECTION_REPLY))) {
+    const key = "protected_business_registration_notice_sent";
+    const fact = { key, value: "sent", topic: "trust" as const, source: "system" as const, confidence: 1, turnId: input.turn.turnId, updatedAt: stamp };
+    const existing = s.facts.findIndex((f) => f.key === key);
+    if (existing >= 0) s.facts[existing] = fact; else s.facts.push(fact);
+  }
   s.currentTopic = input.turn.topics.find((t) => !["greeting","thanks","acknowledgement","unknown"].includes(t)) || s.currentTopic;
   const requestedMutationAct = input.turn.acts.find((a) => a.type === "request_action" && a.action && actionRequiresOmran(a.action));
   const declinedPending = input.turn.acts.some((a) => a.source === "resolved" && a.type === "deny" && a.value === "pending_action_declined");

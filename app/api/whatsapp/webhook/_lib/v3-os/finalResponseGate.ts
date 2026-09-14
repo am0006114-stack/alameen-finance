@@ -13,6 +13,7 @@ import { explicitContactRequestText, explicitOrderStatusRequestText, replyMisali
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply, falseLiteralHumanIdentityClaim, replyMisalignedWithHumanFirstAuthority } from "./humanFirstConversationAuthority";
 import { buildCurrentQuestionAnswerContractReply, replyViolatesCurrentQuestionAnswerContract } from "./currentQuestionAnswerContract";
 import { arbitrateProductionReply, responseHasKnownBadFallbackSignature } from "./responseArbiter";
+import { candidateAlignedWithLockedMeaning, downPaymentQuestion, officePaymentQuestion, protectedBusinessRegistrationRequest, resolveUnifiedMeaningLock, stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -864,6 +865,30 @@ export function enforceFinalResponseGate(input: {
   }
   if (/(?:مش|مو)\s+(?:رد\s+الي|رد\s+آلي|روبوت)|انا\s+(?:مش|مو)\s+(?:روبوت|ذكاء)/i.test(normalized(reply))) {
     violations.push("assistant_identity_defense_leaked");
+  }
+
+  const unifiedMeaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
+  if (unifiedMeaningLock.kind !== "none" && !candidateAlignedWithLockedMeaning({ meaning: unifiedMeaningLock, candidate: reply })) {
+    violations.push(`unified_current_meaning_lock_violation:${unifiedMeaningLock.kind}`);
+    if (["protected_business_registration", "stop_refund_keep_request", "office_payment"].includes(unifiedMeaningLock.kind)) severity = "p0";
+  }
+  if (protectedBusinessRegistrationRequest(input.turn.rawText) && /(?:رقم\s+(?:التسجيل|السجل)|السجل\s+التجاري).{0,30}\d{3,}/.test(normalized(reply))) {
+    violations.push("protected_business_registration_data_disclosed");
+    severity = "p0";
+  }
+  if (stopRefundKeepRequest(input.turn.rawText) && /(?:اكدلي|أكدلي|اكتب).{0,35}(?:نعم).{0,35}(?:الغي\s+الطلب|ألغي\s+الطلب|استرداد\s+الرسوم)/.test(normalized(reply))) {
+    violations.push("stop_refund_keep_request_misrouted_to_real_mutation");
+    severity = "p0";
+  }
+  if (officePaymentQuestion(input.turn.rawText) && /(?:تعال|اجي|أجي).{0,35}(?:المكتب|المحل|الفرع|عندنا).{0,30}(?:ادفع|أدفع|دفع)|(?:تعال|اجي|أجي).{0,25}(?:ادفع|أدفع).{0,20}(?:5|٥|الرسوم)/.test(normalized(reply))) {
+    violations.push("office_payment_walk_in_instruction_forbidden");
+    severity = "p0";
+  }
+  if (downPaymentQuestion(input.turn.rawText) && !/(?:ما\s+في|بدون).{0,20}(?:دفعه|دفعة).{0,10}(?:اولي|أولى|اولى)|(?:القسط\s+الاول|القسط\s+الأول).{0,30}(?:بعد\s+شهر)/.test(normalized(reply))) {
+    violations.push("down_payment_question_not_answered_directly");
+  }
+  if (/\b(?:فرعنا|الفرع)\b/.test(normalized(reply))) {
+    violations.push("forbidden_branch_term_in_customer_reply");
   }
 
   if (legalThreatOrPublicEscalationText(input.turn.rawText) && /(?:بقدر\s+اسجل|بقدر\s+أسجل|بحللك|مضمون).{0,35}(?:الغاء|إلغاء|استرداد|الاسترداد)?/.test(normalized(reply))) {

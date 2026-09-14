@@ -770,6 +770,7 @@ export async function runV3ProductionLive(input: {
   let verification: VerificationReport = PASS;
   let replyAttempts = 0;
   let fallbackUsed = false;
+  let policySuppressed = false;
 
   if (plan.shouldRespond) {
     const scopedMutationReply = buildScopedMutationSuccessReply({ truth: truthAfterActions, actions });
@@ -1049,6 +1050,18 @@ export async function runV3ProductionLive(input: {
         details: { obligation: arbitration.obligation, reason: arbitration.reason },
       });
     }
+    if (arbitration.suppressed) {
+      policySuppressed = true;
+      logIntegrityTelemetry({
+        event: "protected_registration_repeat_suppressed",
+        waId: input.waId,
+        turnId: input.turnId,
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        severity: "info",
+        details: { obligation: arbitration.obligation, reason: arbitration.reason },
+      });
+    }
     reply = arbitration.reply;
     if (reply) {
       verification = verifyReply({
@@ -1145,6 +1158,19 @@ export async function runV3ProductionLive(input: {
         details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
       });
     }
+    if (egressArbitration.suppressed) {
+      policySuppressed = true;
+      fallbackUsed = true;
+      logIntegrityTelemetry({
+        event: "protected_registration_repeat_suppressed",
+        waId: input.waId,
+        turnId: input.turnId,
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        severity: "info",
+        details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
+      });
+    }
     reply = egressArbitration.reply;
     if (reply) {
       verification = verifyReply({
@@ -1170,7 +1196,7 @@ export async function runV3ProductionLive(input: {
     }
   }
 
-  const finalSafetyPass = !plan.shouldRespond || Boolean(reply && verification.pass && finalGate.pass);
+  const finalSafetyPass = !plan.shouldRespond || policySuppressed || Boolean(reply && verification.pass && finalGate.pass);
   if (!finalSafetyPass) {
     await notifyV3Discord({
       event: "final_safety_fail_closed",

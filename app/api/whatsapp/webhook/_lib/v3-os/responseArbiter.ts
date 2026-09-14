@@ -3,9 +3,18 @@ import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
+import { candidateAlignedWithLockedMeaning, lockedMeaningReply, repeatedQuestionNeedsRepair, resolveUnifiedMeaningLock, sanitizeUnifiedEgressReply, shouldSuppressRepeatedProtectedRegistration } from "./unifiedConversationDecisionPlane";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type ResponseObligation =
+  | "protected_business_registration"
+  | "stop_refund_keep_request"
+  | "down_payment"
+  | "office_payment"
+  | "monthly_payment_mechanism"
+  | "device_warranty_or_insurance"
+  | "product_sim_spec"
+  | "payment_destination_update"
   | "mutation_truth"
   | "mutation_request"
   | "tracking_link"
@@ -34,6 +43,7 @@ export type ResponseArbitrationResult = {
   obligation: ResponseObligation;
   repaired: boolean;
   reason: string;
+  suppressed?: boolean;
 };
 
 function n(value: string | null | undefined) {
@@ -214,6 +224,8 @@ export function resolveResponseObligation(input: {
   truth: TruthBundle;
   actions: ActionResult[];
 }): ResponseObligation {
+  const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
+  if (meaningLock.kind !== "none") return meaningLock.kind;
   if (hasAuthoritativeMutationResult(input.actions) || hasCurrentSensitiveMutation(input.turn)) return "mutation_truth";
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
@@ -389,7 +401,7 @@ function applicationStartReply(input: { turn: InterpretedTurn; truth: TruthBundl
   return `التقديم يبدأ من الموقع الرسمي: اختار الجهاز من صفحة المنتجات وكمل طلب الموافقة المبدئية، وبعد الإرسال بيطلع لك رقم تتبع.\n${links.relevant.products || `${links.baseUrl}/products`}`;
 }
 
-function statusReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+function statusReply(input: { turn: InterpretedTurn; truth: TruthBundle; state?: ConversationState }) {
   const app = input.truth.application;
   if (!app) {
     if (input.truth.ambiguousApplications.length > 1) return "عندي أكثر من طلب محتمل، فحتى ما أعطيك حالة طلب ثاني ابعث رقم التتبع للطلب المقصود مرة واحدة.";
@@ -397,6 +409,12 @@ function statusReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   }
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const link = links.relevant.tracking;
+  const currentQuestion = n(input.turn.rawText);
+  const previousQuestion = n(input.state?.lastCustomerText);
+  const repeated = currentQuestion.length >= 8 && currentQuestion === previousQuestion;
+  if (repeated) {
+    return `لسا ما تغيرت الحالة عن آخر متابعة: طلبك${app.trackingId ? ` ${app.trackingId}` : ""} ${customerFacingStatusLabel(app)}.${link ? `\nللمتابعة: ${link}` : ""}`;
+  }
   return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن: ${customerFacingStatusLabel(app)}.${link ? `\nللمتابعة: ${link}` : ""}`;
 }
 
@@ -411,6 +429,15 @@ function directRepair(input: {
   const currentQuestion = buildCurrentQuestionAnswerContractReply({ turn, state: input.state, truth: input.truth });
   const humanAuthority = buildHumanFirstConversationAuthorityReply({ turn, state: input.state, truth: input.truth, actions: input.actions });
   switch (input.obligation) {
+    case "protected_business_registration":
+    case "stop_refund_keep_request":
+    case "down_payment":
+    case "office_payment":
+    case "monthly_payment_mechanism":
+    case "device_warranty_or_insurance":
+    case "product_sim_spec":
+    case "payment_destination_update":
+      return lockedMeaningReply({ meaning: resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, truth: input.truth });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
     case "contact_channel": return "المتابعة الأساسية للطلبات من خلال واتساب الحالي. ما عندي رقم تواصل إضافي رسمي موثق أقدر أعطيك إياه.";
@@ -429,19 +456,28 @@ function directRepair(input: {
     case "current_question_contract": return currentQuestion;
     case "identity": return humanAuthority || "معك فريق الأمين للأقساط من نفس المحادثة، واحكيلي المطلوب مباشرة وبجاوبك على قد السؤال.";
     case "media": return currentQuestion || humanAuthority || "وصلني المرفق. إذا هو لتوضيح مشكلة أو سؤال، اكتبلي باختصار شو بدك أتأكد منه منه وبمشي معك من نفس السياق.";
-    case "application_status": return currentQuestion || statusReply({ turn, truth: input.truth });
+    case "application_status": return currentQuestion || statusReply({ turn, truth: input.truth, state: input.state });
     case "foreign_content_clarification": return "وصلني النص اللي بعثته. احكيلي شو بدك أعمل فيه بالضبط—أشرحه، ألخصه، أو أساعدك ترد عليه—وبجاوبك على نفس الموضوع.";
     default: return null;
   }
 }
 
 function candidateLooksResponsive(input: { obligation: ResponseObligation; candidate: string | null | undefined; truth: TruthBundle }) {
-  const raw = String(input.candidate || "").trim();
+  const raw = sanitizeUnifiedEgressReply(input.candidate);
   if (!raw) return false;
   if (responseHasKnownBadFallbackSignature(raw)) return false;
   const q = n(raw);
   const stage = applicationJourneyStage(input.truth.application);
   switch (input.obligation) {
+    case "protected_business_registration":
+    case "stop_refund_keep_request":
+    case "down_payment":
+    case "office_payment":
+    case "monthly_payment_mechanism":
+    case "device_warranty_or_insurance":
+    case "product_sim_spec":
+    case "payment_destination_update":
+      return candidateAlignedWithLockedMeaning({ meaning: { kind: input.obligation, hard: true, reason: "response obligation" }, candidate: raw });
     case "mutation_request": return /(?:اكدلي|أكدلي|نعم).{0,30}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
@@ -480,7 +516,17 @@ export function arbitrateProductionReply(input: {
   forceRepair?: boolean;
 }): ResponseArbitrationResult {
   const obligation = resolveResponseObligation(input);
-  const candidate = String(input.candidate || "").trim() || null;
+  const candidate = sanitizeUnifiedEgressReply(input.candidate) || null;
+  const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
+
+  if (obligation === "protected_business_registration" && shouldSuppressRepeatedProtectedRegistration({ turn: input.turn, state: input.state })) {
+    return { reply: null, obligation, repaired: Boolean(candidate), suppressed: true, reason: "repeated protected registration request suppressed after one security notice" };
+  }
+
+  if (meaningLock.kind !== "none" && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
+    const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
+    return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `current meaning lock repaired cross-domain candidate: ${meaningLock.reason}` };
+  }
 
   if (obligation === "mutation_truth") {
     if (hasAuthoritativeMutationResult(input.actions)) {
@@ -497,11 +543,12 @@ export function arbitrateProductionReply(input: {
   if (obligation === "none") {
     return { reply: candidate, obligation, repaired: false, reason: "no higher-priority current-answer obligation detected" };
   }
-  if (!input.forceRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth })) {
+  const repeatedRepair = repeatedQuestionNeedsRepair({ turn: input.turn, state: input.state, candidate });
+  if (!input.forceRepair && !repeatedRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth })) {
     return { reply: candidate, obligation, repaired: false, reason: "candidate already answers the current customer obligation" };
   }
 
   const repair = directRepair({ obligation, turn: input.turn, state: input.state, truth: input.truth, actions: input.actions });
-  if (repair) return { reply: repair, obligation, repaired: repair !== candidate, reason: "single response authority repaired current-question mismatch" };
+  if (repair) { const sanitizedRepair = sanitizeUnifiedEgressReply(repair); return { reply: sanitizedRepair, obligation, repaired: sanitizedRepair !== candidate, reason: repeatedRepair ? "conversation repair rebuilt failed/repeated answer" : "single response authority repaired current-question mismatch" }; }
   return { reply: candidate, obligation, repaired: false, reason: "no safe deterministic repair available" };
 }

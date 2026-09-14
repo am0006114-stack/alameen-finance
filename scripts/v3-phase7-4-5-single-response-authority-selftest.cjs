@@ -33,10 +33,11 @@ const state=(extra={})=>({version:'x',waId:'9627',activeApplicationId:'a1',activ
 function turn(raw,topics=[],requestedActions=[]){return{turnId:'t1',rawText:raw,normalizedText:normalizeArabic(raw),acts:[],topics,requestedActions,sentiment:'calm',urgency:'normal',explicitRoleRequest:null,confidence:1,warnings:[]}}
 const cqMock={buildCurrentQuestionAnswerContractReply:({turn:t})=>/ادفع/.test(normalizeArabic(t.rawText))?'نعم، هسا بتقدر تدفع رسوم فتح الملف 5 دنانير.':null};
 const humanMock={aiIdentityQuestionText:(v)=>/(انت|إنت).{0,10}(ذكاء|روبوت|بوت)/.test(normalizeArabic(v)),buildHumanFirstConversationAuthorityReply:({turn:t})=>/(انت|إنت).{0,10}(ذكاء|روبوت|بوت)/.test(normalizeArabic(t.rawText))?'معك عبدالله من فريق الأمين، احكيلي المطلوب مباشرة.':null};
+const unifiedMock={resolveUnifiedMeaningLock:()=>({kind:'none',hard:false,reason:'compat'}),candidateAlignedWithLockedMeaning:()=>true,lockedMeaningReply:()=>null,repeatedQuestionNeedsRepair:()=>false,sanitizeUnifiedEgressReply:(v)=>String(v||'').trim(),shouldSuppressRepeatedProtectedRegistration:()=>false,stopRefundKeepRequest:()=>false};
 const arb=load(`${V3}/responseArbiter.ts`,{
   './applicationJourney':{applicationJourneyStage:stageOf,customerFacingStatusLabel:label},
   './linkIntegrity':{buildOfficialLinkContext:(_t,tr)=>({baseUrl:'https://www.ameenfinance.co',relevant:{tracking:tr.application?`https://www.ameenfinance.co/track?tracking=${tr.application.trackingId}&phone=0790000000`:null,products:'https://www.ameenfinance.co/products'}})},
-  './text':{normalizeArabic}, './currentQuestionAnswerContract':cqMock, './humanFirstConversationAuthority':humanMock, './types':{}
+  './text':{normalizeArabic}, './currentQuestionAnswerContract':cqMock, './humanFirstConversationAuthority':humanMock, './unifiedConversationDecisionPlane':unifiedMock, './types':{}
 });
 function ar(raw,candidate,a=app(),topics=[],actions=[],s=state(),forceRepair=false){return arb.arbitrateProductionReply({candidate,turn:turn(raw,topics),state:s,truth:truth(a),actions,forceRepair})}
 
@@ -117,7 +118,7 @@ r=ar('تمام','تمام، الله يعطيك العافية',app(),['thanks']
 ok(r.obligation==='none'&&!r.repaired,'non-question social turn remains untouched');
 
 const mut=load(`${V3}/mutationConfirmationGate.ts`,{
-  './text':{normalizeArabic}, './applicationJourney':{applicationJourneyStage:stageOf}, './types':{}
+  './text':{normalizeArabic}, './applicationJourney':{applicationJourneyStage:stageOf}, './unifiedConversationDecisionPlane':unifiedMock, './types':{}
 });
 const cancelState=state({lastAssistantText:'أكيد. إذا قرارك نهائي اكتب: نعم، ألغي الطلب.'});
 ok(mut.explicitMutationConfirmation({action:'cancel_application',value:'كتبت نعم مليون مرة',state:cancelState}),'pending cancel confirmation understands frustrated contextual yes');
