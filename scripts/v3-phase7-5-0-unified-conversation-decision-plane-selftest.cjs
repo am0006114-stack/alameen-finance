@@ -114,7 +114,7 @@ ok(gate.includes('office_payment_walk_in_instruction_forbidden'),'final gate blo
 ok(writer.includes('PHASE 7.5.0 UNIFIED CONVERSATION DECISION PLANE'),'writer contract encodes unified decision plane');
 ok(writer.includes('BUSINESS REGISTRATION SECURITY'),'writer contract encodes registration-document security policy');
 ok(writer.includes('ACTION INTENT SEPARATION'),'writer contract separates stop-refund from cancel/refund');
-ok(types.includes('v3.0.0-phase7.5.0-unified-conversation-decision-plane'),'runtime version identifies Phase 7.5.0');
+ok(types.includes('v3.0.0-phase7.5.0-unified-conversation-decision-plane')||types.includes('v3.0.0-phase7.5.1.1-type-safe-routing-hotfix'),'runtime version identifies Phase 7.5.x decision plane');
 ok(types.includes('v3.0.0-phase7.4.6-conversation-repair-true-single-egress'),'7.4.6 compatibility anchor retained');
 ok(arbSrc.includes('current meaning lock repaired cross-domain candidate'),'arbiter reports semantic-lock repair reason');
 ok(mutSrc.includes('PHASE 7.5.0 ACTION INTENT SEPARATION'),'mutation gate contains action separation hard guard');

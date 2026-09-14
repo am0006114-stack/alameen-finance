@@ -10,6 +10,8 @@ export type LockedMeaningKind =
   | "device_warranty_or_insurance"
   | "product_sim_spec"
   | "payment_destination_update"
+  | "voluntary_opt_out"
+  | "payment_receipt_confirmation"
   | "none";
 
 export type LockedMeaning = {
@@ -90,9 +92,46 @@ export function productSimSpecQuestion(value: string | null | undefined) {
 }
 
 
+
+export function voluntaryOptOutQuestion(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  const explicitCancel = /(?:الغي|ألغي|الغاء|إلغاء).{0,24}(?:الطلب|طلبي|المعامله|المعاملة)|(?:بدي|اريد|أريد).{0,18}(?:الغي|ألغي|الغاء|إلغاء)/.test(q);
+  const explicitRefund = /(?:استرداد|استرجاع|رجعلي|رجعولي).{0,24}(?:الرسوم|المبلغ|الخمس|الخمسه|5|٥)?/.test(q);
+  if (explicitCancel || explicitRefund) return false;
+  return /(?:لا\s+ارغب|لا\s+أرغب|ما\s+بدي|بديش|مش\s+حاب|مو\s+حاب|مش\s+مكمل|مو\s+مكمل).{0,28}(?:بالاستمرار|استمر|اكمل|أكمل|نكمل|المتابعه|المتابعة)(?:.{0,18}(?:حاليا|حاليًا|هسا|الان|الآن))?|(?:بوقف|بوقفها|بأجل|باجل|مأجل|ماجل).{0,20}(?:حاليا|حاليًا|هسا|الان|الآن)/.test(q);
+}
+
+function paymentConfirmedTruth(application: TruthBundle["application"]) {
+  if (!application) return false;
+  const status = String(application.status || "").toLowerCase();
+  const payment = String(application.paymentStatus || "").toLowerCase();
+  return Boolean(application.paymentConfirmedAt)
+    || ["confirmed","paid","payment_confirmed","refund_requested","refund_processing","refund_completed","refunded"].includes(payment)
+    || ["refund_requested","refund_processing","refund_completed","refunded"].includes(status);
+}
+
+export function paymentReceiptConfirmationQuestion(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  // Structured tracking text can contain labels such as "وصل الدفع قيد التأكيد";
+  // that is a status payload, not a customer question asking us to confirm payment.
+  if (/الحاله\s+الحاليه/.test(q) && /(?:اخر\s+تحديث|الخطوه\s+التاليه)/.test(q)) return false;
+  const paymentWord = /(?:دفعت|حولت|حوّلت|الحواله|الحوالة|الدفع|الخمسه|الخمس|5|٥)/.test(q);
+  const directAsk = /(?:بين\s+معكم|مبين\s+معكم|ظهر\s+معكم|واصل\s+عندكم|وصلتكم|وصلكم|شفتو|شايفين|تاكدتم|تأكدتم|تم\s+التاكيد|تم\s+التأكيد)/.test(q);
+  const receiptWord = /(?:وصل\s+الدفع|الوصل|فاتوره|فاتورة|اثبات\s+الدفع|إثبات\s+الدفع)/.test(q);
+  return (paymentWord && directAsk) || (receiptWord && directAsk) || /(?:بين|مبين).{0,18}(?:اني|إني).{0,12}(?:دفعت|حولت|حوّلت)/.test(q);
+}
+
 export function paymentDestinationUpdateQuestion(value: string | null | undefined) {
   const q = n(value);
-  return /(?:شو|ايش|اش|ما).{0,24}(?:التحديث|تحديث).{0,20}(?:الطارئ|الطائر|بيانات\s+المحفظه|بيانات\s+المحفظة)|(?:التحديث|تحديث).{0,30}(?:بخصوص\s+شو|عن\s+شو|ليش|ليه)/.test(q);
+  if (!q) return false;
+  // 7.5.1: generic phrases such as "آخر تحديث أو الخطوة التالية" must NEVER
+  // be interpreted as the historical payment-destination update explanation.
+  const explicitEmergencyUpdate = /(?:التحديث|تحديث).{0,8}(?:الطارئ|الطائر|الطاري)/.test(q);
+  const explicitPaymentUpdate = /(?:التحديث|تحديث).{0,24}(?:بيانات\s+المحفظه|بيانات\s+المحفظة|بيانات\s+التحويل|cliq|كليك)/i.test(q);
+  const asksWhat = /(?:شو|ايش|اش|ما\s+هو|بخصوص\s+شو|عن\s+شو|ليش|ليه)/.test(q);
+  return asksWhat && (explicitEmergencyUpdate || explicitPaymentUpdate);
 }
 
 export function resolveUnifiedMeaningLock(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): LockedMeaning {
@@ -104,7 +143,9 @@ export function resolveUnifiedMeaningLock(input: { turn: InterpretedTurn; state:
   if (monthlyPaymentMechanismQuestion(raw)) return { kind: "monthly_payment_mechanism", hard: true, reason: "monthly debit/payment mechanism question" };
   if (deviceWarrantyOrInsuranceQuestion(raw)) return { kind: "device_warranty_or_insurance", hard: true, reason: "device warranty/insurance must not be confused with guarantor" };
   if (productSimSpecQuestion(raw)) return { kind: "product_sim_spec", hard: true, reason: "specific product SIM/eSIM specification" };
-  if (paymentDestinationUpdateQuestion(raw)) return { kind: "payment_destination_update", hard: true, reason: "customer asks what the payment-destination update was" };
+  if (voluntaryOptOutQuestion(raw)) return { kind: "voluntary_opt_out", hard: true, reason: "customer pauses/declines continuation without requesting cancellation" };
+  if (paymentReceiptConfirmationQuestion(raw)) return { kind: "payment_receipt_confirmation", hard: true, reason: "customer asks whether payment/receipt is visible or confirmed" };
+  if (paymentDestinationUpdateQuestion(raw)) return { kind: "payment_destination_update", hard: true, reason: "customer explicitly asks what the emergency payment-destination update was" };
   return { kind: "none", hard: false, reason: "no hard current-meaning lock" };
 }
 
@@ -127,6 +168,14 @@ export function lockedMeaningReply(input: { meaning: LockedMeaning; turn: Interp
       return "إذا قصدك ضمان/تأمين الجهاز نفسه من الضرر أو الكسر: ما عندي تفاصيل موثقة لهذا الجهاز أقدر أأكدها من المحادثة، وما رح أخمّن أو أخلطها بموضوع الكفيل. لازم تكون شروط الضمان/التأمين مثبتة ضمن مواصفات الجهاز أو العقد عند الاستلام.";
     case "product_sim_spec":
       return "إذا قصدك هل النسخة فيها مدخل شريحة فعلية أو eSIM فقط: ما عندي مواصفات موثقة لنسخة الجهاز المحددة أقدر أأكدها من المحادثة، وما رح أخمّن. لازم نعتمد المواصفات المكتوبة للموديل/النسخة نفسها قبل تأكيد هالنقطة.";
+    case "voluntary_opt_out":
+      return "تمام، ما رح نفتح خطوة دفع ولا نضغط عليك تكمل هسا، وما اعتبرت رسالتك إلغاء نهائي للطلب. طلبك بيضل على حالته الحالية، وإذا حبيت تكمل لاحقًا احكيلنا إنك بدك تستمر.";
+    case "payment_receipt_confirmation": {
+      const application = input.truth.application;
+      if (paymentConfirmedTruth(application)) return "نعم، الدفع مؤكد إداريًا على طلبك، وما في داعي تعيد الدفع أو ترفع وصل جديد.";
+      if (application?.documents?.paymentReceiptUploaded === true) return "وصل الدفع ظاهر على ملفك وبانتظار مراجعة الإدارة. لسا ما بعتبر الدفع مؤكد إداريًا، وما في داعي تعيد رفع الوصل مرة ثانية.";
+      return "لسا ما ظهر عندي تأكيد دفع إداري أو وصل معتمد على الطلب. إذا رفعت الوصل من الرابط الرسمي، انتظر مراجعته وما تعيد الدفع.";
+    }
     case "payment_destination_update":
       return "التحديث الطارئ كان على بيانات محفظة دفع رسوم فتح الملف وأسماء التحويل عبر CliQ فقط، مش على حالة طلبك ولا على قيمة الرسوم. عشان هيك بنطلب الاعتماد على بيانات التحويل الحالية اللي بتطلع لك وقت خطوة الدفع.";
     default:
@@ -151,6 +200,8 @@ export function candidateAlignedWithLockedMeaning(input: { meaning: LockedMeanin
     case "monthly_payment_mechanism": return /(?:العقد\s+النهائي|اليه\s+السداد|آلية\s+السداد|سحب\s+الي|سحب\s+آلي|حسابك|البنك)/.test(q);
     case "device_warranty_or_insurance": return /(?:ضمان|تامين|تأمين).{0,30}(?:الجهاز|الهاتف|الضرر|الكسر)|(?:المواصفات|العقد).{0,35}(?:الضمان|التامين|التأمين)/.test(q);
     case "product_sim_spec": return /(?:مدخل\s+شريحه|مدخل\s+شريحة|esim|شريحه\s+الكترونيه|شريحة\s+إلكترونية|مواصفات).{0,50}(?:الموديل|النسخه|النسخة|الجهاز)?/.test(q);
+    case "voluntary_opt_out": return /(?:ما\s+رح|لن).{0,35}(?:نفتح|نطلب|نضغط).{0,35}(?:دفع|تكمل|استمرار)|(?:ما\s+اعتبرت|مش\s+إلغاء|ليس\s+إلغاء).{0,30}(?:إلغاء|الطلب)/.test(q);
+    case "payment_receipt_confirmation": return /(?:الدفع|وصل\s+الدفع|الوصل).{0,45}(?:مؤكد|موكد|بانتظار|مراجعه|مراجعة|ظاهر|اعتماد)|(?:مؤكد|موكد|بانتظار|مراجعه|مراجعة).{0,45}(?:الدفع|الوصل)/.test(q);
     case "payment_destination_update": return /(?:التحديث|تحديث).{0,35}(?:المحفظه|المحفظة|cliq|كليك|بيانات\s+التحويل)/i.test(q);
     default: return true;
   }

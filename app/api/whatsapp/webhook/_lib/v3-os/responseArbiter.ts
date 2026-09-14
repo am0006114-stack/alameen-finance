@@ -15,6 +15,8 @@ export type ResponseObligation =
   | "device_warranty_or_insurance"
   | "product_sim_spec"
   | "payment_destination_update"
+  | "voluntary_opt_out"
+  | "payment_receipt_confirmation"
   | "mutation_truth"
   | "mutation_request"
   | "tracking_link"
@@ -149,6 +151,7 @@ function asksRefundTiming(value: string | null | undefined, truth: TruthBundle) 
     || /(?:بترجع|برجع|بيرجع|يرجع).{0,30}(?:متى|امتى|اميت|قديش|كم)(?:\s|$)/.test(q)
     || /^(?:وينهم|اميت|متى|امتى)$/.test(q);
   if (explicit) return true;
+  if (stage === "refund_requested" && /^(?:كم|قديش).{0,24}(?:تحتاج|بدها|بدو|بياخد|ياخد|وقت|مده|مدة)|^(?:متى|امتى|لحد\s+متى|الى\s+متى|إلى\s+متى)$/.test(q)) return true;
   return stage === "refund_requested" && /^(?:وينها|وينهم|شو\s+هسا|شو\s+صار|[؟?]+)$/.test(q);
 }
 
@@ -437,6 +440,8 @@ function directRepair(input: {
     case "device_warranty_or_insurance":
     case "product_sim_spec":
     case "payment_destination_update":
+    case "voluntary_opt_out":
+    case "payment_receipt_confirmation":
       return lockedMeaningReply({ meaning: resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, truth: input.truth });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
@@ -477,6 +482,8 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "device_warranty_or_insurance":
     case "product_sim_spec":
     case "payment_destination_update":
+    case "voluntary_opt_out":
+    case "payment_receipt_confirmation":
       return candidateAlignedWithLockedMeaning({ meaning: { kind: input.obligation, hard: true, reason: "response obligation" }, candidate: raw });
     case "mutation_request": return /(?:اكدلي|أكدلي|نعم).{0,30}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);
@@ -521,6 +528,13 @@ export function arbitrateProductionReply(input: {
 
   if (obligation === "protected_business_registration" && shouldSuppressRepeatedProtectedRegistration({ turn: input.turn, state: input.state })) {
     return { reply: null, obligation, repaired: Boolean(candidate), suppressed: true, reason: "repeated protected registration request suppressed after one security notice" };
+  }
+
+  // 7.5.1: payment/receipt confirmation must always be rendered from authoritative
+  // payment truth; a semantically plausible candidate is not enough.
+  if (meaningLock.kind === "payment_receipt_confirmation") {
+    const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
+    return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: "authoritative payment/receipt truth lock" };
   }
 
   if (meaningLock.kind !== "none" && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
