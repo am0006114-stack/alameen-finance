@@ -20,8 +20,12 @@ function n(value: string | null | undefined) {
     .trim();
 }
 
-function refundStage(truth: TruthBundle) {
-  return applicationJourneyStage(truth.application);
+function effectiveApplication(truth: TruthBundle, state?: ConversationState) {
+  return truth.application || state?.lastVerifiedApplication?.application || null;
+}
+
+function refundStage(truth: TruthBundle, state?: ConversationState) {
+  return applicationJourneyStage(effectiveApplication(truth, state));
 }
 
 function asksRefundMoneyOrTiming(q: string) {
@@ -35,7 +39,7 @@ function asksForSolution(q: string) {
 }
 
 function repeatedRefundDemand(q: string) {
-  return /(?:رجعوا|رجعو|رجعولي|رجعلي|حولوا|حولو|ردوا|ردو).{0,24}(?:مصاري|المصاري|المبلغ|الرسوم|الخمس|الخمسه|5|٥)|(?:بدي|اريد|أريد|ارجو|أرجو).{0,18}(?:مصاري|المبلغ|استرداد|استرجاع).{0,16}(?:هسا|الان|الآن|بسرعه|بسرعة)?/.test(q);
+  return /(?:رجعوا|رجعو|رجعولي|رجعلي|حولوا|حولو|حولي|حولولي|ردوا|ردو).{0,24}(?:مصاري|المصاري|المبلغ|الرسوم|الخمس|الخمسه|5|٥)|(?:بدي|اريد|أريد|ارجو|أرجو).{0,18}(?:مصاري|المبلغ|استرداد|استرجاع).{0,16}(?:هسا|الان|الآن|بسرعه|بسرعة)?/.test(q);
 }
 
 function looksDistressed(q: string, turn: InterpretedTurn) {
@@ -52,7 +56,7 @@ function longDelay(q: string) {
 }
 
 export function refundHumanCareMode(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): RefundHumanCareMode | null {
-  const stage = refundStage(input.truth);
+  const stage = refundStage(input.truth, input.state);
   if (stage !== "refund_requested" && stage !== "refund_completed") return null;
   const q = n(input.turn.rawText);
   if (!q) return null;
@@ -124,8 +128,8 @@ function freshAcknowledgement(mode: RefundHumanCareMode, previous: string) {
   return pools[mode].find((x) => !normalizedPrevious.includes(n(x).slice(0, 24))) || pools[mode][0];
 }
 
-function currentTruthLine(truth: TruthBundle) {
-  const stage = refundStage(truth);
+function currentTruthLine(truth: TruthBundle, state?: ConversationState) {
+  const stage = refundStage(truth, state);
   if (stage === "refund_completed") return "حسب الحالة الحالية، الاسترداد مكتمل بالنظام.";
   return "طلب الاسترداد مسجل فعلًا وقيد المعالجة، وما في عليك طلب جديد تعيده من ناحيتك.";
 }
@@ -155,10 +159,10 @@ function nextExpectationLine(mode: RefundHumanCareMode, previous: string) {
 export function buildRefundHumanCareReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): string | null {
   const mode = refundHumanCareMode(input);
   if (!mode) return null;
-  const stage = refundStage(input.truth);
+  const stage = refundStage(input.truth, input.state);
   const previous = input.state.lastAssistantText || "";
   const ack = freshAcknowledgement(mode, previous);
-  const truth = currentTruthLine(input.truth);
+  const truth = currentTruthLine(input.truth, input.state);
   if (stage === "refund_completed") return `${ack} ${truth}`;
   if (mode === "dismissal") return `${ack}\n\n${truth} من جهتك ما في داعي تعيد أي طلب؛ أول تحديث فعلي بيظهر على الحالة.`;
   const boundary = timingBoundaryLine(mode);
@@ -169,10 +173,11 @@ export function buildRefundHumanCareReply(input: { turn: InterpretedTurn; state:
 export function refundHumanCareCandidateAligned(input: { candidate: string | null | undefined; truth: TruthBundle; turn?: InterpretedTurn; state?: ConversationState }) {
   const q = n(input.candidate);
   if (!q) return false;
-  const stage = refundStage(input.truth);
+  const stage = refundStage(input.truth, input.state);
   if (stage === "refund_completed") return /(?:الاسترداد|المبلغ).{0,30}(?:مكتمل|تم|تحول|تحويل)/.test(q);
   const hasTruth = /(?:الاسترداد|طلب\s+الاسترداد|المبلغ|المصاري).{0,55}(?:قيد\s+المعالجه|قيد\s+المعالجة|مسجل|تحويل|موعد|تنفيذ)/.test(q);
   const hasHumanAcknowledgement = /(?:فاهم|مفهوم|معك\s+حق|وصلتني|سؤالك\s+بمحله|متضايق|انزعاج|غضب|ثقيل\s+عليك)/.test(q);
+  const hasUtility = /(?:ما\s+في\s+عليك\s+طلب\s+جديد|ما\s+عليك\s+خطوه|ما\s+عليك\s+خطوة|اللي\s+ننتظره|اول\s+ما\s+يظهر|أول\s+ما\s+يظهر|التنفيذ\s+الفعلي|نفس\s+طلب\s+الاسترداد|ما\s+في\s+داعي\s+تعيد|ما\s+عندي\s+موعد)/.test(q);
   const notEmptyStatusLoop = !/^(?:نعم\s+)?طلبك\s+ملغي\s+بالفعل.{0,90}(?:الاسترداد\s+مسجل|قيد\s+المعالجه|قيد\s+المعالجة)/.test(q);
   const noFalsePromise = !/(?:خلال\s+\d+|بكرا|غدا|غدًا|اليوم\s+اكيد|اليوم\s+أكيد|قريبًا\s+اكيد|قريباً\s+أكيد).{0,20}(?:يرجع|يتم|تحويل)/.test(q);
   const mode = input.turn && input.state ? refundHumanCareMode({ turn: input.turn, state: input.state, truth: input.truth }) : null;
@@ -182,5 +187,5 @@ export function refundHumanCareCandidateAligned(input: { candidate: string | nul
     : mode === "gentle_pressure" ? /(?:فاهم|وصلتني|معك\s+حق).{0,60}(?:يطول|تأخير|الاسترداد|الموضوع)/.test(q)
     : mode === "dismissal" ? /(?:ما\s+رح\s+ازيد|ما\s+رح\s+أزيد|ما\s+رح\s+اضل|ما\s+رح\s+أضل|بدون\s+كلام\s+زياده|بدون\s+كلام\s+زيادة)/.test(q)
     : true;
-  return hasTruth && hasHumanAcknowledgement && notEmptyStatusLoop && noFalsePromise && modeSpecific;
+  return hasTruth && hasHumanAcknowledgement && hasUtility && notEmptyStatusLoop && noFalsePromise && modeSpecific;
 }

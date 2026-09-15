@@ -21,6 +21,8 @@ export type ResponseObligation =
   | "file_opening_payment_method"
   | "office_location"
   | "product_region_spec"
+  | "trust_assurance"
+  | "total_payable"
   | "voluntary_opt_out"
   | "payment_receipt_confirmation"
   | "mutation_truth"
@@ -509,6 +511,8 @@ function directRepair(input: {
     case "file_opening_payment_method":
     case "office_location":
     case "product_region_spec":
+    case "trust_assurance":
+    case "total_payable":
       return buildSemanticQuestionLockReply({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), turn: input.turn, truth: input.truth });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
@@ -559,6 +563,8 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "file_opening_payment_method":
     case "office_location":
     case "product_region_spec":
+    case "trust_assurance":
+    case "total_payable":
       return semanticQuestionCandidateAligned({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), candidate: raw, truth: input.truth });
     case "mutation_request": return /(?:اكدلي|أكدلي|نعم).{0,30}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);

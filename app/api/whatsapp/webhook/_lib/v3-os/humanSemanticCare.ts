@@ -41,25 +41,34 @@ function reviewBoundary(truth: TruthBundle) {
   return ` المعدل الطبيعي ${window}، لكن ${pressure} وما بدي أوعدك بموعد مش مضمون.`;
 }
 
+function usefulNextStep(truth: TruthBundle) {
+  const stage = applicationJourneyStage(truth.application);
+  if (stage === "preliminary_review") return "من جهتك ما في خطوة إضافية هسا؛ أول شي منتظره هو نتيجة المراجعة المبدئية.";
+  if (stage === "preliminary_approved_waiting_decision") return "إذا قرارك تكمل، الخطوة العملية الوحيدة هي تأكيد الاستمرار؛ بعدها بتنفتح خطوة رسوم فتح الملف حسب المسار الرسمي.";
+  if (stage === "continuation_confirmed_fee_due") return "الخطوة الحالية هي رسوم فتح الملف عبر بيانات الدفع الرسمية ثم رفع الوصل من الرابط الرسمي؛ ما في داعي تعمل أي خطوة ثانية خارج هالمسار.";
+  if (stage === "payment_proof_pending_admin") return "الوصل موجود؛ لا تعيد الدفع ولا ترفع وصل ثاني. اللي ننتظره الآن اعتماد الإدارة.";
+  if (stage === "payment_confirmed_under_review") return "الدفع مؤكد، وما في عليك شي إضافي الآن؛ اللي ننتظره هو قرار الدراسة النهائية.";
+  if (stage === "approved") return "القرار صار موافقة حسب الحالة الحالية؛ أي حضور أو استلام يكون فقط لما يوصلك موعد رسمي مؤكد.";
+  if (stage === "cancelled") return "الطلب ملغي حسب الحالة الحالية، وما رح أفتح عليك خطوة جديدة إلا إذا طلبت شي واضح ومسموح على نفس الحالة.";
+  return "إذا في خطوة مطلوبة منك فعلًا بحكيلك إياها مباشرة؛ غير هيك ما رح أخليك تعيد إجراءات بدون داعي.";
+}
+
+function acknowledgement(mode: HumanSemanticCareMode) {
+  if (mode === "hope") return "إن شاء الله خير. فاهم عليك، ولما الواحد يكون مرتب أموره طبيعي يتعلق بالنتيجة ويتمنى تمشي.";
+  if (mode === "plea") return "أكيد، وأنا ماسك نقطتك. ما بدي أجاوبك بجملة محفوظة ولا أخليك تلف بنفس السؤال.";
+  if (mode === "trust_loss") return "فاهم ليش الثقة اهتزت عندك، وما رح أحاول أغطي على هالشي بكلام إنشائي. خليني أفصل لك اللي مثبت فعليًا عن اللي ما بقدر أوعدك فيه.";
+  return "معك حق تتضايق إذا حاسس إنك عم تستنى أكثر من اللازم أو عم تسمع نفس الحالة بدون نتيجة جديدة. خليني أعطيك المفيد مباشرة.";
+}
+
 export function buildHumanSemanticCareReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): string | null {
   const mode = humanSemanticCareMode(input);
   if (!mode) return null;
+  const ack = acknowledgement(mode);
   const truth = statusTruth(input.truth);
   const boundary = reviewBoundary(input.truth);
-  if (mode === "hope") {
-    const human = "إن شاء الله خير. واضح إنك مهتم يزبط الطلب، وكون أمور الدخل والمستندات عندك مرتبة بيساعد على اكتمال الملف، بس القرار النهائي بضل حسب نتيجة الدراسة نفسها وما بدي أضمنه قبل ما يصدر.";
-    return truth ? `${human}\n\n${truth}${boundary}` : human;
-  }
-  if (mode === "plea") {
-    const human = "أكيد فاهم عليك، وما بدي أرد عليك بجملة محفوظة. بعطيك اللي ظاهر فعليًا عندي بدون وعد زيادة.";
-    return truth ? `${human}\n\n${truth}${boundary}` : human;
-  }
-  if (mode === "trust_loss") {
-    const human = "فاهم إن اللي صار خلاك تشك بالموضوع، وما رح أدخل معك بجدال. خليني أعطيك الحقيقة الحالية مباشرة وأفصل بين اللي صار فعلًا وبين أي وعد مش موثق.";
-    return truth ? `${human}\n\n${truth}${boundary}` : human;
-  }
-  const human = "معك حق تنزعج إذا حاسس إن الموضوع أخذ وقت أكبر من المتوقع. ما بدي أقلل من انتظارك ولا أعيد نفس الكلام عليك.";
-  return truth ? `${human}\n\n${truth}${boundary}` : human;
+  const next = usefulNextStep(input.truth);
+  if (!truth) return `${ack}\n\n${next}`;
+  return `${ack}\n\n${truth}${boundary}\n\n${next}`;
 }
 
 export function humanSemanticCareCandidateAligned(input: { candidate: string | null | undefined; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {
@@ -67,9 +76,10 @@ export function humanSemanticCareCandidateAligned(input: { candidate: string | n
   if (!mode) return true;
   const q = n(input.candidate);
   if (!q) return false;
-  const hasAck = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|إن\s+شاء\s+الله\s+خير|ان\s+شاء\s+الله\s+خير|ما\s+بدي\s+اقلّل|ما\s+بدي\s+أقلل|ما\s+رح\s+ادخل\s+معك\s+بجدال|ما\s+رح\s+أدخل\s+معك\s+بجدال)/.test(q);
+  const hasAck = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|يا\s+رب|ما\s+رح\s+احاول|ما\s+رح\s+أحاول|ما\s+بدي\s+اجاوبك\s+بجمله|ما\s+بدي\s+أجاوبك\s+بجملة|الثقه\s+اهتزت|الثقة\s+اهتزت)/.test(q);
   const notTrivial = !/^(?:العفو|تمام|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|أنا\s+معك)\.?$/.test(q);
   const needsTruth = Boolean(input.truth.application);
-  const hasTruth = !needsTruth || /(?:الحاله|الحالة|طلبك|الملف|الدراسه|الدراسة|الموافقه|الموافقة|قيد|ملغي|استرداد)/.test(q);
-  return hasAck && notTrivial && hasTruth;
+  const hasTruth = !needsTruth || /(?:الحاله|الحالة|طلبك|الملف|الدراسه|الدراسة|الموافقه|الموافقة|قيد|ملغي|استرداد|الدفع)/.test(q);
+  const hasUtility = /(?:ما\s+في\s+عليك|الخطوه\s+الحاليه|الخطوة\s+الحالية|اللي\s+ننتظره|لا\s+تعيد|ما\s+تعيد|إذا\s+قرارك|اذا\s+قرارك|موعد\s+رسمي|خطوه\s+اضافيه|خطوة\s+إضافية|خطوة\s+اضافية|رسوم\s+فتح\s+الملف)/.test(q);
+  return hasAck && notTrivial && hasTruth && hasUtility;
 }
