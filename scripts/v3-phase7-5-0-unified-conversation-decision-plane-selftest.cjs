@@ -50,7 +50,7 @@ const humanMock={aiIdentityQuestionText:()=>false,buildHumanFirstConversationAut
 const arb=load(`${V3}/responseArbiter.ts`,{
   './applicationJourney':{applicationJourneyStage:stageOf,customerFacingStatusLabel:label},
   './linkIntegrity':{buildOfficialLinkContext:(_t,tr)=>({baseUrl:'https://www.ameenfinance.co',relevant:{tracking:tr.application?`https://www.ameenfinance.co/track?tracking=${tr.application.trackingId}&phone=0790000000`:null,products:'https://www.ameenfinance.co/products'}})},
-  './text':{normalizeArabic},'./currentQuestionAnswerContract':cqMock,'./humanFirstConversationAuthority':humanMock,'./unifiedConversationDecisionPlane':unified,'./types':{}
+  './text':{normalizeArabic},'./currentQuestionAnswerContract':cqMock,'./humanFirstConversationAuthority':humanMock,'./unifiedConversationDecisionPlane':unified,'./refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null},'./types':{}
 });
 function ar(raw,candidate,a=app(),topics=[],actions=[],s=state()){return arb.arbitrateProductionReply({candidate,turn:turn(raw,topics),state:s,truth:truth(a),actions})}
 

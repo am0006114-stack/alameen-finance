@@ -4,6 +4,7 @@ import { normalizeArabic } from "./text";
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 import { candidateAlignedWithLockedMeaning, lockedMeaningReply, repeatedQuestionNeedsRepair, resolveUnifiedMeaningLock, sanitizeUnifiedEgressReply, shouldSuppressRepeatedProtectedRegistration } from "./unifiedConversationDecisionPlane";
+import { buildRefundHumanCareReply, refundHumanCareCandidateAligned, refundHumanCareMode } from "./refundHumanCare";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type ResponseObligation =
@@ -25,6 +26,7 @@ export type ResponseObligation =
   | "approval_status"
   | "review_timing"
   | "refund_meaning"
+  | "refund_human_care"
   | "refund_timing"
   | "fee_question"
   | "product_availability"
@@ -33,6 +35,8 @@ export type ResponseObligation =
   | "external_system_question"
   | "general_eligibility"
   | "application_start"
+  | "installment_service_overview"
+  | "document_upload_guidance"
   | "current_question_contract"
   | "identity"
   | "media"
@@ -214,6 +218,32 @@ function asksApplicationStatus(turn: InterpretedTurn) {
     || /(?:شو|ايش|اش|وين).{0,20}(?:صار|وصل|وضع).{0,20}(?:طلبي|الطلب|الملف)|^(?:شو\s+صار|تحديث|في\s+تحديث)$/.test(q);
 }
 
+
+function structuredApplicationStatusRequest(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (!q) return false;
+  const hasTracking = /(?:رقم\s+التتبع|tracking).{0,40}(?:am\s*\d+|am-\d+)/i.test(q);
+  const hasCurrentState = /الحاله\s+الحاليه|الحالة\s+الحالية/.test(q);
+  const asksLatest = /(?:اخر\s+تحديث|آخر\s+تحديث|الخطوه\s+التاليه|الخطوة\s+التالية|متابعه\s+طلبي|متابعة\s+طلبي)/.test(q);
+  return hasTracking && hasCurrentState && asksLatest;
+}
+
+function asksInstallmentServiceOverview(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  const service = /(?:خدمه\s+تقسيط|خدمة\s+تقسيط|تقسيط\s+الهواتف|تقسيط\s+اجهزه|تقسيط\s+أجهزة)/.test(q);
+  const overview = /(?:الشروط|المتطلبات|طريقه\s+التقديم|طريقة\s+التقديم|كيف\s+اقدم|كيف\s+أقدم|كيف\s+التقديم)/.test(q);
+  return service && overview;
+}
+
+function asksDocumentUploadGuidance(turn: InterpretedTurn, state: ConversationState) {
+  const q = n(turn.rawText);
+  const previous = n(state.lastAssistantText);
+  const currentAcceptsOffer = /^(?:تمام\s+)?(?:وضحلي|وضح\s+لي|اشرحلي|اشرح\s+لي|كيف|اه\s+وضحلي|أه\s+وضحلي)$/.test(q);
+  const previousOfferedDocs = /(?:اوضحلك|أوضحلك|اشرحلك|كيف).{0,30}(?:ترفع|رفع).{0,24}(?:المستندات|الوثائق|الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل)/.test(previous);
+  return currentAcceptsOffer && previousOfferedDocs;
+}
+
 function pastedForeignContent(value: string | null | undefined) {
   const raw = String(value || "");
   if (raw.length < 80) return false;
@@ -229,7 +259,18 @@ export function resolveResponseObligation(input: {
 }): ResponseObligation {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   if (meaningLock.kind !== "none") return meaningLock.kind;
-  if (hasAuthoritativeMutationResult(input.actions) || hasCurrentSensitiveMutation(input.turn)) return "mutation_truth";
+  if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
+  // 7.5.2: exact structured tracking/status messages have absolute semantic priority.
+  // They must never fall into product/payment/continuation branches because of stale context.
+  if (structuredApplicationStatusRequest(input.turn)) return "application_status";
+  // Once refund is already open, frustration/timing/solution/repeated refund language is
+  // a customer-care question, not a new mutation request. Execution truth still outranks this above.
+  if (refundHumanCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "refund_human_care";
+  if (hasCurrentSensitiveMutation(input.turn)) return "mutation_truth";
+  // Handle direct acceptance of our immediately previous document-upload explanation offer
+  // before repairContextTurn can merge it with an older customer turn.
+  if (asksDocumentUploadGuidance(input.turn, input.state)) return "document_upload_guidance";
+  if (asksInstallmentServiceOverview(input.turn.rawText)) return "installment_service_overview";
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
   if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
@@ -399,6 +440,17 @@ function generalEligibilityReply(input: { turn: InterpretedTurn; truth: TruthBun
   return `${prefix}${context} ${guidance}`.replace(/\s+/g, " ").trim();
 }
 
+
+function installmentServiceOverviewReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  const products = links.relevant.products || `${links.baseUrl}/products`;
+  return `أكيد. التقديم بيبدأ من الموقع الرسمي باختيار الجهاز وتعبئة طلب الموافقة المبدئية. الأساس هو الهوية وإثبات الدخل؛ وإذا ما عندك كشف أو شهادة راتب ممكن ترفع بديل رسمي مثل كشف حساب بنكي أو عقد عمل أو مستند يوضح مصدر الدخل، والدراسة هي اللي بتحدد المقبول النهائي. الكفيل مش شرط ثابت لكل طلب. بعد الموافقة المبدئية، إذا اخترت الاستمرار، رسوم فتح الملف 5 دنانير فقط وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. القسط الأول بيستحق بعد شهر من استلام الجهاز وتوقيع العقد.\n${products}`;
+}
+
+function documentUploadGuidanceReply(input: { truth: TruthBundle }) {
+  return `أكيد. الهوية وإثبات الدخل وأي مستند حساس بتنرفع فقط من الرابط الرسمي الآمن المرتبط بطلبك، وما بنعتمد إرسالها على واتساب. إذا عندك كشف أو شهادة راتب ارفعها من نفس المسار، وإذا ما عندك فممكن تستخدم بديل رسمي مناسب مثل كشف حساب بنكي أو عقد عمل أو مستند يوضح مصدر الدخل؛ والدراسة هي اللي بتحدد المقبول النهائي. بعد الرفع تأكد إن الصفحة أظهرت اكتمال رفع المستند.`;
+}
+
 function applicationStartReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   return `التقديم يبدأ من الموقع الرسمي: اختار الجهاز من صفحة المنتجات وكمل طلب الموافقة المبدئية، وبعد الإرسال بيطلع لك رقم تتبع.\n${links.relevant.products || `${links.baseUrl}/products`}`;
@@ -448,6 +500,7 @@ function directRepair(input: {
     case "contact_channel": return "المتابعة الأساسية للطلبات من خلال واتساب الحالي. ما عندي رقم تواصل إضافي رسمي موثق أقدر أعطيك إياه.";
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
+    case "refund_human_care": return buildRefundHumanCareReply({ turn: input.turn, state: input.state, truth: input.truth }) || refundTimingReply({ turn, truth: input.truth });
     case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
     case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
     case "refund_meaning": return refundMeaningReply(input.truth);
@@ -458,6 +511,8 @@ function directRepair(input: {
     case "external_system_question": return externalSystemReply();
     case "general_eligibility": return generalEligibilityReply({ turn, truth: input.truth });
     case "application_start": return applicationStartReply({ turn, truth: input.truth });
+    case "installment_service_overview": return installmentServiceOverviewReply({ turn, truth: input.truth });
+    case "document_upload_guidance": return documentUploadGuidanceReply({ truth: input.truth });
     case "current_question_contract": return currentQuestion;
     case "identity": return humanAuthority || "معك فريق الأمين للأقساط من نفس المحادثة، واحكيلي المطلوب مباشرة وبجاوبك على قد السؤال.";
     case "media": return currentQuestion || humanAuthority || "وصلني المرفق. إذا هو لتوضيح مشكلة أو سؤال، اكتبلي باختصار شو بدك أتأكد منه منه وبمشي معك من نفس السياق.";
@@ -467,7 +522,7 @@ function directRepair(input: {
   }
 }
 
-function candidateLooksResponsive(input: { obligation: ResponseObligation; candidate: string | null | undefined; truth: TruthBundle }) {
+function candidateLooksResponsive(input: { obligation: ResponseObligation; candidate: string | null | undefined; truth: TruthBundle; turn: InterpretedTurn; state: ConversationState }) {
   const raw = sanitizeUnifiedEgressReply(input.candidate);
   if (!raw) return false;
   if (responseHasKnownBadFallbackSignature(raw)) return false;
@@ -489,6 +544,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
     case "application_exists": return /(?:نعم|لا|ما\s+ظهر|مسجل|موجود)/.test(q);
+    case "refund_human_care": return refundHumanCareCandidateAligned({ candidate: raw, truth: input.truth, turn: input.turn, state: input.state });
     case "approval_status": {
       if (stage === "approved") return /موافق|انقبل/.test(q);
       if (stage === "preliminary_review") return /مراجعه\s+مبدئيه|ما\s+صدرت/.test(q);
@@ -505,6 +561,8 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "external_system_question": return /(?:ما\s+عندي).{0,35}(?:معلومه\s+موثقه|تكامل).{0,45}(?:كريف|crif|ائتماني)/i.test(q);
     case "general_eligibility": return /(?:دراسه\s+الملف|دراسة\s+الملف|اثبات\s+الدخل|إثبات\s+الدخل|كشف\s+حساب|عقد\s+عمل|كفيل)/.test(q) && !/(?:طلبك\s+ملغي|طلبك\s+موافقه\s+مبدئيه)/.test(q);
     case "application_start": return /products|صفحه\s+المنتجات|صفحة\s+المنتجات|الموقع\s+الرسمي/.test(q);
+    case "installment_service_overview": return /(?:التقديم|الموقع\s+الرسمي).{0,90}(?:الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل)|(?:رسوم\s+فتح\s+الملف).{0,60}(?:5|٥)/.test(q);
+    case "document_upload_guidance": return /(?:الرابط\s+الرسمي|المسار\s+الرسمي).{0,70}(?:الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل|المستندات)/.test(q) && !staleContinuationReply(raw);
     case "current_question_contract": return !staleContinuationReply(raw) && !missingDetailsReply(raw);
     case "identity": return /(?:فريق\s+الامين|فريق\s+الأمين|معك\s+\S+)/.test(q) && !missingDetailsReply(raw);
     case "media": return /(?:وصلت|وصلني|المرفق|الصوره|الصورة|الصوتيه|الصوتية)/.test(q) && !missingDetailsReply(raw);
@@ -558,7 +616,7 @@ export function arbitrateProductionReply(input: {
     return { reply: candidate, obligation, repaired: false, reason: "no higher-priority current-answer obligation detected" };
   }
   const repeatedRepair = repeatedQuestionNeedsRepair({ turn: input.turn, state: input.state, candidate });
-  if (!input.forceRepair && !repeatedRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth })) {
+  if (!input.forceRepair && !repeatedRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth, turn: input.turn, state: input.state })) {
     return { reply: candidate, obligation, repaired: false, reason: "candidate already answers the current customer obligation" };
   }
 
