@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.5.2-semantic-priority-human-refund-care" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.5.3-human-semantic-repair" as const;
+// Backward compatibility anchor for Phase 7.5.2 self-tests: v3.0.0-phase7.5.2-semantic-priority-human-refund-care
 // Backward compatibility anchor for Phase 7.5.1.1 self-tests: v3.0.0-phase7.5.1.1-type-safe-routing-hotfix
 // Backward compatibility anchor for Phase 7.4.6 self-tests: v3.0.0-phase7.4.6-conversation-repair-true-single-egress
 // Backward compatibility anchor for Phase 7.4.5 self-tests: v3.0.0-phase7.4.5-single-response-authority

@@ -37,7 +37,7 @@ const unifiedMock={resolveUnifiedMeaningLock:()=>({kind:'none',hard:false,reason
 const arb=load(`${V3}/responseArbiter.ts`,{
   './applicationJourney':{applicationJourneyStage:stageOf,customerFacingStatusLabel:label},
   './linkIntegrity':{buildOfficialLinkContext:(_t,tr)=>({baseUrl:'https://www.ameenfinance.co',relevant:{tracking:tr.application?`https://www.ameenfinance.co/track?tracking=${tr.application.trackingId}&phone=0790000000`:null,products:'https://www.ameenfinance.co/products'}})},
-  './text':{normalizeArabic}, './currentQuestionAnswerContract':cqMock, './humanFirstConversationAuthority':humanMock, './unifiedConversationDecisionPlane':unifiedMock, './refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null}, './types':{}
+  './text':{normalizeArabic}, './currentQuestionAnswerContract':cqMock, './humanFirstConversationAuthority':humanMock, './unifiedConversationDecisionPlane':unifiedMock, './refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null}, './humanSemanticCare':{buildHumanSemanticCareReply:()=>null,humanSemanticCareCandidateAligned:()=>true,humanSemanticCareMode:()=>null}, './semanticQuestionLocks':{buildSemanticQuestionLockReply:()=>null,resolveSemanticQuestionLock:()=>({kind:'none',hard:false,reason:'mock'}),semanticQuestionCandidateAligned:()=>true}, './types':{}
 });
 function ar(raw,candidate,a=app(),topics=[],actions=[],s=state(),forceRepair=false){return arb.arbitrateProductionReply({candidate,turn:turn(raw,topics),state:s,truth:truth(a),actions,forceRepair})}
 

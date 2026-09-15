@@ -50,7 +50,7 @@ const humanMock={aiIdentityQuestionText:()=>false,buildHumanFirstConversationAut
 const arb=load(`${V3}/responseArbiter.ts`,{
   './applicationJourney':{applicationJourneyStage:stageOf,customerFacingStatusLabel:label},
   './linkIntegrity':{buildOfficialLinkContext:(_t,tr)=>({baseUrl:'https://www.ameenfinance.co',relevant:{tracking:tr.application?`https://www.ameenfinance.co/track?tracking=${tr.application.trackingId}&phone=0790000000`:null,products:'https://www.ameenfinance.co/products'}})},
-  './text':{normalizeArabic},'./currentQuestionAnswerContract':cqMock,'./humanFirstConversationAuthority':humanMock,'./unifiedConversationDecisionPlane':unified,'./refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null},'./types':{}
+  './text':{normalizeArabic},'./currentQuestionAnswerContract':cqMock,'./humanFirstConversationAuthority':humanMock,'./unifiedConversationDecisionPlane':unified,'./refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null},'./humanSemanticCare':{buildHumanSemanticCareReply:()=>null,humanSemanticCareCandidateAligned:()=>true,humanSemanticCareMode:()=>null},'./semanticQuestionLocks':{buildSemanticQuestionLockReply:()=>null,resolveSemanticQuestionLock:()=>({kind:'none',hard:false,reason:'mock'}),semanticQuestionCandidateAligned:()=>true},'./types':{}
 });
 function ar(raw,candidate,a=app(),topics=[],actions=[],s=state()){return arb.arbitrateProductionReply({candidate,turn:turn(raw,topics),state:s,truth:truth(a),actions})}
 
@@ -114,7 +114,7 @@ ok(gate.includes('office_payment_walk_in_instruction_forbidden'),'final gate blo
 ok(writer.includes('PHASE 7.5.0 UNIFIED CONVERSATION DECISION PLANE'),'writer contract encodes unified decision plane');
 ok(writer.includes('BUSINESS REGISTRATION SECURITY'),'writer contract encodes registration-document security policy');
 ok(writer.includes('ACTION INTENT SEPARATION'),'writer contract separates stop-refund from cancel/refund');
-ok(types.includes('v3.0.0-phase7.5.0-unified-conversation-decision-plane')||types.includes('v3.0.0-phase7.5.1.1-type-safe-routing-hotfix'),'runtime version identifies Phase 7.5.x decision plane');
+ok(types.includes('v3.0.0-phase7.5.0-unified-conversation-decision-plane')||types.includes('v3.0.0-phase7.5.1.1-type-safe-routing-hotfix')||types.includes('v3.0.0-phase7.5.2-semantic-priority-human-refund-care'),'runtime version identifies Phase 7.5.x decision plane');
 ok(types.includes('v3.0.0-phase7.4.6-conversation-repair-true-single-egress'),'7.4.6 compatibility anchor retained');
 ok(arbSrc.includes('current meaning lock repaired cross-domain candidate'),'arbiter reports semantic-lock repair reason');
 ok(mutSrc.includes('PHASE 7.5.0 ACTION INTENT SEPARATION'),'mutation gate contains action separation hard guard');

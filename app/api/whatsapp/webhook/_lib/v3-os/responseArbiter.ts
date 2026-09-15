@@ -5,6 +5,8 @@ import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswer
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 import { candidateAlignedWithLockedMeaning, lockedMeaningReply, repeatedQuestionNeedsRepair, resolveUnifiedMeaningLock, sanitizeUnifiedEgressReply, shouldSuppressRepeatedProtectedRegistration } from "./unifiedConversationDecisionPlane";
 import { buildRefundHumanCareReply, refundHumanCareCandidateAligned, refundHumanCareMode } from "./refundHumanCare";
+import { buildHumanSemanticCareReply, humanSemanticCareCandidateAligned, humanSemanticCareMode } from "./humanSemanticCare";
+import { buildSemanticQuestionLockReply, resolveSemanticQuestionLock, semanticQuestionCandidateAligned } from "./semanticQuestionLocks";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type ResponseObligation =
@@ -16,6 +18,9 @@ export type ResponseObligation =
   | "device_warranty_or_insurance"
   | "product_sim_spec"
   | "payment_destination_update"
+  | "file_opening_payment_method"
+  | "office_location"
+  | "product_region_spec"
   | "voluntary_opt_out"
   | "payment_receipt_confirmation"
   | "mutation_truth"
@@ -27,6 +32,7 @@ export type ResponseObligation =
   | "review_timing"
   | "refund_meaning"
   | "refund_human_care"
+  | "human_semantic_care"
   | "refund_timing"
   | "fee_question"
   | "product_availability"
@@ -258,11 +264,14 @@ export function resolveResponseObligation(input: {
   actions: ActionResult[];
 }): ResponseObligation {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
+  const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   if (meaningLock.kind !== "none") return meaningLock.kind;
   if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
   // 7.5.2: exact structured tracking/status messages have absolute semantic priority.
   // They must never fall into product/payment/continuation branches because of stale context.
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
+  // 7.5.3: direct current-turn semantic questions veto stale domain context.
+  if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
   // Once refund is already open, frustration/timing/solution/repeated refund language is
   // a customer-care question, not a new mutation request. Execution truth still outranks this above.
   if (refundHumanCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "refund_human_care";
@@ -271,6 +280,8 @@ export function resolveResponseObligation(input: {
   // before repairContextTurn can merge it with an older customer turn.
   if (asksDocumentUploadGuidance(input.turn, input.state)) return "document_upload_guidance";
   if (asksInstallmentServiceOverview(input.turn.rawText)) return "installment_service_overview";
+  // 7.5.3 Human First: emotional meaning is a first-class obligation, not decoration.
+  if (humanSemanticCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "human_semantic_care";
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
   if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
@@ -495,12 +506,17 @@ function directRepair(input: {
     case "voluntary_opt_out":
     case "payment_receipt_confirmation":
       return lockedMeaningReply({ meaning: resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, truth: input.truth });
+    case "file_opening_payment_method":
+    case "office_location":
+    case "product_region_spec":
+      return buildSemanticQuestionLockReply({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), turn: input.turn, truth: input.truth });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
     case "contact_channel": return "المتابعة الأساسية للطلبات من خلال واتساب الحالي. ما عندي رقم تواصل إضافي رسمي موثق أقدر أعطيك إياه.";
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
     case "refund_human_care": return buildRefundHumanCareReply({ turn: input.turn, state: input.state, truth: input.truth }) || refundTimingReply({ turn, truth: input.truth });
+    case "human_semantic_care": return buildHumanSemanticCareReply({ turn: input.turn, state: input.state, truth: input.truth });
     case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
     case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
     case "refund_meaning": return refundMeaningReply(input.truth);
@@ -540,11 +556,16 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "voluntary_opt_out":
     case "payment_receipt_confirmation":
       return candidateAlignedWithLockedMeaning({ meaning: { kind: input.obligation, hard: true, reason: "response obligation" }, candidate: raw });
+    case "file_opening_payment_method":
+    case "office_location":
+    case "product_region_spec":
+      return semanticQuestionCandidateAligned({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), candidate: raw, truth: input.truth });
     case "mutation_request": return /(?:اكدلي|أكدلي|نعم).{0,30}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
     case "application_exists": return /(?:نعم|لا|ما\s+ظهر|مسجل|موجود)/.test(q);
     case "refund_human_care": return refundHumanCareCandidateAligned({ candidate: raw, truth: input.truth, turn: input.turn, state: input.state });
+    case "human_semantic_care": return humanSemanticCareCandidateAligned({ candidate: raw, turn: input.turn, state: input.state, truth: input.truth });
     case "approval_status": {
       if (stage === "approved") return /موافق|انقبل/.test(q);
       if (stage === "preliminary_review") return /مراجعه\s+مبدئيه|ما\s+صدرت/.test(q);
@@ -583,6 +604,7 @@ export function arbitrateProductionReply(input: {
   const obligation = resolveResponseObligation(input);
   const candidate = sanitizeUnifiedEgressReply(input.candidate) || null;
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
+  const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
 
   if (obligation === "protected_business_registration" && shouldSuppressRepeatedProtectedRegistration({ turn: input.turn, state: input.state })) {
     return { reply: null, obligation, repaired: Boolean(candidate), suppressed: true, reason: "repeated protected registration request suppressed after one security notice" };
@@ -598,6 +620,11 @@ export function arbitrateProductionReply(input: {
   if (meaningLock.kind !== "none" && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
     const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `current meaning lock repaired cross-domain candidate: ${meaningLock.reason}` };
+  }
+
+  if (semanticQuestionLock.kind !== "none" && !semanticQuestionCandidateAligned({ lock: semanticQuestionLock, candidate, truth: input.truth })) {
+    const lockedReply = buildSemanticQuestionLockReply({ lock: semanticQuestionLock, turn: input.turn, truth: input.truth });
+    return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `semantic question veto repaired cross-domain candidate: ${semanticQuestionLock.reason}` };
   }
 
   if (obligation === "mutation_truth") {

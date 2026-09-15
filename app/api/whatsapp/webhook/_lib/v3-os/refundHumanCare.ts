@@ -9,7 +9,9 @@ export type RefundHumanCareMode =
   | "repeat_demand"
   | "distress"
   | "accusation"
-  | "status_followup";
+  | "status_followup"
+  | "gentle_pressure"
+  | "dismissal";
 
 function n(value: string | null | undefined) {
   return normalizeArabic(String(value || ""))
@@ -58,6 +60,8 @@ export function refundHumanCareMode(input: { turn: InterpretedTurn; state: Conve
     if (asksRefundMoneyOrTiming(q) || asksForSolution(q) || repeatedRefundDemand(q) || looksDistressed(q, input.turn)) return "status_followup";
     return null;
   }
+  if (/^(?:حل\s+عني|انقلع|خلص\s+بكفي|بلا\s+رد|لا\s+ترد|اتركني|سيبني)$/.test(q)) return "dismissal";
+  if (/(?:بس\s+حاول|حاول).{0,28}(?:ما\s+يطول|ما\s+تطول|تسرع|تسرعوا|اسرع|أسرع)|(?:الله\s+يخليك|اذا\s+بتقدر|إذا\s+بتقدر).{0,28}(?:سرع|ما\s+يطول)/.test(q)) return "gentle_pressure";
   if (accusation(q)) return "accusation";
   if (longDelay(q) && (asksRefundMoneyOrTiming(q) || /(?:قيد\s+المعالجه|قيد\s+المعالجة|الاسترداد)/.test(q))) return "long_delay";
   if (asksForSolution(q)) return "solution_request";
@@ -105,6 +109,16 @@ function freshAcknowledgement(mode: RefundHumanCareMode, previous: string) {
       "تمام، براجع معك نفس نقطة الاسترداد مباشرة.",
       "فاهم إنك بدك آخر نتيجة فعلية، مش شرح عام.",
     ],
+    gentle_pressure: [
+      "أكيد فاهم عليك، وأعرف إنك بدك الموضوع ما يطول أكثر.",
+      "وصلتني إنك بس بدك الاسترداد يتحرك بدون تأخير زيادة.",
+      "معك حق تطلب ما يطول الموضوع، وخليني أكون واضح معك باللي أقدر أضمنه واللي ما بقدر.",
+    ],
+    dismissal: [
+      "تمام، ما رح أزيد عليك بالحكي ولا أكرر نفس الجملة.",
+      "وصلتني، وما رح أضل أبعثلك نفس الرد.",
+      "مفهوم، بخليها على الحقيقة الحالية بدون كلام زيادة.",
+    ],
   };
   const normalizedPrevious = n(previous);
   return pools[mode].find((x) => !normalizedPrevious.includes(n(x).slice(0, 24))) || pools[mode][0];
@@ -117,7 +131,7 @@ function currentTruthLine(truth: TruthBundle) {
 }
 
 function timingBoundaryLine(mode: RefundHumanCareMode) {
-  if (mode === "long_delay" || mode === "distress" || mode === "accusation") {
+  if (mode === "long_delay" || mode === "distress" || mode === "accusation" || mode === "gentle_pressure") {
     return "ما بدي أعطيك موعد من عندي وأرجع أخلفه؛ ما عندي وقت تحويل ثابت وموثق أقدر أضمنه قبل ما يظهر التنفيذ فعليًا.";
   }
   return "ما عندي موعد تحويل ثابت وموثق أقدر أضمنه قبل ظهور التنفيذ الفعلي.";
@@ -146,6 +160,7 @@ export function buildRefundHumanCareReply(input: { turn: InterpretedTurn; state:
   const ack = freshAcknowledgement(mode, previous);
   const truth = currentTruthLine(input.truth);
   if (stage === "refund_completed") return `${ack} ${truth}`;
+  if (mode === "dismissal") return `${ack}\n\n${truth} من جهتك ما في داعي تعيد أي طلب؛ أول تحديث فعلي بيظهر على الحالة.`;
   const boundary = timingBoundaryLine(mode);
   const next = nextExpectationLine(mode, previous);
   return `${ack}\n\n${truth} ${boundary}\n\n${next}`;
@@ -164,6 +179,8 @@ export function refundHumanCareCandidateAligned(input: { candidate: string | nul
   const modeSpecific = mode === "solution_request" ? /(?:الحل|عملي|خطوه\s+ثانيه|خطوة\s+ثانية|نفس\s+طلب\s+الاسترداد)/.test(q)
     : mode === "repeat_demand" ? /(?:ما\s+في\s+داعي|مش\s+بحاجه|مش\s+بحاجة|ما\s+رح\s+اطلب|ما\s+رح\s+أطلب|طلبك\s+واضح)/.test(q)
     : mode === "long_delay" ? /(?:انتظار|مده|مدة|هالفتره|هالفترة|طويل|شهر)/.test(q)
+    : mode === "gentle_pressure" ? /(?:فاهم|وصلتني|معك\s+حق).{0,60}(?:يطول|تأخير|الاسترداد|الموضوع)/.test(q)
+    : mode === "dismissal" ? /(?:ما\s+رح\s+ازيد|ما\s+رح\s+أزيد|ما\s+رح\s+اضل|ما\s+رح\s+أضل|بدون\s+كلام\s+زياده|بدون\s+كلام\s+زيادة)/.test(q)
     : true;
   return hasTruth && hasHumanAcknowledgement && notEmptyStatusLoop && noFalsePromise && modeSpecific;
 }
