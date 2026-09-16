@@ -1,4 +1,6 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.5.6-payment-conversion-integrity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.5.7.1-regression-safe-human-employee-operating-presence" as const;
+// Backward compatibility anchor for Phase 7.5.7 self-tests: v3.0.0-phase7.5.7-human-employee-operating-presence
+// Backward compatibility anchor for Phase 7.5.6 self-tests: v3.0.0-phase7.5.6-payment-conversion-integrity
 // Backward compatibility anchor for Phase 7.5.5 self-tests: v3.0.0-phase7.5.5-answer-obligations-emotion-composition-fresh-public-facts
 // Backward compatibility anchor for Phase 7.5.4.1 self-tests: v3.0.0-phase7.5.4.1-regression-safe-useful-human-answer-integrity
 // Backward compatibility anchor for Phase 7.5.4: v3.0.0-phase7.5.4-useful-human-answer-integrity
