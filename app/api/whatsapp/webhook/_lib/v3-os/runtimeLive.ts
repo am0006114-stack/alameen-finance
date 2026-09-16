@@ -31,6 +31,7 @@ import { applyAuthoritativeActionConversationMemory } from "./actionConversation
 import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 import { arbitrateProductionReply } from "./responseArbiter";
+import { resolveFreshPublicProductReply } from "./freshPublicFacts";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -764,6 +765,12 @@ export async function runV3ProductionLive(input: {
     truth: truthAfterActions,
     actions,
   });
+  // 7.5.5: current public product facts may change faster than model knowledge.
+  // Search is allowed only for public product/release facts and never for order, payment,
+  // refund, legal-registration, or mutation truth. Failure is silent and falls back safely.
+  const freshPublicProductReply = plan.shouldRespond
+    ? await resolveFreshPublicProductReply({ turn, truth: truthAfterActions })
+    : null;
 
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   let reply: string | null = null;
@@ -785,6 +792,18 @@ export async function runV3ProductionLive(input: {
     } else if (scopedMutationReply) {
       reply = scopedMutationReply;
       verification = PASS;
+    } else if (freshPublicProductReply) {
+      reply = freshPublicProductReply;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
     } else if (currentQuestionReply) {
       reply = currentQuestionReply;
       verification = verifyReply({

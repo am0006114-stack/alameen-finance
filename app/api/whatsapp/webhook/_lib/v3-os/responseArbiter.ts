@@ -5,8 +5,9 @@ import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswer
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 import { candidateAlignedWithLockedMeaning, lockedMeaningReply, repeatedQuestionNeedsRepair, resolveUnifiedMeaningLock, sanitizeUnifiedEgressReply, shouldSuppressRepeatedProtectedRegistration } from "./unifiedConversationDecisionPlane";
 import { buildRefundHumanCareReply, refundHumanCareCandidateAligned, refundHumanCareMode } from "./refundHumanCare";
-import { buildHumanSemanticCareReply, humanSemanticCareCandidateAligned, humanSemanticCareMode } from "./humanSemanticCare";
+import { buildHumanSemanticCareReply, composeHumanSemanticCareAroundAnswer, humanSemanticCareCandidateAligned, humanSemanticCareMode } from "./humanSemanticCare";
 import { buildSemanticQuestionLockReply, resolveSemanticQuestionLock, semanticQuestionCandidateAligned } from "./semanticQuestionLocks";
+import { buildAnswerBundleReply, resolveAnswerBundle } from "./answerObligations";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type ResponseObligation =
@@ -34,6 +35,7 @@ export type ResponseObligation =
   | "review_timing"
   | "refund_meaning"
   | "refund_human_care"
+  | "answer_bundle"
   | "human_semantic_care"
   | "refund_timing"
   | "fee_question"
@@ -274,6 +276,10 @@ export function resolveResponseObligation(input: {
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
   // 7.5.3: direct current-turn semantic questions veto stale domain context.
   if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
+  // 7.5.5: material questions are obligations first. Emotion may shape the answer,
+  // but it may never replace an answer or erase a second question in the same turn.
+  const answerBundle = resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth });
+  if (answerBundle.kind !== "none") return "answer_bundle";
   // Once refund is already open, frustration/timing/solution/repeated refund language is
   // a customer-care question, not a new mutation request. Execution truth still outranks this above.
   if (refundHumanCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "refund_human_care";
@@ -282,8 +288,6 @@ export function resolveResponseObligation(input: {
   // before repairContextTurn can merge it with an older customer turn.
   if (asksDocumentUploadGuidance(input.turn, input.state)) return "document_upload_guidance";
   if (asksInstallmentServiceOverview(input.turn.rawText)) return "installment_service_overview";
-  // 7.5.3 Human First: emotional meaning is a first-class obligation, not decoration.
-  if (humanSemanticCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "human_semantic_care";
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
   if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
@@ -302,8 +306,11 @@ export function resolveResponseObligation(input: {
   if (buildCurrentQuestionAnswerContractReply({ turn, state: input.state, truth: input.truth })) return "current_question_contract";
   if (aiIdentityQuestionText(turn.rawText)) return "identity";
   if (isMediaEnvelope(turn)) return "media";
+  if (asksApplicationStart(turn.rawText)) return "application_start";
   if (asksApplicationStatus(turn)) return "application_status";
   if (pastedForeignContent(turn.rawText)) return "foreign_content_clarification";
+  // Emotion is a composition layer only after all material current-question obligations.
+  if (humanSemanticCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "human_semantic_care";
   return "none";
 }
 
@@ -520,6 +527,7 @@ function directRepair(input: {
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
     case "refund_human_care": return buildRefundHumanCareReply({ turn: input.turn, state: input.state, truth: input.truth }) || refundTimingReply({ turn, truth: input.truth });
+    case "answer_bundle": return buildAnswerBundleReply({ bundle: resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, state: input.state, truth: input.truth });
     case "human_semantic_care": return buildHumanSemanticCareReply({ turn: input.turn, state: input.state, truth: input.truth });
     case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
     case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
@@ -571,6 +579,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
     case "application_exists": return /(?:نعم|لا|ما\s+ظهر|مسجل|موجود)/.test(q);
     case "refund_human_care": return refundHumanCareCandidateAligned({ candidate: raw, truth: input.truth, turn: input.turn, state: input.state });
+    case "answer_bundle": return false;
     case "human_semantic_care": return humanSemanticCareCandidateAligned({ candidate: raw, turn: input.turn, state: input.state, truth: input.truth });
     case "approval_status": {
       if (stage === "approved") return /موافق|انقبل/.test(q);
@@ -650,10 +659,12 @@ export function arbitrateProductionReply(input: {
   }
   const repeatedRepair = repeatedQuestionNeedsRepair({ turn: input.turn, state: input.state, candidate });
   if (!input.forceRepair && !repeatedRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth, turn: input.turn, state: input.state })) {
-    return { reply: candidate, obligation, repaired: false, reason: "candidate already answers the current customer obligation" };
+    const composed = obligation === "answer_bundle" ? candidate : composeHumanSemanticCareAroundAnswer({ answer: candidate, turn: input.turn, state: input.state, truth: input.truth });
+    const finalCandidate = sanitizeUnifiedEgressReply(composed) || candidate;
+    return { reply: finalCandidate, obligation, repaired: finalCandidate !== candidate, reason: finalCandidate !== candidate ? "emotion composed around a useful current-question answer" : "candidate already answers the current customer obligation" };
   }
 
   const repair = directRepair({ obligation, turn: input.turn, state: input.state, truth: input.truth, actions: input.actions });
-  if (repair) { const sanitizedRepair = sanitizeUnifiedEgressReply(repair); return { reply: sanitizedRepair, obligation, repaired: sanitizedRepair !== candidate, reason: repeatedRepair ? "conversation repair rebuilt failed/repeated answer" : "single response authority repaired current-question mismatch" }; }
+  if (repair) { const composedRepair = obligation === "answer_bundle" ? repair : composeHumanSemanticCareAroundAnswer({ answer: repair, turn: input.turn, state: input.state, truth: input.truth }); const sanitizedRepair = sanitizeUnifiedEgressReply(composedRepair); return { reply: sanitizedRepair, obligation, repaired: sanitizedRepair !== candidate, reason: repeatedRepair ? "conversation repair rebuilt failed/repeated answer" : "single response authority repaired current-question mismatch" }; }
   return { reply: candidate, obligation, repaired: false, reason: "no safe deterministic repair available" };
 }

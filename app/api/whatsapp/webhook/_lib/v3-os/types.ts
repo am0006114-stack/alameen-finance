@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.5.4.1-regression-safe-useful-human-answer-integrity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.5.5-answer-obligations-emotion-composition-fresh-public-facts" as const;
+// Backward compatibility anchor for Phase 7.5.4.1 self-tests: v3.0.0-phase7.5.4.1-regression-safe-useful-human-answer-integrity
 // Backward compatibility anchor for Phase 7.5.4: v3.0.0-phase7.5.4-useful-human-answer-integrity
 // Backward compatibility anchor for Phase 7.5.3 self-tests: v3.0.0-phase7.5.3-human-semantic-repair
 // Backward compatibility anchor for Phase 7.5.2 self-tests: v3.0.0-phase7.5.2-semantic-priority-human-refund-care

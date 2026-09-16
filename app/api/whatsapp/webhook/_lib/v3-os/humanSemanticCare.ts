@@ -53,7 +53,7 @@ function usefulNextStep(truth: TruthBundle) {
   return "إذا في خطوة مطلوبة منك فعلًا بحكيلك إياها مباشرة؛ غير هيك ما رح أخليك تعيد إجراءات بدون داعي.";
 }
 
-function acknowledgement(mode: HumanSemanticCareMode) {
+export function humanSemanticAcknowledgement(mode: HumanSemanticCareMode) {
   if (mode === "hope") return "إن شاء الله خير. فاهم عليك، ولما الواحد يكون مرتب أموره طبيعي يتعلق بالنتيجة ويتمنى تمشي.";
   if (mode === "plea") return "أكيد، وأنا ماسك نقطتك. ما بدي أجاوبك بجملة محفوظة ولا أخليك تلف بنفس السؤال.";
   if (mode === "trust_loss") return "فاهم ليش الثقة اهتزت عندك، وما رح أحاول أغطي على هالشي بكلام إنشائي. خليني أفصل لك اللي مثبت فعليًا عن اللي ما بقدر أوعدك فيه.";
@@ -63,12 +63,24 @@ function acknowledgement(mode: HumanSemanticCareMode) {
 export function buildHumanSemanticCareReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): string | null {
   const mode = humanSemanticCareMode(input);
   if (!mode) return null;
-  const ack = acknowledgement(mode);
+  const ack = humanSemanticAcknowledgement(mode);
   const truth = statusTruth(input.truth);
   const boundary = reviewBoundary(input.truth);
   const next = usefulNextStep(input.truth);
   if (!truth) return `${ack}\n\n${next}`;
   return `${ack}\n\n${truth}${boundary}\n\n${next}`;
+}
+
+
+export function composeHumanSemanticCareAroundAnswer(input: { answer: string | null | undefined; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {
+  const answer = String(input.answer || "").trim();
+  if (!answer) return answer;
+  const mode = humanSemanticCareMode(input);
+  if (!mode) return answer;
+  const q = n(answer);
+  const alreadyAcknowledges = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|إن\s+شاء\s+الله\s+خير|ان\s+شاء\s+الله\s+خير|الثقه\s+اهتزت|الثقة\s+اهتزت|ما\s+رح\s+الف|ما\s+رح\s+ألف)/.test(q);
+  if (alreadyAcknowledges) return answer;
+  return `${humanSemanticAcknowledgement(mode)}\n\n${answer}`;
 }
 
 export function humanSemanticCareCandidateAligned(input: { candidate: string | null | undefined; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {

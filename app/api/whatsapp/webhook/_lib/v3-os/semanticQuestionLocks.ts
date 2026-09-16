@@ -32,7 +32,8 @@ export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn) {
   const howWhere = /(?:وين|اين|أين|كيف|على\s+وين|لوين).{0,34}(?:ادفع|أدفع|دفع|احول|أحول|تحويل|حول|حوّل)|(?:ادفع|أدفع|احول|أحول|تحويل).{0,34}(?:وين|اين|أين|كيف|على\s+وين|لوين)/.test(q);
   const explicitPay = /(?:بدي|اريد|أريد|حاب|جاهز).{0,22}(?:ادفع|أدفع|احول|أحول).{0,24}(?:الرسوم|الخمس|الخمسه|5|٥)/.test(q);
   const directTransferWhere = /(?:وين|اين|أين|لوين|كيف).{0,24}(?:بنقدر|نقدر|بقدر)?\s*(?:نحول|احول|أحول|نحوّل|أحوّل)(?:ها|هم)?|(?:نحول|احول|أحول).{0,18}(?:وين|لوين|كيف)/.test(q);
-  return (feeWord && howWhere) || explicitPay || directTransferWhere || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل)/.test(q));
+  const destinationConfirmation = /(?:ابعت|ابعث|احول|أحول|بحول|حول|حوّل).{0,28}(?:اورنج|أورنج|orange|0788500337|payameeen|ameen1st|am500337|cliq)|(?:اورنج|أورنج|orange|0788500337|payameeen|ameen1st|am500337|cliq).{0,28}(?:صح|هيك|احول|أحول|ابعت|ابعث)/i.test(q);
+  return (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل)/.test(q));
 }
 
 export function officeLocationQuestion(turn: InterpretedTurn) {
