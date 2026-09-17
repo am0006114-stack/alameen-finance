@@ -8,6 +8,7 @@ import { buildRefundHumanCareReply, refundHumanCareCandidateAligned, refundHuman
 import { buildHumanSemanticCareReply, composeHumanSemanticCareAroundAnswer, humanSemanticCareCandidateAligned, humanSemanticCareMode } from "./humanSemanticCare";
 import { buildSemanticQuestionLockReply, resolveSemanticQuestionLock, semanticQuestionCandidateAligned } from "./semanticQuestionLocks";
 import { buildAnswerBundleReply, resolveAnswerBundle } from "./answerObligations";
+import { buildCurrentHumanTurnReply, currentHumanTurnCandidateAligned, resolveCurrentHumanTurnAuthority } from "./currentHumanTurnAuthority";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type ResponseObligation =
@@ -35,6 +36,7 @@ export type ResponseObligation =
   | "review_timing"
   | "refund_meaning"
   | "refund_human_care"
+  | "current_human_turn"
   | "answer_bundle"
   | "human_semantic_care"
   | "refund_timing"
@@ -274,6 +276,11 @@ export function resolveResponseObligation(input: {
   // 7.5.2: exact structured tracking/status messages have absolute semantic priority.
   // They must never fall into product/payment/continuation branches because of stale context.
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
+  // 7.5.8: the literal human turn can hard-veto legacy state loops. This sits
+  // before generic semantic locks so contextual Arabic such as "مسجل ضمان" is
+  // understood as social-security/income context instead of a trust guarantee.
+  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+  if (currentHumanTurn.kind !== "none") return "current_human_turn";
   // 7.5.3: direct current-turn semantic questions veto stale domain context.
   if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
   // 7.5.5: material questions are obligations first. Emotion may shape the answer,
@@ -527,6 +534,7 @@ function directRepair(input: {
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
     case "refund_human_care": return buildRefundHumanCareReply({ turn: input.turn, state: input.state, truth: input.truth }) || refundTimingReply({ turn, truth: input.truth });
+    case "current_human_turn": return buildCurrentHumanTurnReply({ authority: resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, state: input.state, truth: input.truth });
     case "answer_bundle": return buildAnswerBundleReply({ bundle: resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, state: input.state, truth: input.truth });
     case "human_semantic_care": return buildHumanSemanticCareReply({ turn: input.turn, state: input.state, truth: input.truth });
     case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
@@ -579,6 +587,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
     case "application_exists": return /(?:نعم|لا|ما\s+ظهر|مسجل|موجود)/.test(q);
     case "refund_human_care": return refundHumanCareCandidateAligned({ candidate: raw, truth: input.truth, turn: input.turn, state: input.state });
+    case "current_human_turn": return currentHumanTurnCandidateAligned({ authority: resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth }), candidate: raw });
     case "answer_bundle": return false;
     case "human_semantic_care": return humanSemanticCareCandidateAligned({ candidate: raw, turn: input.turn, state: input.state, truth: input.truth });
     case "approval_status": {
@@ -620,6 +629,7 @@ export function arbitrateProductionReply(input: {
   const candidate = sanitizeUnifiedEgressReply(input.candidate) || null;
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
+  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
 
   if (obligation === "protected_business_registration" && shouldSuppressRepeatedProtectedRegistration({ turn: input.turn, state: input.state })) {
     return { reply: null, obligation, repaired: Boolean(candidate), suppressed: true, reason: "repeated protected registration request suppressed after one security notice" };
@@ -635,6 +645,19 @@ export function arbitrateProductionReply(input: {
   if (meaningLock.kind !== "none" && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
     const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `current meaning lock repaired cross-domain candidate: ${meaningLock.reason}` };
+  }
+
+  // 7.5.8 FINAL CURRENT HUMAN TURN AUTHORITY: legacy refund/delay/contact
+  // state may supply context, but it cannot own the reply after the customer
+  // explicitly changes subject, asks for a call, reports a concrete error, or
+  // says the answer is repeating. Transaction/action meaning locks above remain
+  // stronger, so this does not weaken payment/refund/cancellation truth.
+  if (currentHumanTurn.kind !== "none") {
+    if (!input.forceRepair && currentHumanTurnCandidateAligned({ authority: currentHumanTurn, candidate })) {
+      return { reply: candidate, obligation: "current_human_turn", repaired: false, reason: `current human turn already answered: ${currentHumanTurn.reason}` };
+    }
+    const humanTurnReply = buildCurrentHumanTurnReply({ authority: currentHumanTurn, turn: input.turn, state: input.state, truth: input.truth });
+    if (humanTurnReply) return { reply: sanitizeUnifiedEgressReply(humanTurnReply), obligation: "current_human_turn", repaired: humanTurnReply !== candidate, reason: `final current human turn authority repaired legacy state loop: ${currentHumanTurn.reason}` };
   }
 
   if (semanticQuestionLock.kind !== "none" && !semanticQuestionCandidateAligned({ lock: semanticQuestionLock, candidate, truth: input.truth })) {
