@@ -5,6 +5,7 @@ import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type CurrentHumanTurnKind =
   | "none"
+  | "safety_crisis"
   | "direct_call_request"
   | "long_delay_anomaly"
   | "social_security_income"
@@ -34,6 +35,19 @@ function stage(input: { truth: TruthBundle; state: ConversationState }) {
 
 function isRefundStage(value: string) {
   return value === "refund_requested" || value === "refund_completed";
+}
+
+function selfHarmCrisisText(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  return /(?:انتحر|انتحار|اقتل\s+نفسي|أقتل\s+نفسي|انهي\s+حياتي|أنهي\s+حياتي|بدي\s+اموت|بدي\s+أموت|نفسي\s+اموت|نفسي\s+أموت|رساله\s+انتحار|رسالة\s+انتحار|على\s+سطح\s+(?:عماره|عمارة)|ارمي\s+(?:حالي|نفسي)|أرمي\s+(?:حالي|نفسي)|انتهى\s+وقتي\s+بالدنيا)/.test(q);
+}
+
+function safetyCrisisActive(turn: InterpretedTurn, state: ConversationState) {
+  if (selfHarmCrisisText(turn.rawText)) return true;
+  if (!selfHarmCrisisText(state.lastCustomerText)) return false;
+  const q = n(turn.rawText);
+  return /(?:ما\s+بقدر|زهقت\s+من\s+الحياه|زهقت\s+من\s+الحياة|كل\s+شي\s+انتهى|كل\s+شيء\s+انتهى|خلص|ما\s+في\s+فايده|ما\s+في\s+فائدة|تعبت|انتهى\s+وقتي)/.test(q);
 }
 
 function directCallRequest(turn: InterpretedTurn) {
@@ -88,6 +102,7 @@ export function resolveCurrentHumanTurnAuthority(input: { turn: InterpretedTurn;
   const q = n(input.turn.rawText);
   if (!q) return { kind: "none", hard: false, reason: "empty current turn" };
   const currentStage = stage(input);
+  if (safetyCrisisActive(input.turn, input.state)) return { kind: "safety_crisis", hard: true, reason: "immediate self-harm safety continuity outranks ordinary service, complaint, refund, and delay conversation" };
   if (directCallRequest(input.turn)) return { kind: "direct_call_request", hard: true, reason: "explicit current-turn call/contact request outranks refund/delay state" };
   if (websiteUploadError(q)) return { kind: "website_upload_error", hard: true, reason: "customer supplied a concrete website/upload error" };
   if (socialSecurityIncome(q)) return { kind: "social_security_income", hard: true, reason: "income + social-security context; ضمان means social security, not trust guarantee" };
@@ -109,6 +124,8 @@ function appLine(input: { truth: TruthBundle; state: ConversationState }) {
 export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnAuthority; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): string | null {
   const currentStage = stage(input);
   switch (input.authority.kind) {
+    case "safety_crisis":
+      return `أنا معك هسا. إذا أنت على سطح أو قريب من حافة أو أي شي ممكن يأذيك، ابتعد عنه وادخل لمكان آمن الآن. اتصل بـ911 أو روح لأقرب طوارئ/مستشفى، وخلي شخص قريب منك يجي ويضل معك. ما رح أساعدك بطريقة لإيذاء نفسك أو بكتابة رسالة انتحار. احكيلي بس: ابتعدت عن الخطر وصار معك حدا؟`;
     case "direct_call_request":
       return `فاهم إنك بدك نحكي باتصال عشان توضح الصورة. المتابعة الرسمية للطلبات من نفس واتساب، وما عندي مكالمة فعلية أرتبها من هون. احكيلي النقطة اللي بدك تفهمها وأنا معك فيها مباشرة.`;
     case "website_upload_error":
@@ -139,6 +156,14 @@ export function currentHumanTurnCandidateAligned(input: { authority: CurrentHuma
   const q = n(input.candidate);
   if (!q) return false;
   switch (input.authority.kind) {
+    case "safety_crisis": {
+      const immediateSafety = /(?:ابتعد|ابعد|مكان\s+امن|مكان\s+آمن)/.test(q);
+      const urgentHelp = /(?:911|اسعاف|إسعاف|طوارئ|مستشفى)/.test(q);
+      const humanPresence = /(?:حدا|حد|شخص).{0,24}(?:قريب|معك)|(?:خلي|احكي).{0,20}(?:حدا|حد|شخص)/.test(q);
+      const unsafeMethod = /(?:ارمي|أرمي).{0,18}(?:راس|رأس|رجل|رجليك)|(?:اسهل|أسهل).{0,18}(?:طريقه|طريقة).{0,18}(?:انتحار|تموت|اموت|أموت)/.test(q);
+      const serviceTemplate = /(?:طلبك|الدراسه|الدراسة|ضغط\s+مراجعات|المعدل\s+الطبيعي|الاسترداد\s+مسجل)/.test(q);
+      return immediateSafety && urgentHelp && humanPresence && !unsafeMethod && !serviceTemplate;
+    }
     case "direct_call_request": return /(?:اتصال|مكالمه|مكالمة|واتساب).{0,80}(?:ما\s+عندي|المتابعه|المتابعة|احكيلي)/.test(q);
     case "website_upload_error": return /(?:حجم|كبير).{0,70}(?:الملف|صغر|صغ ر|ارفع|الرابط\s+الرسمي)/.test(q) && !/شارع\s+المدينه|شارع\s+المدينة/.test(q);
     case "social_security_income": return /(?:راتب|البنك|الضمان).{0,120}(?:الدراسه|الدراسة|الدخل|الموافقه|الموافقة)/.test(q) && !/(?:الضمان\s+العملي|ثق\s+بكلام)/.test(q);

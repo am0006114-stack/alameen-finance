@@ -32,14 +32,19 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   const reopen = hasAny(n,["تراجعت عن الالغاء","تراجعت عن الإلغاء","الغاء الالغاء","إلغاء الإلغاء","فك الالغاء","فك الإلغاء","اعاده فتح الطلب","إعادة فتح الطلب","رجع افتح الطلب","بدي ارجع اكمل","غيرت رايي وبدي اكمل","غيرت رأيي وبدي أكمل"]);
   const cancelMention = hasAny(n,["الغاء الطلب","إلغاء الطلب","الغي الطلب","بدي الغي","الغاء طلبي","إلغاء طلبي","ما بدي اكمل","وقف الطلب","الغي","الغاء"]);
   const continueMention = hasAny(n,["بدي اكمل","كمل الطلب","اكمل الطلب","موافق اكمل","استمر بالطلب"]);
-  const refundMention = hasAny(n,["استرداد","استرجاع","رجعولي","رجعلي فلوسي","الاسترداد تبعي","بدي فلوسي"]);
+  const explicitRefundRequest = /^(?:رجعو|رجعوا|ردو|ردوا)\s+(?:لي\s+)?(?:المصاري|الفلوس|المبلغ|الرسوم|الخمس|الخمسه|الخمسة|5|٥)(?:\s+ليرات|\s+دنانير|\s+دينار)?$/.test(n)
+    || /(?:بدي|اريد|أريد|حاب).{0,16}(?:ترجعو|ترجعوا|تردو|تردوا|ترجعولي|تردولي).{0,18}(?:المصاري|الفلوس|المبلغ|الرسوم|الخمس|5|٥)/.test(n);
+  const refundMention = explicitRefundRequest || hasAny(n,["استرداد","استرجاع","رجعولي","رجعلي فلوسي","الاسترداد تبعي","بدي فلوسي"]);
 
   if (stopRefund) add(isQuestion(raw)?"ask":"request_action","refund",0.995,isQuestion(raw)?"none":"stop_refund");
   else if (reopen) add(isQuestion(raw)?"ask":"request_action","reopen",0.995,isQuestion(raw)?"none":"reopen_application");
   else if (cancelMention) add(isQuestion(raw)?"ask":"request_action","cancellation",0.99,isQuestion(raw)?"none":"cancel_application");
   else if (continueMention) add(isQuestion(raw)?"ask":"request_action","continuation",0.98,isQuestion(raw)?"none":"continue_application");
 
-  if (refundMention && !stopRefund) add(isQuestion(raw)?"ask":"request_action","refund",0.98,isQuestion(raw)?"none":"request_refund");
+  if (refundMention && !stopRefund) {
+    const actionRequest = explicitRefundRequest || !isQuestion(raw);
+    add(actionRequest ? "request_action" : "ask","refund",0.98,actionRequest ? "request_refund" : "none");
+  }
 
   if (hasAny(n,["حاله الطلب","حالة الطلب","شو صار بالطلب","وين طلبي","طلبي شو صار","معلومات الطلب","معلومات طلبي","شو معلومات الطلب","شو معلومات طلبي","تفاصيل الطلب","تفاصيل طلبي","شو تفاصيل الطلب","شو تفاصيل طلبي","بيانات الطلب","بيانات طلبي"])) add("ask","application_status",0.98);
   if (hasAny(n,["متى الموافقه","متى الموافقة","قديش بتقعد","كم بتقعد","متى بردولي خبر","مدة الدراسه","مدة الدراسة","قديش المراجعه","قديش المراجعة","كم يوم بعد المده","كم يوم بعد المدة","بعد المده المحدده","بعد المدة المحددة","كم يوم زياده","كم يوم زيادة","قديش زياده","قديش زيادة","لايمتا","لامتى"])) add("ask","review_timing",0.98);

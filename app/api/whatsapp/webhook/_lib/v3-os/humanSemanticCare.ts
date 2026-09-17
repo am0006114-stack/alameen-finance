@@ -78,8 +78,13 @@ export function composeHumanSemanticCareAroundAnswer(input: { answer: string | n
   const mode = humanSemanticCareMode(input);
   if (!mode) return answer;
   const q = n(answer);
-  const alreadyAcknowledges = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|إن\s+شاء\s+الله\s+خير|ان\s+شاء\s+الله\s+خير|الثقه\s+اهتزت|الثقة\s+اهتزت|ما\s+رح\s+الف|ما\s+رح\s+ألف)/.test(q);
+  const alreadyAcknowledges = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|حقك|وصلتني|شايف|إن\s+شاء\s+الله\s+خير|ان\s+شاء\s+الله\s+خير|الثقه\s+اهتزت|الثقة\s+اهتزت|ما\s+رح\s+الف|ما\s+رح\s+ألف)/.test(q);
   if (alreadyAcknowledges) return answer;
+  const previous = n(input.state.lastAssistantText);
+  const standardAck = n(humanSemanticAcknowledgement(mode));
+  // 7.5.9: never prepend the same stock empathy opener twice. A useful AI answer
+  // is allowed to stand on its own instead of being wrapped in a repeated template.
+  if (previous && standardAck && previous.includes(standardAck.slice(0, Math.min(70, standardAck.length)))) return answer;
   return `${humanSemanticAcknowledgement(mode)}\n\n${answer}`;
 }
 
@@ -88,10 +93,18 @@ export function humanSemanticCareCandidateAligned(input: { candidate: string | n
   if (!mode) return true;
   const q = n(input.candidate);
   if (!q) return false;
-  const hasAck = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|يا\s+رب|ما\s+رح\s+احاول|ما\s+رح\s+أحاول|ما\s+بدي\s+اجاوبك\s+بجمله|ما\s+بدي\s+أجاوبك\s+بجملة|الثقه\s+اهتزت|الثقة\s+اهتزت)/.test(q);
-  const notTrivial = !/^(?:العفو|تمام|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|أنا\s+معك)\.?$/.test(q);
-  const needsTruth = Boolean(input.truth.application);
-  const hasTruth = !needsTruth || /(?:الحاله|الحالة|طلبك|الملف|الدراسه|الدراسة|الموافقه|الموافقة|قيد|ملغي|استرداد|الدفع)/.test(q);
-  const hasUtility = /(?:ما\s+في\s+عليك|الخطوه\s+الحاليه|الخطوة\s+الحالية|اللي\s+ننتظره|لا\s+تعيد|ما\s+تعيد|إذا\s+قرارك|اذا\s+قرارك|موعد\s+رسمي|خطوه\s+اضافيه|خطوة\s+إضافية|خطوة\s+اضافية|رسوم\s+فتح\s+الملف)/.test(q);
-  return hasAck && notTrivial && hasTruth && hasUtility;
+  const previous = n(input.state.lastAssistantText);
+  if (previous && q === previous) return false;
+  const notTrivial = !/^(?:العفو|تمام|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|أنا\s+معك|انا\s+معك)\.?$/.test(q);
+  if (!notTrivial) return false;
+  const humanAck = /(?:فاهم|معك\s+حق|واضح\s+إنك|واضح\s+انك|حقك|وصلتني|شايف|اعتراضك|الثقه|الثقة|نصب|احتيال|زعلان|مضايق|متضايق|طولت|تأخير|تاخير|انتظار|يا\s+رب|ما\s+رح\s+اعيد|ما\s+رح\s+أعيد)/.test(q);
+  const useful = /(?:خليني|اللي\s+بقدر|اللي\s+مثبت|اللي\s+ظاهر|الخطوه|الخطوة|الحل|استرداد|إلغاء|الغاء|الدفع|المراجعه|المراجعة|الموعد|ما\s+رح\s+اوعد|ما\s+رح\s+أوعد|ما\s+عندي\s+موعد|بنمشي|بنكمل|بوضح|بجاوب|الرابط|المكتب|المستند|الكفيل|الجهاز|السعر|الرسوم|الخمس)/.test(q);
+  const groundedAnswer = /(?:طلبك|الملف|الدراسه|الدراسة|الموافقه|الموافقة|قيد|ملغي|استرداد|الدفع|الرسوم|الخمس|الموعد|الرابط|المكتب|المستند|الكفيل|الراتب|الضمان|الاتصال|واتساب|الموقع|الجهاز|اللون|السعر)/.test(q);
+  const statusOnly = /^(?:الحاله|الحالة|طلبك|الملف).{0,120}(?:قيد|موافق|ملغي|استرداد)(?:[.!؟?]|$)/.test(q) && !humanAck;
+  // 7.5.9.2: empathy may shape the answer, but it may never be the whole answer.
+  // Preserve free-form human wording without forcing a status dump: a candidate
+  // must contain a concrete answer/next-step signal grounded in the conversation.
+  const hasSubstance = useful || groundedAnswer;
+  if (humanAck && !hasSubstance) return false;
+  return !statusOnly && hasSubstance;
 }
