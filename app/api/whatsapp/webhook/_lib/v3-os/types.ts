@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.5.9.4-human-contact-isolation-continuity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.5.10-verified-contact-identity-conversation-grounding-integrity" as const;
+// Backward compatibility anchor: v3.0.0-phase7.5.9.4-human-contact-isolation-continuity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.3-contact-isolation-current-intent-multiact-integrity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.2-final-regression-safe-human-judgment-runtime-safety-continuity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.1-regression-safe-human-judgment-runtime-safety-continuity
@@ -113,6 +114,22 @@ export type VerifiedApplicationSnapshot = {
   readWarnings?: string[];
 };
 
+
+export type VerifiedContactBinding = {
+  aliasWaId: string;
+  primaryWaId: string;
+  verifiedByWaId: string;
+  verifiedAt: string;
+  method: "registered_sender_explicit_alias";
+};
+
+export type ContactResolutionState = {
+  status: "blocked_mismatch" | "awaiting_admin_update" | "verified_alias";
+  trackingId: string | null;
+  explanation: "different_whatsapp" | "no_whatsapp" | "international_number" | "changed_number" | "alternate_number" | null;
+  updatedAt: string;
+};
+
 export type ConversationState = {
   version: typeof V3_OS_VERSION;
   waId: string;
@@ -130,6 +147,8 @@ export type ConversationState = {
   lastAssistantText: string | null;
   consecutiveRiskTurns: number;
   lastVerifiedApplication: VerifiedApplicationSnapshot | null;
+  verifiedContactBinding: VerifiedContactBinding | null;
+  contactResolution: ContactResolutionState | null;
   updatedAt: string;
 };
 
@@ -176,7 +195,7 @@ export type ApplicationTruth = {
 
 export type TruthBundle = {
   confidence: TruthConfidence;
-  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "verified_state_snapshot" | "archive_historical_truth" | "none";
+  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "verified_contact_alias" | "verified_state_snapshot" | "archive_historical_truth" | "none";
   application: ApplicationTruth | null;
   ambiguousApplications: Array<{ id: string; trackingId: string | null; deviceName: string | null; status: string | null; paymentStatus?: string | null }>;
   policy: PolicyTruth;

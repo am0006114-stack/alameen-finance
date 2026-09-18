@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeJordanPhone, normalizeWhatsAppToSend } from "../text";
 import type { ApplicationTruth, ConversationState, DocumentTruth, TopicKey, TruthBundle } from "./types";
 import { resolveTruth } from "./truth";
+import { bindingAllowsApplication, verifiedPrimaryWaId } from "./contactIdentity";
 
 const APP_SELECT = "id,created_at,tracking_id,full_name,phone,email,status,payment_status,payment_confirmed_at,payment_reference,device_id,device_name,device_price,installment_months,down_payment,interest_rate,monthly_payment,total_with_interest,salary,delivery_delay_until,guarantor_name,guarantor_phone,guarantor_national_id,preliminary_qualified_at,paid_clicked_at";
 const CORE_APP_SELECT = "id,created_at,tracking_id,full_name,phone,status,payment_status,payment_confirmed_at,device_name,installment_months,monthly_payment,preliminary_qualified_at";
@@ -208,12 +209,23 @@ export function suppliedPhoneConflictsWithSender(waId: string, suppliedPhone?: s
   return !contactPhonesMatch(waId, supplied);
 }
 
-function appBelongsToIdentity(app: ApplicationRow | null, waId: string) {
+function appBelongsToIdentity(app: ApplicationRow | null, waId: string, state: ConversationState) {
   if (!app) return false;
-  // 7.5.9.3 CONTACT ISOLATION: phone numbers typed inside a customer message
-  // are lookup hints only. They must never authorize disclosure of an
-  // application owned by a different WhatsApp sender.
-  return contactPhonesMatch(app.phone || "", waId);
+  // Phase 7.5.9.3 compatibility: phone numbers typed inside a customer message
+  // never authorize disclosure by themselves.
+  // Direct sender ownership stays authoritative. A typed phone/tracking value
+  // never authorizes disclosure. Phase 7.5.10 additionally permits a durable
+  // alias only when it was previously verified from the registered sender.
+  return contactPhonesMatch(app.phone || "", waId)
+    || bindingAllowsApplication(state, waId, app.phone || "", contactPhonesMatch);
+}
+
+function identityLookupPhone(state: ConversationState, waId: string) {
+  return verifiedPrimaryWaId(state, waId) || waId;
+}
+
+function identitySource(state: ConversationState, waId: string, fallback: TruthBundle["source"]): TruthBundle["source"] {
+  return verifiedPrimaryWaId(state, waId) ? "verified_contact_alias" : fallback;
 }
 
 function paymentConfirmedRow(app: ApplicationRow) {
@@ -307,7 +319,7 @@ function snapshotBundle(input: { state: ConversationState; waId: string; supplie
   const age = Date.now() - new Date(snapshot.fetchedAt).getTime();
   if (!Number.isFinite(age) || age < 0 || age > VERIFIED_SNAPSHOT_MAX_AGE_MS) return null;
   const row = snapshot.application as unknown as ApplicationRow;
-  if (!appBelongsToIdentity(row, input.waId)) return null;
+  if (!appBelongsToIdentity(row, input.waId, input.state)) return null;
   return {
     confidence: "medium",
     source: "verified_state_snapshot",
@@ -344,7 +356,7 @@ export async function resolveV3ProductionTruth(input: {
 
   if (currentTracking) {
     const app = await attemptLookup("current_tracking", warnings, () => byTracking(currentTracking));
-    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("current_message_tracking", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "current_message_tracking"), app, input.state);
     if (app) {
       const empty = resolveTruth({ state: input.state });
       return {
@@ -362,36 +374,37 @@ export async function resolveV3ProductionTruth(input: {
   // across short follow-ups instead of rediscovering from generic phone matching every turn.
   if (input.state.activeApplicationId) {
     const app = await attemptLookup("active_application_id", warnings, () => byId(input.state.activeApplicationId as string));
-    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("conversation_binding", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "conversation_binding"), app, input.state);
   }
 
   if (input.state.activeTrackingId) {
     const app = await attemptLookup("active_tracking", warnings, () => byTracking(input.state.activeTrackingId as string));
-    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("conversation_binding", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "conversation_binding"), app, input.state);
   }
 
   const recentTracking = trackingFromRecentTurns(input.recentTurns);
   if (recentTracking) {
     const app = await attemptLookup("recent_tracking", warnings, () => byTracking(recentTracking));
-    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("recent_conversation_tracking", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "recent_conversation_tracking"), app, input.state);
   }
 
-  const candidates = await attemptLookup("phone_candidates", warnings, () => byPhone(input.waId));
-  if (candidates?.length === 1) return authoritativeBundle("unique_phone_match", candidates[0], input.state);
+  const lookupPhone = identityLookupPhone(input.state, input.waId);
+  const candidates = await attemptLookup("phone_candidates", warnings, () => byPhone(lookupPhone));
+  if (candidates?.length === 1) return authoritativeBundle(identitySource(input.state, input.waId, "unique_phone_match"), candidates[0], input.state);
 
   if (candidates && candidates.length > 1) {
     const paymentQuestion = (input.topics || []).some((topic) => PAYMENT_TOPICS.has(topic));
     if (paymentQuestion) {
       const confirmed = candidates.filter(paymentConfirmedRow);
-      if (confirmed.length === 1) return authoritativeBundle("unique_relevant_phone_match", confirmed[0], input.state);
+      if (confirmed.length === 1) return authoritativeBundle(identitySource(input.state, input.waId, "unique_relevant_phone_match"), confirmed[0], input.state);
       if (!confirmed.length) {
         const pending = candidates.filter(paymentPendingRow);
-        if (pending.length === 1) return authoritativeBundle("unique_relevant_phone_match", pending[0], input.state);
+        if (pending.length === 1) return authoritativeBundle(identitySource(input.state, input.waId, "unique_relevant_phone_match"), pending[0], input.state);
       }
     }
 
     const active = candidates.filter((app) => !isTerminal(app));
-    if (active.length === 1) return authoritativeBundle("unique_relevant_phone_match", active[0], input.state);
+    if (active.length === 1) return authoritativeBundle(identitySource(input.state, input.waId, "unique_relevant_phone_match"), active[0], input.state);
 
     const ambiguous = resolveTruth({ state: input.state, ambiguousApplications: ambiguousRows(candidates) });
     return { ...ambiguous, readWarnings: warnings.length ? warnings : undefined };

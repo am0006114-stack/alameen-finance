@@ -7,6 +7,8 @@ export type CurrentHumanTurnKind =
   | "none"
   | "safety_crisis"
   | "contact_isolation_continuation"
+  | "verified_contact_alias_linked"
+  | "verified_contact_alias_conflict"
   | "direct_call_request"
   | "long_delay_anomaly"
   | "social_security_income"
@@ -53,6 +55,7 @@ function safetyCrisisActive(turn: InterpretedTurn, state: ConversationState) {
 
 
 function contactIsolationConversationActive(state: ConversationState) {
+  if (state.contactResolution && ["blocked_mismatch", "awaiting_admin_update"].includes(state.contactResolution.status)) return true;
   const previous = n(state.lastAssistantText);
   return /(?:رقم\s+التتبع).{0,120}(?:مربوط\s+برقم\s+واتساب\s+مختلف|رقم\s+واتساب\s+مختلف|رقم\s+مختلف)/.test(previous)
     || /(?:خصوصيه|خصوصية).{0,80}(?:صاحب\s+الطلب|رقم\s+مختلف|الطلب)/.test(previous)
@@ -61,7 +64,7 @@ function contactIsolationConversationActive(state: ConversationState) {
 
 function contactIsolationContinuation(q: string, state: ConversationState) {
   if (!contactIsolationConversationActive(state)) return false;
-  return /(?:رقمي|الرقم).{0,36}(?:ما\s+عليه\s+واتساب|مش\s+عليه\s+واتساب|ما\s+بزبط.{0,16}واتساب|ما\s+بشتغل.{0,16}واتساب|استرالي|أسترالي|دولي|برا\s+الاردن|برا\s+الأردن|قديم|غيرته|غيرت\s+رقمي|رقم\s+ثاني)|(?:هو|هذا)\s+رقمي.{0,30}(?:بس|لكن)|(?:الرقم\s+المسجل).{0,30}(?:الي|إلي|رقمي)/.test(q);
+  return /(?:رقمي|الرقم).{0,55}(?:ما\s+عليه\s+واتساب|مش\s+عليه\s+واتساب|ما\s+بزبط.{0,16}واتساب|ما\s+بشتغل.{0,16}واتساب|استرالي|أسترالي|دولي|برا\s+الاردن|برا\s+الأردن|قديم|غيرته|غيرت\s+رقمي|رقم\s+ثاني|رقمي\s+الثاني)|(?:هو|هذا|هاد|هاض)\s+رقمي.{0,35}(?:بس|لكن|الثاني)?|(?:الرقم\s+المسجل).{0,40}(?:الي|إلي|رقمي)|(?:مش\s+عارف|مش\s+عارفه|ما\s+بعرف).{0,45}(?:اغير|أغير|تغيير|ارجع\s+اغير|أرجع\s+أغير).{0,30}(?:الرقم|رقم)|(?:عشان|عشان\s+التتبع).{0,35}(?:اغير|أغير|الرقم)|(?:وين\s+ابعته|وين\s+أبعته).{0,25}(?:رقم\s+التتبع|الرقم)?/.test(q);
 }
 
 function directCallRequest(turn: InterpretedTurn) {
@@ -112,11 +115,22 @@ function personalQuestion(q: string) {
   return /^(?:عندك|الك|إلك).{0,12}(?:خوات|اخوات|أخوات|اخوان|إخوان|ولاد|اولاد|أولاد)|(?:متزوج|متزوجه|متزوجة)\??$/.test(q);
 }
 
+function currentTurnContactIdentityEvent(state: ConversationState) {
+  if (!state.lastTurnId) return null;
+  const event = [...(state.facts || [])].reverse().find((fact) =>
+    fact.turnId === state.lastTurnId && ["verified_alternate_contact_linked", "verified_alternate_contact_conflict"].includes(fact.key)
+  );
+  return event || null;
+}
+
 export function resolveCurrentHumanTurnAuthority(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): CurrentHumanTurnAuthority {
   const q = n(input.turn.rawText);
   if (!q) return { kind: "none", hard: false, reason: "empty current turn" };
   const currentStage = stage(input);
   if (safetyCrisisActive(input.turn, input.state)) return { kind: "safety_crisis", hard: true, reason: "immediate self-harm safety continuity outranks ordinary service, complaint, refund, and delay conversation" };
+  const contactEvent = currentTurnContactIdentityEvent(input.state);
+  if (contactEvent?.key === "verified_alternate_contact_linked") return { kind: "verified_contact_alias_linked", hard: true, reason: "registered application sender explicitly verified an alternate WhatsApp identity; acknowledge the real identity-state change without claiming application data changed" };
+  if (contactEvent?.key === "verified_alternate_contact_conflict") return { kind: "verified_contact_alias_conflict", hard: true, reason: "requested alternate WhatsApp identity conflicts with an existing verified binding; do not overwrite automatically" };
   if (contactIsolationContinuation(q, input.state)) return { kind: "contact_isolation_continuation", hard: true, reason: "customer is explaining a legitimate phone/channel mismatch after contact-isolation guard; continue the conversation without disclosing the foreign application" };
   if (directCallRequest(input.turn)) return { kind: "direct_call_request", hard: true, reason: "explicit current-turn call/contact request outranks refund/delay state" };
   if (websiteUploadError(q)) return { kind: "website_upload_error", hard: true, reason: "customer supplied a concrete website/upload error" };
@@ -141,6 +155,13 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
   switch (input.authority.kind) {
     case "safety_crisis":
       return `أنا معك هسا. إذا أنت على سطح أو قريب من حافة أو أي شي ممكن يأذيك، ابتعد عنه وادخل لمكان آمن الآن. اتصل بـ911 أو روح لأقرب طوارئ/مستشفى، وخلي شخص قريب منك يجي ويضل معك. ما رح أساعدك بطريقة لإيذاء نفسك أو بكتابة رسالة انتحار. احكيلي بس: ابتعدت عن الخطر وصار معك حدا؟`;
+    case "verified_contact_alias_linked": {
+      const event = [...(input.state.facts || [])].reverse().find((fact) => fact.turnId === input.state.lastTurnId && fact.key === "verified_alternate_contact_linked");
+      const alias = event?.value || "الرقم الثاني";
+      return `تمام، هيك الصورة صارت واضحة. ثبت عندي إن ${alias} هو رقم واتسابك الثاني للمتابعة. رقم الطلب نفسه وبياناته ما تغيّرت؛ بس لما تراسلنا من هالرقم بنعرف إنه تابع لنفس المتابعة وما بنرجع نوقفك كل مرة بسبب اختلاف الرقم.`;
+    }
+    case "verified_contact_alias_conflict":
+      return `فهمت إنك بدك تعتمد الرقم الثاني للمتابعة، بس ما رح أعمل ربط تلقائي لأنه ظاهر عندي تعارض مع ربط موثّق سابق. خليت الربط كما هو لحماية الطلب، وهاي الحالة تحتاج مراجعة إدارية قبل أي تغيير.`;
     case "contact_isolation_continuation": {
       const australian = /(?:استرالي|أسترالي|دولي|برا\s+الاردن|برا\s+الأردن)/.test(n(input.turn.rawText));
       const noWhatsapp = /(?:ما\s+عليه\s+واتساب|مش\s+عليه\s+واتساب|ما\s+بزبط.{0,16}واتساب|ما\s+بشتغل.{0,16}واتساب)/.test(n(input.turn.rawText));
@@ -185,6 +206,8 @@ export function currentHumanTurnCandidateAligned(input: { authority: CurrentHuma
       const serviceTemplate = /(?:طلبك|الدراسه|الدراسة|ضغط\s+مراجعات|المعدل\s+الطبيعي|الاسترداد\s+مسجل)/.test(q);
       return immediateSafety && urgentHelp && humanPresence && !unsafeMethod && !serviceTemplate;
     }
+    case "verified_contact_alias_linked": return /(?:ثبت\s+عندي|رقم\s+واتسابك\s+الثاني|تابع\s+لنفس\s+المتابعه|تابع\s+لنفس\s+المتابعة)/.test(q) && !/(?:غيرت\s+رقم\s+الطلب|تم\s+تعديل\s+الطلب)/.test(q);
+    case "verified_contact_alias_conflict": return /(?:تعارض|مراجعه\s+اداريه|مراجعة\s+إدارية)/.test(q) && /(?:ما\s+رح|لم\s+يتم|ما\s+عملت).{0,30}(?:ربط|تغيير)/.test(q);
     case "contact_isolation_continuation": return /(?:نكمل\s+هون|نكمل\s+المحادثه|نكمل\s+المحادثة)/.test(q) && /(?:ما\s+بقدر\s+اعرض|ما\s+بقدر\s+أعرض).{0,50}(?:تفاصيل\s+الطلب|الطلب)/.test(q) && /(?:تنفيذ\s+اداري|تنفيذ\s+إداري|يتوثق\s+الربط)/.test(q) && !/(?:الجهاز|قيد\s+المراجعه|قيد\s+الدراسه|الدفع\s+مؤكد)/.test(q);
     case "direct_call_request": return /(?:اتصال|مكالمه|مكالمة|واتساب).{0,80}(?:ما\s+عندي|المتابعه|المتابعة|احكيلي)/.test(q);
     case "website_upload_error": return /(?:حجم|كبير).{0,70}(?:الملف|صغر|صغ ر|ارفع|الرابط\s+الرسمي)/.test(q) && !/شارع\s+المدينه|شارع\s+المدينة/.test(q);

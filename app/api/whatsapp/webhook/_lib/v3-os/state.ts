@@ -23,6 +23,8 @@ export function emptyState(waId: string): ConversationState {
     lastAssistantText: null,
     consecutiveRiskTurns: 0,
     lastVerifiedApplication: null,
+    verifiedContactBinding: null,
+    contactResolution: null,
     updatedAt: now(),
   };
 }

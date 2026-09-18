@@ -104,6 +104,7 @@ const gate=loadTs(rel('finalResponseGate.ts'),{
   './currentQuestionAnswerContract':{buildCurrentQuestionAnswerContractReply:()=>null,replyViolatesCurrentQuestionAnswerContract:()=>false},
   './responseArbiter':{arbitrateProductionReply:({candidate})=>({reply:candidate||null,obligation:'none',repaired:false,reason:'compat'}),responseHasKnownBadFallbackSignature:()=>false},
   './unifiedConversationDecisionPlane':{candidateAlignedWithLockedMeaning:()=>true,downPaymentQuestion:()=>false,officePaymentQuestion:()=>false,protectedBusinessRegistrationRequest:()=>false,resolveUnifiedMeaningLock:()=>({kind:'none',hard:false,reason:'compat'}),stopRefundKeepRequest:()=>false},
+  './contextualTurnResolver':{deviceModelReferenceQuestionText:()=>false,incomeEvidenceSourceQuestionText:()=>false,installmentAdjustmentQuestionText:(v)=>/(?:دفعه|دفعة).{0,35}(?:عاليه|عالية|بتخفف|تخفف)|(?:ازود|زيادة|ادفع).{0,30}(?:القسط|الدفعات)/.test(normalizeArabic(v))},
   './text':{normalizeArabic},
 });
 function runGate({reply,raw,a=app(),topics=[],stateExtra={},requestedActions=[],actions=[]}){ const t=turn(raw,topics); t.requestedActions=requestedActions; return gate.enforceFinalResponseGate({reply,turn:t,state:state(stateExtra),truth:truth(a),actions,applicationChanged:false}); }

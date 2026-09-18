@@ -35,6 +35,8 @@ export async function loadV3ConversationState(waId: string): Promise<Conversatio
         pendingAction: state.pendingAction || null,
         pendingActionPayload: state.pendingActionPayload || null,
         lastVerifiedApplication: state.lastVerifiedApplication || null,
+        verifiedContactBinding: state.verifiedContactBinding || null,
+        contactResolution: state.contactResolution || null,
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

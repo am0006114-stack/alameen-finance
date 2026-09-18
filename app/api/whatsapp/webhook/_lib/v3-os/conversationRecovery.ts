@@ -4,7 +4,7 @@ import { isContinuationRevenueReady } from "./continuationPersistence";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
-import { applicationFormIssueText, commercialPauseOrDeclineText, contextualTurnSignals, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, installmentAdjustmentQuestionText, managementInfoQuestionText, mapLocationRequestText, multipleDeviceEligibilityQuestionText, orderChangeRequestText, orderChangeRetractionText, productPriceStructureQuestionText, punctuationOnlyTurnText } from "./contextualTurnResolver";
+import { applicationFormIssueText, commercialPauseOrDeclineText, contextualTurnSignals, deviceModelReferenceQuestionText, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, incomeEvidenceSourceQuestionText, installmentAdjustmentQuestionText, managementInfoQuestionText, mapLocationRequestText, multipleDeviceEligibilityQuestionText, orderChangeRequestText, orderChangeRetractionText, productPriceStructureQuestionText, punctuationOnlyTurnText } from "./contextualTurnResolver";
 import { buildSafeContractingPartyReply, buildSafeRegistrationReply, buildSafeTrustReply, contractingPartyQuestionText, registrationOrLicensingQuestionText, safetyTrustQuestionText } from "./legalTrustGuard";
 import { paymentHistoricallyConfirmed } from "./truthSnapshotLock";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
@@ -541,6 +541,8 @@ export function shouldPrioritizeConversationRecovery(input: { turn: InterpretedT
     || signals.generalRequirements
     || signals.financingStructure
     || signals.installmentAdjustment
+    || signals.deviceModelReference
+    || signals.incomeEvidenceSource
     || signals.commercialPause
     || signals.orderChange
     || signals.orderChangeRetraction
@@ -777,6 +779,14 @@ ${products}`;
 
   if (dialogueSignals.generalRequirements || generalRequirementsQuestionText(raw)) {
     return `${input.truth.policy.requirementsGuidanceRule} وأي مستند حساس بنستلمه فقط من الرابط الرسمي الآمن، مش عبر واتساب.`;
+  }
+
+  if (dialogueSignals.deviceModelReference || deviceModelReferenceQuestionText(raw, input.state.lastAssistantText)) {
+    return "فهمتك، قصدك موديلات الآيفون: iPhone 17 العادي وiPhone 16 العادي، مش أعمار 16 و17. السعر وحسبة 24 أو 36 شهر لازم ناخذهم من صفحة المنتجات/الحسبة الرسمية الحالية؛ ما رح أخمّن أرقام من عندي.";
+  }
+
+  if (dialogueSignals.incomeEvidenceSource || incomeEvidenceSourceQuestionText(raw)) {
+    return "إذا قصدك إثبات الدخل للعمل الحر: ما عندي بنك معيّن مفروض عليك كقاعدة ثابتة. كشف الحساب البنكي ممكن يكون ضمن بدائل إثبات الدخل حسب الملف، والدراسة هي اللي تحدد المقبول النهائي. وبالنسبة لـZain Cash أو أي محفظة إلكترونية، ما عندي اعتماد موثّق أقدر أقول منه إنها تُقبل بدل كشف الحساب؛ فلا بدي أوعدك بشي مش مثبت.";
   }
 
   if (dialogueSignals.installmentAdjustment || installmentAdjustmentQuestionText(raw)) {

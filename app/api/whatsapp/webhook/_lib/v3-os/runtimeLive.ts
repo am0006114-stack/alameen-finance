@@ -1,6 +1,6 @@
 import { executeActions } from "./actionPlane";
 import { buildReplyPlan } from "./planner";
-import { resolveV3ProductionTruth } from "./productionTruth";
+import { contactPhonesMatch, resolveV3ProductionTruth } from "./productionTruth";
 import { closeAnsweredLoops, emptyState, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
 import type { ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
@@ -32,6 +32,8 @@ import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityRe
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 import { arbitrateProductionReply } from "./responseArbiter";
 import { resolveFreshPublicProductReply } from "./freshPublicFacts";
+import { contactExplanationFromText, extractExplicitAlternateContactAuthorization, markContactResolution, clearContactResolution } from "./contactIdentity";
+import { persistVerifiedAlternateContact } from "./contactIdentityStore";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -44,6 +46,13 @@ const PASS: VerificationReport = {
   hierarchyViolations: [],
   repetitionFlags: [],
 };
+
+function withContactIdentityEventFact(state: ConversationState, input: { turnId: string; key: string; value: string }) {
+  const stamp = new Date().toISOString();
+  const facts = state.facts.filter((fact) => !["verified_alternate_contact_linked", "verified_alternate_contact_conflict"].includes(fact.key));
+  facts.push({ key: input.key, value: input.value, topic: "application_correction", source: "system", confidence: 1, turnId: input.turnId, updatedAt: stamp });
+  return { ...state, facts: facts.slice(-120), updatedAt: stamp };
+}
 
 export type V3LiveResult = OsRunResult & {
   truthBeforeActions: TruthBundle;
@@ -407,8 +416,24 @@ export async function runV3ProductionLive(input: {
 
   const truthBeforeActions = stabilizeTruthSnapshot({ truth: rawTruthBeforeActions, state: preliminaryState });
 
+  // PHASE 7.5.10 CONTACT IDENTITY STATE: a privacy mismatch is a durable
+  // conversation condition, not a one-reply template. Keep it in state so a
+  // later "my other number / no WhatsApp / where do I send it" turn continues
+  // the same human problem instead of restarting from tracking/status fallback.
+  let contactAwareState = preliminaryState;
+  if (truthBeforeActions.readWarnings?.includes("contact_identity_mismatch_current_tracking")) {
+    contactAwareState = markContactResolution({
+      state: contactAwareState,
+      status: "blocked_mismatch",
+      trackingId: explicitTrackingFromText(effectiveCustomerText) || contactAwareState.activeTrackingId,
+      customerText: effectiveCustomerText,
+    });
+  } else if (truthBeforeActions.source === "verified_contact_alias") {
+    contactAwareState = clearContactResolution(contactAwareState);
+  }
+
   const scopeResult = scopeStateToCurrentApplication({
-    state: preliminaryState,
+    state: contactAwareState,
     truth: truthBeforeActions,
     customerText: effectiveCustomerText,
   });
@@ -426,7 +451,77 @@ export async function runV3ProductionLive(input: {
           : { application: truthBeforeActions.application, fetchedAt: truthBeforeActions.fetchedAt },
       }
     : scopedState;
-  const boundState = supersedeConversationStateForJourney({ state: boundStateBase, truth: truthBeforeActions, turn });
+  let boundState = supersedeConversationStateForJourney({ state: boundStateBase, truth: truthBeforeActions, turn });
+
+  // Durable contact-resolution escalation: once a cross-number mismatch is
+  // known, a later explanation such as "the registered number has no WhatsApp"
+  // or "I changed my number" stays attached to the same tracking problem. This
+  // creates no business mutation; it only records that admin identity/contact
+  // review is required and sends a best-effort internal alert once per transition.
+  const contactExplanation = contactExplanationFromText(effectiveCustomerText);
+  const contactResolutionBeforeEscalation = boundState.contactResolution;
+  const contactProblemActive = Boolean(contactResolutionBeforeEscalation && ["blocked_mismatch", "awaiting_admin_update"].includes(contactResolutionBeforeEscalation.status));
+  const contactNeedsAdmin = contactProblemActive && ["no_whatsapp", "international_number", "changed_number", "alternate_number"].includes(String(contactExplanation || ""));
+  if (contactNeedsAdmin) {
+    const wasAwaiting = contactResolutionBeforeEscalation?.status === "awaiting_admin_update";
+    boundState = markContactResolution({
+      state: boundState,
+      status: "awaiting_admin_update",
+      trackingId: contactResolutionBeforeEscalation?.trackingId || boundState.activeTrackingId,
+      customerText: effectiveCustomerText,
+    });
+    if (!wasAwaiting) {
+      try {
+        await notifyV3Discord({
+          event: "manual_action_required",
+          applicationId: truthBeforeActions.application?.id || null,
+          trackingId: boundState.contactResolution?.trackingId || null,
+          waId: input.waId,
+          actionKey: `contact_identity_review:${boundState.contactResolution?.trackingId || input.waId}`,
+          title: "📱 مراجعة ربط رقم واتساب بالطلب",
+          description: "العميل شرح أن رقم الطلب ورقم واتساب المستخدم مختلفان، ويحتاج مراجعة هوية/ربط تواصل. لم يتم تغيير رقم الطلب أو منح صلاحية تلقائيًا.",
+          details: {
+            action: "contact_identity_review",
+            explanation: boundState.contactResolution?.explanation || "different_whatsapp",
+            "رقم التتبع": boundState.contactResolution?.trackingId || "—",
+          },
+        });
+      } catch (error) {
+        console.error("V3 contact-identity review Discord notification failed", error);
+      }
+    }
+  }
+
+  // A verified alternate WhatsApp alias may be created only by the sender that
+  // already owns the application phone. The customer merely typing a foreign
+  // number on an unverified chat can never self-authorize it. This writes only
+  // V3 conversation identity state; it does not mutate applications or expand
+  // business Real Actions.
+  const requestedAlias = extractExplicitAlternateContactAuthorization(effectiveCustomerText, input.waId);
+  if (requestedAlias && truthBeforeActions.application && contactPhonesMatch(truthBeforeActions.application.phone, input.waId)) {
+    try {
+      const persistedAlias = await persistVerifiedAlternateContact({ primaryWaId: input.waId, aliasWaId: requestedAlias });
+      if (persistedAlias.ok) {
+        boundState = withContactIdentityEventFact(boundState, { turnId: turn.turnId, key: "verified_alternate_contact_linked", value: requestedAlias });
+      } else if (persistedAlias.conflict) {
+        boundState = withContactIdentityEventFact(boundState, { turnId: turn.turnId, key: "verified_alternate_contact_conflict", value: requestedAlias });
+        try {
+          await notifyV3Discord({
+            event: "manual_action_required",
+            applicationId: truthBeforeActions.application.id,
+            trackingId: truthBeforeActions.application.trackingId,
+            waId: input.waId,
+            actionKey: "change_application_data",
+            title: "🔐 تعارض في ربط رقم واتساب بديل",
+            description: "الرقم البديل المطلوب مرتبط مسبقًا بهوية متابعة مختلفة. لم يتم تغيير الربط تلقائيًا ويحتاج مراجعة الإدارة.",
+            details: { "الرقم البديل": requestedAlias, reason: persistedAlias.reason },
+          });
+        } catch {}
+      }
+    } catch (error) {
+      console.error("V3 verified alternate-contact persistence failed", error);
+    }
+  }
 
   // Manual operational requests that are intentionally outside Real Actions still
   // need to reach administration. Discord is best-effort and never turns into a

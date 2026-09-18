@@ -14,6 +14,7 @@ import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply, fals
 import { buildCurrentQuestionAnswerContractReply, replyViolatesCurrentQuestionAnswerContract } from "./currentQuestionAnswerContract";
 import { arbitrateProductionReply, responseHasKnownBadFallbackSignature } from "./responseArbiter";
 import { candidateAlignedWithLockedMeaning, downPaymentQuestion, officePaymentQuestion, protectedBusinessRegistrationRequest, resolveUnifiedMeaningLock, stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
+import { deviceModelReferenceQuestionText, incomeEvidenceSourceQuestionText, installmentAdjustmentQuestionText } from "./contextualTurnResolver";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -206,9 +207,17 @@ function financingStructureTurn(turn: InterpretedTurn) {
 }
 
 function installmentAdjustmentTurn(turn: InterpretedTurn) {
-  const q = normalized(turn.rawText);
-  return /(?:ازود|زود|زياده|زيادة|ادفع|اسدد).{0,34}(?:القسط|الاقساط|الدفعات|دفعه|دفعة)|(?:القسط|الاقساط|الدفعات|دفعه|دفعة).{0,35}(?:ازود|زود|زياده|زيادة|اكثر|عاليه|عالية|مقدم|مرتين|دفعتين|بتخفف|تخفف|بتقلل|تقلل)|(?:تسديد|سداد).{0,25}(?:مبكر|مسبق|زياده)|(?:دفعه|دفعة).{0,35}(?:بتخفف|تخفف|بتقلل|تقلل).{0,25}(?:السعر|سعر\s+الجهاز|القسط)/.test(q);
+  return installmentAdjustmentQuestionText(turn.rawText);
 }
+
+function deviceModelReferenceTurn(turn: InterpretedTurn, state: ConversationState) {
+  return deviceModelReferenceQuestionText(turn.rawText, state.lastAssistantText);
+}
+
+function incomeEvidenceSourceTurn(turn: InterpretedTurn) {
+  return incomeEvidenceSourceQuestionText(turn.rawText);
+}
+
 
 function commercialPauseTurn(turn: InterpretedTurn, state: ConversationState) {
   return commercialPauseOrDeclineText(turn.rawText, state.lastAssistantText);
@@ -535,6 +544,14 @@ function buildInstallmentAdjustmentReply() {
   return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو دفعة أكبر أو أكثر من قسط مرة وحدة: ما عندي سياسة موثقة أقدر أقول منها إنك تختار دفعة أولى عالية أو إن المبلغ الإضافي يخفض سعر الجهاز تلقائيًا. القاعدة المؤكدة إن القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد، وأي تغيير بالحسبة أو آلية السداد لازم يكون مثبتًا على الطلب أو بالعقد. وسؤالك هذا مش عن رسوم فتح الملف.";
 }
 
+function buildDeviceModelReferenceReply() {
+  return "فهمتك، قصدك موديلات الآيفون: iPhone 17 العادي وiPhone 16 العادي، مش أعمار 16 و17. إذا بدك السعر وحسبة 24 أو 36 شهر، المرجع هو صفحة المنتجات والحسبة الرسمية الحالية؛ ما رح أخمّن رقم من عندي.";
+}
+
+function buildIncomeEvidenceSourceReply() {
+  return "إذا قصدك إثبات الدخل للعمل الحر: ما عندي بنك معيّن مفروض كقاعدة ثابتة. كشف الحساب البنكي ممكن يكون ضمن بدائل إثبات الدخل حسب الملف، والدراسة هي اللي تحدد المقبول النهائي. وبالنسبة لـZain Cash أو أي محفظة إلكترونية، ما عندي اعتماد موثّق أقدر أقول منه إنها تُقبل بدل كشف الحساب.";
+}
+
 function buildApplicationFormIssueReply() {
   return "واضح إن المشكلة أثناء تعبئة الطلب قبل ما يكتمل، لذلك ما بحتاج منك رقم تتبع. ابعث نص رسالة الخطأ أو اسم الخانة اللي بتوقف عندها، وإذا عندك صورة للشاشة ابعثها وبنركز على سبب توقف النموذج نفسه. لا تدخل بيانات غير صحيحة حتى يمر النموذج.";
 }
@@ -672,6 +689,7 @@ function buildReplacement(input: {
   repeatedEmpathy: boolean;
   paymentRegression: boolean;
   legalTruthViolation: boolean;
+  strayLegalResponse: boolean;
   trustCommercialNudgeViolation: boolean;
   unsupportedEligibility: boolean;
   reviewTimingMissingDetails: boolean;
@@ -778,12 +796,22 @@ ${links.baseUrl}/products
   if (punctuationOnlyTurnText(input.turn.rawText)) return "أنا معك.";
   if (contractingPartyQuestionText(input.turn.rawText)) return buildSafeContractingPartyReply();
   if (registrationOrLicensingQuestionText(input.turn.rawText)) return buildSafeRegistrationReply(input.truth);
+  if (input.strayLegalResponse) {
+    if (input.state.contactResolution && ["blocked_mismatch", "awaiting_admin_update"].includes(input.state.contactResolution.status)) {
+      const hasTracking = Boolean(input.state.contactResolution.trackingId);
+      return `فهمت عليك، موضوعنا هون ربط رقم التواصل نفسه، مش تسجيل أو ترخيص الشركة. ${hasTracking ? "رقم التتبع محفوظ عندي وما في داعي تعيده. " : ""}ما رح أكشف تفاصيل طلب من رقم غير موثّق، وبنفس الوقت ما رح أوقف الحوار؛ إذا الرقم الأساسي ما عليه واتساب أو تغيّر معك، تحديث الربط يحتاج تنفيذًا إداريًا فعليًا وبكمل معك على هالمشكلة نفسها بدون ما نبدأ من الصفر.`;
+    }
+    if (currentQuestionRepair) return currentQuestionRepair;
+    return "خليني أبقى على سؤالك الحالي نفسه بدون ما أدخل بموضوع قانوني أو تسجيل ما سألت عنه. اكتب النقطة الحالية مثل ما هي وبجاوبك عليها مباشرة.";
+  }
   if (safetyTrustQuestionText(input.turn.rawText) || input.trustCommercialNudgeViolation || input.legalTruthViolation) return buildSafeLegalTrustReply(input.truth);
   if (input.paymentRegression) return buildConfirmedPaymentReply({ truth: input.truth, turn: input.turn, state: input.state });
   if (input.reviewTimingMissingDetails) return buildReviewTimingReply({ truth: input.truth, state: input.state, turn: input.turn });
   if (applicationFormIssueTurn(input.turn)) return buildApplicationFormIssueReply();
   if (noPriorApplicationTurn(input.turn)) return buildNoPriorApplicationReply({ turn: input.turn, truth: input.truth });
   if (financingStructureTurn(input.turn)) return buildFinancingStructureReply(input.truth);
+  if (deviceModelReferenceTurn(input.turn, input.state)) return buildDeviceModelReferenceReply();
+  if (incomeEvidenceSourceTurn(input.turn)) return buildIncomeEvidenceSourceReply();
   if (generalRequirementsTurn(input.turn)) return buildGeneralRequirementsReply(input.truth);
   if (installmentAdjustmentTurn(input.turn)) return buildInstallmentAdjustmentReply();
   if (unsupportedGuarantorAcceptanceRule(input.reply)) return buildSafeGuarantorReply();
@@ -946,6 +974,8 @@ export function enforceFinalResponseGate(input: {
     severity = "p0";
   }
   if (reply && roboticPhrase(reply)) violations.push("robotic_escape_phrase");
+  if (deviceModelReferenceTurn(input.turn, input.state) && /(?:بعمر|عمر).{0,20}(?:16|١٦|17|١٧)|(?:16|١٦|17|١٧).{0,15}(?:سنه|سنة|عمر)/.test(normalized(reply))) violations.push("device_model_reference_misread_as_age");
+  if (incomeEvidenceSourceTurn(input.turn) && !/(?:بنك|كشف\s+الحساب|كشف\s+حساب|zain\s*cash|زين\s+كاش|محفظه|محفظة|اعتماد\s+موثق|اعتماد\s+موثّق)/i.test(reply)) violations.push("income_evidence_source_question_not_answered");
   if (directProductAvailabilityQuestion(input.turn) && /(?:ابعث|ابعت|ارسل|أرسل).{0,35}(?:رقم\s+التتبع|رقم\s+الطلب)/.test(normalized(reply))) violations.push("product_question_wrong_tracking_fallback");
   if (receiptUploadConfirmation(input.turn) && !/(?:وصل|اثبات\s+الدفع|الدفع).{0,45}(?:بانتظار|مراجعه|مراجعة|موكد|مؤكد|اعتماد|اعتماده)|(?:بانتظار|مراجعه|مراجعة|موكد|مؤكد|اعتماد).{0,45}(?:وصل|الدفع)/.test(normalized(reply))) violations.push("receipt_confirmation_status_not_answered");
   if (receiptUploadConfirmation(input.turn) && /رسوم\s+فتح\s+الملف.{0,18}(?:5|٥|خمس)/.test(normalized(reply))) violations.push("receipt_confirmation_replayed_fee_education");
@@ -959,6 +989,10 @@ export function enforceFinalResponseGate(input: {
       && !/(?:الاسترداد|الرابط|الصفحه|الصفحة|البيانات|الحقول|رساله\s+خطا|رسالة\s+خطأ)/.test(normalized(reply))) {
     violations.push("refund_data_form_followup_not_resolved");
   }
+  const strayLegalResponse = /(?:بالنسبه\s+للتسجيل|بالنسبة\s+للتسجيل|التسجيل\s+او\s+الترخيص|التسجيل\s+أو\s+الترخيص|رقم\s+تسجيل|جهه\s+ترخيص|جهة\s+ترخيص|جهه\s+مستقله|جهة\s+مستقلة|لا\s+توجد\s+اي\s+علاقه|لا\s+توجد\s+أي\s+علاقة)/.test(normalized(reply))
+    && !legalOrTrustQuestionText(input.turn.rawText)
+    && !protectedBusinessRegistrationRequest(input.turn.rawText);
+  if (strayLegalResponse) violations.push("stray_legal_response_without_current_obligation");
   const legalTruthViolation = unsupportedLegalEntityClaim(reply, input.truth)
     || (trustConcern(input.turn) && /(?:جهة\s+معروفه|جهة\s+معروفة|مسجلين\s+قانونيا|مسجلين\s+قانونيًا|مرخصين|مرخصة)/.test(normalized(reply)));
   if (legalTruthViolation) {
@@ -1112,6 +1146,7 @@ export function enforceFinalResponseGate(input: {
       repeatedEmpathy,
       paymentRegression,
       legalTruthViolation,
+      strayLegalResponse,
       trustCommercialNudgeViolation,
       unsupportedEligibility,
       reviewTimingMissingDetails,

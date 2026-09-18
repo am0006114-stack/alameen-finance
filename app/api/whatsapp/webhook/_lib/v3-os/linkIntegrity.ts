@@ -164,6 +164,15 @@ export function sanitizeStateForWriter(state: ConversationState) {
     facts: state.facts.slice(-20).map((fact) => ({ ...fact, value: redact(fact.value) })),
     pendingAction: state.pendingAction,
     pendingActionPayload: sanitizePayload(state.pendingActionPayload),
+    verifiedContactBinding: state.verifiedContactBinding
+      ? {
+          aliasWaId: state.verifiedContactBinding.aliasWaId,
+          primaryWaId: state.verifiedContactBinding.primaryWaId,
+          verifiedAt: state.verifiedContactBinding.verifiedAt,
+          method: state.verifiedContactBinding.method,
+        }
+      : null,
+    contactResolution: state.contactResolution ? { ...state.contactResolution } : null,
   };
 }
 

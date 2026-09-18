@@ -39,7 +39,20 @@ export function explicitNoPriorApplicationText(value: string | null | undefined)
 
 export function installmentAdjustmentQuestionText(value: string | null | undefined) {
   const q = normalized(value);
-  return /(?:ازود|أزود|زود|زياده|زيادة|ادفع|أدفع|اسدد|أسدد).{0,32}(?:القسط|الاقساط|الأقساط|الدفعات)|(?:القسط|الاقساط|الأقساط|الدفعات).{0,35}(?:ازود|أزود|زياده|زيادة|اكثر|أكثر|مقدم|مرتين|دفعتين)|(?:دفعات|دفعه|دفعة).{0,24}(?:اكبر|أكبر|عاليه|عالية|اكثر|أكثر).{0,30}(?:شهري|القسط|السعر|سعر\s+الجهاز)?|(?:تسديد|سداد).{0,25}(?:مبكر|مبكرًا|مسبق|زياده|زيادة)|(?:دفعه|دفعة).{0,30}(?:بتخفف|تخفف|بتقلل|تقلل).{0,25}(?:السعر|سعر\s+الجهاز|القسط)/.test(q);
+  return /(?:ازود|أزود|زود|زياده|زيادة|ادفع|أدفع|اسدد|أسدد).{0,32}(?:القسط|الاقساط|الأقساط|الدفعات)|(?:القسط|الاقساط|الأقساط|الدفعات).{0,35}(?:ازود|أزود|زياده|زيادة|اكثر|أكثر|مقدم|مرتين|دفعتين|قسطين|شهرين)|(?:دفعات|دفعه|دفعة).{0,24}(?:اكبر|أكبر|عاليه|عالية|اكثر|أكثر).{0,30}(?:شهري|القسط|السعر|سعر\s+الجهاز)?|(?:تسديد|سداد).{0,25}(?:مبكر|مبكرًا|مسبق|زياده|زيادة|كامل|بالكامل)|(?:دفعه|دفعة).{0,30}(?:بتخفف|تخفف|بتقلل|تقلل).{0,25}(?:السعر|سعر\s+الجهاز|القسط)|(?:المبلغ\s+كامل|المبلغ\s+الكامل|ثمن\s+الجهاز\s+كامل).{0,45}(?:ادفع|أدفع|اسدد|أسدد|مره\s+وحده|مرة\s+وحدة)|(?:ادفع|أدفع|اسدد|أسدد).{0,35}(?:المبلغ\s+كامل|الجهاز\s+كامل|كل\s+المبلغ|مره\s+وحده|مرة\s+وحدة)|(?:بدل).{0,25}(?:24|٢٤|36|٣٦).{0,25}(?:ادفع|أدفع).{0,18}(?:48|٤٨|قسطين|شهرين)|(?:شهر\s+عن\s+شهرين|قسط\s+عن\s+قسطين|ادفع\s+قسطين|أدفع\s+قسطين)/.test(q);
+}
+
+export function deviceModelReferenceQuestionText(value: string | null | undefined, context?: string | null) {
+  const q = normalized(value);
+  const ctx = normalized(context);
+  if (/(?:ايفون|آيفون|iphone|جهاز|موديل).{0,18}(?:16|١٦|17|١٧)|(?:16|١٦|17|١٧).{0,18}(?:ايفون|آيفون|iphone|جهاز|موديل)/i.test(q)) return true;
+  const shortModels = /^(?:نعم\s+)?(?:17|١٧)(?:\s+عادي)?\s*(?:و|او|أو|،|,)?\s*(?:16|١٦)(?:\s+عادي)?$|^(?:نعم\s+)?(?:16|١٦)(?:\s+عادي)?\s*(?:و|او|أو|،|,)?\s*(?:17|١٧)(?:\s+عادي)?$/.test(q);
+  return shortModels && /(?:جهاز|موديل|ايفون|آيفون|iphone|اسعار|أسعار|سعر)/i.test(ctx);
+}
+
+export function incomeEvidenceSourceQuestionText(value: string | null | undefined) {
+  const q = normalized(value);
+  return /(?:من\s+اي\s+بنك|من\s+أي\s+بنك|اي\s+بنك|أي\s+بنك).{0,30}(?:كشف\s+الحساب|كشف\s+حساب)|(?:كشف\s+الحساب|كشف\s+حساب).{0,30}(?:من\s+اي\s+بنك|من\s+أي\s+بنك|بنك\s+معين)|(?:زين\s+كاش|zain\s*cash|محفظه|محفظة).{0,45}(?:بنفع|بزبط|ينفع|اثبات\s+دخل|إثبات\s+دخل|كشف)|(?:بنفع|بزبط|ينفع).{0,35}(?:زين\s+كاش|zain\s*cash|محفظه|محفظة).{0,25}(?:دخل|كشف)?/i.test(q);
 }
 
 export function generalRequirementsQuestionText(value: string | null | undefined) {
@@ -137,6 +150,8 @@ export type ContextualTurnSignals = {
   generalRequirements: boolean;
   financingStructure: boolean;
   installmentAdjustment: boolean;
+  deviceModelReference: boolean;
+  incomeEvidenceSource: boolean;
   commercialPause: boolean;
   orderChange: boolean;
   orderChangeRetraction: boolean;
@@ -226,6 +241,12 @@ export function contextualTurnSignals(input: {
   const installmentAdjustment = installmentAdjustmentQuestionText(q);
   if (installmentAdjustment) topics.add("installment_amount");
 
+  const deviceModelReference = deviceModelReferenceQuestionText(q, ctx);
+  if (deviceModelReference) topics.add("products");
+
+  const incomeEvidenceSource = incomeEvidenceSourceQuestionText(q);
+  if (incomeEvidenceSource) topics.add("requirements");
+
   const commercialPause = commercialPauseOrDeclineText(q, ctx);
   const orderChangeRetraction = orderChangeRetractionText(q);
   const orderChange = !orderChangeRetraction && orderChangeRequestText(q);
@@ -261,6 +282,8 @@ export function contextualTurnSignals(input: {
     generalRequirements,
     financingStructure,
     installmentAdjustment,
+    deviceModelReference,
+    incomeEvidenceSource,
     commercialPause,
     orderChange,
     orderChangeRetraction,

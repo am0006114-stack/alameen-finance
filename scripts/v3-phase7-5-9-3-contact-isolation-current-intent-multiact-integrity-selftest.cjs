@@ -24,7 +24,7 @@ function appQuery(){const q={select(){return q},eq(){return q},order(){return q}
 const supabase={from(table){if(table==='applications')return appQuery(); if(table==='documents'){const q={select(){return q},eq(){return Promise.resolve({data:[],error:null})}};return q;} throw new Error('unexpected table '+table)}};
 const policy={businessName:'الأمين للأقساط',generalLocation:'عمّان – شارع المدينة المنورة',fileOpeningFeeJod:5,normalReviewWindow:'من يومين لـ3 أيام عمل',severePressureRule:'ضغط مراجعات'};
 const resolveTruth=({state})=>({confidence:'none',source:'none',application:null,ambiguousApplications:[],policy,fetchedAt:new Date().toISOString()});
-const prod=run(files.truth,{'@/lib/supabaseAdmin':{supabaseAdmin:supabase},'../text':{normalizeJordanPhone:normPhone,normalizeWhatsAppToSend:waPhone},'./types':{},'./truth':{resolveTruth}});
+const prod=run(files.truth,{'@/lib/supabaseAdmin':{supabaseAdmin:supabase},'../text':{normalizeJordanPhone:normPhone,normalizeWhatsAppToSend:waPhone},'./types':{},'./truth':{resolveTruth},'./contactIdentity':{bindingAllowsApplication:()=>false,verifiedPrimaryWaId:()=>null}});
 ok(prod.contactPhonesMatch('0775262859','962775262859')===true,'same Jordan contact matches across local/WhatsApp formats');
 ok(prod.contactPhonesMatch('0775262859','962777999136')===false,'different WhatsApp sender does not match application phone');
 ok(prod.suppliedPhoneConflictsWithSender('962777999136','0775262859')===true,'typed foreign phone is detected as contact-identity conflict');
