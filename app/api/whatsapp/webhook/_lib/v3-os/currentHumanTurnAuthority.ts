@@ -6,6 +6,7 @@ import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 export type CurrentHumanTurnKind =
   | "none"
   | "safety_crisis"
+  | "contact_isolation_continuation"
   | "direct_call_request"
   | "long_delay_anomaly"
   | "social_security_income"
@@ -48,6 +49,19 @@ function safetyCrisisActive(turn: InterpretedTurn, state: ConversationState) {
   if (!selfHarmCrisisText(state.lastCustomerText)) return false;
   const q = n(turn.rawText);
   return /(?:ما\s+بقدر|زهقت\s+من\s+الحياه|زهقت\s+من\s+الحياة|كل\s+شي\s+انتهى|كل\s+شيء\s+انتهى|خلص|ما\s+في\s+فايده|ما\s+في\s+فائدة|تعبت|انتهى\s+وقتي)/.test(q);
+}
+
+
+function contactIsolationConversationActive(state: ConversationState) {
+  const previous = n(state.lastAssistantText);
+  return /(?:رقم\s+التتبع).{0,120}(?:مربوط\s+برقم\s+واتساب\s+مختلف|رقم\s+واتساب\s+مختلف|رقم\s+مختلف)/.test(previous)
+    || /(?:خصوصيه|خصوصية).{0,80}(?:صاحب\s+الطلب|رقم\s+مختلف|الطلب)/.test(previous)
+    || /(?:ربط\s+الطلب|يتوثق\s+الربط|تحديث\s+الرقم|تعديل\s+الرقم).{0,120}(?:تنفيذ\s+اداري|تنفيذ\s+إداري|رقم\s+مختلف|واتساب|يتنفذ)/.test(previous);
+}
+
+function contactIsolationContinuation(q: string, state: ConversationState) {
+  if (!contactIsolationConversationActive(state)) return false;
+  return /(?:رقمي|الرقم).{0,36}(?:ما\s+عليه\s+واتساب|مش\s+عليه\s+واتساب|ما\s+بزبط.{0,16}واتساب|ما\s+بشتغل.{0,16}واتساب|استرالي|أسترالي|دولي|برا\s+الاردن|برا\s+الأردن|قديم|غيرته|غيرت\s+رقمي|رقم\s+ثاني)|(?:هو|هذا)\s+رقمي.{0,30}(?:بس|لكن)|(?:الرقم\s+المسجل).{0,30}(?:الي|إلي|رقمي)/.test(q);
 }
 
 function directCallRequest(turn: InterpretedTurn) {
@@ -103,6 +117,7 @@ export function resolveCurrentHumanTurnAuthority(input: { turn: InterpretedTurn;
   if (!q) return { kind: "none", hard: false, reason: "empty current turn" };
   const currentStage = stage(input);
   if (safetyCrisisActive(input.turn, input.state)) return { kind: "safety_crisis", hard: true, reason: "immediate self-harm safety continuity outranks ordinary service, complaint, refund, and delay conversation" };
+  if (contactIsolationContinuation(q, input.state)) return { kind: "contact_isolation_continuation", hard: true, reason: "customer is explaining a legitimate phone/channel mismatch after contact-isolation guard; continue the conversation without disclosing the foreign application" };
   if (directCallRequest(input.turn)) return { kind: "direct_call_request", hard: true, reason: "explicit current-turn call/contact request outranks refund/delay state" };
   if (websiteUploadError(q)) return { kind: "website_upload_error", hard: true, reason: "customer supplied a concrete website/upload error" };
   if (socialSecurityIncome(q)) return { kind: "social_security_income", hard: true, reason: "income + social-security context; ضمان means social security, not trust guarantee" };
@@ -126,6 +141,12 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
   switch (input.authority.kind) {
     case "safety_crisis":
       return `أنا معك هسا. إذا أنت على سطح أو قريب من حافة أو أي شي ممكن يأذيك، ابتعد عنه وادخل لمكان آمن الآن. اتصل بـ911 أو روح لأقرب طوارئ/مستشفى، وخلي شخص قريب منك يجي ويضل معك. ما رح أساعدك بطريقة لإيذاء نفسك أو بكتابة رسالة انتحار. احكيلي بس: ابتعدت عن الخطر وصار معك حدا؟`;
+    case "contact_isolation_continuation": {
+      const australian = /(?:استرالي|أسترالي|دولي|برا\s+الاردن|برا\s+الأردن)/.test(n(input.turn.rawText));
+      const noWhatsapp = /(?:ما\s+عليه\s+واتساب|مش\s+عليه\s+واتساب|ما\s+بزبط.{0,16}واتساب|ما\s+بشتغل.{0,16}واتساب)/.test(n(input.turn.rawText));
+      const reason = australian ? "كون الرقم أسترالي أو دولي بحد ذاته مش مشكلة؛ المشكلة بس إن رقم الطلب مختلف عن رقم الواتساب الحالي." : noWhatsapp ? "فهمتك، المشكلة إن الرقم المسجل على الطلب ما عليه واتساب، مش إنك بدك تدخل على طلب حدا ثاني." : "فهمتك، عندك سبب فعلي لاستخدام رقم مختلف عن الرقم المسجل على الطلب.";
+      return `${reason} نقدر نكمل هون عادي بأي سؤال عام أو عن خطوات الأمين، بس ما بقدر أعرض تفاصيل الطلب أو أنفذ عليه من رقم مختلف قبل ما يتوثق الربط. إذا بدك تحديث الرقم المسجل، هذا يحتاج تنفيذ إداري فعلي؛ ما رح أقول إنه تغيّر قبل ما يتنفذ.`;
+    }
     case "direct_call_request":
       return `فاهم إنك بدك نحكي باتصال عشان توضح الصورة. المتابعة الرسمية للطلبات من نفس واتساب، وما عندي مكالمة فعلية أرتبها من هون. احكيلي النقطة اللي بدك تفهمها وأنا معك فيها مباشرة.`;
     case "website_upload_error":
@@ -164,6 +185,7 @@ export function currentHumanTurnCandidateAligned(input: { authority: CurrentHuma
       const serviceTemplate = /(?:طلبك|الدراسه|الدراسة|ضغط\s+مراجعات|المعدل\s+الطبيعي|الاسترداد\s+مسجل)/.test(q);
       return immediateSafety && urgentHelp && humanPresence && !unsafeMethod && !serviceTemplate;
     }
+    case "contact_isolation_continuation": return /(?:نكمل\s+هون|نكمل\s+المحادثه|نكمل\s+المحادثة)/.test(q) && /(?:ما\s+بقدر\s+اعرض|ما\s+بقدر\s+أعرض).{0,50}(?:تفاصيل\s+الطلب|الطلب)/.test(q) && /(?:تنفيذ\s+اداري|تنفيذ\s+إداري|يتوثق\s+الربط)/.test(q) && !/(?:الجهاز|قيد\s+المراجعه|قيد\s+الدراسه|الدفع\s+مؤكد)/.test(q);
     case "direct_call_request": return /(?:اتصال|مكالمه|مكالمة|واتساب).{0,80}(?:ما\s+عندي|المتابعه|المتابعة|احكيلي)/.test(q);
     case "website_upload_error": return /(?:حجم|كبير).{0,70}(?:الملف|صغر|صغ ر|ارفع|الرابط\s+الرسمي)/.test(q) && !/شارع\s+المدينه|شارع\s+المدينة/.test(q);
     case "social_security_income": return /(?:راتب|البنك|الضمان).{0,120}(?:الدراسه|الدراسة|الدخل|الموافقه|الموافقة)/.test(q) && !/(?:الضمان\s+العملي|ثق\s+بكلام)/.test(q);

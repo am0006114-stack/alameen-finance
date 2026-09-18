@@ -264,7 +264,7 @@ function contactIdentityMismatch(truth: TruthBundle) {
 }
 
 function contactIdentityMismatchReply() {
-  return "رقم التتبع المذكور مش مربوط برقم الواتساب اللي تراسلنا منه، لذلك ما بقدر أعرض تفاصيل هذا الطلب أو حالته من هون. للخصوصية، تابع من رقم الواتساب المرتبط بالطلب نفسه؛ وما رح أربط أو أعرض بيانات طلب لرقم مختلف.";
+  return "فاهم عليك. رقم التتبع اللي بعثته مربوط برقم واتساب مختلف، فحرصًا على خصوصية صاحب الطلب ما بقدر أعرض تفاصيل هذا الطلب أو حالته من هون، ولا أنفذ عليه من هالرقم. إذا الرقم المسجل إلك بس ما عليه واتساب، أو رقمك دولي/تغيّر معك، احكيلي هالشي وبنكمل هون بالحل المناسب بدون ما نكشف بيانات الطلب.";
 }
 
 function pastedForeignContent(value: string | null | undefined) {
@@ -282,6 +282,8 @@ export function resolveResponseObligation(input: {
 }): ResponseObligation {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
+  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+  if (currentHumanTurn.kind === "contact_isolation_continuation") return "current_human_turn";
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
   if (meaningLock.kind !== "none") return meaningLock.kind;
   if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
@@ -291,7 +293,6 @@ export function resolveResponseObligation(input: {
   // 7.5.8: the literal human turn can hard-veto legacy state loops. This sits
   // before generic semantic locks so contextual Arabic such as "مسجل ضمان" is
   // understood as social-security/income context instead of a trust guarantee.
-  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
   if (currentHumanTurn.kind !== "none") return "current_human_turn";
   // 7.5.3: direct current-turn semantic questions veto stale domain context.
   if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
