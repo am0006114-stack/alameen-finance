@@ -14,6 +14,9 @@ import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } fr
 export type ResponseObligation =
   | "protected_business_registration"
   | "stop_refund_keep_request"
+  | "undo_cancel_or_refund"
+  | "cancel_confirmation_declined"
+  | "contact_identity_mismatch"
   | "down_payment"
   | "office_payment"
   | "monthly_payment_mechanism"
@@ -256,6 +259,14 @@ function asksDocumentUploadGuidance(turn: InterpretedTurn, state: ConversationSt
   return currentAcceptsOffer && previousOfferedDocs;
 }
 
+function contactIdentityMismatch(truth: TruthBundle) {
+  return Boolean(truth.readWarnings?.includes("contact_identity_mismatch_current_tracking"));
+}
+
+function contactIdentityMismatchReply() {
+  return "رقم التتبع المذكور مش مربوط برقم الواتساب اللي تراسلنا منه، لذلك ما بقدر أعرض تفاصيل هذا الطلب أو حالته من هون. للخصوصية، تابع من رقم الواتساب المرتبط بالطلب نفسه؛ وما رح أربط أو أعرض بيانات طلب لرقم مختلف.";
+}
+
 function pastedForeignContent(value: string | null | undefined) {
   const raw = String(value || "");
   if (raw.length < 80) return false;
@@ -271,6 +282,7 @@ export function resolveResponseObligation(input: {
 }): ResponseObligation {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
+  if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
   if (meaningLock.kind !== "none") return meaningLock.kind;
   if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
   // 7.5.2: exact structured tracking/status messages have absolute semantic priority.
@@ -513,6 +525,8 @@ function directRepair(input: {
   switch (input.obligation) {
     case "protected_business_registration":
     case "stop_refund_keep_request":
+    case "undo_cancel_or_refund":
+    case "cancel_confirmation_declined":
     case "down_payment":
     case "office_payment":
     case "monthly_payment_mechanism":
@@ -530,6 +544,7 @@ function directRepair(input: {
       return buildSemanticQuestionLockReply({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), turn: input.turn, truth: input.truth });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
+    case "contact_identity_mismatch": return contactIdentityMismatchReply();
     case "contact_channel": return "المتابعة الأساسية للطلبات من خلال واتساب الحالي. ما عندي رقم تواصل إضافي رسمي موثق أقدر أعطيك إياه.";
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
@@ -584,6 +599,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
       return semanticQuestionCandidateAligned({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), candidate: raw, truth: input.truth });
     case "mutation_request": return /(?:اكدلي|أكدلي|نعم).{0,30}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
     case "tracking_link": return /https?:\/\//i.test(raw) && /track|تتبع/i.test(raw);
+    case "contact_identity_mismatch": return /(?:مش\s+مربوط|غير\s+مرتبط).{0,50}(?:رقم\s+الواتساب|واتساب)|(?:للخصوصيه|للخصوصية).{0,80}(?:رقم\s+مختلف|الطلب)/.test(q) && !/(?:الجهاز|قيد\s+المراجعه|قيد\s+الدراسه|الدفع\s+مؤكد)/.test(q);
     case "contact_channel": return /واتساب|تواصل|اتصال/.test(q) && !missingDetailsReply(raw);
     case "application_exists": return /(?:نعم|لا|ما\s+ظهر|مسجل|موجود)/.test(q);
     case "refund_human_care": return refundHumanCareCandidateAligned({ candidate: raw, truth: input.truth, turn: input.turn, state: input.state });
@@ -630,6 +646,11 @@ export function arbitrateProductionReply(input: {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+
+  if (obligation === "contact_identity_mismatch") {
+    const repair = contactIdentityMismatchReply();
+    return { reply: sanitizeUnifiedEgressReply(repair), obligation, repaired: repair !== candidate, reason: "contact isolation blocked cross-number application disclosure" };
+  }
 
   if (obligation === "protected_business_registration" && shouldSuppressRepeatedProtectedRegistration({ turn: input.turn, state: input.state })) {
     return { reply: null, obligation, repaired: Boolean(candidate), suppressed: true, reason: "repeated protected registration request suppressed after one security notice" };

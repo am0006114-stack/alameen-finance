@@ -19,12 +19,16 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const multipleDevices = /(?:تلفونين|هاتفين|جهازين|2\s*جهاز|٢\s*جهاز|اخد\s*2|اخد\s*٢|آخذ\s*2|آخذ\s*٢)/.test(q);
   const interest = /(?:الفائده|الفائدة|فايده|فائدة|مرابحه|مرابحة|نسبه\s+الربح|نسبة\s+الربح)/.test(q);
   const downPayment = /(?:دفعه|دفعة).{0,12}(?:اولي|اولى|أولى)|(?:بدون|في|هل).{0,18}(?:دفعه|دفعة).{0,10}(?:اولي|اولى|أولى)/.test(q);
+  const officeLocation = turn.topics.includes("office_location") || /(?:وين|اين|أين).{0,24}(?:موقعكم|المكتب|المحل|العنوان)|(?:موقعكم|المكتب|المحل).{0,18}(?:وين|بالزبط|بالضبط)/.test(q);
+  const monthlyTarget = /(?:ادفع|أدفع|قسط|القسط).{0,24}(?:كل\s+شهر|شهري|بالشهر).{0,18}(?:\d+|[٠-٩]+)\s*(?:دينار)?|(?:\d+|[٠-٩]+)\s*(?:دينار)?\s*(?:كل\s+شهر|بالشهر|شهريا|شهريًا)/.test(q);
+  const installmentDuration = turn.topics.includes("installment_duration") || /(?:على|خلال|مده|مدة).{0,15}(?:ست|6|٦|سبع|7|٧|اثنا\s+عشر|12|١٢|\d+|[٠-٩]+)\s*(?:اشهر|أشهر|شهر)|(?:ست|6|٦)\s*(?:اشهر|أشهر).{0,16}(?:او\s+اقل|أو\s+أقل)/.test(q);
+  const priceChange = turn.topics.includes("product_price") || /(?:سعر\s+الجهاز|السعر).{0,28}(?:يختلف|يتغير|بتغير|بختلف|نفسه)|(?:يختلف|يتغير|بتغير|بختلف).{0,28}(?:سعر\s+الجهاز|السعر)/.test(q);
   const applicationStatus = Boolean(truth.application) && (turn.topics.includes("application_status") || /(?:شو|ايش|اش).{0,18}(?:صار|وضع|حاله|حالة).{0,18}(?:طلبي|الطلب)|(?:حاله|حالة)\s+(?:الطلب|طلبي)/.test(q));
   const reviewTiming = /(?:متى|امتى|قديش|كم|اليوم|بكرا|السبت).{0,32}(?:قرار|موافقه|الموافقة|يخلص|جاهز|وقت)|(?:تاخرتو|تأخرتوا|طولتوا|صارلي|صارله|مر\s+\d+\s+ايام|[٤4]\s+ايام)/.test(q);
   const applicationStart = /(?:كيف|وين|من\s+وين).{0,28}(?:اقدم|أقدم|ارفع\s+طلبي|أرفع\s+طلبي|اعمل\s+طلب|أعمل\s+طلب)|(?:ما\s+قدمت|لسا\s+ما\s+قدمت).{0,30}(?:كيف|وين|التقديم)|(?:رابط).{0,18}(?:التقديم|قدم\s+طلب)/.test(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, applicationStatus, reviewTiming, applicationStart, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, officeLocation, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, applicationStart, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -86,6 +90,28 @@ function downPaymentPart(truth: TruthBundle) {
   return `ما في دفعة أولى على الجهاز. ${truth.policy.firstInstallmentRule} ورسوم فتح الملف ${truth.policy.fileOpeningFeeJod || 5} دنانير خطوة منفصلة بعد الموافقة المبدئية واختيار الاستمرار، ومش دفعة أولى.`;
 }
 
+function officeLocationPart(truth: TruthBundle) {
+  return `${truth.policy.generalLocation}. الحضور للمكتب بموعد رسمي مؤكد فقط، مش زيارة مفتوحة.`;
+}
+
+function monthlyTargetPart(truth: TruthBundle) {
+  const app = truth.application;
+  if (app && typeof app.monthlyPayment === "number" && Number.isFinite(app.monthlyPayment) && typeof app.installmentMonths === "number" && Number.isFinite(app.installmentMonths)) {
+    return `الحسبة المسجلة على طلبك حاليًا هي تقريبًا ${app.monthlyPayment} دينار شهريًا لمدة ${app.installmentMonths} شهر. إذا بدك هدف مختلف مثل مبلغ شهري محدد، ما بقدر أعتبره معتمد إلا لما تتغير الحسبة الرسمية على الطلب.`;
+  }
+  return "إذا عندك هدف مثل 75 دينار بالشهر، بقدر أفهمه كطلب حسبة، لكن ما بقدر أضمن الرقم أو أعتمده من المحادثة قبل ما تطلع الحسبة الرسمية للجهاز والمدة.";
+}
+
+function installmentDurationPart(truth: TruthBundle) {
+  const months = truth.application?.installmentMonths;
+  if (typeof months === "number" && Number.isFinite(months)) return `المدة المسجلة حاليًا على طلبك ${months} شهر. طلب 6 أشهر أو أقل ما بعتبره متاح أو منفذ إلا إذا الحسبة الرسمية للطلب سمحت فيه وتحدثت بيانات الطلب.`;
+  return "بالنسبة لـ6 أشهر أو أقل: ما عندي مدة قصيرة موثقة أقدر أضمنها من المحادثة؛ لازم تعتمد على المدد والحسبة الرسمية المتاحة للطلب نفسه.";
+}
+
+function priceChangePart() {
+  return "وبخصوص سعر الجهاز إذا قصّرت المدة: ما عندي قاعدة موثقة أقدر أقول منها إن سعر الجهاز نفسه رح يتغير. اللي نعتمده هو السعر/الإجمالي والقسط اللي يطلعوا بالحسبة الرسمية، بدون تخمين.";
+}
+
 function repeatRepairReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {
   const status = statusPart(input.truth);
   const timing = timingPart(input.truth);
@@ -112,6 +138,10 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.multipleDevices) parts.push(multipleDevicesPart());
   if (f.interest) parts.push(interestPart(input.truth));
   if (f.downPayment) parts.push(downPaymentPart(input.truth));
+  if (f.monthlyTarget) parts.push(monthlyTargetPart(input.truth));
+  if (f.installmentDuration) parts.push(installmentDurationPart(input.truth));
+  if (f.priceChange) parts.push(priceChangePart());
+  if (f.officeLocation) parts.push(officeLocationPart(input.truth));
   if (f.applicationStart) parts.push(applicationStartPart(input.turn,input.truth));
   return parts.filter(Boolean).join("\n\n") || null;
 }

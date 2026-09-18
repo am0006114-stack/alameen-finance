@@ -4,6 +4,8 @@ import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 export type LockedMeaningKind =
   | "protected_business_registration"
   | "stop_refund_keep_request"
+  | "undo_cancel_or_refund"
+  | "cancel_confirmation_declined"
   | "down_payment"
   | "office_payment"
   | "monthly_payment_mechanism"
@@ -54,6 +56,13 @@ export function shouldSuppressRepeatedProtectedRegistration(input: { turn: Inter
   return protectedBusinessRegistrationRequest(input.turn.rawText)
     && registrationProtectionAlreadySent(input.state)
     && !hasIndependentPermittedQuestion(input.turn.rawText);
+}
+
+
+export function undoCancelOrRefundRequest(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  return /(?:بطلت|تراجعت).{0,16}(?:الغي|الغاء|إلغاء|الاسترداد|الاسترجاع)|(?:ما\s+بدي|بديش|لا\s+اريد|لا\s+أريد).{0,18}(?:الغي|الغاء|إلغاء)|(?:الغاء|إلغاء).{0,12}(?:طلب\s+)?(?:الالغاء|الإلغاء)|(?:بدي|اريد|أريد).{0,18}(?:الغاء|إلغاء).{0,12}(?:طلب\s+)?(?:الالغاء|الإلغاء)|(?:بدي\s+ارجع|بدي\s+أرجع).{0,20}(?:عن\s+)?(?:الالغاء|الإلغاء)/.test(q);
 }
 
 export function stopRefundKeepRequest(value: string | null | undefined) {
@@ -137,6 +146,8 @@ export function paymentDestinationUpdateQuestion(value: string | null | undefine
 export function resolveUnifiedMeaningLock(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): LockedMeaning {
   const raw = input.turn.rawText;
   if (protectedBusinessRegistrationRequest(raw)) return { kind: "protected_business_registration", hard: true, reason: "protected company-registration/security request" };
+  if (undoCancelOrRefundRequest(raw) && input.state.pendingAction === "cancel_application") return { kind: "cancel_confirmation_declined", hard: true, reason: "customer withdrew a pending cancellation before execution" };
+  if (undoCancelOrRefundRequest(raw)) return { kind: "undo_cancel_or_refund", hard: true, reason: "customer explicitly reverses cancellation/refund intent; stale refund state must not hijack the current turn" };
   if (stopRefundKeepRequest(raw)) return { kind: "stop_refund_keep_request", hard: true, reason: "stop-refund + keep-application must never become cancel/refund" };
   if (downPaymentQuestion(raw)) return { kind: "down_payment", hard: true, reason: "direct down-payment question" };
   if (officePaymentQuestion(raw)) return { kind: "office_payment", hard: true, reason: "office-payment request must follow appointment/payment-channel policy" };
@@ -154,6 +165,22 @@ export function lockedMeaningReply(input: { meaning: LockedMeaning; turn: Interp
   switch (input.meaning.kind) {
     case "protected_business_registration":
       return BUSINESS_REGISTRATION_PROTECTION_REPLY;
+    case "cancel_confirmation_declined": {
+      const current = input.truth.application ? ` الحالة الحالية للطلب: ${String(input.truth.application.status || "").toLowerCase() || "كما هي"}.` : "";
+      return `تمام، فهمت إنك تراجعت عن الإلغاء قبل ما يتم. ما رح أنفذ إلغاء جديد من هالرسالة، والطلب بيضل على حالته الحالية.${current}`;
+    }
+    case "undo_cancel_or_refund": {
+      const status = String(input.truth.application?.status || "").toLowerCase();
+      const payment = String(input.truth.application?.paymentStatus || "").toLowerCase();
+      const refundOpen = status === "refund_requested" || payment === "refund_requested";
+      const cancelled = ["cancelled","canceled","cancelled_by_customer"].includes(status);
+      const current = refundOpen
+        ? " الحالة الحالية لسا طلب الاسترداد قيد المعالجة."
+        : cancelled
+          ? " الحالة الحالية لسا الطلب ملغي."
+          : " ما رح أعتبر رسالتك طلب إلغاء جديد.";
+      return `فهمت إنك تراجعت عن الإلغاء وبدك توقف أثره/تكمل الطلب. إعادة فتح الطلب أو إيقاف الاسترداد ما بعتبرهم منفذين من الرسالة نفسها؛ بدهم تنفيذ إداري وتحديث فعلي للحالة.${current} ما رح أسجل إلغاء أو استرداد جديد من هالطلب.`;
+    }
     case "stop_refund_keep_request": {
       const current = input.truth.application ? ` حالتك الحالية تبقى: ${String(input.truth.application.status || "").toLowerCase() === "refund_requested" || String(input.truth.application.paymentStatus || "").toLowerCase() === "refund_requested" ? "طلب الاسترداد قيد المعالجة" : "حسب الحالة الفعلية الظاهرة على الطلب"}.` : "";
       return `فهمت عليك: بدك توقف/تلغي طلب الاسترداد وتكمل بطلب الجهاز، مش تلغي طلب التقسيط. إيقاف الاسترداد وإعادة تفعيل الطلب ما بعتبرهم منفذين من الرسالة نفسها؛ لازم تتحدث الحالة الفعلية بعد تنفيذ الإجراء المعتمد.${current} ما رح أفتح إلغاء جديد ولا استرداد جديد من هالطلب.`;
@@ -191,6 +218,11 @@ export function candidateAlignedWithLockedMeaning(input: { meaning: LockedMeanin
     case "protected_business_registration":
       return /بيانات\s+التسجيل\s+والوثا(?:ئ|ي)ق\s+القانونيه\s+الداخليه\s+لا\s+يتم\s+مشاركتها\s+عبر\s+واتساب/.test(q)
         && /لا\s+توجد\s+اي\s+علاقه\s+او\s+شراكه\s+او\s+تبعيه/.test(q);
+    case "cancel_confirmation_declined":
+      return /(?:تراجعت|فهمت|ما\s+رح).{0,35}(?:الالغاء|الإلغاء|الغاء\s+جديد|إلغاء\s+جديد)|(?:بيضل|يبقى).{0,24}(?:حالته|الطلب)/.test(q);
+    case "undo_cancel_or_refund":
+      return /(?:تراجعت|فهمت).{0,35}(?:الالغاء|الإلغاء)|(?:اعاده\s+فتح|إعادة\s+فتح|ايقاف\s+الاسترداد|إيقاف\s+الاسترداد|تنفيذ\s+اداري|تنفيذ\s+إداري)/.test(q)
+        && !/(?:اكدلي|أكدلي).{0,30}(?:الغي\s+الطلب|ألغي\s+الطلب)|(?:استرداد\s+جديد)/.test(q);
     case "stop_refund_keep_request":
       return /(?:وقف|الغاء|إلغاء|تلغي|الغي).{0,24}(?:ال)?(?:استرداد|استرجاع)/.test(q)
         && /(?:تكمل|استمرار|اعاده\s+تفعيل|إعادة\s+تفعيل|طلب\s+الجهاز)/.test(q)
@@ -212,6 +244,25 @@ function instructionLeak(value: string) {
   return /(?:يشرح\s+ذلك|يتم\s+شرح\s+ذلك|دون\s+اعطاء\s+موعد|دون\s+إعطاء\s+موعد|يجب\s+عدم|قاعده\s+تشغيليه|قاعدة\s+تشغيلية)/.test(q);
 }
 
+function empathyOnlyParagraph(value: string) {
+  const q = n(value);
+  if (!q) return false;
+  const empathy = /(?:معك\s+حق|فاهم|مفهوم|واضح\s+انك|وصلتني|شايف|متضايق|زعلان|ضاغط\s+عليك)/.test(q);
+  const operational = /(?:طلبك|الطلب|الاسترداد|الدفع|الحواله|الحوالة|التحويل|الموعد|الرابط|المكتب|المستند|الجهاز|السعر|القسط|الرسوم|5|٥|تنفيذ)/.test(q);
+  return empathy && !operational;
+}
+
+function collapseAdjacentEmpathyParagraphs(value: string) {
+  const parts = String(value || "").split(/\n\s*\n/).map((x) => x.trim()).filter(Boolean);
+  const out: string[] = [];
+  for (const part of parts) {
+    if (out.length && empathyOnlyParagraph(out[out.length - 1]) && empathyOnlyParagraph(part)) continue;
+    out.push(part);
+  }
+  return out.join("\n\n");
+}
+
+
 export function sanitizeUnifiedEgressReply(value: string | null | undefined) {
   let reply = String(value || "").trim();
   if (!reply) return reply;
@@ -222,6 +273,7 @@ export function sanitizeUnifiedEgressReply(value: string | null | undefined) {
   reply = reply.replace(/أنا\s+معك،?\s*مش\s+(?:بوت|روبوت|رد\s+آلي)[^.\n]*(?:[.\n]|$)/g, "معك فريق الأمين من نفس المحادثة. ");
   reply = reply.replace(/مش\s+رد\s+آلي/g, "متابع معك من نفس المحادثة");
   reply = reply.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  reply = collapseAdjacentEmpathyParagraphs(reply);
   return reply;
 }
 

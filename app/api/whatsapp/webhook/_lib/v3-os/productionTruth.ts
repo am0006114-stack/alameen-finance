@@ -196,13 +196,24 @@ function phoneVariants(value: string | null | undefined) {
   return Array.from(new Set([local, wa, wa ? `+${wa}` : "", local.startsWith("0") ? local.slice(1) : local].filter(Boolean)));
 }
 
-function appBelongsToIdentity(app: ApplicationRow | null, waId: string, suppliedPhone?: string | null) {
+export function contactPhonesMatch(a: string | null | undefined, b: string | null | undefined) {
+  const left = new Set(phoneVariants(a).map((x) => x.replace(/\D/g, "")));
+  if (!left.size) return false;
+  return phoneVariants(b).some((x) => left.has(x.replace(/\D/g, "")));
+}
+
+export function suppliedPhoneConflictsWithSender(waId: string, suppliedPhone?: string | null) {
+  const supplied = normalizeJordanPhone(suppliedPhone || "");
+  if (!supplied) return false;
+  return !contactPhonesMatch(waId, supplied);
+}
+
+function appBelongsToIdentity(app: ApplicationRow | null, waId: string) {
   if (!app) return false;
-  const targets = new Set([
-    ...phoneVariants(waId),
-    ...phoneVariants(suppliedPhone || ""),
-  ].map((x) => x.replace(/\D/g, "")));
-  return phoneVariants(app.phone || "").some((x) => targets.has(x.replace(/\D/g, "")));
+  // 7.5.9.3 CONTACT ISOLATION: phone numbers typed inside a customer message
+  // are lookup hints only. They must never authorize disclosure of an
+  // application owned by a different WhatsApp sender.
+  return contactPhonesMatch(app.phone || "", waId);
 }
 
 function paymentConfirmedRow(app: ApplicationRow) {
@@ -296,7 +307,7 @@ function snapshotBundle(input: { state: ConversationState; waId: string; supplie
   const age = Date.now() - new Date(snapshot.fetchedAt).getTime();
   if (!Number.isFinite(age) || age < 0 || age > VERIFIED_SNAPSHOT_MAX_AGE_MS) return null;
   const row = snapshot.application as unknown as ApplicationRow;
-  if (!appBelongsToIdentity(row, input.waId, input.suppliedPhone)) return null;
+  if (!appBelongsToIdentity(row, input.waId)) return null;
   return {
     confidence: "medium",
     source: "verified_state_snapshot",
@@ -329,28 +340,40 @@ export async function resolveV3ProductionTruth(input: {
   const warnings: string[] = [];
   const suppliedPhone = jordanPhoneFromText(input.customerText) || phoneFromRecentCustomerTurns(input.recentTurns);
   const currentTracking = trackingFromText(input.customerText);
+  const suppliedPhoneConflict = suppliedPhoneConflictsWithSender(input.waId, suppliedPhone);
 
   if (currentTracking) {
     const app = await attemptLookup("current_tracking", warnings, () => byTracking(currentTracking));
-    if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("current_message_tracking", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("current_message_tracking", app, input.state);
+    if (app) {
+      const empty = resolveTruth({ state: input.state });
+      return {
+        ...empty,
+        readWarnings: Array.from(new Set([
+          ...warnings,
+          "contact_identity_mismatch_current_tracking",
+          ...(suppliedPhoneConflict ? ["supplied_phone_differs_from_whatsapp_sender"] : []),
+        ])),
+      };
+    }
   }
 
   // Sticky binding first: once an application was authoritatively bound, keep using its id/tracking
   // across short follow-ups instead of rediscovering from generic phone matching every turn.
   if (input.state.activeApplicationId) {
     const app = await attemptLookup("active_application_id", warnings, () => byId(input.state.activeApplicationId as string));
-    if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("conversation_binding", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("conversation_binding", app, input.state);
   }
 
   if (input.state.activeTrackingId) {
     const app = await attemptLookup("active_tracking", warnings, () => byTracking(input.state.activeTrackingId as string));
-    if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("conversation_binding", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("conversation_binding", app, input.state);
   }
 
   const recentTracking = trackingFromRecentTurns(input.recentTurns);
   if (recentTracking) {
     const app = await attemptLookup("recent_tracking", warnings, () => byTracking(recentTracking));
-    if (app && appBelongsToIdentity(app, input.waId, suppliedPhone)) return authoritativeBundle("recent_conversation_tracking", app, input.state);
+    if (app && appBelongsToIdentity(app, input.waId)) return authoritativeBundle("recent_conversation_tracking", app, input.state);
   }
 
   const candidates = await attemptLookup("phone_candidates", warnings, () => byPhone(input.waId));

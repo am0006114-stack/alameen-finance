@@ -76,6 +76,7 @@ function modelPrompt(input: { customerText: string; state: ConversationState; re
 - الإلغاء/الاسترداد/التراجع/إعادة الفتح/تعديل الطلب/تغيير الجهاز هي عمليات يشرف عليها عمران AI فقط. لا تحوّلها لإنسان.
 - إذا قال العميل إنه دفع، استخرج payment_confirmation كحقيقة يدعيها العميل، ولا تعتبر الدفع confirmed ولا تنشئ أي فعل يؤكد الدفع.
 - صيغة الأمر العامية مثل «رجعو المصاري»، «رجعوا الخمس»، «ردوا الرسوم» أو «بدي ترجعولي المصاري» هي request_action لموضوع refund مع action=request_refund، وليست payment أو loan. السؤال عن سياسة الاسترداد فقط يبقى ask بدون تنفيذ.
+- «بطلت ألغي»، «ما بدي ألغي»، «إلغاء طلب الإلغاء» أو «تراجعت عن الإلغاء» تعني تراجعًا عن الإلغاء/طلب إعادة فتح، وليست طلب إلغاء جديدًا. استخدم reopen + reopen_application عندما لا تكون مجرد رفض لتأكيد pending action.
 - عند تغيير الجهاز، ضع وصف الموديل المطلوب في value كما قاله العميل.
 - عند تصحيح بيانات الطلب، ضع في value وصفًا مركزًا للتصحيح والرقم/القيمة الجديدة إن كانت واضحة.
 - لا تخترع tracking أو هاتف أو حالة طلب.
@@ -180,18 +181,23 @@ const ACTION_TOPIC: Partial<Record<ActionKey,TopicKey>> = {
 function resolvePendingConfirmation(turn: InterpretedTurn, state: ConversationState, customerText: string): InterpretedTurn {
   const pending = state.pendingAction;
   if (!pending || !ACTION_TOPIC[pending]) return turn;
-  // An explicit new deterministic mutation supersedes any old pending action.
-  if (turn.acts.some(a => a.source === "deterministic" && a.type === "request_action" && a.action && a.action !== "none")) return turn;
-
   const n = normalizeArabic(customerText).replace(/[؟?!.,،]/g, " ").replace(/\s+/g," ").trim();
+  const explicitCancelDecline = pending === "cancel_application" && /(?:بطلت|تراجعت).{0,14}(?:الغي|الغاء)|(?:ما\s+بدي|بديش).{0,12}(?:الغي|الغاء)|(?:الغاء|إلغاء).{0,10}(?:طلب\s+)?(?:الالغاء|الإلغاء)/.test(n);
+
+  // A direct reversal of a pending cancellation is a denial of that pending action,
+  // not a new reopen mutation. This must win before deterministic action supersession.
+  if (!explicitCancelDecline && turn.acts.some(a => a.source === "deterministic" && a.type === "request_action" && a.action && a.action !== "none")) return turn;
+
   const pendingMode = String(state.pendingActionPayload?._manualStatus || "");
   const cancelReapplyConfirmation = pending === "cancel_application" && pendingMode === "awaiting_customer_cancel_confirmation";
   // Cancel+reapply is a destructive recommendation, so a generic "تمام" is not
   // enough. Require the customer's reply itself to explicitly contain cancellation.
-  const yes = cancelReapplyConfirmation
-    ? /(?:^|\s)(?:الغي|الغاء|إلغاء|الغيه|ألغيه|الغو|ألغوا)(?:\s|$)/.test(n)
-    : /^(?:نعم|اه|اها|ايوه|ايوا|اوك|اوكي|تمام|موافق|اكد|اكدها|نفذ|نفذها|اعتمد|اعتمدها)(?:\s|$)/.test(n);
-  const no = /^(?:لا|لأ|مش|لا خلاص|تراجعت)(?:\s|$)/.test(n);
+  const yes = explicitCancelDecline
+    ? false
+    : cancelReapplyConfirmation
+      ? /(?:^|\s)(?:الغي|الغاء|إلغاء|الغيه|ألغيه|الغو|ألغوا)(?:\s|$)/.test(n)
+      : /^(?:نعم|اه|اها|ايوه|ايوا|اوك|اوكي|تمام|موافق|اكد|اكدها|نفذ|نفذها|اعتمد|اعتمدها)(?:\s|$)/.test(n);
+  const no = explicitCancelDecline || /^(?:لا|لأ|مش|لا خلاص|تراجعت)(?:\s|$)/.test(n);
   if (!yes && !no) return turn;
 
   const topic = ACTION_TOPIC[pending] as TopicKey;
@@ -214,12 +220,22 @@ function resolvePendingConfirmation(turn: InterpretedTurn, state: ConversationSt
     confidence: 0.995,
     source: "resolved",
   };
-  const acts = [...turn.acts.filter(a=>!(a.topic === "unknown" && a.type === "unknown")),act];
+  const baseActs = turn.acts.filter(a => {
+    if (a.topic === "unknown" && a.type === "unknown") return false;
+    if (explicitCancelDecline && a.type === "request_action" && a.action === "reopen_application") return false;
+    return true;
+  });
+  const acts = [...baseActs,act];
   return {
     ...turn,
     acts,
-    topics: Array.from(new Set([...turn.topics.filter(x=>x!=="unknown"),topic])),
-    requestedActions: yes ? Array.from(new Set([...turn.requestedActions,pending])) : turn.requestedActions.filter(a=>a!==pending),
+    topics: Array.from(new Set([
+      ...turn.topics.filter((x) => x !== "unknown" && !(explicitCancelDecline && x === "reopen")),
+      topic,
+    ])),
+    requestedActions: yes
+      ? Array.from(new Set([...turn.requestedActions,pending]))
+      : turn.requestedActions.filter(a=>a!==pending && !(explicitCancelDecline && a === "reopen_application")),
     confidence: Math.max(turn.confidence,0.995),
   };
 }
