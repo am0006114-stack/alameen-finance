@@ -4,11 +4,13 @@ import { calculateRequestedDeviceChange, extractApplicationPatch } from "./comme
 import type { ApplicationTruth, PlannedAction, TruthBundle } from "./types";
 import { truthHasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { canV3ExecuteRealActions, getV3ProductionControl } from "./productionControl";
+import { approveApplicationWhatsAppAlias } from "./applicationContactIdentity";
 
 const MUTATIONS = new Set([
   "cancel_application",
   "continue_application",
   "request_refund",
+  "link_whatsapp_alias",
   "stop_refund",
   "change_application_data",
   "change_device",
@@ -17,11 +19,12 @@ const MUTATIONS = new Set([
 
 // Phase 7.1.3A: production mutations are deliberately scoped. Turning the
 // Control Center Real Actions switch ON does NOT unlock every historical
-// action. Only explicit cancellation and refund requests may mutate data.
+// action. Only explicit cancellation, refund, and customer-confirmed WhatsApp-alias actions may mutate data.
 // Everything else stays manual/Discord-assisted until separately approved.
 export const LIVE_SCOPED_MUTATIONS = new Set([
   "cancel_application",
   "request_refund",
+  "link_whatsapp_alias",
 ]);
 
 function expectedBefore(app: ApplicationTruth) {
@@ -75,9 +78,8 @@ function firstRpcRow(data: unknown) {
 /**
  * Real V3 transactional adapter. It is deliberately gated by the production
  * control row (V3 live, kill-switch off, Real Actions enabled) and then by the
- * hard Phase 7.1.3A allow-list (cancel + refund only). The SQL RPC still
- * enforces Omran ownership, row locking, stale-truth checks, idempotency and
- * the audit ledger atomically.
+ * hard scoped allow-list. Cancel/refund still use the audited SQL RPC; WhatsApp-alias linking
+ * uses its dedicated identity table after the same two-step action confirmation and scope guards.
  */
 export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
   async execute(planned, context) {
@@ -94,13 +96,39 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
     }
 
     // Hard second gate: even when Real Actions are enabled globally, only
-    // cancellation and refund are allowed to reach the transactional RPC.
+    // cancellation, refund, and explicit customer-confirmed WhatsApp alias linking are allowed.
+    // The alias mutation is stored in its dedicated table and never changes applications.phone.
     if (!LIVE_SCOPED_MUTATIONS.has(planned.action)) {
       return { success: false, blocker: `scoped_real_actions_disallowed:${planned.action}` };
     }
 
     const app = context.truth.application;
     if (!app) return { success: false, blocker: "authoritative_application_required" };
+
+    if (planned.action === "link_whatsapp_alias") {
+      const waId = String(planned.payload?._aliasWaId || planned.payload?._scopeWaId || context.state.waId || "").trim();
+      if (!waId || waId !== String(context.state.waId || "").trim()) return { success: false, blocker: "alias_sender_scope_required" };
+      const linked = await approveApplicationWhatsAppAlias({
+        applicationId: app.id,
+        trackingId: app.trackingId,
+        applicationPhone: app.phone,
+        waId,
+        requestedByWaId: context.state.waId,
+        requestText: String(planned.payload?._aliasRequestText || "اعتماد رقم واتساب الحالي للطلب"),
+        confirmationTurnId: String(planned.payload?._mutationConfirmedOnTurn || context.state.lastTurnId || "") || null,
+        confirmationText: context.state.lastCustomerText || null,
+      });
+      if (!linked.ok) return { success: false, blocker: linked.blocker || "whatsapp_alias_link_failed" };
+      return {
+        success: true,
+        alreadyDone: linked.alreadyApproved,
+        mutationId: linked.id,
+        summary: linked.alreadyApproved ? "رقم واتساب الحالي معتمد مسبقًا على الطلب." : "تم اعتماد رقم واتساب الحالي كرقم متابعة تابع للطلب.",
+        blocker: null,
+        details: { aliasWaId: waId, applicationId: app.id, trackingId: app.trackingId, primaryPhoneChanged: false },
+      };
+    }
+
     if (context.state.role.currentRole !== "omran") return { success: false, blocker: "omran_supervisor_required" };
 
     const prepared = actionPayload(planned, app, context.state.lastCustomerText || "");

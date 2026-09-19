@@ -32,8 +32,9 @@ import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityRe
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
 import { arbitrateProductionReply } from "./responseArbiter";
 import { resolveFreshPublicProductReply } from "./freshPublicFacts";
-import { contactExplanationFromText, extractExplicitAlternateContactAuthorization, markContactResolution, clearContactResolution } from "./contactIdentity";
-import { persistVerifiedAlternateContact } from "./contactIdentityStore";
+import { contactExplanationFromText, markContactResolution, clearContactResolution, canonicalWaId } from "./contactIdentity";
+import { applyConversationConstraintsToReply, updateConversationConstraints } from "./conversationConstraints";
+import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -202,7 +203,7 @@ const MANUAL_ACTIONS = new Set([
 ]);
 
 async function notifyContactNumberChangeRequest(input: { waId: string; customerText: string; truth: TruthBundle }) {
-  if (!explicitContactNumberChangeRequest(input.customerText) || !input.truth.application) return;
+  if (!explicitContactNumberChangeRequest(input.customerText) || !input.truth.application || input.truth.contactAccess === "safe_preview") return;
   const app = input.truth.application;
   await notifyV3Discord({
     event: "manual_action_required",
@@ -268,20 +269,25 @@ async function notifyScopedMutationSuccesses(input: {
   const app = input.truth.application;
   if (!app) return;
   for (const result of input.actions) {
-    if (result.outcome !== "executed" || !LIVE_SCOPED_MUTATIONS.has(result.action)) continue;
+    if (!result.executed || !["executed", "already_done"].includes(result.outcome) || !LIVE_SCOPED_MUTATIONS.has(result.action)) continue;
     const isCancel = result.action === "cancel_application";
+    const isRefund = result.action === "request_refund";
+    const isAlias = result.action === "link_whatsapp_alias";
     await notifyV3Discord({
       event: "business_mutation_succeeded",
       actionKey: result.action,
       applicationId: app.id,
       trackingId: app.trackingId,
       waId: input.waId,
-      title: isCancel ? "✅ تم إلغاء الطلب تلقائيًا" : "💸 تم تسجيل طلب الاسترداد تلقائيًا",
+      title: isCancel ? "✅ تم إلغاء الطلب تلقائيًا" : isRefund ? "💸 تم تسجيل طلب الاسترداد تلقائيًا" : "📱 تم اعتماد رقم واتساب تابع للطلب تلقائيًا",
       description: isCancel
         ? "تم تنفيذ الإلغاء في قاعدة البيانات بعد تأكيد العميل الصريح. إذا كان الطلب مدفوعًا فقد تم فتح مسار الاسترداد حسب الحقيقة المالية على الملف."
-        : "تم تسجيل طلب الاسترداد في قاعدة البيانات بعد تحقق شروط الدفع.",
+        : isRefund
+          ? "تم تسجيل طلب الاسترداد في قاعدة البيانات بعد تحقق شروط الدفع."
+          : "تم اعتماد رقم واتساب الحالي كرقم متابعة تابع للطلب بعد تأكيد العميل الصريح في خطوتين. رقم الهاتف الأساسي للطلب لم يتغير.",
       details: {
         action: result.action,
+        "رقم واتساب المنفذ منه": input.waId,
         "حالة الطلب بعد التنفيذ": app.status || "—",
         "حالة الدفع بعد التنفيذ": app.paymentStatus || "—",
         "معرّف العملية": result.mutationId || "—",
@@ -320,6 +326,10 @@ async function notifyPendingScopedActionBlock(input: {
 function buildScopedMutationSuccessReply(input: { truth: TruthBundle; actions: ActionResult[] }) {
   const app = input.truth.application;
   if (!app) return null;
+  const alias = input.actions.find((x) => x.action === "link_whatsapp_alias" && x.executed);
+  if (alias) {
+    return `تم، اعتمدت رقم الواتساب الحالي كرقم متابعة تابع للطلب${app.trackingId ? ` ${app.trackingId}` : ""}. رقم الهاتف الأساسي على الطلب ما تغيّر، ومن هسا بتقدر تكمل متابعة نفس الطلب من هذا الواتساب بشكل طبيعي.`;
+  }
   const cancel = input.actions.find((x) => x.action === "cancel_application" && x.executed);
   if (cancel) {
     const refundRequested = String(app.paymentStatus || "").toLowerCase() === "refund_requested" || String(app.status || "").toLowerCase() === "refund_requested";
@@ -377,9 +387,10 @@ export async function runV3ProductionLive(input: {
   })));
   const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
   const reducedState = reduceState({ state: stateBefore, turn });
-  const preliminaryState = newApplicationFlow && ["reopen_application", "change_device", "change_application_data", "stop_refund"].includes(String(reducedState.pendingAction || ""))
-    ? { ...reducedState, pendingAction: null, pendingActionPayload: null }
-    : reducedState;
+  const constrainedState = updateConversationConstraints({ state: reducedState, customerText: effectiveCustomerText, turnId: input.turnId });
+  const preliminaryState = newApplicationFlow && ["reopen_application", "change_device", "change_application_data", "stop_refund"].includes(String(constrainedState.pendingAction || ""))
+    ? { ...constrainedState, pendingAction: null, pendingActionPayload: null }
+    : constrainedState;
 
   let rawTruthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
@@ -428,7 +439,7 @@ export async function runV3ProductionLive(input: {
       trackingId: explicitTrackingFromText(effectiveCustomerText) || contactAwareState.activeTrackingId,
       customerText: effectiveCustomerText,
     });
-  } else if (truthBeforeActions.source === "verified_contact_alias") {
+  } else if (["verified_contact_alias", "approved_contact_alias"].includes(truthBeforeActions.source)) {
     contactAwareState = clearContactResolution(contactAwareState);
   }
 
@@ -453,73 +464,47 @@ export async function runV3ProductionLive(input: {
     : scopedState;
   let boundState = supersedeConversationStateForJourney({ state: boundStateBase, truth: truthBeforeActions, turn });
 
-  // Durable contact-resolution escalation: once a cross-number mismatch is
-  // known, a later explanation such as "the registered number has no WhatsApp"
-  // or "I changed my number" stays attached to the same tracking problem. This
-  // creates no business mutation; it only records that admin identity/contact
-  // review is required and sends a best-effort internal alert once per transition.
+  // PHASE 7.6.0 CONTACT IDENTITY: a different application phone and WhatsApp
+  // number is a normal operating condition, not an admin dead-end. Tracking gives
+  // a restricted safe preview. The runtime then asks for one action-specific
+  // confirmation before adding the current WhatsApp sender as an approved alias.
+  // applications.phone is never changed by this flow.
   const contactExplanation = contactExplanationFromText(effectiveCustomerText);
-  const contactResolutionBeforeEscalation = boundState.contactResolution;
-  const contactProblemActive = Boolean(contactResolutionBeforeEscalation && ["blocked_mismatch", "awaiting_admin_update"].includes(contactResolutionBeforeEscalation.status));
-  const contactNeedsAdmin = contactProblemActive && ["no_whatsapp", "international_number", "changed_number", "alternate_number"].includes(String(contactExplanation || ""));
-  if (contactNeedsAdmin) {
-    const wasAwaiting = contactResolutionBeforeEscalation?.status === "awaiting_admin_update";
+  const contactResolutionBeforeAlias = boundState.contactResolution;
+  const contactProblemActive = Boolean(contactResolutionBeforeAlias && ["blocked_mismatch", "awaiting_admin_update", "awaiting_alias_confirmation"].includes(contactResolutionBeforeAlias.status));
+  if (contactProblemActive && ["no_whatsapp", "international_number", "changed_number", "alternate_number"].includes(String(contactExplanation || ""))) {
     boundState = markContactResolution({
       state: boundState,
-      status: "awaiting_admin_update",
-      trackingId: contactResolutionBeforeEscalation?.trackingId || boundState.activeTrackingId,
+      status: "awaiting_alias_confirmation",
+      trackingId: contactResolutionBeforeAlias?.trackingId || boundState.activeTrackingId,
       customerText: effectiveCustomerText,
     });
-    if (!wasAwaiting) {
-      try {
-        await notifyV3Discord({
-          event: "manual_action_required",
-          applicationId: truthBeforeActions.application?.id || null,
-          trackingId: boundState.contactResolution?.trackingId || null,
-          waId: input.waId,
-          actionKey: `contact_identity_review:${boundState.contactResolution?.trackingId || input.waId}`,
-          title: "📱 مراجعة ربط رقم واتساب بالطلب",
-          description: "العميل شرح أن رقم الطلب ورقم واتساب المستخدم مختلفان، ويحتاج مراجعة هوية/ربط تواصل. لم يتم تغيير رقم الطلب أو منح صلاحية تلقائيًا.",
-          details: {
-            action: "contact_identity_review",
-            explanation: boundState.contactResolution?.explanation || "different_whatsapp",
-            "رقم التتبع": boundState.contactResolution?.trackingId || "—",
-          },
-        });
-      } catch (error) {
-        console.error("V3 contact-identity review Discord notification failed", error);
-      }
-    }
   }
 
-  // A verified alternate WhatsApp alias may be created only by the sender that
-  // already owns the application phone. The customer merely typing a foreign
-  // number on an unverified chat can never self-authorize it. This writes only
-  // V3 conversation identity state; it does not mutate applications or expand
-  // business Real Actions.
-  const requestedAlias = extractExplicitAlternateContactAuthorization(effectiveCustomerText, input.waId);
-  if (requestedAlias && truthBeforeActions.application && contactPhonesMatch(truthBeforeActions.application.phone, input.waId)) {
+  const currentWa = canonicalWaId(input.waId);
+
+  const paymentIncident = detectPaymentIncident(effectiveCustomerText);
+  let paymentIncidentReply: string | null = null;
+  if (paymentIncident !== "none" && truthBeforeActions.application) {
+    paymentIncidentReply = buildPaymentIncidentReply({ kind: paymentIncident, expectedBeneficiary: truthBeforeActions.policy.paymentBeneficiaryName });
     try {
-      const persistedAlias = await persistVerifiedAlternateContact({ primaryWaId: input.waId, aliasWaId: requestedAlias });
-      if (persistedAlias.ok) {
-        boundState = withContactIdentityEventFact(boundState, { turnId: turn.turnId, key: "verified_alternate_contact_linked", value: requestedAlias });
-      } else if (persistedAlias.conflict) {
-        boundState = withContactIdentityEventFact(boundState, { turnId: turn.turnId, key: "verified_alternate_contact_conflict", value: requestedAlias });
-        try {
-          await notifyV3Discord({
-            event: "manual_action_required",
-            applicationId: truthBeforeActions.application.id,
-            trackingId: truthBeforeActions.application.trackingId,
-            waId: input.waId,
-            actionKey: "change_application_data",
-            title: "🔐 تعارض في ربط رقم واتساب بديل",
-            description: "الرقم البديل المطلوب مرتبط مسبقًا بهوية متابعة مختلفة. لم يتم تغيير الربط تلقائيًا ويحتاج مراجعة الإدارة.",
-            details: { "الرقم البديل": requestedAlias, reason: persistedAlias.reason },
-          });
-        } catch {}
-      }
+      await notifyV3Discord({
+        event: "manual_action_required",
+        applicationId: truthBeforeActions.application.id,
+        trackingId: truthBeforeActions.application.trackingId,
+        waId: input.waId,
+        actionKey: `payment_incident:${paymentIncident}:${truthBeforeActions.application.id}`,
+        title: "🚨 مراجعة تحويل — اسم المستفيد مختلف",
+        description: "العميل أفاد أنه نفّذ تحويلًا وظهر له اسم مستفيد مختلف عن الاسم الرسمي. تم إيقاف أي توجيه لإعادة الدفع ويحتاج التدقيق من الإدارة.",
+        details: {
+          action: "payment_incident_review",
+          "المشكلة": paymentIncident,
+          "اسم المستفيد الرسمي": truthBeforeActions.policy.paymentBeneficiaryName,
+          "رسالة العميل": effectiveCustomerText,
+        },
+      });
     } catch (error) {
-      console.error("V3 verified alternate-contact persistence failed", error);
+      console.error("V3 payment incident Discord notification failed", error);
     }
   }
 
@@ -605,6 +590,25 @@ export async function runV3ProductionLive(input: {
   }
 
   let plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  if (truthBeforeActions.contactAccess === "safe_preview" && truthBeforeActions.application) {
+    const aliasAction = {
+      action: "link_whatsapp_alias" as const,
+      sourceActId: turn.acts[0]?.id || turn.turnId,
+      requiresConfirmation: true,
+      authority: "deterministic" as const,
+      requiredRole: boundState.role.currentRole,
+      payload: {
+        _autoContactAliasPrompt: true,
+        _aliasWaId: currentWa || input.waId,
+        _aliasRequestText: effectiveCustomerText,
+      },
+    };
+    const blockedUntilAlias = new Set(["cancel_application", "request_refund", "stop_refund", "reopen_application", "change_application_data", "change_device", "continue_application"]);
+    plan = {
+      ...plan,
+      actions: [aliasAction, ...plan.actions.filter((action) => !blockedUntilAlias.has(action.action))],
+    };
+  }
   plan = { ...plan, actions: plan.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)) };
   const applicationScopedPlan = filterPlannedActionsForApplicationScope({
     actions: plan.actions,
@@ -766,11 +770,12 @@ export async function runV3ProductionLive(input: {
   // application changes to customer_confirmed_continue, and Discord receives the
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
-  const continuationDecisionThisTurn = !explicitDoNotContinueText(effectiveCustomerText) && (
-    explicitContinuationText(effectiveCustomerText)
-    || turn.requestedActions.includes("continue_application")
-    || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
-  );
+  const continuationDecisionThisTurn = truthAfterActions.contactAccess !== "safe_preview"
+    && !explicitDoNotContinueText(effectiveCustomerText) && (
+      explicitContinuationText(effectiveCustomerText)
+      || turn.requestedActions.includes("continue_application")
+      || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
+    );
   const truthAtContinuationDecision = truthAfterActions;
   const continuationRevenueReadyAtDecision = continuationDecisionThisTurn
     && isContinuationRevenueReady(truthAtContinuationDecision.application);
@@ -819,13 +824,16 @@ export async function runV3ProductionLive(input: {
     actions,
     turnId: turn.turnId,
   });
+  if (actions.some((x) => x.action === "link_whatsapp_alias" && x.executed) || truthAfterActions.source === "approved_contact_alias") {
+    conversationState = clearContactResolution(conversationState);
+  }
 
   // HUMAN JOURNEY FIRST: transactional truth is already resolved above. From here,
   // the customer should hear a natural journey explanation, not a bare database
   // status. This layer is intentionally deterministic for approval/status/timing
   // so preliminary approval always explains the next commercial step and review
   // window even if the model intent is weak or unknown.
-  const humanJourneyReply = buildHumanJourneyReply({
+  const humanJourneyReply = paymentIncidentReply || buildHumanJourneyReply({
     turn,
     state: conversationState,
     truth: truthAfterActions,
@@ -1176,7 +1184,7 @@ export async function runV3ProductionLive(input: {
         details: { obligation: arbitration.obligation, reason: arbitration.reason },
       });
     }
-    reply = arbitration.reply;
+    reply = applyConversationConstraintsToReply({ state: conversationState, reply: arbitration.reply });
     if (reply) {
       verification = verifyReply({
         reply,
@@ -1285,7 +1293,7 @@ export async function runV3ProductionLive(input: {
         details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
       });
     }
-    reply = egressArbitration.reply;
+    reply = applyConversationConstraintsToReply({ state: conversationState, reply: egressArbitration.reply });
     if (reply) {
       verification = verifyReply({
         reply,

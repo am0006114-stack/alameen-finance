@@ -37,6 +37,7 @@ export async function loadV3ConversationState(waId: string): Promise<Conversatio
         lastVerifiedApplication: state.lastVerifiedApplication || null,
         verifiedContactBinding: state.verifiedContactBinding || null,
         contactResolution: state.contactResolution || null,
+        conversationConstraints: state.conversationConstraints || { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

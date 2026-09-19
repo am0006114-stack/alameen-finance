@@ -2,7 +2,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeJordanPhone, normalizeWhatsAppToSend } from "../text";
 import type { ApplicationTruth, ConversationState, DocumentTruth, TopicKey, TruthBundle } from "./types";
 import { resolveTruth } from "./truth";
-import { bindingAllowsApplication, verifiedPrimaryWaId } from "./contactIdentity";
+
+import { approvedApplicationIdsForWhatsApp, approvedWhatsAppAliasForApplication } from "./applicationContactIdentity";
 
 const APP_SELECT = "id,created_at,tracking_id,full_name,phone,email,status,payment_status,payment_confirmed_at,payment_reference,device_id,device_name,device_price,installment_months,down_payment,interest_rate,monthly_payment,total_with_interest,salary,delivery_delay_until,guarantor_name,guarantor_phone,guarantor_national_id,preliminary_qualified_at,paid_clicked_at";
 const CORE_APP_SELECT = "id,created_at,tracking_id,full_name,phone,status,payment_status,payment_confirmed_at,device_name,installment_months,monthly_payment,preliminary_qualified_at";
@@ -209,23 +210,26 @@ export function suppliedPhoneConflictsWithSender(waId: string, suppliedPhone?: s
   return !contactPhonesMatch(waId, supplied);
 }
 
-function appBelongsToIdentity(app: ApplicationRow | null, waId: string, state: ConversationState) {
+function primaryContactAllowsApplication(app: ApplicationRow | null, waId: string) {
   if (!app) return false;
-  // Phase 7.5.9.3 compatibility: phone numbers typed inside a customer message
-  // never authorize disclosure by themselves.
-  // Direct sender ownership stays authoritative. A typed phone/tracking value
-  // never authorizes disclosure. Phase 7.5.10 additionally permits a durable
-  // alias only when it was previously verified from the registered sender.
-  return contactPhonesMatch(app.phone || "", waId)
-    || bindingAllowsApplication(state, waId, app.phone || "", contactPhonesMatch);
+  return contactPhonesMatch(app.phone || "", waId);
 }
 
-function identityLookupPhone(state: ConversationState, waId: string) {
-  return verifiedPrimaryWaId(state, waId) || waId;
+async function fullContactAccess(app: ApplicationRow | null, waId: string, state: ConversationState) {
+  if (!app) return { allowed: false, source: null as TruthBundle["source"] | null };
+  if (contactPhonesMatch(app.phone || "", waId)) return { allowed: true, source: "current_message_tracking" as TruthBundle["source"] };
+  // Phase 7.6.0: customer-declared/state-only aliases never grant application access.
+  // Only the primary application phone or a customer-confirmed persisted WhatsApp alias does.
+  const approved = await approvedWhatsAppAliasForApplication({ applicationId: app.id, waId });
+  return approved ? { allowed: true, source: "approved_contact_alias" as TruthBundle["source"] } : { allowed: false, source: null };
 }
 
-function identitySource(state: ConversationState, waId: string, fallback: TruthBundle["source"]): TruthBundle["source"] {
-  return verifiedPrimaryWaId(state, waId) ? "verified_contact_alias" : fallback;
+function identityLookupPhone(_state: ConversationState, waId: string) {
+  return waId;
+}
+
+function identitySource(_state: ConversationState, _waId: string, fallback: TruthBundle["source"]): TruthBundle["source"] {
+  return fallback;
 }
 
 function paymentConfirmedRow(app: ApplicationRow) {
@@ -295,16 +299,44 @@ function ambiguousRows(candidates: ApplicationRow[]): TruthBundle["ambiguousAppl
   }));
 }
 
-async function authoritativeBundle(source: TruthBundle["source"], app: ApplicationRow, state: ConversationState): Promise<TruthBundle> {
+async function authoritativeBundle(source: TruthBundle["source"], app: ApplicationRow, state: ConversationState, contactAccess: TruthBundle["contactAccess"] = "full"): Promise<TruthBundle> {
   const truth = await toTruth(app);
   if (!truth) return resolveTruth({ state });
   return {
     confidence: source === "current_message_tracking" ? "authoritative" : "high",
     source,
+    contactAccess,
     application: truth,
     ambiguousApplications: [],
     policy: resolveTruth({ state }).policy,
     fetchedAt: new Date().toISOString(),
+  };
+}
+
+async function safePreviewBundle(app: ApplicationRow, state: ConversationState, warnings: string[]): Promise<TruthBundle> {
+  const truth = await toTruth(app);
+  if (!truth) return { ...resolveTruth({ state }), contactAccess: "none", readWarnings: warnings };
+  const safe: ApplicationTruth = {
+    ...truth,
+    fullName: null,
+    phone: null,
+    email: null,
+    salary: null,
+    guarantorName: null,
+    guarantorPhone: null,
+    guarantorNationalId: null,
+    paymentReference: null,
+    documents: null,
+  };
+  return {
+    confidence: "authoritative",
+    source: "tracking_safe_preview",
+    contactAccess: "safe_preview",
+    application: safe,
+    ambiguousApplications: [],
+    policy: resolveTruth({ state }).policy,
+    fetchedAt: new Date().toISOString(),
+    readWarnings: Array.from(new Set([...warnings, "contact_identity_safe_preview"])),
   };
 }
 
@@ -319,7 +351,7 @@ function snapshotBundle(input: { state: ConversationState; waId: string; supplie
   const age = Date.now() - new Date(snapshot.fetchedAt).getTime();
   if (!Number.isFinite(age) || age < 0 || age > VERIFIED_SNAPSHOT_MAX_AGE_MS) return null;
   const row = snapshot.application as unknown as ApplicationRow;
-  if (!appBelongsToIdentity(row, input.waId, input.state)) return null;
+  if (!primaryContactAllowsApplication(row, input.waId)) return null;
   return {
     confidence: "medium",
     source: "verified_state_snapshot",
@@ -356,17 +388,14 @@ export async function resolveV3ProductionTruth(input: {
 
   if (currentTracking) {
     const app = await attemptLookup("current_tracking", warnings, () => byTracking(currentTracking));
-    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "current_message_tracking"), app, input.state);
     if (app) {
-      const empty = resolveTruth({ state: input.state });
-      return {
-        ...empty,
-        readWarnings: Array.from(new Set([
-          ...warnings,
-          "contact_identity_mismatch_current_tracking",
-          ...(suppliedPhoneConflict ? ["supplied_phone_differs_from_whatsapp_sender"] : []),
-        ])),
-      };
+      const access = await fullContactAccess(app, input.waId, input.state);
+      if (access.allowed) return authoritativeBundle(access.source === "approved_contact_alias" ? "approved_contact_alias" : identitySource(input.state, input.waId, "current_message_tracking"), app, input.state, "full");
+      return safePreviewBundle(app, input.state, Array.from(new Set([
+        ...warnings,
+        "contact_identity_mismatch_current_tracking",
+        ...(suppliedPhoneConflict ? ["supplied_phone_differs_from_whatsapp_sender"] : []),
+      ])));
     }
   }
 
@@ -374,23 +403,50 @@ export async function resolveV3ProductionTruth(input: {
   // across short follow-ups instead of rediscovering from generic phone matching every turn.
   if (input.state.activeApplicationId) {
     const app = await attemptLookup("active_application_id", warnings, () => byId(input.state.activeApplicationId as string));
-    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "conversation_binding"), app, input.state);
+    if (app) {
+      const access = await fullContactAccess(app, input.waId, input.state);
+      if (access.allowed) return authoritativeBundle(access.source === "approved_contact_alias" ? "approved_contact_alias" : identitySource(input.state, input.waId, "conversation_binding"), app, input.state, "full");
+      if (input.state.contactResolution?.trackingId && input.state.contactResolution.trackingId === app.tracking_id) return safePreviewBundle(app, input.state, warnings);
+    }
   }
 
   if (input.state.activeTrackingId) {
     const app = await attemptLookup("active_tracking", warnings, () => byTracking(input.state.activeTrackingId as string));
-    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "conversation_binding"), app, input.state);
+    if (app) {
+      const access = await fullContactAccess(app, input.waId, input.state);
+      if (access.allowed) return authoritativeBundle(access.source === "approved_contact_alias" ? "approved_contact_alias" : identitySource(input.state, input.waId, "conversation_binding"), app, input.state, "full");
+      if (input.state.contactResolution?.trackingId === input.state.activeTrackingId) return safePreviewBundle(app, input.state, warnings);
+    }
   }
 
   const recentTracking = trackingFromRecentTurns(input.recentTurns);
   if (recentTracking) {
     const app = await attemptLookup("recent_tracking", warnings, () => byTracking(recentTracking));
-    if (app && appBelongsToIdentity(app, input.waId, input.state)) return authoritativeBundle(identitySource(input.state, input.waId, "recent_conversation_tracking"), app, input.state);
+    if (app) {
+      const access = await fullContactAccess(app, input.waId, input.state);
+      if (access.allowed) return authoritativeBundle(access.source === "approved_contact_alias" ? "approved_contact_alias" : identitySource(input.state, input.waId, "recent_conversation_tracking"), app, input.state, "full");
+    }
   }
 
   const lookupPhone = identityLookupPhone(input.state, input.waId);
   const candidates = await attemptLookup("phone_candidates", warnings, () => byPhone(lookupPhone));
-  if (candidates?.length === 1) return authoritativeBundle(identitySource(input.state, input.waId, "unique_phone_match"), candidates[0], input.state);
+  if (candidates?.length === 1) return authoritativeBundle(identitySource(input.state, input.waId, "unique_phone_match"), candidates[0], input.state, "full");
+
+  if (!candidates?.length) {
+    const approvedIds = await approvedApplicationIdsForWhatsApp(input.waId);
+    if (approvedIds.length === 1) {
+      const approvedApp = await attemptLookup("approved_alias_application", warnings, () => byId(approvedIds[0]));
+      if (approvedApp) return authoritativeBundle("approved_contact_alias", approvedApp, input.state, "full");
+    }
+    if (approvedIds.length > 1) {
+      const approvedRows = (await Promise.all(approvedIds.slice(0, 10).map((id) => attemptLookup("approved_alias_application", warnings, () => byId(id))))).filter(Boolean) as ApplicationRow[];
+      if (approvedRows.length === 1) return authoritativeBundle("approved_contact_alias", approvedRows[0], input.state, "full");
+      if (approvedRows.length > 1) {
+        const ambiguous = resolveTruth({ state: input.state, ambiguousApplications: ambiguousRows(approvedRows) });
+        return { ...ambiguous, contactAccess: "full", readWarnings: warnings.length ? warnings : undefined };
+      }
+    }
+  }
 
   if (candidates && candidates.length > 1) {
     const paymentQuestion = (input.topics || []).some((topic) => PAYMENT_TOPICS.has(topic));
@@ -416,5 +472,5 @@ export async function resolveV3ProductionTruth(input: {
   }
 
   const empty = resolveTruth({ state: input.state });
-  return { ...empty, degraded: warnings.length > 0, readWarnings: warnings.length ? warnings : undefined };
+  return { ...empty, contactAccess: "none", degraded: warnings.length > 0, readWarnings: warnings.length ? warnings : undefined };
 }

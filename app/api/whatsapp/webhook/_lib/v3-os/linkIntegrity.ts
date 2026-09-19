@@ -173,6 +173,7 @@ export function sanitizeStateForWriter(state: ConversationState) {
         }
       : null,
     contactResolution: state.contactResolution ? { ...state.contactResolution } : null,
+    conversationConstraints: state.conversationConstraints ? { ...state.conversationConstraints } : { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
   };
 }
 

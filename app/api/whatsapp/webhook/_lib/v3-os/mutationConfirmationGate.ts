@@ -1,9 +1,9 @@
 import { normalizeArabic } from "./text";
-import { applicationJourneyStage } from "./applicationJourney";
+import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, TruthBundle } from "./types";
 
-const REAL_MUTATIONS = new Set<ActionKey>(["cancel_application", "request_refund"]);
+const REAL_MUTATIONS = new Set<ActionKey>(["cancel_application", "request_refund", "link_whatsapp_alias"]);
 const MANUAL_MUTATIONS = new Set<ActionKey>(["stop_refund", "reopen_application", "change_device", "change_application_data"]);
 
 function normalized(value: string | null | undefined) {
@@ -21,10 +21,22 @@ function refundWords(q: string) {
   return /(?:استرداد|استرجاع|استرد|استرجع|رجعلي|رجعولي|يرجع|ترجع)/.test(q);
 }
 
+function aliasWords(q: string) {
+  return /(?:اعتمد|اربط|ضيف|اضف|ثبت|سجل).{0,34}(?:الرقم|رقم|واتساب|واتس)|(?:الرقم|رقم|واتساب|واتس).{0,34}(?:اعتمد|اربط|ضيف|اضف|ثبت|سجل)/.test(q);
+}
+
+function actionWords(action: ActionKey, q: string) {
+  if (action === "cancel_application") return cancelWords(q);
+  if (action === "request_refund") return refundWords(q);
+  if (action === "link_whatsapp_alias") return aliasWords(q);
+  return false;
+}
+
 export function mutationQuestion(action: ActionKey, value: string | null | undefined) {
   const q = normalized(value);
-  const hasAction = action === "cancel_application" ? cancelWords(q) : action === "request_refund" ? refundWords(q) : false;
+  const hasAction = actionWords(action, q);
   if (!hasAction) return false;
+  if (action === "link_whatsapp_alias") return /^(?:طيب\s+)?(?:بزبط|ممكن|هل|بقدر|اقدر|كيف)/.test(q) || /(?:ممكن|بقدر|هل).{0,32}(?:اعتمد|اربط|ضيف|اضف|ثبت|سجل)/.test(q);
   return /^(?:طيب\s+)?(?:بزبط|ممكن|هل|بقدر|اقدر|اقدرش|لو|اذا|كيف|شو\s+بصير|شو\s+يصير|وش\s+يصير|قديش|كم)/.test(q)
     || /(?:لو|اذا).{0,24}(?:الغ|استرد|استرجع)/.test(q)
     || /(?:بزبط|ممكن|بقدر|هل).{0,30}(?:الغ|استرد|استرجع)/.test(q)
@@ -39,6 +51,9 @@ export function mutationDecline(action: ActionKey, value: string | null | undefi
   if (action === "request_refund") {
     return /(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+ارغب).{0,24}(?:استرد|استرجع|الاسترداد)|(?:ما\s+طلبت).{0,24}(?:استرداد|استرجاع)/.test(q);
   }
+  if (action === "link_whatsapp_alias") {
+    return /(?:لا\s+تعتمد|لا\s+تربط|ما\s+بدي|بديش|لا\s+اريد|لا\s+ارغب).{0,30}(?:الرقم|واتساب|واتس|تربط|تعتمد)|(?:خليه|خليها).{0,20}(?:بدون\s+ربط|زي\s+ما\s+هو)/.test(q);
+  }
   return false;
 }
 
@@ -51,28 +66,28 @@ export function explicitMutationRequest(action: ActionKey, value: string | null 
   if (action === "request_refund") {
     return /(?:بدي|اريد|حاب|حابب).{0,20}(?:استرد|استرجع|استرداد|استرجاع)|(?:رجعلي|رجعولي).{0,20}(?:الرسوم|المبلغ|المصاري)|^(?:استرداد|استرجاع)$/.test(q);
   }
+  if (action === "link_whatsapp_alias") {
+    return aliasWords(q) && !/^(?:ممكن|هل|بقدر|اقدر|كيف)/.test(q);
+  }
   return false;
 }
 
 function lastAssistantAskedForConfirmation(state: ConversationState, action: ActionKey) {
   const q = normalized(state.lastAssistantText);
   if (!/(?:اكدلي|اكد|تاكيد|للتاكيد|بدي\s+تاكيد|اكتب.{0,18}نعم|قبل\s+ما\s+انفذ|قبل\s+التنفيذ)/.test(q)) return false;
-  return action === "cancel_application" ? cancelWords(q) : action === "request_refund" ? refundWords(q) : false;
+  return actionWords(action, q);
 }
 
 export function explicitMutationConfirmation(input: { action: ActionKey; value: string | null | undefined; state: ConversationState }) {
   const q = normalized(input.value);
   if (!q || mutationQuestion(input.action, q) || mutationDecline(input.action, q)) return false;
-  const actionMentioned = input.action === "cancel_application" ? cancelWords(q) : input.action === "request_refund" ? refundWords(q) : false;
+  const actionMentioned = actionWords(input.action, q);
   const explicit = /(?:نعم|اه|ايوه|اكيد|اكد|موافق).{0,28}/.test(q) && actionMentioned;
-  const lastAsked = lastAssistantAskedForConfirmation(input.state, input.action);
-  const shortYes = /^(?:نعم|اه|ايوه|اكيد|موافق|تم)$/.test(q) && lastAsked;
-  const contextualYes = lastAsked && (
-    /(?:كتبت|حكيت|قلت|جاوبت).{0,18}(?:نعم|اه|ايوه|اكيد|موافق)/.test(q)
-    || /(?:نعم|اه|ايوه|اكيد|موافق).{0,18}(?:مره|مرة|مرات|مليون|من\s+قبل|قبل\s+شوي)/.test(q)
-    || /^(?:نعم|اه|ايوه|اكيد|موافق)(?:\s+\S+){0,4}$/.test(q)
-  );
-  return explicit || shortYes || contextualYes;
+  // Phase 7.6.0 P0: generic acknowledgements are never mutation consent. Production
+  // proved that "تم" after a payment instruction could inherit a stale cancellation.
+  // Every real mutation must be named on the confirmation turn itself: cancellation,
+  // refund, or WhatsApp-alias linking (for example: "نعم اعتمد الرقم").
+  return explicit;
 }
 
 function pendingScopeMatchesTruth(state: ConversationState, truth: TruthBundle) {
@@ -80,19 +95,22 @@ function pendingScopeMatchesTruth(state: ConversationState, truth: TruthBundle) 
   const payload = state.pendingActionPayload || {};
   const appId = String(payload._scopeApplicationId || "").trim();
   const trackingId = String(payload._scopeTrackingId || "").trim();
+  const waId = String(payload._scopeWaId || "").trim();
   if (appId && appId !== truth.application.id) return false;
   if (trackingId && trackingId !== String(truth.application.trackingId || "")) return false;
+  if (waId && waId !== String(state.waId || "").trim()) return false;
   return true;
 }
 
 function missingApplicationMutationReply(action: ActionKey, state: ConversationState) {
   const known = String(state.activeTrackingId || "").trim();
-  const label = action === "cancel_application" ? "الإلغاء" : "الاسترداد";
+  const label = action === "cancel_application" ? "الإلغاء" : action === "request_refund" ? "الاسترداد" : "اعتماد رقم واتساب";
   if (known) return `طلب ${label} واضح، لكن تفاصيل الطلب ${known} مش محمّلة بشكل موثوق بهاللحظة. حفاظًا على طلبك ما رح أنفذ أو أعتبر الإجراء بدأ قبل ما أقرأ الطلب الصحيح فعليًا. جرّب متابعة الطلب من جديد أو ابعث رقم التتبع نفسه مرة واحدة إذا ظلّت المشكلة.`;
-  return `طلب ${label} واضح، لكن ما عندي طلب موثوق مربوط بالمحادثة هسا. حفاظًا على طلبك ما رح أنفذ الإجراء على تخمين؛ ابعث رقم التتبع للطلب اللي بدك ${action === "cancel_application" ? "تلغيه" : "تسترد رسومه"} مرة واحدة.`;
+  const target = action === "cancel_application" ? "تلغيه" : action === "request_refund" ? "تسترد رسومه" : "تربط رقم واتسابك فيه";
+  return `طلب ${label} واضح، لكن ما عندي طلب موثوق مربوط بالمحادثة هسا. حفاظًا على طلبك ما رح أنفذ الإجراء على تخمين؛ ابعث رقم التتبع للطلب اللي بدك ${target} مرة واحدة.`;
 }
 
-function payloadWithConfirmationScope(action: PlannedAction, truth: TruthBundle, turnId: string) {
+function payloadWithConfirmationScope(action: PlannedAction, truth: TruthBundle, turnId: string, waId: string) {
   return {
     ...(action.payload || {}),
     _mutationConfirmationRequired: true,
@@ -100,6 +118,7 @@ function payloadWithConfirmationScope(action: PlannedAction, truth: TruthBundle,
     _scopeApplicationId: truth.application?.id || null,
     _scopeTrackingId: truth.application?.trackingId || null,
     _scopeTurnId: turnId,
+    _scopeWaId: waId,
   };
 }
 
@@ -108,7 +127,12 @@ function confirmationPrompt(action: ActionKey, truth: TruthBundle) {
   if (action === "cancel_application") {
     return `أكيد. بس لأن إلغاء الطلب${tracking} إجراء فعلي وما بدي أنفذه من سؤال أو بالغلط، بدي تأكيد منفصل منك. إذا قرارك نهائي اكتب: نعم، ألغي الطلب.`;
   }
-  return `أكيد. بس لأن طلب الاسترداد إجراء فعلي وما بدي أسجله من سؤال أو بالغلط، بدي تأكيد منفصل منك. إذا قرارك نهائي اكتب: نعم، أريد استرداد الرسوم.`;
+  if (action === "request_refund") {
+    return `أكيد. بس لأن طلب الاسترداد إجراء فعلي وما بدي أسجله من سؤال أو بالغلط، بدي تأكيد منفصل منك. إذا قرارك نهائي اكتب: نعم، أريد استرداد الرسوم.`;
+  }
+  const app = truth.application;
+  const preview = app ? `لقيت الطلب${app.trackingId ? ` ${app.trackingId}` : ""}${app.deviceName ? ` — ${app.deviceName}` : ""}، وحالته ${customerFacingStatusLabel(app)}. ` : "";
+  return `${preview}رقم واتسابك الحالي مختلف عن رقم الهاتف الأساسي على الطلب. إذا هذا رقم واتسابك وبدك أعتمده كرقم متابعة تابع لنفس الطلب، اكتب: نعم، اعتمد الرقم. رقم الهاتف الأساسي بالطلب ما رح يتغير.`;
 }
 
 function informationalReply(action: ActionKey, truth: TruthBundle) {
@@ -118,7 +142,8 @@ function informationalReply(action: ActionKey, truth: TruthBundle) {
       ? "نعم، الإلغاء ممكن. سؤالك هذا ما اعتبرته طلب إلغاء وما نفذت أي تغيير. إذا قررت تلغي فعليًا، اطلب الإلغاء بشكل صريح وبعدها بطلب منك تأكيد منفصل؛ وبما إن على الملف دفع مؤكد، الإلغاء يفتح مسار الاسترداد الرسمي."
       : "نعم، الإلغاء ممكن. سؤالك هذا ما اعتبرته طلب إلغاء وما نفذت أي تغيير. إذا قررت تلغي فعليًا، اطلب الإلغاء بشكل صريح وبعدها بطلب منك تأكيد منفصل قبل التنفيذ.";
   }
-  return "نعم، تقدر تطلب الاسترداد إذا كانت شروطه متحققة على الملف. سؤالك هذا ما اعتبرته طلب استرداد وما سجلت أي إجراء. إذا بدك تنفذه فعليًا، اطلبه بشكل صريح وبعدها بطلب منك تأكيد منفصل.";
+  if (action === "request_refund") return "نعم، تقدر تطلب الاسترداد إذا كانت شروطه متحققة على الملف. سؤالك هذا ما اعتبرته طلب استرداد وما سجلت أي إجراء. إذا بدك تنفذه فعليًا، اطلبه بشكل صريح وبعدها بطلب منك تأكيد منفصل.";
+  return "نعم، بنقدر نعتمد رقم واتسابك الحالي كرقم متابعة تابع لنفس الطلب بدون تغيير رقم الهاتف الأساسي. سؤالك لحاله ما نفّذ أي ربط؛ لما تطلب الاعتماد بطلب منك تأكيد منفصل وواضح قبل التنفيذ.";
 }
 
 export type MutationConfirmationGateResult = {
@@ -194,7 +219,11 @@ export function enforceMutationConfirmationGate(input: {
   // the immediately previous assistant message asked for this exact confirmation, the
   // second customer message can still complete the two-step flow. Never infer this
   // across a different application or without current authoritative truth.
-  const recoverableConfirmation = !pending && explicitConfirmationFromLastPrompt && input.truth.application
+  const recoverableScopeMatches = Boolean(input.truth.application)
+    && Boolean(input.state.activeApplicationId || input.state.activeTrackingId)
+    && (!input.state.activeApplicationId || input.state.activeApplicationId === input.truth.application?.id)
+    && (!input.state.activeTrackingId || input.state.activeTrackingId === input.truth.application?.trackingId);
+  const recoverableConfirmation = !pending && explicitConfirmationFromLastPrompt && recoverableScopeMatches
     ? explicitConfirmationFromLastPrompt
     : null;
 
@@ -207,12 +236,22 @@ export function enforceMutationConfirmationGate(input: {
     clearPendingConfirmation = true;
   }
 
-  if (pending && pendingScopeMatchesTruth(input.state, input.truth) && explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })) {
+  // P0 stale-confirmation killer: a generic acknowledgement such as "تم" must
+  // never inherit an older cancellation/refund prompt after the assistant has
+  // already moved on to another topic (for example payment instructions).
+  // If the immediately previous assistant turn is no longer the matching
+  // confirmation prompt and the customer did not name the mutation, clear it.
+  if (pending && !lastAssistantAskedForConfirmation(input.state, pending)) {
+    const namesPending = actionWords(pending, q);
+    if (!namesPending) clearPendingConfirmation = true;
+  }
+
+  if (pending && !clearPendingConfirmation && pendingScopeMatchesTruth(input.state, input.truth) && explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })) {
     confirmedAction = pending;
   } else if (recoverableConfirmation) {
     confirmedAction = recoverableConfirmation;
   } else if (pending && !mutationDecline(pending, input.turn.rawText) && !clearPendingConfirmation) {
-    const stillTalkingAboutPending = pending === "cancel_application" ? cancelWords(q) : refundWords(q);
+    const stillTalkingAboutPending = actionWords(pending, q);
     if (!stillTalkingAboutPending && q.length > 2) clearPendingConfirmation = true;
   }
 
@@ -223,6 +262,20 @@ export function enforceMutationConfirmationGate(input: {
       continue;
     }
 
+    if (mutationDecline(action.action, input.turn.rawText)) {
+      clearPendingConfirmation = true;
+      continue;
+    }
+    const automaticAliasPrompt = action.action === "link_whatsapp_alias"
+      && action.payload?._autoContactAliasPrompt === true
+      && input.truth.contactAccess === "safe_preview"
+      && Boolean(input.truth.application);
+    if (automaticAliasPrompt && confirmedAction !== "link_whatsapp_alias") {
+      const staged = { ...action, requiresConfirmation: true, authority: "deterministic" as const, payload: payloadWithConfirmationScope(action, input.truth, input.turn.turnId, input.state.waId) };
+      output.push(staged);
+      prompt = confirmationPrompt(action.action, input.truth);
+      continue;
+    }
     if (mutationQuestion(action.action, input.turn.rawText)) {
       blockedQuestionAction = action.action;
       info = informationalReply(action.action, input.truth);
@@ -233,16 +286,23 @@ export function enforceMutationConfirmationGate(input: {
       info = missingApplicationMutationReply(action.action, input.state);
       continue;
     }
-    if (mutationDecline(action.action, input.turn.rawText)) {
-      clearPendingConfirmation = true;
-      continue;
-    }
     if (confirmedAction === action.action) {
-      output.push({ ...action, requiresConfirmation: false, authority: "deterministic" });
+      output.push({
+        ...action,
+        requiresConfirmation: false,
+        authority: "deterministic",
+        payload: {
+          ...(input.state.pendingActionPayload || action.payload || {}),
+          _mutationConfirmedOnTurn: input.turn.turnId,
+          _scopeApplicationId: input.truth.application?.id || null,
+          _scopeTrackingId: input.truth.application?.trackingId || null,
+          _scopeWaId: input.state.waId,
+        },
+      });
       continue;
     }
     if (explicitMutationRequest(action.action, input.turn.rawText)) {
-      const staged = { ...action, requiresConfirmation: true, authority: "deterministic" as const, payload: payloadWithConfirmationScope(action, input.truth, input.turn.turnId) };
+      const staged = { ...action, requiresConfirmation: true, authority: "deterministic" as const, payload: payloadWithConfirmationScope(action, input.truth, input.turn.turnId, input.state.waId) };
       output.push(staged);
       prompt = confirmationPrompt(action.action, input.truth);
       continue;
@@ -262,12 +322,13 @@ export function enforceMutationConfirmationGate(input: {
       sourceActId: input.turn.acts[0]?.id || input.turn.turnId,
       requiresConfirmation: false,
       authority: "deterministic",
-      requiredRole: "omran",
+      requiredRole: confirmedAction === "link_whatsapp_alias" ? input.state.role.currentRole : "omran",
       payload: {
         ...(input.state.pendingActionPayload || {}),
         _mutationConfirmedOnTurn: input.turn.turnId,
         _scopeApplicationId: input.truth.application?.id || null,
         _scopeTrackingId: input.truth.application?.trackingId || null,
+        _scopeWaId: input.state.waId,
       },
     });
   }
@@ -285,8 +346,8 @@ export function enforceMutationConfirmationGate(input: {
         sourceActId: input.turn.acts[0]?.id || input.turn.turnId,
         requiresConfirmation: true,
         authority: "deterministic",
-        requiredRole: "omran",
-        payload: payloadWithConfirmationScope({ action, sourceActId: input.turn.turnId, requiresConfirmation: true, authority: "deterministic", requiredRole: "omran", payload: null }, input.truth, input.turn.turnId),
+        requiredRole: action === "link_whatsapp_alias" ? input.state.role.currentRole : "omran",
+        payload: payloadWithConfirmationScope({ action, sourceActId: input.turn.turnId, requiresConfirmation: true, authority: "deterministic", requiredRole: "omran", payload: null }, input.truth, input.turn.turnId, input.state.waId),
       };
       output.push(staged);
       prompt = confirmationPrompt(action, input.truth);
@@ -311,5 +372,6 @@ export function pendingActionIsCurrentTurnFocus(input: { action: ActionKey | nul
   if (input.action === "reopen_application") return /(?:اعاده|ارجع|رجع|استينف|استانف|افتح).{0,30}(?:الطلب|الملف)|(?:كمل|اكمل|استمر).{0,25}(?:الطلب|الجهاز)/.test(q);
   if (input.action === "change_device") return /(?:غير|تغيير|بدل).{0,30}(?:الجهاز|التلفون|الموبايل)|(?:الجهاز|التلفون).{0,25}(?:غير|بدل)/.test(q);
   if (input.action === "change_application_data") return /(?:غير|تغيير|بدل|عدل).{0,30}(?:الرقم|البيانات|الهاتف|التواصل)/.test(q);
+  if (input.action === "link_whatsapp_alias") return aliasWords(q);
   return MANUAL_MUTATIONS.has(input.action) && input.turn.requestedActions.includes(input.action);
 }

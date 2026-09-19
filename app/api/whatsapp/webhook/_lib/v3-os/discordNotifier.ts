@@ -108,7 +108,7 @@ async function loadApplicationSummary(applicationId?: string | null) {
   try {
     const { data } = await supabaseAdmin
       .from("applications")
-      .select("full_name,device_name,status,tracking_id")
+      .select("full_name,device_name,status,tracking_id,phone")
       .eq("id", applicationId)
       .maybeSingle();
     return data || null;
@@ -180,6 +180,7 @@ export async function notifyV3Discord(input: {
     (input.trackingId || appSummary?.tracking_id) ? { name: "رقم الطلب", value: clipped(input.trackingId || appSummary?.tracking_id), inline: true } : null,
     appSummary?.full_name ? { name: "العميل", value: clipped(appSummary.full_name), inline: true } : null,
     input.waId ? { name: "رقم واتساب", value: clipped(input.waId), inline: true } : null,
+    appSummary?.phone ? { name: "رقم الهاتف الأساسي", value: clipped(appSummary.phone), inline: true } : null,
     appSummary?.device_name ? { name: "الجهاز", value: clipped(appSummary.device_name), inline: true } : null,
     adminApplicationUrl ? { name: "فتح الطلب مباشرة", value: adminApplicationUrl, inline: false } : null,
     ...detailFields,

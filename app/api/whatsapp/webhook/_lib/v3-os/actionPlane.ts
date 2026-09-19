@@ -24,8 +24,16 @@ export function guardAction(action: PlannedAction, state: ConversationState, tru
     return { action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: "omran_supervisor_required", ownerRole: state.role.currentRole };
   }
 
-  if (["cancel_application","request_refund","change_application_data","change_device","continue_application","reopen_application","stop_refund"].includes(action.action) && !truth.application) {
+  if (["cancel_application","request_refund","link_whatsapp_alias","change_application_data","change_device","continue_application","reopen_application","stop_refund"].includes(action.action) && !truth.application) {
     return { action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: "application_truth_required", ownerRole: state.role.currentRole };
+  }
+
+  if (["cancel_application","request_refund","change_application_data","change_device","continue_application","reopen_application","stop_refund"].includes(action.action) && ["safe_preview","none"].includes(String(truth.contactAccess || ""))) {
+    return { action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: "full_contact_identity_required_for_mutation", ownerRole: state.role.currentRole };
+  }
+
+  if (action.action === "link_whatsapp_alias" && String(truth.contactAccess || "") === "none") {
+    return { action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: "tracking_safe_preview_required_for_alias_link", ownerRole: state.role.currentRole };
   }
 
   if (hasPaymentRefundIntegrityConflict(truth.application) && ["cancel_application","request_refund","stop_refund","reopen_application","continue_application","change_application_data","change_device"].includes(action.action)) {
@@ -43,12 +51,29 @@ export function guardAction(action: PlannedAction, state: ConversationState, tru
   return { action: action.action, outcome: "dry_run", executed: false, authoritativeSummary: null, mutationId: null, blocker: "shadow_core_no_business_mutation", ownerRole: state.role.currentRole };
 }
 
+function realMutationOwnershipBlocker(action: PlannedAction, state: ConversationState, truth: TruthBundle) {
+  if (!["cancel_application", "request_refund", "link_whatsapp_alias"].includes(action.action)) return null;
+  const payload = action.payload || {};
+  if (!truth.application) return "application_truth_required";
+  if (String(payload._scopeApplicationId || "") !== truth.application.id) return "mutation_application_scope_required";
+  if (String(payload._scopeTrackingId || "") !== String(truth.application.trackingId || "")) return "mutation_tracking_scope_required";
+  if (String(payload._scopeWaId || "") !== String(state.waId || "")) return "mutation_sender_scope_required";
+  if (action.action === "link_whatsapp_alias" && String(payload._aliasWaId || payload._scopeWaId || "") !== String(state.waId || "")) return "alias_sender_scope_required";
+  if (!String(payload._mutationConfirmedOnTurn || "").trim()) return "explicit_action_named_confirmation_required";
+  return null;
+}
+
 export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean }): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
   for (const action of input.actions) {
     const guarded = guardAction(action,input.state,input.truth);
     if (guarded.outcome !== "dry_run" || !input.allowMutation || !input.adapter) {
       results.push(guarded);
+      continue;
+    }
+    const ownershipBlocker = realMutationOwnershipBlocker(action, input.state, input.truth);
+    if (ownershipBlocker) {
+      results.push({ action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: ownershipBlocker, ownerRole: input.state.role.currentRole });
       continue;
     }
     try {

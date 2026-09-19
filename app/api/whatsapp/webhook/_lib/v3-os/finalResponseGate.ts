@@ -797,9 +797,9 @@ ${links.baseUrl}/products
   if (contractingPartyQuestionText(input.turn.rawText)) return buildSafeContractingPartyReply();
   if (registrationOrLicensingQuestionText(input.turn.rawText)) return buildSafeRegistrationReply(input.truth);
   if (input.strayLegalResponse) {
-    if (input.state.contactResolution && ["blocked_mismatch", "awaiting_admin_update"].includes(input.state.contactResolution.status)) {
+    if (input.state.contactResolution && ["blocked_mismatch", "awaiting_admin_update", "awaiting_alias_confirmation"].includes(input.state.contactResolution.status)) {
       const hasTracking = Boolean(input.state.contactResolution.trackingId);
-      return `فهمت عليك، موضوعنا هون ربط رقم التواصل نفسه، مش تسجيل أو ترخيص الشركة. ${hasTracking ? "رقم التتبع محفوظ عندي وما في داعي تعيده. " : ""}ما رح أكشف تفاصيل طلب من رقم غير موثّق، وبنفس الوقت ما رح أوقف الحوار؛ إذا الرقم الأساسي ما عليه واتساب أو تغيّر معك، تحديث الربط يحتاج تنفيذًا إداريًا فعليًا وبكمل معك على هالمشكلة نفسها بدون ما نبدأ من الصفر.`;
+      return `فهمت عليك، موضوعنا هون ربط رقم التواصل نفسه، مش تسجيل أو ترخيص الشركة. ${hasTracking ? "رقم التتبع محفوظ عندي وما في داعي تعيده. " : ""}ما رح أكشف تفاصيل طلب من رقم غير موثّق، وبنفس الوقت ما رح أوقف الحوار؛ إذا الرقم الأساسي ما عليه واتساب أو تغيّر معك، ربط رقم واتساب جديد يحتاج تأكيدك الصريح أولًا؛ بعدها النظام يعتمده تلقائيًا على نفس الطلب بدون تغيير رقم الهاتف الأساسي، وبنكمل من نفس النقطة.`;
     }
     if (currentQuestionRepair) return currentQuestionRepair;
     return "خليني أبقى على سؤالك الحالي نفسه بدون ما أدخل بموضوع قانوني أو تسجيل ما سألت عنه. اكتب النقطة الحالية مثل ما هي وبجاوبك عليها مباشرة.";

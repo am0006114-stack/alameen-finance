@@ -55,7 +55,7 @@ function safetyCrisisActive(turn: InterpretedTurn, state: ConversationState) {
 
 
 function contactIsolationConversationActive(state: ConversationState) {
-  if (state.contactResolution && ["blocked_mismatch", "awaiting_admin_update"].includes(state.contactResolution.status)) return true;
+  if (state.contactResolution && ["blocked_mismatch", "awaiting_admin_update", "awaiting_alias_confirmation"].includes(state.contactResolution.status)) return true;
   const previous = n(state.lastAssistantText);
   return /(?:رقم\s+التتبع).{0,120}(?:مربوط\s+برقم\s+واتساب\s+مختلف|رقم\s+واتساب\s+مختلف|رقم\s+مختلف)/.test(previous)
     || /(?:خصوصيه|خصوصية).{0,80}(?:صاحب\s+الطلب|رقم\s+مختلف|الطلب)/.test(previous)
@@ -165,8 +165,16 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
     case "contact_isolation_continuation": {
       const australian = /(?:استرالي|أسترالي|دولي|برا\s+الاردن|برا\s+الأردن)/.test(n(input.turn.rawText));
       const noWhatsapp = /(?:ما\s+عليه\s+واتساب|مش\s+عليه\s+واتساب|ما\s+بزبط.{0,16}واتساب|ما\s+بشتغل.{0,16}واتساب)/.test(n(input.turn.rawText));
-      const reason = australian ? "كون الرقم أسترالي أو دولي بحد ذاته مش مشكلة؛ المشكلة بس إن رقم الطلب مختلف عن رقم الواتساب الحالي." : noWhatsapp ? "فهمتك، المشكلة إن الرقم المسجل على الطلب ما عليه واتساب، مش إنك بدك تدخل على طلب حدا ثاني." : "فهمتك، عندك سبب فعلي لاستخدام رقم مختلف عن الرقم المسجل على الطلب.";
-      return `${reason} نقدر نكمل هون عادي بأي سؤال عام أو عن خطوات الأمين، بس ما بقدر أعرض تفاصيل الطلب أو أنفذ عليه من رقم مختلف قبل ما يتوثق الربط. إذا بدك تحديث الرقم المسجل، هذا يحتاج تنفيذ إداري فعلي؛ ما رح أقول إنه تغيّر قبل ما يتنفذ.`;
+      const reason = australian ? "كون الرقم أسترالي أو دولي بحد ذاته مش مشكلة؛ فهمت إن واتسابك الفعلي على رقم ثاني." : noWhatsapp ? "فهمتك، الرقم المسجل على الطلب للمكالمات وما عليه واتساب، وإنت متابع من رقم واتساب ثاني." : "فهمتك، عندك رقم للطلب ورقم واتساب مختلف للمتابعة.";
+      const app = input.truth.application;
+      if (input.truth.contactAccess === "safe_preview" && app) {
+        const preview = `لقيت الطلب${app.trackingId ? ` ${app.trackingId}` : ""}${app.deviceName ? ` للجهاز ${app.deviceName}` : ""}، وحالته ${customerFacingStatusLabel(app)}.`;
+        const pending = input.state.contactResolution?.status === "awaiting_alias_confirmation";
+        return pending
+          ? `${reason} ${preview} ضل بس تأكيدك: إذا بدك أعتمد رقم الواتساب الحالي على نفس الطلب اكتب «نعم، اعتمد الرقم». رقم الهاتف الأساسي بالطلب ما رح يتغير.`
+          : `${reason} ${preview} نقدر نكمل هون بدل ما أرجع أوقفك كل مرة. إذا بدك أعتمد رقم الواتساب الحالي كرقم متابعة تابع لنفس الطلب، اكتب: نعم، اعتمد الرقم. بعد تأكيدك الواضح بنفذ الربط مباشرة بدون تغيير رقم الهاتف الأساسي.`;
+      }
+      return `${reason} إذا عندك رقم التتبع ابعثه مرة واحدة؛ بقدر أطلع لك معلومات الطلب التشغيلية الآمنة، وبعدها إذا بدك تعتمد رقم الواتساب الحالي على نفس الطلب بطلب منك تأكيد واضح وبنفذه مباشرة.`;
     }
     case "direct_call_request":
       return `فاهم إنك بدك نحكي باتصال عشان توضح الصورة. المتابعة الرسمية للطلبات من نفس واتساب، وما عندي مكالمة فعلية أرتبها من هون. احكيلي النقطة اللي بدك تفهمها وأنا معك فيها مباشرة.`;
@@ -208,7 +216,7 @@ export function currentHumanTurnCandidateAligned(input: { authority: CurrentHuma
     }
     case "verified_contact_alias_linked": return /(?:ثبت\s+عندي|رقم\s+واتسابك\s+الثاني|تابع\s+لنفس\s+المتابعه|تابع\s+لنفس\s+المتابعة)/.test(q) && !/(?:غيرت\s+رقم\s+الطلب|تم\s+تعديل\s+الطلب)/.test(q);
     case "verified_contact_alias_conflict": return /(?:تعارض|مراجعه\s+اداريه|مراجعة\s+إدارية)/.test(q) && /(?:ما\s+رح|لم\s+يتم|ما\s+عملت).{0,30}(?:ربط|تغيير)/.test(q);
-    case "contact_isolation_continuation": return /(?:نكمل\s+هون|نكمل\s+المحادثه|نكمل\s+المحادثة)/.test(q) && /(?:ما\s+بقدر\s+اعرض|ما\s+بقدر\s+أعرض).{0,50}(?:تفاصيل\s+الطلب|الطلب)/.test(q) && /(?:تنفيذ\s+اداري|تنفيذ\s+إداري|يتوثق\s+الربط)/.test(q) && !/(?:الجهاز|قيد\s+المراجعه|قيد\s+الدراسه|الدفع\s+مؤكد)/.test(q);
+    case "contact_isolation_continuation": return /(?:لقيت\s+الطلب|رقم\s+واتساب|الواتساب\s+الحالي|اعتماد|الإدارة|الاداره)/.test(q) && !/(?:تم\s+تغيير\s+رقم\s+الهاتف|تم\s+اعتماد).{0,20}(?:بدون|تلقائ)/.test(q);
     case "direct_call_request": return /(?:اتصال|مكالمه|مكالمة|واتساب).{0,80}(?:ما\s+عندي|المتابعه|المتابعة|احكيلي)/.test(q);
     case "website_upload_error": return /(?:حجم|كبير).{0,70}(?:الملف|صغر|صغ ر|ارفع|الرابط\s+الرسمي)/.test(q) && !/شارع\s+المدينه|شارع\s+المدينة/.test(q);
     case "social_security_income": return /(?:راتب|البنك|الضمان).{0,120}(?:الدراسه|الدراسة|الدخل|الموافقه|الموافقة)/.test(q) && !/(?:الضمان\s+العملي|ثق\s+بكلام)/.test(q);

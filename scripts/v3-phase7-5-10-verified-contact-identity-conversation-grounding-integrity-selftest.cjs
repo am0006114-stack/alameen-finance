@@ -10,7 +10,7 @@ const files={
  types:base+'types.ts',identity:base+'contactIdentity.ts',identityStore:base+'contactIdentityStore.ts',truth:base+'productionTruth.ts',state:base+'state.ts',stateStore:base+'stateStore.ts',runtime:base+'runtimeLive.ts',context:base+'contextualTurnResolver.ts',recovery:base+'conversationRecovery.ts',firewall:base+'paymentEligibilityFirewall.ts',final:base+'finalResponseGate.ts',writer:base+'writerContract.ts',link:base+'linkIntegrity.ts',pay:base+'paymentDestinationOverride.ts'
 };
 const src=Object.fromEntries(Object.entries(files).map(([k,v])=>[k,read(v)]));
-ok(src.types.includes('v3.0.0-phase7.5.10-verified-contact-identity-conversation-grounding-integrity'),'runtime version identifies 7.5.10');
+ok(src.types.includes('v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control'),'newer runtime preserves 7.5.10 behavioral contract under 7.6.0');
 ok(src.types.includes('v3.0.0-phase7.5.9.4-human-contact-isolation-continuity'),'7.5.9.4 compatibility anchor preserved');
 ok(src.pay.includes('0788500337')&&src.pay.includes('PAYAMEEEN')&&src.pay.includes('AMEEN1ST')&&src.pay.includes('AM500337')&&src.pay.includes('ABDUL RAHMAN ALHARAHSHEH'),'5 JOD destinations remain frozen');
 const normalize=x=>String(x||'').toLowerCase().replace(/[إأآٱ]/g,'ا').replace(/ى/g,'ي').replace(/ؤ/g,'و').replace(/ئ/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/ة/g,'ه').replace(/\s+/g,' ').trim();
@@ -47,7 +47,9 @@ function appQuery(){const q={select(){return q},eq(){return q},order(){return q}
 const supabase={from(table){if(table==='applications')return appQuery(); if(table==='documents'){const q={select(){return q},eq(){return Promise.resolve({data:[],error:null})}};return q;} throw new Error('unexpected '+table)}};
 const policy={businessName:'الأمين للأقساط',generalLocation:'عمّان – شارع المدينة المنورة',fileOpeningFeeJod:5,normalReviewWindow:'من يومين لـ3 أيام عمل'};
 const resolveTruth=({state})=>({confidence:'none',source:'none',application:null,ambiguousApplications:[],policy,fetchedAt:new Date().toISOString()});
-const prod=run(files.truth,{'@/lib/supabaseAdmin':{supabaseAdmin:supabase},'../text':{normalizeJordanPhone:normPhone,normalizeWhatsAppToSend:waPhone},'./types':{},'./truth':{resolveTruth},'./contactIdentity':identity});
+const productionTruthStubs=(approved)=>({'@/lib/supabaseAdmin':{supabaseAdmin:supabase},'../text':{normalizeJordanPhone:normPhone,normalizeWhatsAppToSend:waPhone},'./types':{},'./truth':{resolveTruth},'./contactIdentity':identity,'./applicationContactIdentity':{approvedWhatsAppAliasForApplication:async({applicationId,waId})=>Boolean(approved&&applicationId==='app-y'&&normalizeWa(waId)===alias),approvedApplicationIdsForWhatsApp:async waId=>approved&&normalizeWa(waId)===alias?['app-y']:[]}});
+const prodBlocked=run(files.truth,productionTruthStubs(false));
+const prodApproved=run(files.truth,productionTruthStubs(true));
 
 // Semantic grounding and payment-path separation.
 const context=run(files.context,{'./text':{normalizeArabic:normalize},'./types':{}});
@@ -60,11 +62,11 @@ ok(firewall.customerTextIsNonFeePaymentContext('صار معي المبلغ كا�
 ok(firewall.customerTextIsNonFeePaymentContext('بدل 24 ادفع 48 يعني شهر عن شهرين')===true,'extra-installment context cannot leak 5 JOD execution details');
 
 // Static architecture invariants.
-ok(src.truth.includes('verified_contact_alias')&&src.truth.includes('bindingAllowsApplication'),'production truth supports deterministic verified alias without typed-number self-authorization');
+ok(src.truth.includes('approved_contact_alias')&&src.truth.includes('approvedWhatsAppAliasForApplication'),'production truth supports deterministic persisted alias approval without typed-number self-authorization');
 ok(src.identityStore.includes('whatsapp_v3_conversation_state')===false&&src.identityStore.includes('saveV3ConversationState'),'alias persistence uses existing state-store abstraction, not a new table/schema');
 ok(!/\b(?:insert|alter\s+table|create\s+table|drop\s+table)\b/i.test(src.identity+'\n'+src.identityStore),'new contact identity modules contain no SQL migration');
-ok(src.runtime.includes('contact_identity_review:')&&src.runtime.includes('awaiting_admin_update'),'runtime preserves durable contact problem and best-effort admin review path');
-ok(src.runtime.includes('does not mutate applications')||src.runtime.includes('does not mutate applications or expand'),'runtime explicitly preserves application/business mutation boundary');
+ok(src.runtime.includes('awaiting_alias_confirmation')&&src.runtime.includes('link_whatsapp_alias'),'runtime preserves durable contact problem and upgrades it to explicit two-step alias confirmation');
+ok(src.runtime.includes('applications.phone is never changed by this flow'),'runtime explicitly preserves primary application phone while linking WhatsApp alias');
 ok(src.writer.includes('CONTACT_IDENTITY_CONTEXT=')&&src.writer.includes('CONTACT RESOLUTION MEMORY'),'writer sees durable verified contact and open contact-resolution state');
 ok(src.writer.includes('CURRENT QUESTION DOMINANCE')&&src.writer.includes('STRAY RESPONSE FIREWALL'),'writer contract requires human current-question dominance and bans unrelated paragraphs');
 ok(src.link.includes('verifiedContactBinding')&&src.link.includes('contactResolution'),'sanitized writer state carries safe contact-identity context');
@@ -73,7 +75,7 @@ ok(src.final.includes('device_model_reference_misread_as_age'),'final egress blo
 ok(src.final.includes('income_evidence_source_question_not_answered'),'final egress requires direct bank/e-wallet evidence answer');
 ok(src.final.includes('installment_adjustment_misrouted_to_file_opening_payment'),'final egress protects installment questions from 5 JOD hijack');
 ok(src.recovery.includes('قصدك موديلات الآيفون')&&src.recovery.includes('Zain Cash'),'conversation recovery has bounded semantic repair for both production failures');
-ok(!src.runtime.includes('update({ phone:')&&!src.identityStore.includes('applications'),'7.5.10 identity layer does not overwrite application.phone');
+ok(!src.runtime.includes('update({ phone:'),'7.5.10 primary-phone protection remains: runtime does not overwrite application.phone');
 
 const changed=[files.types,files.identity,files.identityStore,files.truth,files.state,files.stateStore,files.runtime,files.context,files.recovery,files.firewall,files.final,files.writer,files.link];
 for(const rel of changed) transpile(rel);
@@ -87,11 +89,11 @@ for(const rel of changed) transpile(rel);
   r=await store.persistVerifiedAlternateContact({primaryWaId:'962789999999',aliasWaId:alias});
   ok(r.ok===false&&r.conflict===true,'existing alias cannot be silently rebound to another primary identity');
   const aliasTruthState={...aliasState,activeApplicationId:null,activeTrackingId:null,lastVerifiedApplication:null};
-  const t=await prod.resolveV3ProductionTruth({waId:alias,customerText:'AM-1789311690014',state:aliasTruthState,recentTurns:[],topics:['application_status']});
-  ok(t.application&&t.application.trackingId==='AM-1789311690014','verified alternate sender can resolve its primary-owned application truth');
-  ok(t.source==='verified_contact_alias','truth provenance explicitly records verified-contact-alias authorization');
+  const t=await prodApproved.resolveV3ProductionTruth({waId:alias,customerText:'AM-1789311690014',state:aliasTruthState,recentTurns:[],topics:['application_status']});
+  ok(t.application&&t.application.trackingId==='AM-1789311690014','durably approved alternate sender can resolve its application truth');
+  ok(t.source==='approved_contact_alias','truth provenance explicitly records approved-contact-alias authorization');
   const unverified={...aliasTruthState,verifiedContactBinding:null};
-  const blocked=await prod.resolveV3ProductionTruth({waId:alias,customerText:'AM-1789311690014',state:unverified,recentTurns:[],topics:['application_status']});
-  ok(blocked.application===null&&(blocked.readWarnings||[]).includes('contact_identity_mismatch_current_tracking'),'same alternate sender remains blocked before deterministic verification');
+  const blocked=await prodBlocked.resolveV3ProductionTruth({waId:alias,customerText:'AM-1789311690014',state:unverified,recentTurns:[],topics:['application_status']});
+  ok(blocked.application&&blocked.application.trackingId==='AM-1789311690014'&&blocked.contactAccess==='safe_preview','same alternate sender gets only safe operational preview before deterministic alias approval');
   console.log(`\n7.5.10 focused assertions: ${passed+failed}; passed=${passed}; failed=${failed}`); process.exit(failed?1:0);
 })().catch(e=>{console.error(e);process.exit(1)});

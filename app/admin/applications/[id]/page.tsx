@@ -91,6 +91,20 @@ type DocumentRecord = {
   name?: string | null;
 };
 
+type WhatsAppContactRecord = {
+  id: string;
+  application_id: string;
+  wa_id: string;
+  status: "approved" | "rejected";
+  requested_by_wa_id?: string | null;
+  request_text?: string | null;
+  requested_at?: string | null;
+  approved_at?: string | null;
+  rejected_at?: string | null;
+  approved_by?: string | null;
+  updated_at?: string | null;
+};
+
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
 
@@ -1002,6 +1016,15 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     .order("created_at", { ascending: true });
 
   const safeDocuments = (documents || []) as DocumentRecord[];
+  const { data: whatsappContactsData, error: whatsappContactsError } = await supabaseAdmin
+    .from("whatsapp_application_contacts")
+    .select("*")
+    .eq("application_id", id)
+    .order("updated_at", { ascending: false });
+  if (whatsappContactsError) console.error("Failed to load application WhatsApp contacts:", whatsappContactsError);
+  const whatsappContacts = (whatsappContactsData || []) as WhatsAppContactRecord[];
+  const approvedWhatsAppContact = whatsappContacts.find((row) => row.status === "approved") || null;
+  const preferredWhatsAppPhone = approvedWhatsAppContact?.wa_id || app.phone || "";
   const hasApplicantFrontDocument = safeDocuments.some(isApplicantFrontDocument);
   const hasApplicantBackDocument = safeDocuments.some(isApplicantBackDocument);
   const missingApplicantIdentityDocuments =
@@ -1083,6 +1106,36 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     revalidatePath(`/admin/applications/${applicationId}`);
 
     redirect(`/admin/applications/${applicationId}?whatsapp=success`);
+  }
+
+  async function reviewWhatsAppAliasAction(formData: FormData) {
+    "use server";
+
+    const applicationId = String(formData.get("applicationId") || "").trim();
+    const contactId = String(formData.get("contactId") || "").trim();
+    const decision = String(formData.get("decision") || "").trim();
+    if (!applicationId || !contactId || !["approved", "rejected"].includes(decision)) redirect(`/admin/applications/${applicationId || id}`);
+
+    const now = new Date().toISOString();
+    const { error } = await supabaseAdmin
+      .from("whatsapp_application_contacts")
+      .update({
+        status: decision,
+        approved_at: decision === "approved" ? now : null,
+        rejected_at: decision === "rejected" ? now : null,
+        approved_by: "admin",
+        updated_at: now,
+      })
+      .eq("id", contactId)
+      .eq("application_id", applicationId);
+
+    if (error) {
+      console.error("Failed to review WhatsApp alias:", error);
+      redirect(`/admin/applications/${applicationId}?whatsappAlias=error`);
+    }
+    revalidatePath("/admin");
+    revalidatePath(`/admin/applications/${applicationId}`);
+    redirect(`/admin/applications/${applicationId}?whatsappAlias=${decision}`);
   }
 
   async function updateContactOnlyAction(formData: FormData) {
@@ -1189,10 +1242,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       redirect(`/admin/applications/${app.id}`);
     }
 
-    redirect(makeWhatsAppUrl(app.phone, approvedMessage(app, pickupDate)));
+    redirect(makeWhatsAppUrl(preferredWhatsAppPhone, approvedMessage(app, pickupDate)));
   }
 
-  const hasWhatsAppPhone = Boolean(normalizeJordanPhoneForWhatsApp(app.phone));
+  const hasWhatsAppPhone = Boolean(normalizeJordanPhoneForWhatsApp(preferredWhatsAppPhone));
 
   const applicantSocialSecurity =
     app.applicant_social_security ?? app.social_security ?? app.has_social_security;
@@ -1400,11 +1453,55 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
         <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
           <div className="mb-5">
+            <h2 className="gold-text text-xl font-black">أرقام واتساب التابعة للطلب</h2>
+            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
+              رقم الهاتف الأساسي يبقى كما هو. رقم واتساب إضافي يُعتمد تلقائيًا فقط بعد أن يرسل العميل رقم الطلب ثم يؤكد صراحة «نعم اعتمد الرقم». هنا تراجع الأرقام المرتبطة وتقدر تلغي اعتماد رقم عند الحاجة؛ الربط لا يغيّر رقم الهاتف الأساسي.
+            </p>
+          </div>
+
+          {whatsappContacts.length === 0 ? (
+            <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-4 text-sm font-bold text-[#cbd6cb]">
+              لا توجد أرقام واتساب إضافية معتمدة أو مرفوضة على هذا الطلب.
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {whatsappContacts.map((contact) => (
+                <div key={contact.id} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div>
+                      <p className="text-sm font-black text-white">واتساب: {contact.wa_id}</p>
+                      <p className="mt-1 text-xs font-bold text-[#aeb9af]">الحالة: {contact.status === "approved" ? "معتمد تلقائيًا بعد تأكيد العميل" : "موقوف/مرفوض"}</p>
+                      <p className="mt-1 text-xs font-bold text-[#aeb9af]">طُلب: {formatDate(contact.requested_at)}</p>
+                      {contact.request_text && <p className="mt-2 text-xs font-bold leading-6 text-[#d7ddd5]">رسالة العميل: {contact.request_text}</p>}
+                    </div>
+                    <div className="min-w-[220px]">
+                      <form action={reviewWhatsAppAliasAction}>
+                        <input type="hidden" name="applicationId" value={app.id} />
+                        <input type="hidden" name="contactId" value={contact.id} />
+                        <input type="hidden" name="decision" value={contact.status === "approved" ? "rejected" : "approved"} />
+                        <button type="submit" className={contact.status === "approved" ? "w-full rounded-xl border border-red-400/30 bg-red-950/25 px-3 py-3 text-xs font-black text-red-200" : "w-full rounded-xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] px-3 py-3 text-xs font-black text-[#b8f3c0]"}>
+                          {contact.status === "approved" ? "إلغاء اعتماد هذا الرقم" : "إعادة اعتماد الرقم"}
+                        </button>
+                      </form>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-xs font-bold leading-6 text-[#f3dfac]">
+            رقم واتساب المستخدم حاليًا للإرسال من لوحة الطلب: {preferredWhatsAppPhone || "غير متوفر"}. الربط التلقائي يحتاج تأكيد العميل الصريح ولا يغيّر رقم الهاتف الأساسي للطلب.
+          </div>
+        </section>
+
+        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
+          <div className="mb-5">
             <h2 className="gold-text text-xl font-black">
-              تعديل سريع لرقم الواتساب
+              تعديل رقم الهاتف الأساسي للطلب
             </h2>
             <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-              استخدم هذا الحقل إذا كان رقم العميل الأساسي لا يعمل على واتساب. جميع أزرار واتساب بالأسفل ستستخدم الرقم الجديد بعد الحفظ.
+              هذا هو رقم الهاتف الأساسي المسجل في الطلب للمكالمات والهوية التشغيلية. رقم واتساب إضافي يُربط من محادثة العميل بعد تأكيده الصريح، ويمكنك إلغاء اعتماده من قسم «أرقام واتساب التابعة للطلب».
             </p>
           </div>
 
@@ -1412,7 +1509,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             <input type="hidden" name="applicationId" value={app.id} />
 
             <EditInput
-              label="رقم الواتساب الجديد"
+              label="رقم الهاتف الأساسي الجديد"
               name="phone"
               defaultValue={app.phone}
             />
@@ -1421,7 +1518,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               type="submit"
               className="green-button rounded-2xl px-6 py-4 text-sm font-black transition"
             >
-              حفظ رقم الواتساب فقط
+              حفظ رقم الهاتف الأساسي
             </button>
           </form>
 
@@ -1435,7 +1532,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
             />
 
             <EditInput
-              label="رقم الواتساب الأساسي"
+              label="رقم الهاتف الأساسي للطلب"
               name="phone"
               defaultValue={app.phone}
             />
@@ -1445,7 +1542,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
                 type="submit"
                 className="w-full rounded-2xl border border-[rgba(105,217,123,0.28)] bg-[rgba(105,217,123,0.13)] px-5 py-4 text-sm font-black text-[#b8f3c0] transition hover:bg-[rgba(105,217,123,0.20)]"
               >
-                حفظ الاسم ورقم الواتساب معًا
+                حفظ الاسم ورقم الهاتف الأساسي
               </button>
             </div>
           </form>
@@ -1457,7 +1554,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               تعديل بيانات الطلب
             </h2>
             <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
-              عدّل بيانات العميل، الجهاز أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي. لتغيير رقم الواتساب بسرعة استخدم القسم السريع أعلاه.
+              عدّل بيانات العميل، الجهاز أو الكفيل قبل إرسال الرسائل أو اعتماد القرار النهائي. رقم الهاتف الأساسي مستقل عن أرقام واتساب التابعة للطلب؛ أرقام المتابعة الإضافية تُعتمد تلقائيًا بعد تأكيد العميل الصريح ويمكن إيقافها من قسم أرقام واتساب بدون استبدال الرقم الأساسي.
             </p>
           </div>
 
@@ -1513,13 +1610,13 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           ) : (
             <div className="grid gap-3 md:grid-cols-4 xl:grid-cols-8">
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, currentStatusMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, currentStatusMessage(app))}
                 label="إرسال الحالة الحالية"
                 className="border border-[rgba(214,181,107,0.14)] bg-[rgba(255,255,255,0.06)] text-white hover:bg-[rgba(255,255,255,0.10)]"
               />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, preliminaryApprovalWithFeeQuestionMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, preliminaryApprovalWithFeeQuestionMessage(app))}
                 label="موافقة مبدئية + هل تود الاستمرار"
                 className="border border-[rgba(214,181,107,0.32)] bg-[rgba(214,181,107,0.12)] text-[#f3dfac] hover:bg-[rgba(214,181,107,0.20)]"
               />
@@ -1531,19 +1628,19 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <SalarySlipLinkAction applicationId={app.id} />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, salarySlipRequestMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, salarySlipRequestMessage(app))}
                 label="رسالة كشف راتب نصية"
                 className="border border-purple-300/25 bg-purple-950/30 text-purple-100 hover:bg-purple-950/45"
               />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, guarantorRequestMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, guarantorRequestMessage(app))}
                 label="طلب كفيل برابط"
                 className="border border-orange-300/25 bg-orange-950/30 text-orange-100 hover:bg-orange-950/45"
               />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, underReviewMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, underReviewMessage(app))}
                 label="قيد الدراسة"
                 className="border border-sky-300/25 bg-sky-950/30 text-sky-100 hover:bg-sky-950/45"
               />
@@ -1551,13 +1648,13 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               <ApprovedPickupDateWhatsAppAction action={sendApprovedWithCustomDateAction} />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, missingIdentityDocumentsMessage(app))}
                 label="إعادة إرسال الهوية"
                 className="border border-red-400/35 bg-red-950/30 text-red-100 hover:bg-red-950/45"
               />
 
               <WhatsAppButton
-                href={makeWhatsAppUrl(app.phone, rejectedMessage(app))}
+                href={makeWhatsAppUrl(preferredWhatsAppPhone, rejectedMessage(app))}
                 label="رفض الطلب"
                 className="border border-red-400/30 bg-red-950/25 text-red-200 hover:bg-red-950/40"
               />
@@ -1731,7 +1828,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               {hasWhatsAppPhone && (
                 <a
-                  href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+                  href={makeWhatsAppUrl(preferredWhatsAppPhone, missingIdentityDocumentsMessage(app))}
                   target="_blank"
                   rel="noreferrer"
                   className="rounded-2xl border border-red-400/35 bg-red-950/40 px-5 py-3 text-center text-sm font-black text-red-100 transition hover:bg-red-950/55"
@@ -1777,7 +1874,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
               {hasWhatsAppPhone && (
                 <a
-                  href={makeWhatsAppUrl(app.phone, missingIdentityDocumentsMessage(app))}
+                  href={makeWhatsAppUrl(preferredWhatsAppPhone, missingIdentityDocumentsMessage(app))}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-5 inline-flex rounded-2xl border border-red-400/35 bg-red-950/40 px-5 py-3 text-sm font-black text-red-100 transition hover:bg-red-950/55"

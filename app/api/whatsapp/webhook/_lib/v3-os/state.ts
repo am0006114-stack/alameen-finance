@@ -25,6 +25,7 @@ export function emptyState(waId: string): ConversationState {
     lastVerifiedApplication: null,
     verifiedContactBinding: null,
     contactResolution: null,
+    conversationConstraints: { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
     updatedAt: now(),
   };
 }

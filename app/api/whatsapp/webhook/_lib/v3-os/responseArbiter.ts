@@ -10,6 +10,8 @@ import { buildSemanticQuestionLockReply, resolveSemanticQuestionLock, semanticQu
 import { buildAnswerBundleReply, resolveAnswerBundle } from "./answerObligations";
 import { buildCurrentHumanTurnReply, currentHumanTurnCandidateAligned, resolveCurrentHumanTurnAuthority } from "./currentHumanTurnAuthority";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
+import { buildHumanCompanyOverrideReply, resolveHumanCompanyOverride } from "./humanCompanyRuntime";
+import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 
 export type ResponseObligation =
   | "protected_business_registration"
@@ -75,7 +77,7 @@ function n(value: string | null | undefined) {
 }
 
 function hasAuthoritativeMutationResult(actions: ActionResult[]) {
-  return actions.some((a) => ["cancel_application", "request_refund"].includes(a.action)
+  return actions.some((a) => ["cancel_application", "request_refund", "link_whatsapp_alias"].includes(a.action)
     && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome)));
 }
 
@@ -263,8 +265,16 @@ function contactIdentityMismatch(truth: TruthBundle) {
   return Boolean(truth.readWarnings?.includes("contact_identity_mismatch_current_tracking"));
 }
 
-function contactIdentityMismatchReply() {
-  return "فاهم عليك. رقم التتبع اللي بعثته مربوط برقم واتساب مختلف، فحرصًا على خصوصية صاحب الطلب ما بقدر أعرض تفاصيل هذا الطلب أو حالته من هون، ولا أنفذ عليه من هالرقم. إذا الرقم المسجل إلك بس ما عليه واتساب، أو رقمك دولي/تغيّر معك، احكيلي هالشي وبنكمل هون بالحل المناسب بدون ما نكشف بيانات الطلب.";
+function contactIdentityMismatchReply(input: { truth: TruthBundle; state: ConversationState }) {
+  const app = input.truth.application;
+  if (input.truth.contactAccess === "safe_preview" && app) {
+    const preview = `لقيت الطلب${app.trackingId ? ` ${app.trackingId}` : ""}${app.deviceName ? ` — ${app.deviceName}` : ""}. حالته الآن: ${customerFacingStatusLabel(app)}.`;
+    if (input.state.contactResolution?.status === "awaiting_alias_confirmation") {
+      return `${preview} ضل بس تأكيدك على ربط رقم الواتساب الحالي بنفس الطلب. إذا موافق اكتب: نعم، اعتمد الرقم. رقم الهاتف الأساسي بالطلب ما رح يتغير.`;
+    }
+    return `${preview} رقم الواتساب الحالي مختلف عن رقم الهاتف الأساسي بالطلب، بس هذا ما بوقف المتابعة. إذا هذا واتسابك وبدك أعتمده كرقم تابع لنفس الطلب، اكتب: نعم، اعتمد الرقم. بعد تأكيدك الواضح بنفذ الربط مباشرة، ورقم الهاتف الأساسي بالطلب بيضل كما هو.`;
+  }
+  return "إذا عندك رقم التتبع ابعثه مرة واحدة. براجع الطلب وبعطيك معلومات تشغيلية آمنة عنه، وإذا رقم واتسابك مختلف عن رقم الهاتف الأساسي بقدر أعرض عليك اعتماده على نفس الطلب بتأكيد واحد واضح.";
 }
 
 function pastedForeignContent(value: string | null | undefined) {
@@ -545,7 +555,7 @@ function directRepair(input: {
       return buildSemanticQuestionLockReply({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), turn: input.turn, truth: input.truth });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
-    case "contact_identity_mismatch": return contactIdentityMismatchReply();
+    case "contact_identity_mismatch": return contactIdentityMismatchReply({ truth: input.truth, state: input.state });
     case "contact_channel": return "المتابعة الأساسية للطلبات من خلال واتساب الحالي. ما عندي رقم تواصل إضافي رسمي موثق أقدر أعطيك إياه.";
     case "application_exists": return applicationExistsReply(input.truth);
     case "approval_status": return approvalReply(input.truth);
@@ -648,8 +658,22 @@ export function arbitrateProductionReply(input: {
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
 
+  // Phase 7.6.0: literal human meaning can veto a bad classifier before any
+  // legacy payment/status meaning lock owns the egress. These are bounded,
+  // deterministic repairs for production-proven cross-domain failures.
+  const companyOverride = resolveHumanCompanyOverride({ turn: input.turn, state: input.state, truth: input.truth });
+  if (companyOverride !== "none") {
+    const repair = buildHumanCompanyOverrideReply({ kind: companyOverride, state: input.state, truth: input.truth });
+    if (repair) return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_human_turn", repaired: repair !== candidate, reason: `human company runtime current-turn override: ${companyOverride}` };
+  }
+  const paymentIncident = detectPaymentIncident(input.turn.rawText);
+  if (paymentIncident !== "none") {
+    const repair = buildPaymentIncidentReply({ kind: paymentIncident, expectedBeneficiary: input.truth.policy.paymentBeneficiaryName });
+    if (repair) return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_human_turn", repaired: repair !== candidate, reason: `payment incident plane: ${paymentIncident}` };
+  }
+
   if (obligation === "contact_identity_mismatch") {
-    const repair = contactIdentityMismatchReply();
+    const repair = contactIdentityMismatchReply({ truth: input.truth, state: input.state });
     return { reply: sanitizeUnifiedEgressReply(repair), obligation, repaired: repair !== candidate, reason: "contact isolation blocked cross-number application disclosure" };
   }
 
@@ -694,7 +718,7 @@ export function arbitrateProductionReply(input: {
     // An explicit customer mutation request still needs the two-step confirmation
     // contract, but a stale continuation/status candidate must not hijack it.
     const q = n(candidate);
-    const alreadyGood = /(?:اكدلي|أكدلي|اكتب).{0,35}(?:نعم).{0,35}(?:الغي|ألغي|استرداد)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل)/.test(q);
+    const alreadyGood = /(?:اكدلي|أكدلي|اكتب).{0,35}(?:نعم).{0,35}(?:الغي|ألغي|استرداد|اعتمد\s+الرقم)|(?:ملغي بالفعل|الاسترداد مسجل بالفعل|رقم\s+الواتساب.{0,20}معتمد)/.test(q);
     if (alreadyGood) return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
     const repair = mutationRequestReply({ turn: input.turn, truth: input.truth });
     return { reply: repair, obligation, repaired: repair !== candidate, reason: "explicit mutation request repaired to confirmation contract" };

@@ -1,4 +1,4 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.5.10-verified-contact-identity-conversation-grounding-integrity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control" as const;
 // Backward compatibility anchor: v3.0.0-phase7.5.9.4-human-contact-isolation-continuity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.3-contact-isolation-current-intent-multiact-integrity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.2-final-regression-safe-human-judgment-runtime-safety-continuity
@@ -46,7 +46,8 @@ export type ActionKey =
   | "generate_receipt_link"
   | "reopen_application"
   | "switch_ai_role"
-  | "record_call_preference";
+  | "record_call_preference"
+  | "link_whatsapp_alias";
 
 export type DialogueActType =
   | "ask" | "request_action" | "confirm" | "deny" | "correct" | "provide_fact"
@@ -124,10 +125,19 @@ export type VerifiedContactBinding = {
 };
 
 export type ContactResolutionState = {
-  status: "blocked_mismatch" | "awaiting_admin_update" | "verified_alias";
+  status: "blocked_mismatch" | "awaiting_admin_update" | "awaiting_alias_confirmation" | "verified_alias";
   trackingId: string | null;
   explanation: "different_whatsapp" | "no_whatsapp" | "international_number" | "changed_number" | "alternate_number" | null;
   updatedAt: string;
+};
+
+
+export type ConversationConstraintsState = {
+  noLinks: boolean;
+  whatsappOnly: boolean;
+  avoidRepetition: boolean;
+  sourceTurnId: string | null;
+  updatedAt: string | null;
 };
 
 export type ConversationState = {
@@ -149,6 +159,7 @@ export type ConversationState = {
   lastVerifiedApplication: VerifiedApplicationSnapshot | null;
   verifiedContactBinding: VerifiedContactBinding | null;
   contactResolution: ContactResolutionState | null;
+  conversationConstraints: ConversationConstraintsState;
   updatedAt: string;
 };
 
@@ -195,7 +206,8 @@ export type ApplicationTruth = {
 
 export type TruthBundle = {
   confidence: TruthConfidence;
-  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "verified_contact_alias" | "verified_state_snapshot" | "archive_historical_truth" | "none";
+  source: "current_message_tracking" | "conversation_binding" | "recent_conversation_tracking" | "unique_phone_match" | "unique_relevant_phone_match" | "verified_contact_alias" | "approved_contact_alias" | "tracking_safe_preview" | "verified_state_snapshot" | "archive_historical_truth" | "none";
+  contactAccess?: "full" | "safe_preview" | "none";
   application: ApplicationTruth | null;
   ambiguousApplications: Array<{ id: string; trackingId: string | null; deviceName: string | null; status: string | null; paymentStatus?: string | null }>;
   policy: PolicyTruth;

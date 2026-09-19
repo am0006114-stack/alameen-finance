@@ -37,7 +37,7 @@ const unifiedMock={resolveUnifiedMeaningLock:()=>({kind:'none',hard:false,reason
 const arb=load(`${V3}/responseArbiter.ts`,{
   './applicationJourney':{applicationJourneyStage:stageOf,customerFacingStatusLabel:label},
   './linkIntegrity':{buildOfficialLinkContext:(_t,tr)=>({baseUrl:'https://www.ameenfinance.co',relevant:{tracking:tr.application?`https://www.ameenfinance.co/track?tracking=${tr.application.trackingId}&phone=0790000000`:null,products:'https://www.ameenfinance.co/products'}})},
-  './text':{normalizeArabic}, './currentQuestionAnswerContract':cqMock, './humanFirstConversationAuthority':humanMock, './unifiedConversationDecisionPlane':unifiedMock, './refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null}, './humanSemanticCare':{buildHumanSemanticCareReply:()=>null,composeHumanSemanticCareAroundAnswer:({answer})=>answer,humanSemanticCareCandidateAligned:()=>true,humanSemanticCareMode:()=>null}, './semanticQuestionLocks':{buildSemanticQuestionLockReply:()=>null,resolveSemanticQuestionLock:()=>({kind:'none',hard:false,reason:'mock'}),semanticQuestionCandidateAligned:()=>true}, './answerObligations':{resolveAnswerBundle:()=>({kind:'none',hard:false,reason:'mock'}),buildAnswerBundleReply:()=>null,answerBundleCandidateAligned:()=>true}, './currentHumanTurnAuthority':{resolveCurrentHumanTurnAuthority:()=>({kind:'none',hard:false,reason:'mock'}),buildCurrentHumanTurnReply:()=>null,currentHumanTurnCandidateAligned:()=>true}, './types':{}
+  './text':{normalizeArabic}, './currentQuestionAnswerContract':cqMock, './humanFirstConversationAuthority':humanMock, './unifiedConversationDecisionPlane':unifiedMock, './refundHumanCare':{buildRefundHumanCareReply:()=>null,refundHumanCareCandidateAligned:()=>false,refundHumanCareMode:()=>null}, './humanSemanticCare':{buildHumanSemanticCareReply:()=>null,composeHumanSemanticCareAroundAnswer:({answer})=>answer,humanSemanticCareCandidateAligned:()=>true,humanSemanticCareMode:()=>null}, './semanticQuestionLocks':{buildSemanticQuestionLockReply:()=>null,resolveSemanticQuestionLock:()=>({kind:'none',hard:false,reason:'mock'}),semanticQuestionCandidateAligned:()=>true}, './answerObligations':{resolveAnswerBundle:()=>({kind:'none',hard:false,reason:'mock'}),buildAnswerBundleReply:()=>null,answerBundleCandidateAligned:()=>true}, './currentHumanTurnAuthority':{resolveCurrentHumanTurnAuthority:()=>({kind:'none',hard:false,reason:'mock'}),buildCurrentHumanTurnReply:()=>null,currentHumanTurnCandidateAligned:()=>true}, './humanCompanyRuntime':{resolveHumanCompanyOverride:()=> 'none',buildHumanCompanyOverrideReply:()=>null}, './paymentIncident':{detectPaymentIncident:()=> 'none',buildPaymentIncidentReply:()=>null}, './types':{}
 });
 function ar(raw,candidate,a=app(),topics=[],actions=[],s=state(),forceRepair=false){return arb.arbitrateProductionReply({candidate,turn:turn(raw,topics),state:s,truth:truth(a),actions,forceRepair})}
 
@@ -121,11 +121,11 @@ const mut=load(`${V3}/mutationConfirmationGate.ts`,{
   './text':{normalizeArabic}, './applicationJourney':{applicationJourneyStage:stageOf}, './unifiedConversationDecisionPlane':unifiedMock, './types':{}
 });
 const cancelState=state({lastAssistantText:'أكيد. إذا قرارك نهائي اكتب: نعم، ألغي الطلب.'});
-ok(mut.explicitMutationConfirmation({action:'cancel_application',value:'كتبت نعم مليون مرة',state:cancelState}),'pending cancel confirmation understands frustrated contextual yes');
-ok(mut.explicitMutationConfirmation({action:'cancel_application',value:'نعم مليون مرة',state:cancelState}),'pending cancel confirmation accepts emphatic yes');
-ok(mut.explicitMutationConfirmation({action:'cancel_application',value:'اه يا معلم',state:cancelState}),'pending cancel confirmation accepts short colloquial yes with filler');
+ok(!mut.explicitMutationConfirmation({action:'cancel_application',value:'كتبت نعم مليون مرة',state:cancelState}),'generic frustrated yes cannot authorize cancellation without naming the action');
+ok(!mut.explicitMutationConfirmation({action:'cancel_application',value:'نعم مليون مرة',state:cancelState}),'emphatic yes alone cannot authorize cancellation');
+ok(!mut.explicitMutationConfirmation({action:'cancel_application',value:'اه يا معلم',state:cancelState}),'short colloquial yes cannot authorize cancellation');
 const refundState=state({lastAssistantText:'إذا قرارك نهائي اكتب: نعم، أريد استرداد الرسوم.'});
-ok(mut.explicitMutationConfirmation({action:'request_refund',value:'حكيت نعم من قبل',state:refundState}),'pending refund confirmation recovers repeated yes from context');
+ok(!mut.explicitMutationConfirmation({action:'request_refund',value:'حكيت نعم من قبل',state:refundState}),'repeated yes cannot authorize refund without naming refund');
 ok(!mut.explicitMutationConfirmation({action:'cancel_application',value:'ليش ألغي الطلب؟',state:cancelState}),'question about cancellation is never treated as confirmation');
 
 const runtime=read(`${V3}/runtimeLive.ts`), gate=read(`${V3}/finalResponseGate.ts`), writer=read(`${V3}/writerContract.ts`), types=read(`${V3}/types.ts`), arbSrc=read(`${V3}/responseArbiter.ts`), mutation=read(`${V3}/mutationConfirmationGate.ts`);
@@ -139,7 +139,7 @@ ok(writer.includes('SINGLE RESPONSE AUTHORITY'),'writer contract encodes one cur
 ok(writer.includes('السؤال الحالي')&&writer.includes('سياقًا فقط'),'writer treats old journey state as context, not answer');
 ok(types.includes('v3.0.0-phase7.4.5-single-response-authority'),'runtime version identifies Phase 7.4.5');
 ok(types.includes('v3.0.0-phase7.4.4-current-question-answer-contract'),'7.4.4 compatibility anchor retained');
-ok(mutation.includes('contextualYes'),'mutation confirmation keeps frustrated/repeated yes semantics');
+ok(!mutation.includes('contextualYes')&&mutation.includes('generic acknowledgements are never mutation consent'),'mutation confirmation preserves P0 action-named consent instead of contextual yes');
 ok(arbSrc.includes('mutation/action truth remains authoritative'),'arbiter explicitly preserves transactional action truth');
 ok(!runtime.includes('LIVE_SCOPED_MUTATIONS.add'),'7.4.5 does not expand Real Actions');
 const all=[runtime,gate,writer,types,arbSrc,mutation].join('\n');
