@@ -35,6 +35,14 @@ function addLoop(loops: OpenLoop[], loop: OpenLoop) {
   return loops.slice(-50);
 }
 
+function productReferentText(value: string | null | undefined) {
+  const raw = String(value || "").replace(/\s+/g, " ").trim();
+  const q = normalizeArabic(raw);
+  if (!raw || raw.length > 220) return null;
+  const explicitModel = /(?:ايفون|iphone|سامسونج|samsung|هونر|honor|تكنو|tecno|شاومي|xiaomi|اوبو|oppo|ريلمي|realme|s\s*\d{2}|a\s*\d{2}).{0,50}(?:\d{2}|pro|برو|max|ماكس|ultra|الترا|plus|بلس|air|اير)|(?:\d{2}).{0,35}(?:ايفون|iphone|سامسونج|samsung)/i.test(q);
+  return explicitModel ? raw : null;
+}
+
 export function reduceState(input: { state: ConversationState; turn: InterpretedTurn; assistantText?: string | null }): ConversationState {
   const stamp = now();
   const s: ConversationState = JSON.parse(JSON.stringify(input.state));
@@ -50,6 +58,12 @@ export function reduceState(input: { state: ConversationState; turn: Interpreted
     if (existing >= 0) s.facts[existing] = fact; else s.facts.push(fact);
   }
   s.currentTopic = input.turn.topics.find((t) => !["greeting","thanks","acknowledgement","unknown"].includes(t)) || s.currentTopic;
+  const productReferent = productReferentText(input.turn.rawText);
+  if (productReferent) {
+    const fact = { key: "last_product_referent", value: productReferent, topic: "products" as const, source: "customer" as const, confidence: 1, turnId: input.turn.turnId, updatedAt: stamp };
+    const existing = s.facts.findIndex((f) => f.key === fact.key);
+    if (existing >= 0) s.facts[existing] = fact; else s.facts.push(fact);
+  }
   const requestedMutationAct = input.turn.acts.find((a) => a.type === "request_action" && a.action && actionRequiresOmran(a.action));
   const declinedPending = input.turn.acts.some((a) => a.source === "resolved" && a.type === "deny" && a.value === "pending_action_declined");
   if (requestedMutationAct?.action) {

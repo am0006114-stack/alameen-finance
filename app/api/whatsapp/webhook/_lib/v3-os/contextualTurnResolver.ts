@@ -45,7 +45,9 @@ export function installmentAdjustmentQuestionText(value: string | null | undefin
 export function deviceModelReferenceQuestionText(value: string | null | undefined, context?: string | null) {
   const q = normalized(value);
   const ctx = normalized(context);
-  if (/(?:ايفون|آيفون|iphone|جهاز|موديل).{0,18}(?:16|١٦|17|١٧)|(?:16|١٦|17|١٧).{0,18}(?:ايفون|آيفون|iphone|جهاز|موديل)/i.test(q)) return true;
+  // Phase 7.6.1: this repair exists ONLY for the production-proven ambiguous
+  // shorthand “17 عادي و16 عادي”. It must never own ordinary product questions
+  // such as “كم سعر iPhone 17 Pro Max؟” or any iPhone 18 question.
   const shortModels = /^(?:نعم\s+)?(?:17|١٧)(?:\s+عادي)?\s*(?:و|او|أو|،|,)?\s*(?:16|١٦)(?:\s+عادي)?$|^(?:نعم\s+)?(?:16|١٦)(?:\s+عادي)?\s*(?:و|او|أو|،|,)?\s*(?:17|١٧)(?:\s+عادي)?$/.test(q);
   return shortModels && /(?:جهاز|موديل|ايفون|آيفون|iphone|اسعار|أسعار|سعر)/i.test(ctx);
 }

@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination" as const;
+// Backward compatibility anchor: v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control
 // Backward compatibility anchor: v3.0.0-phase7.5.9.4-human-contact-isolation-continuity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.3-contact-isolation-current-intent-multiact-integrity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.2-final-regression-safe-human-judgment-runtime-safety-continuity
@@ -237,6 +238,8 @@ export type PolicyTruth = {
   paymentMethodRule: string;
   paymentConfirmationRule: string;
   normalReviewWindow: string;
+  recentReleaseAvailabilityRule: string;
+  recentReleaseNotBefore: string;
   reviewPressureLevel: "normal" | "high" | "severe";
   severePressureRule: string;
   refundPressureRule: string;
