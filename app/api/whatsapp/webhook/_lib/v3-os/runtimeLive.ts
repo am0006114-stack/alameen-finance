@@ -772,7 +772,7 @@ export async function runV3ProductionLive(input: {
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
   const continuationDecisionThisTurn = truthAfterActions.contactAccess !== "safe_preview"
-    && !explicitDoNotContinueText(effectiveCustomerText) && (
+    && !explicitDoNotContinueText(effectiveCustomerText, executionState.lastAssistantText) && (
       explicitContinuationText(effectiveCustomerText)
       || turn.requestedActions.includes("continue_application")
       || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)

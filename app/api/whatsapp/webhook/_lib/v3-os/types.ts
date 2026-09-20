@@ -1,4 +1,4 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.7.0-human-employee-presence-emotional-judgment-grounded-continuity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.7.1-payment-journey-continuity-human-repair" as const;
 // Backward compatibility anchor: v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination
 // Backward compatibility anchor: v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control
 // Backward compatibility anchor: v3.0.0-phase7.5.9.4-human-contact-isolation-continuity

@@ -225,14 +225,19 @@ export function newApplicationConversationContext(state: ConversationState, rece
 function hasExplicitTracking(value: string | null | undefined) {
   return /AM-\d{8,}/i.test(String(value || ""));
 }
-export function explicitDoNotContinueText(value: string | null | undefined) {
+export function explicitDoNotContinueText(value: string | null | undefined, context?: string | null) {
   const q = normalized(value);
-  return /(?:لا\s+ارغب|لا\s+أرغب|لا\s+اريد|لا\s+أريد|مش\s+حاب|مش\s+حابه|مش\s+حابة|ما\s+بدي|مش\s+بدي|ما\s+ارغب|ما\s+أرغب).{0,35}(?:الاستمرار|استمر|اكمل|أكمل|تكمل|المتابعه|المتابعة)|(?:لا\s+ارغب|لا\s+أرغب).{0,25}(?:حاليا|حاليًا|مستقبلا|مستقبلًا)/.test(q);
+  const ctx = normalized(context);
+  const explicit = /(?:لا\s+ارغب|لا\s+أرغب|لا\s+اريد|لا\s+أريد|مش\s+حاب|مش\s+حابه|مش\s+حابة|ما\s+بدي|مش\s+بدي|ما\s+ارغب|ما\s+أرغب).{0,35}(?:الاستمرار|استمر|اكمل|أكمل|تكمل|المتابعه|المتابعة)|(?:لا\s+ارغب|لا\s+أرغب).{0,25}(?:حاليا|حاليًا|مستقبلا|مستقبلًا)/.test(q);
+  const contextualDecline = /^(?:لا\s*يسلمو|لا\s*شكرا|لا\s*شكرًا|يسلمو\s+لا|بلاش|خلص\s+لا)$/.test(q)
+    && /(?:اود\s+الاستمرار|أود\s+الاستمرار|هل\s+(?:تود|تريد|بدك).{0,25}(?:الاستمرار|تكمل)|رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار))/.test(ctx);
+  return explicit || contextualDecline;
 }
 
 export function explicitContinuationText(value: string | null | undefined) {
   const q = normalized(value);
   if (explicitDoNotContinueText(value)) return false;
+  if (/^(?:استمرار|اكمل|أكمل|كمل|نكمل|نستمر|استمر)$/.test(q)) return true;
   return /(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار|(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق|موافقه|موافقة)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:بدي|حاب|حابه|حابة)\s+(?:افتح|أفتح|فتح)\s+(?:ال)?ملف|(?:افتح|أفتح)\s+(?:لي\s+)?(?:ال)?ملف|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
 }
 
@@ -593,7 +598,7 @@ export function buildConversationRecoveryReply(input: {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const newApplication = explicitNewApplicationText(raw) || contextualNewApplicationYes(input.turn, input.state, input.recentTurns);
   const newApplicationContext = newApplicationConversationContext(input.state, input.recentTurns) && !hasExplicitTracking(raw);
-  const stopContinuation = explicitDoNotContinueText(raw) || commercialPauseOrDeclineText(raw, input.state.lastAssistantText);
+  const stopContinuation = explicitDoNotContinueText(raw, input.state.lastAssistantText) || commercialPauseOrDeclineText(raw, input.state.lastAssistantText);
   const continuation = !stopContinuation && !newApplication && !newApplicationContext && (explicitContinuationText(raw) || contextualContinuationYes(input.turn, input.state, input.recentTurns));
   const human = humanRequestText(raw);
   const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: input.recentTurns });

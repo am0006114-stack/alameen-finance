@@ -2,6 +2,7 @@ import { applicationJourneyStage, customerFacingStatusLabel } from "./applicatio
 import { continuationCommercialState } from "./commercialProgression";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
+import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 function n(value: string | null | undefined) {
@@ -30,6 +31,9 @@ export function directPaymentExecutionQuestion(turn: InterpretedTurn) {
 
   const direct = /^(?:(?:طيب|تمام|اه|أه)\s+)?(?:(?:هسا|هلا|هلأ|الان|الآن)\s+)?(?:ادفع|أدفع|احول|أحول|بحول|بدفع)(?:\s+(?:هسا|هلا|هلأ|الان|الآن|اليوم|المصاري|المبلغ|الخمس|الخمسه|5|٥|دنانير|دينار))*$/.test(q);
   if (direct) return true;
+
+  const yesNoPayment = /(?:في|علي|عندي|مطلوب).{0,18}(?:دفع|ادفع|أدفع).{0,18}(?:ولا|او|أو|هسا|هلا|هلأ|الان|الآن|حاليا|حاليًا)|(?:دفع).{0,12}(?:ولا\s+(?:فش|لا)|هسا\s+ولا\s+لا)|(?:فش|ما\s+في).{0,12}(?:دفع).{0,16}(?:هسا|حاليا|حاليًا)?|(?:في\s+دفع\s+حاليا\s+ولا\s+لا)/.test(q);
+  if (yesNoPayment) return true;
 
   return /(?:ادفع|أدفع|احول|أحول|بحول|بدفع).{0,22}(?:هسا|هلا|هلأ|الان|الآن|اليوم).{0,12}$/.test(q)
     && turn.topics.some((topic) => ["payment_fee", "payment_method", "payment_timing", "payment_status", "payment_confirmation"].includes(topic));
@@ -92,7 +96,7 @@ function paymentNowReply(turn: InterpretedTurn, truth: TruthBundle) {
     return "وصل الدفع موجود على الملف وبانتظار اعتماد الإدارة، فما في داعي تدفع أو ترفع الوصل مرة ثانية.";
   }
   if (commercial === "payment_ready" || stage === "continuation_confirmed_fee_due") {
-    return `نعم، هسا بتقدر تدفع رسوم فتح الملف 5 دنانير. ${truth.policy.paymentMethodRule}${receiptLine(turn, truth)}\nالقسط الأول مش مطلوب الآن؛ بيستحق بعد شهر من استلام الجهاز وتوقيع العقد.`;
+    return `نعم، هسا مطلوب 5 دنانير رسوم فتح الملف لأن اختيار الاستمرار مسجل. ${currentFileOpeningPaymentRule({ includeApology: false })}${receiptLine(turn, truth)}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ بيستحق بعد شهر من استلام الجهاز وتوقيع العقد.`;
   }
   if (stage === "preliminary_approved_waiting_decision") {
     return "الموافقة الحالية مبدئية. رسوم فتح الملف 5 دنانير بتصير بعد ما تختار الاستمرار؛ قبل ما أعطيك بيانات التحويل لازم يكون قرار الاستمرار مسجل على الطلب.";

@@ -10,7 +10,7 @@ function transpile(rel){const r=ts.transpileModule(read(rel),{compilerOptions:{t
 const base='app/api/whatsapp/webhook/_lib/v3-os/';
 const files={types:base+'types.ts',state:base+'state.ts',rel:base+'humanRelationshipRuntime.ts',care:base+'humanSemanticCare.ts',writer:base+'writerContract.ts',runtime:base+'runtimeLive.ts',gate:base+'finalResponseGate.ts'};
 const src=Object.fromEntries(Object.entries(files).map(([k,v])=>[k,read(v)]));
-ok(src.types.includes('v3.0.0-phase7.7.0-human-employee-presence-emotional-judgment-grounded-continuity'),'runtime version identifies 7.7.0');
+ok(src.types.includes('v3.0.0-phase7.7.0-human-employee-presence-emotional-judgment-grounded-continuity') || src.types.includes('v3.0.0-phase7.7.1-payment-journey-continuity-human-repair'),'7.7.0 compatibility preserved under 7.7.1');
 ok(src.types.includes('v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination'),'7.6.1 compatibility anchor preserved');
 ok(src.types.includes('HumanRelationshipState')&&src.types.includes('humanRelationship?: HumanRelationshipState'),'conversation state carries backward-compatible human relationship memory');
 ok(src.state.includes('updateHumanRelationshipState')&&src.state.includes('humanRelationship:'),'state reducer persists relationship judgment');

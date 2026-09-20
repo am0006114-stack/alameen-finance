@@ -1,6 +1,8 @@
 import { applicationJourneyStage, type ApplicationJourneyStage } from "./applicationJourney";
 import { normalizeArabic } from "./text";
 import { currentTurnAuthorityKind } from "./currentTurnAuthority";
+import { buildOfficialLinkContext } from "./linkIntegrity";
+import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import type { ConversationState, DialogueAct, InterpretedTurn, TopicKey, TruthBundle } from "./types";
 
 function normalized(value: string | null | undefined) {
@@ -281,7 +283,19 @@ export function buildJourneyLockRepairReply(input: {
   if (stage === "cancelled") return `الطلب${tracking} ملغي حاليًا، فما رح أرجعك لخطوة الاستمرار أو الدفع على نفس الحالة. إذا قصدك تعمل طلب جديد أو تسأل عن الاسترداد، بجاوبك حسب الحقيقة الموجودة على الملف.`;
   if (stage === "payment_confirmed_under_review") return "الدفع مؤكد إداريًا والملف مكمل بالدراسة النهائية. ما في داعي تعيد «أود الاستمرار» أو تدفع أو ترفع وصل جديد؛ بجاوبك من مرحلة الدراسة الحالية.";
   if (stage === "payment_proof_pending_admin") return "وصل الدفع موجود على الملف وبانتظار اعتماد الإدارة. ما في داعي تعيد «أود الاستمرار» أو تدفع أو ترفع الوصل مرة ثانية.";
-  if (stage === "continuation_confirmed_fee_due") return "اختيار الاستمرار مسجل بالفعل. ما في داعي تعيد «أود الاستمرار»؛ بنكمل من خطوة فتح الملف الحالية حسب سؤالك.";
+  if (stage === "continuation_confirmed_fee_due") {
+    const q = normalized(input.turn.rawText);
+    const asksPaymentNow = /(?:في|علي|عندي|مطلوب).{0,18}(?:دفع|ادفع|أدفع)|(?:وين|كيف).{0,20}(?:ادفع|أدفع|احول|أحول|الدفع)|(?:دفع).{0,16}(?:ولا\s+(?:فش|لا)|هسا|حاليا|حاليًا)|(?:شو\s+المطلوب|شو\s+اعمل|شو\s+أعمل|مش\s+فاهم|ما\s+فهمت|برضو\s+ما\s*فهمت)/.test(q);
+    if (asksPaymentNow) {
+      const syntheticTurn: InterpretedTurn = {
+        ...input.turn,
+        topics: Array.from(new Set([...input.turn.topics, "payment_fee", "payment_method", "receipt_upload", "continuation"])) as InterpretedTurn["topics"],
+      };
+      const receipt = buildOfficialLinkContext(syntheticTurn, input.truth).relevant.receipt;
+      return `نعم، هسا عليك 5 دنانير رسوم فتح الملف لأن اختيار الاستمرار مسجل. ${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
+    }
+    return "اختيار الاستمرار مسجل بالفعل. ما في داعي تعيد «أود الاستمرار»؛ بنكمل من خطوة فتح الملف الحالية حسب سؤالك.";
+  }
   return null;
 }
 
