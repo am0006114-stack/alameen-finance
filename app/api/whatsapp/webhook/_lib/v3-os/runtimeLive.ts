@@ -35,6 +35,7 @@ import { resolveFreshPublicProductReply } from "./freshPublicFacts";
 import { contactExplanationFromText, markContactResolution, clearContactResolution, canonicalWaId } from "./contactIdentity";
 import { applyConversationConstraintsToReply, updateConversationConstraints } from "./conversationConstraints";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
+import { applyHumanRelationshipEgress } from "./humanRelationshipRuntime";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -1184,7 +1185,7 @@ export async function runV3ProductionLive(input: {
         details: { obligation: arbitration.obligation, reason: arbitration.reason },
       });
     }
-    reply = applyConversationConstraintsToReply({ state: conversationState, reply: arbitration.reply });
+    reply = applyConversationConstraintsToReply({ state: conversationState, reply: applyHumanRelationshipEgress({ reply: arbitration.reply, turn, state: conversationState, truth: truthAfterActions }) });
     if (reply) {
       verification = verifyReply({
         reply,
@@ -1293,7 +1294,7 @@ export async function runV3ProductionLive(input: {
         details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
       });
     }
-    reply = applyConversationConstraintsToReply({ state: conversationState, reply: egressArbitration.reply });
+    reply = applyConversationConstraintsToReply({ state: conversationState, reply: applyHumanRelationshipEgress({ reply: egressArbitration.reply, turn, state: conversationState, truth: truthAfterActions }) });
     if (reply) {
       verification = verifyReply({
         reply,

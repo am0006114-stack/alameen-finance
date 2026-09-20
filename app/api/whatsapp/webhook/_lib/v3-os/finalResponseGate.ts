@@ -15,6 +15,7 @@ import { buildCurrentQuestionAnswerContractReply, replyViolatesCurrentQuestionAn
 import { arbitrateProductionReply, responseHasKnownBadFallbackSignature } from "./responseArbiter";
 import { candidateAlignedWithLockedMeaning, downPaymentQuestion, officePaymentQuestion, protectedBusinessRegistrationRequest, resolveUnifiedMeaningLock, stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 import { deviceModelReferenceQuestionText, incomeEvidenceSourceQuestionText, installmentAdjustmentQuestionText } from "./contextualTurnResolver";
+import { buildGroundedPersonalFactRepair, buildMediaEvidenceRepair, mediaEvidenceViolation, unsupportedPersonalFactClaim } from "./humanRelationshipRuntime";
 
 export type FinalResponseGateResult = {
   pass: boolean;
@@ -693,7 +694,11 @@ function buildReplacement(input: {
   trustCommercialNudgeViolation: boolean;
   unsupportedEligibility: boolean;
   reviewTimingMissingDetails: boolean;
+  unsupportedPersonalFact: boolean;
+  unsupportedMediaEvidence: boolean;
 }) {
+  if (input.unsupportedPersonalFact) return buildGroundedPersonalFactRepair({ turn: input.turn, state: input.state, truth: input.truth });
+  if (input.unsupportedMediaEvidence) return buildMediaEvidenceRepair({ turn: input.turn, state: input.state, truth: input.truth });
   const arbitration = arbitrateProductionReply({
     candidate: input.reply,
     turn: input.turn,
@@ -973,6 +978,13 @@ export function enforceFinalResponseGate(input: {
     if (!violations.includes("non_fee_payment_context_leaked_file_opening_details")) violations.push("non_fee_payment_context_leaked_file_opening_details");
     severity = "p0";
   }
+  const unsupportedPersonalFact = unsupportedPersonalFactClaim({ candidate: reply, turn: input.turn, state: input.state, truth: input.truth });
+  if (unsupportedPersonalFact) {
+    violations.push("unsupported_customer_personal_fact_claim");
+    severity = "p0";
+  }
+  const unsupportedMediaEvidence = mediaEvidenceViolation({ candidate: reply, turn: input.turn, state: input.state });
+  if (unsupportedMediaEvidence) violations.push("unsupported_media_or_progress_interpretation");
   if (reply && roboticPhrase(reply)) violations.push("robotic_escape_phrase");
   if (deviceModelReferenceTurn(input.turn, input.state) && /(?:بعمر|عمر).{0,20}(?:16|١٦|17|١٧)|(?:16|١٦|17|١٧).{0,15}(?:سنه|سنة|عمر)/.test(normalized(reply))) violations.push("device_model_reference_misread_as_age");
   if (incomeEvidenceSourceTurn(input.turn) && !/(?:بنك|كشف\s+الحساب|كشف\s+حساب|zain\s*cash|زين\s+كاش|محفظه|محفظة|اعتماد\s+موثق|اعتماد\s+موثّق)/i.test(reply)) violations.push("income_evidence_source_question_not_answered");
@@ -1150,6 +1162,8 @@ export function enforceFinalResponseGate(input: {
       trustCommercialNudgeViolation,
       unsupportedEligibility,
       reviewTimingMissingDetails,
+      unsupportedPersonalFact,
+      unsupportedMediaEvidence,
     }) : null,
     severity,
   };

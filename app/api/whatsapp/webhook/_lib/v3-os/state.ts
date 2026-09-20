@@ -2,6 +2,7 @@ import { actionRequiresOmran, initialRoleState, resolveAiRole, roleDisplayName }
 import { V3_OS_VERSION, type ConversationState, type InterpretedTurn, type OpenLoop } from "./types";
 import { normalizeArabic } from "./text";
 import { BUSINESS_REGISTRATION_PROTECTION_REPLY } from "./unifiedConversationDecisionPlane";
+import { updateHumanRelationshipState } from "./humanRelationshipRuntime";
 
 function now() { return new Date().toISOString(); }
 
@@ -26,6 +27,7 @@ export function emptyState(waId: string): ConversationState {
     verifiedContactBinding: null,
     contactResolution: null,
     conversationConstraints: { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
+    humanRelationship: { lastEmotion: "neutral", lastConcern: null, frustrationStreak: 0, delayTurnCount: 0, warmTurnCount: 0, lastGreetingTurnId: null, updatedAt: now() },
     updatedAt: now(),
   };
 }
@@ -78,6 +80,7 @@ export function reduceState(input: { state: ConversationState; turn: Interpreted
   }
   const risk = input.turn.sentiment === "angry" || input.turn.topics.some((t) => ["legal","social_threat","complaint","refund","cancellation"].includes(t));
   s.consecutiveRiskTurns = risk ? s.consecutiveRiskTurns + 1 : Math.max(0, s.consecutiveRiskTurns - 1);
+  s.humanRelationship = updateHumanRelationshipState({ state: input.state, turn: input.turn, stamp });
 
   for (const act of input.turn.acts) {
     if (act.type === "provide_fact" && act.value) {

@@ -17,6 +17,7 @@ import { fileOpeningPaymentWriterTruth } from "./paymentDestinationOverride";
 import { humanFirstJourneyWriterContext } from "./humanFirstJourneyIntelligence";
 import { buildHumanEmployeePresenceContext } from "./employeePresence";
 import { resolveCurrentHumanTurnAuthority } from "./currentHumanTurnAuthority";
+import { buildHumanRelationshipProfile } from "./humanRelationshipRuntime";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -98,6 +99,7 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const paymentDestinationOverride = fileOpeningPaymentWriterTruth();
   const humanFirstJourney = humanFirstJourneyWriterContext({ turn: input.turn, state: input.state, truth: input.truth });
   const humanEmployeePresence = buildHumanEmployeePresenceContext(input.turn.rawText);
+  const humanRelationship = buildHumanRelationshipProfile({ turn: input.turn, state: input.state, truth: input.truth, recentTurns: safeRecentTurns });
   const currentHumanTurnAuthority = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
   const currentRefundAction = input.turn.requestedActions.includes("request_refund");
   const previousCustomerText = input.state.lastCustomerText
@@ -138,6 +140,7 @@ HUMAN_FIRST_FINAL_GOAL=true
 PERSONA_HUMAN_VOICE_PRESERVED=true
 HUMAN_FIRST_JOURNEY_CONTEXT=${JSON.stringify(humanFirstJourney)}
 HUMAN_EMPLOYEE_PRESENCE_CONTEXT=${JSON.stringify(humanEmployeePresence)}
+HUMAN_RELATIONSHIP_CONTEXT=${JSON.stringify(humanRelationship)}
 FULL_COMPANY_EMPLOYEE_MODE=true
 GENERAL_ASSISTANT_MODE=false
 HUMAN_JUDGMENT_RUNTIME=true
@@ -170,6 +173,14 @@ ${personaWritingContract(roleName)}
 
 HUMAN_JUDGMENT_RUNTIME_CONTRACT:
 - قبل كتابة أي كلمة، حدّد ماذا يحتاج الشخص من رسالته الحالية تحديدًا. الحالة القديمة والـintent والتاريخ سياق مساعد، وليسوا جوابًا جاهزًا.
+- PHASE 7.7.0 HUMAN EMPLOYEE PRESENCE: العاطفة ليست قالبًا يضاف لكل رد. HUMAN_RELATIONSHIP_CONTEXT.empathy هو الحد الأعلى للتعاطف المسموح في هذا الدور؛ إذا كانت none لا تخترع ضيقًا أو غضبًا من عندك، وإذا كانت contextual/strong استخدم جملة إنسانية واحدة مرتبطة بسبب حقيقي قاله العميل ثم انتقل للجواب المفيد.
+- GREETING CONTINUITY: إذا HUMAN_RELATIONSHIP_CONTEXT.greeting موجودة، رد عليها باختصار قبل الجواب العملي ما لم يكن الرد تنفيذ Action حرجًا يحتاج صياغة مقتضبة جدًا. لا تتجاهل «صباح الخير/السلام عليكم» داخل burst فيه سؤال طلب.
+- RELATIONSHIP MEMORY: حافظ على سبب القلق كفئة تشغيلية (تأخير/استرداد/دفع/مشكلة تقنية/ثقة/مستندات/توفر) ولا تستبدله بسياق قديم مختلف. لا تحفظ أو تخترع تفاصيل شخصية جديدة.
+- GROUNDED PERSONAL FACTS: ممنوع نسبة بنك، راتب، ضمان اجتماعي، وظيفة، جهة عمل، أو أي حقيقة شخصية للعميل إلا إذا كتبها العميل فعلًا في السياق المتاح أو كانت موجودة صراحةً في TRUTH. إذا قال «عمل حر/ما عندي ضمان» ممنوع قلبها إلى «راتبك ينزل بالبنك/مسجل بالضمان».
+- MEDIA EVIDENCE CONTRACT: وصول صورة/مرفق لا يعني أنك قرأت محتواه. إذا ما عندك نص/وصف موثوق للمحتوى، لا تقل «واضح بالصورة/شايف بالصورة» ولا تفسر نسبة مثل 92% بأنها تحميل صفحة أو نسبة دراسة. افصل بين ما قاله العميل عن الصورة وبين حقيقة الطلب الموثقة، واطلب اسم الصفحة/نص الخطأ إذا احتجت لتشخيص المؤشر.
+- EMPATHY CALIBRATION: سؤال قصير ومحايد مثل «شو صار؟/حالة الطلب؟» لا يستحق «معك حق تتضايق» لمجرد أن classifier صنفه frustrated. التعاطف يحتاج دليل لغوي أو تاريخ تكرار واضح.
+- NATURAL SOCIAL RHYTHM: الشكر والورد والتحية والمزاح الخفيف تعامل معها كبشرية طبيعية مختصرة، بدون سحب العميل كل مرة إلى status أو رابط تتبع أو CTA تجاري.
+- REPETITION HYGIENE: ممنوع التكرار العرضي داخل الجملة مثل «المعدل الطبيعي للمراجعة المعدل الطبيعي للمراجعة»، وممنوع إعادة نفس opener العاطفي إذا سبق استخدامه.
 - اكتب الرد من الصفر لهذه المحادثة. لا تبدأ تلقائيًا بعبارات محفوظة مثل «معك حق تتضايق إذا حاسس...» أو «فاهم ليش الثقة اهتزت...» لمجرد أن النبرة غاضبة. التعاطف لازم يرتبط بسبب واضح قاله العميل الآن أو في السياق القريب.
 - إذا سبق وردّينا بنفس المعلومة والعميل غيّر سؤاله، ممنوع إعادة status/مدة/رابط التتبع كبديل عن سؤاله الجديد.
 - إذا HUMAN_JUDGMENT_CONTEXT.explicitRefundAction=true، تعامل مع كلام العميل كطلب استرداد فعلي واتبع مسار التأكيد/التنفيذ المحمي؛ لا تحوله إلى شرح عن مدة الدراسة أو حالة الطلب.

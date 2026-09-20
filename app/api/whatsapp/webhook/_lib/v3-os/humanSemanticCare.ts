@@ -11,6 +11,17 @@ function n(value: string | null | undefined) {
     .trim();
 }
 
+
+function explicitFrustrationText(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:صارلي|صارله|صارلها|من\s+تاريخ).{0,24}(?:يوم|ايام|أيام|اسبوع|أسبوع|اسابيع|أسابيع|\d+)|(?:8|7|6|5|4|3|2)\s*(?:يوم|ايام|أيام)|(?:اسبوع|أسبوع|اسبوعين|أسبوعين)|(?:طولتوا|طولتو|تأخرتوا|تاخرتوا|تأخير|تاخير|زهقت|تعبت|قرفت|مش\s+معقول|ليش\s+هيك)|(?:كل\s+مره|كل\s+مرة).{0,24}(?:نفس\s+الرد|نفس\s+الحكي|بتعيد|تعيد)/.test(q);
+}
+
+function explicitAngerText(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:خرا|زباله|زفت|نصاب|نصابين|احتيال|كذاب|كذابين|قرفت|طفشت|لعنه|لعنة|وسخ)/.test(q);
+}
+
 function refundStage(truth: TruthBundle) {
   const stage = applicationJourneyStage(truth.application);
   return stage === "refund_requested" || stage === "refund_completed";
@@ -23,7 +34,9 @@ export function humanSemanticCareMode(input: { turn: InterpretedTurn; state: Con
   if (/(?:نصاب|نصابين|احتيال|محتال|كذاب|كذابين|ما\s+بثق|فقدت\s+الثقه|فقدت\s+الثقة)/.test(q)) return "trust_loss";
   if (/(?:يا\s+رب|ان\s+شاء\s+الله|إن\s+شاء\s+الله).{0,35}(?:تزبط|يمشي|تنقبل|تنحل|خير)|(?:متامل|متأمل|بتمنى|اتمنى|أتمنى).{0,32}(?:يمشي|تزبط|تنقبل)/.test(q)) return "hope";
   if (/(?:الله\s+يخليك|بترجاك|برجاك|معلش|تحملني|استحملني|بس\s+حاول|اذا\s+بتقدر|إذا\s+بتقدر)/.test(q)) return "plea";
-  if (input.turn.sentiment === "frustrated" || input.turn.sentiment === "angry" || /(?:والله\s+لو\s+سياره|والله\s+لو\s+سيارة|مش\s+معقول|ليش\s+هيك|طولتوا|تأخرتوا|كتير\s+طولت|كثير\s+طولت|زهقت|تعبت|قرفت|كل\s+هالوقت)/.test(q)) return "frustration";
+  // Phase 7.7.0: model/classifier sentiment alone may not manufacture an emotional
+  // state for neutral status language. Require literal customer evidence.
+  if (explicitAngerText(input.turn.rawText) || explicitFrustrationText(input.turn.rawText) || /(?:والله\s+لو\s+سياره|والله\s+لو\s+سيارة|مش\s+معقول|ليش\s+هيك|طولتوا|تأخرتوا|كتير\s+طولت|كثير\s+طولت|زهقت|تعبت|قرفت|كل\s+هالوقت)/.test(q)) return "frustration";
   return null;
 }
 

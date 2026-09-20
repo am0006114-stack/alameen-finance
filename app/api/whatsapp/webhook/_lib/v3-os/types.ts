@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.7.0-human-employee-presence-emotional-judgment-grounded-continuity" as const;
+// Backward compatibility anchor: v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination
 // Backward compatibility anchor: v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control
 // Backward compatibility anchor: v3.0.0-phase7.5.9.4-human-contact-isolation-continuity
 // Backward compatibility anchor: v3.0.0-phase7.5.9.3-contact-isolation-current-intent-multiact-integrity
@@ -141,6 +142,19 @@ export type ConversationConstraintsState = {
   updatedAt: string | null;
 };
 
+export type HumanEmotion = "neutral" | "warm" | "confused" | "frustrated" | "angry" | "pleading";
+export type HumanConcern = "delay" | "refund" | "payment" | "technical" | "trust" | "documents" | "availability" | "general" | null;
+
+export type HumanRelationshipState = {
+  lastEmotion: HumanEmotion;
+  lastConcern: HumanConcern;
+  frustrationStreak: number;
+  delayTurnCount: number;
+  warmTurnCount: number;
+  lastGreetingTurnId: string | null;
+  updatedAt: string;
+};
+
 export type ConversationState = {
   version: typeof V3_OS_VERSION;
   waId: string;
@@ -161,6 +175,7 @@ export type ConversationState = {
   verifiedContactBinding: VerifiedContactBinding | null;
   contactResolution: ContactResolutionState | null;
   conversationConstraints: ConversationConstraintsState;
+  humanRelationship?: HumanRelationshipState;
   updatedAt: string;
 };
 
