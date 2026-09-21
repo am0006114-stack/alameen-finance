@@ -166,7 +166,7 @@ import {
 import { getV3ProductionControl, isV3ProductionActive, tripV3ProductionCircuitBreaker } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
 import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
-import { shouldSuppressStaleV3Reply } from "./_lib/v3-os/turnIntegrity";
+import { shouldSuppressStaleV3Reply, waitForV3EgressFreshnessBarrier } from "./_lib/v3-os/turnIntegrity";
 import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
 
 export const dynamic = "force-dynamic";
@@ -10852,10 +10852,12 @@ export async function POST(request: Request) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
 
             // Do NOT honor legacy AUTO_REPLY_IGNORED here. V3 has no human-handoff pause.
-            // Re-check after the human delay. This closes the Phase 7.1.5 race where a newer
-            // customer message could arrive after the first stale check but before send.
-            if (await shouldSuppressStaleV3Reply({ waId: from, currentMessageId: message.id, lookbackSeconds: 120 })) {
-              console.log("Skipped stale V3 reply at final send because a newer customer message arrived", {
+            // 7.7.2 EGRESS FRESHNESS: require a short quiet window plus a second
+            // authoritative latest-inbound read immediately before Meta send. A newer
+            // bubble therefore supersedes this authored reply instead of being answered
+            // after a stale acknowledgement/status message slips out.
+            if (!(await waitForV3EgressFreshnessBarrier({ waId: from, currentMessageId: message.id, lookbackSeconds: 120, quietMs: 450 }))) {
+              console.log("Skipped stale V3 reply at final egress freshness barrier", {
                 waId: from,
                 messageId: message.id,
               });

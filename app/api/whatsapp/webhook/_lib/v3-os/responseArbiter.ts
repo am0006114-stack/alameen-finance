@@ -59,6 +59,7 @@ export type ResponseObligation =
   | "media"
   | "application_status"
   | "foreign_content_clarification"
+  | "social_closure"
   | "none";
 
 export type ResponseArbitrationResult = {
@@ -74,6 +75,43 @@ function n(value: string | null | undefined) {
     .replace(/[؟?!.,،؛:()[\]{}"'`~*_#<>+=|\\/\-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+
+// Keep these egress-critical checks local to the arbiter. Older regression suites
+// intentionally load responseArbiter with a fixed dependency surface, so adding a
+// convenience import here would make a harness failure look like a runtime regression.
+function explicitExpediteRequestTextForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:بلغ|بلّغ|وصل|وصلوا|احكي|احكوا).{0,35}(?:الاداره|الإدارة).{0,40}(?:مستعجل|مستعجله|مستعجلة|استعجال|سرعه|سرعة)|(?:بدي|بدنا|لو\s+سمحت|لو\s+سمحتوا|رجاء|رجاءا|رجائا|ارجو|أرجو).{0,34}(?:استعجال|تسريع|تسرعوا|تستعجلوا|تستعجل|سرعوا|سرّعوا).{0,30}(?:الطلب|القرار|المراجعه|المراجعة|الموافقه|الموافقة)?|(?:استعجلوا|استعجلو|تستعجلوا|تستعجلو).{0,24}(?:بالطلب|بلطلب|الطلب)|(?:اعملوني|اعملولي).{0,25}(?:حاله|حالة)\s+استثنائيه|(?:حاله|حالة)\s+استثنائيه.{0,25}(?:لو\s+سمحت|بدي)/.test(q);
+}
+
+function pureSocialClosureTurnForArbiter(turn: InterpretedTurn) {
+  const raw = String(turn.rawText || "").trim();
+  const q = n(turn.rawText);
+  if (!raw && !q) return false;
+  if (turn.requestedActions.length) return false;
+  const materialAct = turn.acts.some((act) => {
+    if (["greet", "thank", "acknowledge"].includes(act.type)) return false;
+    if (act.topic === "unknown" && act.type === "unknown") return false;
+    return ["ask", "request_action", "confirm", "deny", "correct", "provide_fact", "provide_reason", "repair_request", "complaint", "request_role"].includes(act.type)
+      || !["greeting", "thanks", "acknowledgement", "unknown"].includes(act.topic);
+  });
+  if (materialAct) return false;
+  const materialText = /(?:\?|؟|بدي|اريد|أريد|متى|امتى|ايمتى|قديش|كم|كيف|وين|ليش|شو|هل|الغي|إلغاء|استرداد|دفع|ادفع|أدفع|تحويل|كليك|cliq|استعجال|سرعه|سرعة|حاله\s+استثنائيه|حالة\s+استثنائية)/i.test(raw);
+  if (materialText) return false;
+  if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|شكرا|شكرًا|شكراً|يسلمو|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله|تمام\s+ان\s+شاء\s+الله|تمام\s+إن\s+شاء\s+الله|العفو)$/.test(q)) return true;
+  if (/^(?:👍|👍🏻|❤️|❤|🌹|🙏|🙏🏻|👌|✅|☑️|😁|🙂|😊)+$/u.test(raw)) return true;
+  const hasThanks = /(?:شكرا|شكرًا|شكراً|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية)/.test(q);
+  const hasWish = /(?:ان\s+شاء\s+الله|إن\s+شاء\s+الله|يارب|يا\s+رب)/.test(q);
+  return (hasThanks || hasWish) && q.length <= 120;
+}
+
+function buildSocialClosureReplyForArbiter(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (/(?:شكرا|شكر|تسلم|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعافيك)/.test(q)) return "العفو، الله يعطيك العافية.";
+  if (/(?:ان\s+شاء\s+الله|إن\s+شاء\s+الله|يارب|يا\s+رب)/.test(q)) return "تمام، إن شاء الله. الله يعطيك العافية.";
+  return "تمام، الله يعطيك العافية.";
 }
 
 function hasAuthoritativeMutationResult(actions: ActionResult[]) {
@@ -154,6 +192,7 @@ function asksApprovalStatus(value: string | null | undefined) {
 
 function asksReviewTiming(value: string | null | undefined, turn: InterpretedTurn) {
   const q = n(value);
+  if (explicitExpediteRequestTextForArbiter(value)) return true;
   if (turn.topics.includes("review_timing") || turn.topics.includes("operational_pressure")) return true;
   return /(?:متى|امتى|قديش|كم).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
 }
@@ -318,6 +357,9 @@ export function resolveResponseObligation(input: {
   // before repairContextTurn can merge it with an older customer turn.
   if (asksDocumentUploadGuidance(input.turn, input.state)) return "document_upload_guidance";
   if (asksInstallmentServiceOverview(input.turn.rawText)) return "installment_service_overview";
+  // 7.7.2: a pure current-turn acknowledgement closes socially. Previous
+  // review/payment state may remain in memory but cannot re-author the answer.
+  if (pureSocialClosureTurnForArbiter(input.turn)) return "social_closure";
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
   if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
@@ -377,6 +419,10 @@ function reviewTimingReply(input: { turn: InterpretedTurn; truth: TruthBundle })
   const app = input.truth.application;
   const window = input.truth.policy.normalReviewWindow || "من يومين لـ3 أيام عمل";
   const pressure = input.truth.policy.severePressureRule || "حاليًا في ضغط مراجعات شديد وقد تتأخر بعض الملفات أكثر من المعدل الطبيعي.";
+  if (explicitExpediteRequestTextForArbiter(input.turn.rawText)) {
+    const status = app ? ` طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}.` : "";
+    return `فاهم إنك طالب استعجال للطلب.${status} ما بقدر أضمن تقديم الدور أو موعد قرار غير موثق، وما رح أقول إن الأولوية تغيّرت قبل تنفيذ إداري فعلي.`;
+  }
   if (!app) return `${window} هو المعدل الطبيعي للمراجعة، لكن ${pressure} ما بقدر أعطي موعد محدد بدون حالة طلب موثقة.`;
   const stage = applicationJourneyStage(app);
   if (stage === "approved") return `طلبك موافق عليه حسب الحالة الحالية، فمرحلة انتظار قرار الموافقة انتهت.`;
@@ -580,6 +626,7 @@ function directRepair(input: {
     case "media": return currentQuestion || humanAuthority || "وصلني المرفق. إذا هو لتوضيح مشكلة أو سؤال، اكتبلي باختصار شو بدك أتأكد منه منه وبمشي معك من نفس السياق.";
     case "application_status": return currentQuestion || statusReply({ turn, truth: input.truth, state: input.state });
     case "foreign_content_clarification": return "وصلني النص اللي بعثته. احكيلي شو بدك أعمل فيه بالضبط—أشرحه، ألخصه، أو أساعدك ترد عليه—وبجاوبك على نفس الموضوع.";
+    case "social_closure": return buildSocialClosureReplyForArbiter(turn);
     default: return null;
   }
 }
@@ -640,6 +687,8 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "media": return /(?:وصلت|وصلني|المرفق|الصوره|الصورة|الصوتيه|الصوتية)/.test(q) && !missingDetailsReply(raw);
     case "application_status": return /(?:حاله|حالة|قيد|موافقه|موافقة|ملغي|استرداد|مراجعه|مراجعة)/.test(q) && !staleContinuationReply(raw);
     case "foreign_content_clarification": return !missingDetailsReply(raw) && /(?:النص|الرساله|الرسالة|ايميل|إيميل|اشرح|الخص|ألخص|رد)/.test(q);
+    case "social_closure": return /(?:العفو|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله)/.test(q)
+      && !/(?:يومين|3\s+ايام|3\s+أيام|قيد\s+الدراسه|قيد\s+الدراسة|رسوم\s+فتح\s+الملف|الدفع\s+مؤكد|الاسترداد)/.test(q);
     default: return true;
   }
 }
@@ -722,6 +771,16 @@ export function arbitrateProductionReply(input: {
     if (alreadyGood) return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
     const repair = mutationRequestReply({ turn: input.turn, truth: input.truth });
     return { reply: repair, obligation, repaired: repair !== candidate, reason: "explicit mutation request repaired to confirmation contract" };
+  }
+  if (obligation === "social_closure") {
+    // Backward-compatible no-op when the writer already produced a clean social
+    // close. 7.7.2 only takes authority when stale journey/status text leaked
+    // into an acknowledgement-only turn.
+    if (!input.forceRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth, turn: input.turn, state: input.state })) {
+      return { reply: candidate, obligation: "none", repaired: false, reason: "social turn already closed naturally" };
+    }
+    const closure = buildSocialClosureReplyForArbiter(input.turn);
+    return { reply: sanitizeUnifiedEgressReply(closure), obligation, repaired: closure !== candidate, reason: "fresh-turn social closure vetoed stale previous-topic answer" };
   }
   if (obligation === "none") {
     return { reply: candidate, obligation, repaired: false, reason: "no higher-priority current-answer obligation detected" };

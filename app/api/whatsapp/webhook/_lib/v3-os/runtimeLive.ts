@@ -27,6 +27,7 @@ import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
 import { dataDeletionConfirmationText, explicitExpediteRequestText, explicitTrackingFromText } from "./dailyConversationIntegrity";
 import { buildHumanFirstCustomerBurst, enrichHumanFirstTurn, supersedeConversationStateForJourney } from "./humanFirstJourneyIntelligence";
 import { enforceCurrentTurnAuthority, explicitContactRequestText } from "./currentTurnAuthority";
+import { enforceFreshTurnAuthority } from "./freshTurnAuthority";
 import { applyAuthoritativeActionConversationMemory } from "./actionConversationMemory";
 import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
 import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
@@ -381,11 +382,14 @@ export async function runV3ProductionLive(input: {
     recentTurns: safeRecentTurns,
     provider: interpreter,
   });
-  let turn = enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
-    turn: interpreted.turn,
+  let turn = enforceFreshTurnAuthority({
+    turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
+      turn: interpreted.turn,
+      state: stateBefore,
+      recentTurns: safeRecentTurns,
+    }))),
     state: stateBefore,
-    recentTurns: safeRecentTurns,
-  })));
+  });
   const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
   const reducedState = reduceState({ state: stateBefore, turn });
   const constrainedState = updateConversationConstraints({ state: reducedState, customerText: effectiveCustomerText, turnId: input.turnId });

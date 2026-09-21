@@ -54,3 +54,21 @@ export async function shouldSuppressStaleV3Reply(input: {
     return false;
   }
 }
+
+
+/**
+ * Final egress freshness barrier. A reply is not allowed to leave immediately
+ * after a single latest-message read: we require a short quiet window and then
+ * re-check the authoritative inbound log. This closes the narrow race where a
+ * new WhatsApp bubble lands after the previous stale check but before Meta send.
+ */
+export async function waitForV3EgressFreshnessBarrier(input: {
+  waId: string;
+  currentMessageId?: string | null;
+  lookbackSeconds?: number;
+  quietMs?: number;
+}) {
+  if (await shouldSuppressStaleV3Reply(input)) return false;
+  await new Promise((resolve) => setTimeout(resolve, Math.max(100, input.quietMs ?? 450)));
+  return !(await shouldSuppressStaleV3Reply(input));
+}

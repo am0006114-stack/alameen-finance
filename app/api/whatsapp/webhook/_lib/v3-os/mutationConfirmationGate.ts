@@ -78,6 +78,23 @@ function lastAssistantAskedForConfirmation(state: ConversationState, action: Act
   return actionWords(action, q);
 }
 
+function bareAffirmative(value: string | null | undefined) {
+  const q = normalized(value);
+  return /^(?:نعم|اه|أه|ايوه|أيوه|اكيد|أكيد|موافق)$/.test(q);
+}
+
+function contextualAliasOpenLoopConfirmation(input: { value: string | null | undefined; state: ConversationState; truth: TruthBundle }) {
+  if (!bareAffirmative(input.value)) return false;
+  if (!input.truth.application) return false;
+  const aliasLoopActive = input.state.pendingAction === "link_whatsapp_alias"
+    || input.state.contactResolution?.status === "awaiting_alias_confirmation";
+  if (!aliasLoopActive) return false;
+  if (!lastAssistantAskedForConfirmation(input.state, "link_whatsapp_alias")) return false;
+  const tracking = String(input.state.contactResolution?.trackingId || input.state.activeTrackingId || "").trim();
+  if (tracking && tracking !== String(input.truth.application.trackingId || "").trim()) return false;
+  return true;
+}
+
 export function explicitMutationConfirmation(input: { action: ActionKey; value: string | null | undefined; state: ConversationState }) {
   const q = normalized(input.value);
   if (!q || mutationQuestion(input.action, q) || mutationDecline(input.action, q)) return false;
@@ -210,10 +227,13 @@ export function enforceMutationConfirmationGate(input: {
   let info: string | null = null;
 
   const q = normalized(input.turn.rawText);
-  const explicitConfirmationFromLastPrompt = Array.from(REAL_MUTATIONS).find((action) =>
-    lastAssistantAskedForConfirmation(input.state, action)
-    && explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state })
-  ) || null;
+  const aliasOpenLoopConfirmation = contextualAliasOpenLoopConfirmation({ value: input.turn.rawText, state: input.state, truth: input.truth });
+  const explicitConfirmationFromLastPrompt = aliasOpenLoopConfirmation
+    ? "link_whatsapp_alias" as ActionKey
+    : Array.from(REAL_MUTATIONS).find((action) =>
+        lastAssistantAskedForConfirmation(input.state, action)
+        && explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state })
+      ) || null;
 
   // If the runtime/state reducer failed to persist the pending confirmation token but
   // the immediately previous assistant message asked for this exact confirmation, the
@@ -246,7 +266,9 @@ export function enforceMutationConfirmationGate(input: {
     if (!namesPending) clearPendingConfirmation = true;
   }
 
-  if (pending && !clearPendingConfirmation && pendingScopeMatchesTruth(input.state, input.truth) && explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })) {
+  if (pending && !clearPendingConfirmation && pendingScopeMatchesTruth(input.state, input.truth)
+      && (explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })
+        || (pending === "link_whatsapp_alias" && aliasOpenLoopConfirmation))) {
     confirmedAction = pending;
   } else if (recoverableConfirmation) {
     confirmedAction = recoverableConfirmation;
