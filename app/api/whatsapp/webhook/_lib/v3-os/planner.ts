@@ -86,7 +86,7 @@ function instructionFor(topic: string, truth: TruthBundle, turn: InterpretedTurn
   const stage = applicationJourneyStage(truth.application);
   const beforeContinuation = stage === "preliminary_review" || (stage === "preliminary_approved_waiting_decision" && !explicitContinuation(turn));
   const paymentBeforeContinue = stage === "preliminary_approved_waiting_decision"
-    ? "الموافقة المبدئية صدرت، لكن العميل لم يؤكد الاستمرار بعد. لا تعطِ مبلغ الرسوم ولا طريقة الدفع ولا المستفيد ولا رابط الوصل. اسأله أولًا هل تود الاستمرار بإجراءات فتح الملف وتحويل الطلب للدراسة النهائية؟"
+    ? `الموافقة المبدئية صدرت، لكنها ليست موافقة نهائية. قبل تثبيت قرار الاستمرار اشرح للعميل الخطوة كاملة وباحترام: رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وسببها بالمعنى: ${p.fileOpeningFeePurposeRule} ووضح الاسترداد: ${p.fileOpeningFeeRefundRule} واستخدم الطمأنة: ${p.continuationReassuranceRule} ممنوع إعطاء المستفيد أو الرقم أو CliQ أو رابط الوصل قبل أن يفهم العميل هذه المعلومات ثم يؤكد الاستمرار في رسالة لاحقة.`
     : "الطلب لم يصل بعد إلى الموافقة المبدئية. لا تعطِ مبلغًا ولا معلومات دفع أو تحويل أو رابط وصل. وضّح فقط أن هذه الخطوة لا تُفتح قبل صدور الموافقة المبدئية واختيار الاستمرار.";
   const map: Record<string,string> = {
     payment_fee: beforeContinuation ? paymentBeforeContinue : `اشرح أن رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير وأنها ${p.fileOpeningFeeTiming}. وضّح السبب: ${p.fileOpeningFeePurposeRule} ووضّح الاسترداد: ${p.fileOpeningFeeRefundRule} استخدم طمأنة بشرية غير ضاغطة: ${p.continuationReassuranceRule}`,

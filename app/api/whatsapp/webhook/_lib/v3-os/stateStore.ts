@@ -1,6 +1,7 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { V3_OS_VERSION, type ConversationState } from "./types";
 import { emptySemanticMemory } from "./semanticMemory";
+import { emptyCommercialDisclosure } from "./informedCommercialContinuation";
 
 const TABLE = "whatsapp_v3_conversation_state";
 const STATE_READ_DELAYS_MS = [0, 120, 360];
@@ -41,6 +42,7 @@ export async function loadV3ConversationState(waId: string): Promise<Conversatio
         contactResolution: state.contactResolution || null,
         conversationConstraints: state.conversationConstraints || { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
         semanticMemory: state.semanticMemory || emptySemanticMemory(),
+        commercialDisclosure: state.commercialDisclosure || emptyCommercialDisclosure(),
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

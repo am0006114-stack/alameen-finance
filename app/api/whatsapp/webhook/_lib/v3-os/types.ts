@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.8.0-ai-native-conversation-brain-semantic-memory" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.8.0.1-informed-commercial-continuation-fee-rationale-integrity" as const;
+// Backward compatibility anchor: v3.0.0-phase7.8.0-ai-native-conversation-brain-semantic-memory
 // Backward compatibility anchor: v3.0.0-phase7.7.2-fresh-turn-open-loop-egress-integrity
 // Backward compatibility anchor: v3.0.0-phase7.7.1-payment-journey-continuity-human-repair
 // Backward compatibility anchor: v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination
@@ -212,6 +213,18 @@ export type ConversationConstraintsState = {
   updatedAt: string | null;
 };
 
+
+export type CommercialDisclosureState = {
+  version: "2026-09-informed-fee-v1";
+  applicationId: string | null;
+  trackingId: string | null;
+  status: "not_delivered" | "delivered" | "acknowledged";
+  deliveredAt: string | null;
+  deliveredTurnId: string | null;
+  acknowledgedAt: string | null;
+  acknowledgedTurnId: string | null;
+};
+
 export type HumanEmotion = "neutral" | "warm" | "confused" | "frustrated" | "angry" | "pleading";
 export type HumanConcern = "delay" | "refund" | "payment" | "technical" | "trust" | "documents" | "availability" | "general" | null;
 
@@ -247,6 +260,7 @@ export type ConversationState = {
   conversationConstraints: ConversationConstraintsState;
   humanRelationship?: HumanRelationshipState;
   semanticMemory?: SemanticMemoryState;
+  commercialDisclosure?: CommercialDisclosureState;
   updatedAt: string;
 };
 

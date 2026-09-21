@@ -4,6 +4,7 @@ import { normalizeArabic } from "./text";
 import { BUSINESS_REGISTRATION_PROTECTION_REPLY } from "./unifiedConversationDecisionPlane";
 import { updateHumanRelationshipState } from "./humanRelationshipRuntime";
 import { emptySemanticMemory, finalizeSemanticMemoryAfterReply, updateSemanticMemoryFromTurn } from "./semanticMemory";
+import { emptyCommercialDisclosure } from "./informedCommercialContinuation";
 
 function now() { return new Date().toISOString(); }
 
@@ -30,6 +31,7 @@ export function emptyState(waId: string): ConversationState {
     conversationConstraints: { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
     humanRelationship: { lastEmotion: "neutral", lastConcern: null, frustrationStreak: 0, delayTurnCount: 0, warmTurnCount: 0, lastGreetingTurnId: null, updatedAt: now() },
     semanticMemory: emptySemanticMemory(),
+    commercialDisclosure: emptyCommercialDisclosure(),
     updatedAt: now(),
   };
 }

@@ -85,12 +85,14 @@ export async function verifySemanticReply(input: {
 - إذا الرد يجيب topic قديم بدل السؤال الحالي أو correctionOfPrevious، staleTopic=true وpass=false.
 - continuation=deferred أو conditional يعني أن العميل **لم يختر الاستمرار الآن**. أي رد يفترض أنه اختار الاستمرار أو يفتح الدفع الآن = invertedDecision=true.
 - continuation=declined يعني ممنوع تحويله إلى استمرار.
+- إذا journeyStage=preliminary_approved_waiting_decision وCOMMERCIAL_DISCLOSURE.status ليست delivered/acknowledged، حتى لو continuation=confirmed لا يجوز القفز مباشرة إلى بيانات الدفع. الرد الصحيح يشرح أولًا الرسوم وسببها والاسترداد وأنها ليست ضمان موافقة، ثم يترك للعميل تأكيد الاستمرار في رسالة لاحقة.
 - entity غير موثقة مثل اسم محفظة/تطبيق: يجوز فهم وظيفتها من الجملة، لكن ممنوع استبدالها بكيان آخر أو اختراع معلومات عنها. إذا سأل العميل هل يمكن التحويل "منها"، الجواب يجب أن يتعامل مع سؤال مصدر التحويل/التوافق، لا أن يقلبه إلى إثبات دخل أو بنك.
 - إذا الحقيقة لا تثبت توافق خدمة خارجية، الرد الجيد يشرح الشرط بشكل عام ولا يخترع نعم/لا مطلقة.
 - كل answerObligations التزامات مستقلة.
 - لا تعاقب الرد لأنه مختصر إذا جاوب المطلوب وحافظ على الحقيقة.
 
 SEMANTIC_FRAME=${JSON.stringify(frame)}
+COMMERCIAL_DISCLOSURE=${JSON.stringify(input.state.commercialDisclosure || null)}
 SEMANTIC_MEMORY=${JSON.stringify(input.state.semanticMemory ? {
     activeGoal: input.state.semanticMemory.activeGoal,
     activeQuestion: input.state.semanticMemory.activeQuestion,

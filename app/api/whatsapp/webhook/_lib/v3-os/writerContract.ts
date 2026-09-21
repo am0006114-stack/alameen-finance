@@ -19,6 +19,7 @@ import { buildHumanEmployeePresenceContext } from "./employeePresence";
 import { resolveCurrentHumanTurnAuthority } from "./currentHumanTurnAuthority";
 import { buildHumanRelationshipProfile } from "./humanRelationshipRuntime";
 import { semanticMemoryForPrompt } from "./semanticMemory";
+import { commercialDisclosureDelivered, currentCommercialDisclosure } from "./informedCommercialContinuation";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -53,6 +54,9 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   });
   const paymentDetailsAllowed = paymentFirewall.paymentExecutionDetailsAllowed && !installmentPaymentChannelQuestion;
   const feePolicyQuestionNow = explicitFeePolicyQuestion(input.turn);
+  const disclosureState = currentCommercialDisclosure(input.state, input.truth);
+  const informedDisclosureDelivered = commercialDisclosureDelivered(input.state, input.truth);
+  const exposeFeePolicyWithoutExecution = journeyStage === "preliminary_approved_waiting_decision";
   const dialogueSignals = contextualTurnSignals({ turn: input.turn, state: input.state, recentTurns: safeRecentTurns });
   const delaySupport = buildDelaySupportProfile({ turn: input.turn, truth: input.truth, recentTurns: safeRecentTurns });
   const officeScheduleQuestion = asksOfficeSchedule(input.turn.rawText);
@@ -78,7 +82,7 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
         severePressureRule: fullPolicy.severePressureRule,
         disputeResolutionRule: fullPolicy.disputeResolutionRule,
         autonomousSupervisorRule: fullPolicy.autonomousSupervisorRule,
-        ...(feePolicyQuestionNow ? {
+        ...((feePolicyQuestionNow || exposeFeePolicyWithoutExecution) ? {
           fileOpeningFeeJod: fullPolicy.fileOpeningFeeJod,
           fileOpeningFeePurposeRule: fullPolicy.fileOpeningFeePurposeRule,
           fileOpeningFeeRefundRule: fullPolicy.fileOpeningFeeRefundRule,
@@ -132,6 +136,8 @@ CUSTOMER_JOURNEY_STAGE=${journeyStage}
 COMMERCIAL_CONTINUATION_STATE=${commercialContinuationState}
 EXPLICIT_CONTINUATION_NOW=${continuationNow}
 EXPLICIT_FEE_POLICY_QUESTION_NOW=${feePolicyQuestionNow}
+INFORMED_COMMERCIAL_DISCLOSURE=${JSON.stringify(disclosureState)}
+INFORMED_DISCLOSURE_DELIVERED=${informedDisclosureDelivered}
 PAYMENT_EXECUTION_DETAILS_ALLOWED=${paymentDetailsAllowed}
 PAYMENT_FIREWALL_REASON=${paymentFirewall.reason}
 PAYMENT_CONFIRMED_TRUTH=${paymentConfirmedTruth}
@@ -229,7 +235,7 @@ HUMAN_JUDGMENT_RUNTIME_CONTRACT:
 - ممنوع تبدأ كل متابعة بملخص رقم الطلب والجهاز والحالة. إذا العميل سأل سؤالًا واحدًا جاوبه أولًا، واستخدم رقم الطلب فقط إذا إضافته مفيدة فعلاً.
 - لا تستخدم "أنا معك" كبديل عن الجواب. إذا قلتها لازم يتبعها جواب مفيد في نفس الجملة أو الفقرة.
 - كل حالة طلب يجب أن تتحول لمعنى عملي للعميل: وين وصل، شو الخطوة التالية، وهل عليه شيء الآن، ومدة المراجعة عندما تكون ذات صلة.
-- عند الموافقة المبدئية لا تكتفي بعبارة "موافقة مبدئية". وضح أنها ليست نهائية، وأن خيار الاستمرار يفتح الدراسة النهائية، وأن رسوم فتح الملف 5 دنانير تُطلب فقط بعد اختيار الاستمرار، وأن المعدل الطبيعي للدراسة ${fullPolicy.normalReviewWindow} مع التنبيه لضغط المراجعات الحالي بدون وعد بموعد.
+- عند الموافقة المبدئية لا تكتفي بعبارة "موافقة مبدئية". قبل تثبيت الاستمرار لازم يفهم العميل الخطوة كاملة: الرسوم 5 دنانير، لماذا موجودة، أنها مؤشر جدية واستعداد مبدئي للالتزام وليست تقييمًا ائتمانيًا نهائيًا ولا شراءً للموافقة، وأنها ليست جزءًا من ثمن الجهاز أو القسط الأول، وأن الاسترداد يمشي عبر المسار الرسمي بعد دفع مؤكد. لا ترسل بيانات المستفيد/التحويل/رابط الوصل قبل أن تُسلَّم هذه الإفصاحات ثم يؤكد العميل الاستمرار في رسالة لاحقة. المعدل الطبيعي للدراسة ${fullPolicy.normalReviewWindow} مع ضغط المراجعات الحالي بدون وعد بموعد.
 - إذا العميل سأل "متى الاستلام؟" وهو ما زال بالموافقة المبدئية، اربط الجواب بالمرحلة: لا يوجد موعد استلام قبل إكمال خطوة الاستمرار والدراسة النهائية والموعد الرسمي.
 - اللهجة أردنية طبيعية: "هسا" عند الحاجة، "لسا"، "إذا بدك"، "تمام"؛ بدون تصنع، وبدون فصحى ثقيلة إلا إذا العميل نفسه يكتب رسميًا.
 - CURRENT QUESTION ANSWER CONTRACT: السؤال الحالي ليس مجرد Topic؛ هو التزام جواب. إذا قال العميل «شو صار؟/تحديث؟» جاوب الحالة الحالية، وإذا قال «ادفع هسا؟/أحول هسا؟» جاوب هل الدفع الآن هو الخطوة الصحيحة، وإذا قال بعد الاستمرار «كده الطلب كمل ولا؟/شو ناقص؟» اشرح المرحلة الحالية وما بقي. ممنوع استخدام «رغبتك بالاستمرار مسجلة» كبديل عن جواب السؤال الحالي.
@@ -253,6 +259,7 @@ HUMAN_JUDGMENT_RUNTIME_CONTRACT:
 - إذا سأل العميل «وين مصاري الاسترداد/امتى بترجع/وينهم؟» جاوب عن التحويل والزمن/الحالة التنفيذية مباشرة؛ لا تكتفِ بعبارة «طلب الاسترداد مسجل وقيد المعالجة». وإذا قال «وين مصاري الإلغاء» فهذا سؤال عن الاسترداد وليس طلب إعادة فتح.
 - إذا سأل «لازم أدفع 5؟/ليش فتح الملف؟/بترجع الـ5؟/يعني بدون دفعة أولى؟» جاوب نفس السؤال بنعم/لا والسبب من الحقيقة التجارية، ولا ترجع لعبارة «الاستمرار مسجل».
 - إذا قال «دفعت 5، شو الإجراء بعد ذلك؟» اشرح الخطوة الحالية حسب حقيقة الدفع: اعتماد الوصل أو الدراسة النهائية. رسالة العميل وحدها لا تؤكد الدفع.
+- INFORMED COMMERCIAL CONTINUATION 7.8.0.1: قول العميل «استمرار/كمل» لأول مرة بعد الموافقة المبدئية لا يعني أن نرسل بيانات الدفع فورًا إذا INFORMED_DISCLOSURE_DELIVERED=false. في هذه الحالة اشرح الرسوم وسببها والاسترداد وعدم ضمان الموافقة، ثم اترك القرار للعميل. بعد أن تكون الإفصاحات delivered ويؤكد العميل الاستمرار لاحقًا فقط افتح بيانات الدفع الرسمية. ممنوع صياغة «ادفع أو وقف/يا تدفع يا تترك» أو أي ضغط نفسي.
 - إذا سأل عن جهاز غير ظاهر بصفحة المنتجات، قل بوضوح إنك لا تستطيع اعتباره متوفرًا حاليًا إذا لم يظهر في المرجع الرسمي؛ لا تعيد إرسال نفس رابط المنتجات كأنه جواب جديد.
 - ممنوع إرسال تعليمات داخلية للعميل مثل «يُشرح ذلك بصراحة» أو «بدون إعطاء موعد مؤكد»، وممنوع الدفاع عن الهوية بعبارات مثل «مش رد آلي/مش روبوت». عرّف الشخصية باختصار فقط عند الحاجة ثم جاوب السؤال.
 - رسائل الصورة/الصوت لا تسقط سياق الطلب المعروف. لا تقل «تفاصيل الطلب مش كاملة» لمجرد وصول media envelope بينما الطلب مربوط؛ اربط الصورة بالمرحلة الحالية بحذر، وللصوت اطلب كتابة النقطة إذا لم يوجد تفريغ.

@@ -12,7 +12,7 @@ import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvi
 import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
-import { applicationRefundUrl, sanitizeRecentTurnsForModel } from "./linkIntegrity";
+import { applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForModel } from "./linkIntegrity";
 import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
@@ -40,6 +40,7 @@ import { applyHumanRelationshipEgress } from "./humanRelationshipRuntime";
 import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto, semanticWriterAuthority } from "./semanticAuthority";
 import { verifySemanticReply, type SemanticReplyCheck } from "./semanticReplyVerifier";
 import { buildSemanticFailClosedReply } from "./semanticRescue";
+import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -601,7 +602,21 @@ export async function runV3ProductionLive(input: {
     }
   }
 
+  const rawContinuationIntent = truthBeforeActions.contactAccess !== "safe_preview"
+    && !semanticContinuationVeto(turn)
+    && !explicitDoNotContinueText(effectiveCustomerText, boundState.lastAssistantText)
+    && (semanticConfirmsContinuation(turn) || explicitContinuationText(effectiveCustomerText) || turn.requestedActions.includes("continue_application"));
+  const disclosureRequiredThisTurn = shouldExplainCommercialStep({
+    state: boundState,
+    truth: truthBeforeActions,
+    turn,
+    explicitContinuationIntent: rawContinuationIntent,
+  });
+
   let plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  if (disclosureRequiredThisTurn) {
+    plan = { ...plan, actions: plan.actions.filter((action) => action.action !== "continue_application") };
+  }
   if (truthBeforeActions.contactAccess === "safe_preview" && truthBeforeActions.application) {
     const aliasAction = {
       action: "link_whatsapp_alias" as const,
@@ -783,7 +798,8 @@ export async function runV3ProductionLive(input: {
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
   const semanticContinueVeto = semanticContinuationVeto(turn);
-  const continuationDecisionThisTurn = truthAfterActions.contactAccess !== "safe_preview"
+  const continuationDecisionThisTurn = !disclosureRequiredThisTurn
+    && truthAfterActions.contactAccess !== "safe_preview"
     && !semanticContinueVeto
     && !explicitDoNotContinueText(effectiveCustomerText, executionState.lastAssistantText) && (
       semanticConfirmsContinuation(turn)
@@ -860,6 +876,9 @@ export async function runV3ProductionLive(input: {
     truth: truthAfterActions,
     recentTurns: scopedRecentTurns,
   });
+  const informedCommercialDisclosureReply = disclosureRequiredThisTurn
+    ? buildInformedCommercialDisclosureReply(truthAfterActions)
+    : null;
   // REVENUE INVARIANT: once a preliminarily-qualified customer explicitly chooses
   // to continue, the 5 JOD file-opening step becomes protected customer-facing
   // truth for this turn. It must survive writer repair, fallback, duplicate
@@ -912,6 +931,19 @@ export async function runV3ProductionLive(input: {
     } else if (scopedMutationReply) {
       reply = scopedMutationReply;
       verification = PASS;
+    } else if (informedCommercialDisclosureReply) {
+      reply = informedCommercialDisclosureReply;
+      fallbackUsed = true;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
     } else if (freshPublicProductReply) {
       reply = freshPublicProductReply;
       verification = verifyReply({
@@ -1233,10 +1265,10 @@ export async function runV3ProductionLive(input: {
   // is allowed to erase the mandatory continuation step when authoritative truth
   // says payment_ready.
   if (plan.shouldRespond && protectedFiveJodStep) {
-    const mandatoryContinuationReply = buildMandatoryFiveJodContinuationReply(
-      turn,
-      truthAtContinuationDecision,
-    );
+    const officialLinksForContinuation = buildOfficialLinkContext(turn, truthAfterActions);
+    const mandatoryContinuationReply = commercialDisclosureDelivered(conversationState, truthAfterActions)
+      ? buildPostDisclosurePaymentReply(truthAfterActions, officialLinksForContinuation.relevant.receipt ?? null)
+      : buildMandatoryFiveJodContinuationReply(turn, truthAtContinuationDecision);
     if (mandatoryContinuationReply) {
       reply = mandatoryContinuationReply;
       fallbackUsed = true;
@@ -1566,7 +1598,12 @@ export async function runV3ProductionLive(input: {
   const answeredState = answeredTopics.length
     ? closeAnsweredLoops({ ...actionAdjustedState, lastAssistantText: reply }, answeredTopics)
     : { ...actionAdjustedState, lastAssistantText: reply || actionAdjustedState.lastAssistantText };
-  const semanticFinalizedState = finalizeStateSemanticMemory({ state: answeredState, turn, reply, answered: Boolean(reply && verification.pass && semanticCheck.pass) });
+  const disclosureAdjustedState = finalSafetyPass && reply && disclosureRequiredThisTurn
+    ? markCommercialDisclosureDelivered(answeredState, truthAfterActions, turn.turnId)
+    : finalSafetyPass && reply && continuationDecisionThisTurn && commercialDisclosureDelivered(answeredState, truthAfterActions)
+      ? markCommercialDisclosureAcknowledged(answeredState, truthAfterActions, turn.turnId)
+      : answeredState;
+  const semanticFinalizedState = finalizeStateSemanticMemory({ state: disclosureAdjustedState, turn, reply, answered: Boolean(reply && verification.pass && semanticCheck.pass) });
   const stateAfter = markRoleIntroducedFromReply(semanticFinalizedState, reply);
 
   return {

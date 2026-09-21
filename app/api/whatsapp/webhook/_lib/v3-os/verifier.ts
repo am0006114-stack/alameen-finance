@@ -2,6 +2,7 @@ import { detectHumanityViolations } from "./humanVoice";
 import { actionRequiresOmran, roleDisplayName } from "./hierarchy";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { continuationCommercialState } from "./commercialProgression";
+import { commercialDisclosureDelivered, preliminaryApprovalNeedsInformedDisclosure } from "./informedCommercialContinuation";
 import { applicationJourneyStage, explicitContinuation, firstCustomerName } from "./applicationJourney";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { normalizeArabic } from "./text";
@@ -127,6 +128,17 @@ function hasFiveJodJourneyExplanation(reply: string) {
   const separated = n.includes(normalizeArabic("ثمن الجهاز")) || n.includes(normalizeArabic("القسط الأول"));
   return fee && separated;
 }
+
+function hasRespectfulFeeRationale(reply: string) {
+  const t = normalizeArabic(reply);
+  const seriousness = /(?:جدي|الجدية|جديه|الطلبات الجاده|الطلبات الجادة|طلب جاد)/.test(t);
+  const volume = /(?:حجم|عدد|الاف|آلاف|كبير).{0,40}(?:طلبات|الطلبات)|(?:طلبات|الطلبات).{0,40}(?:كبير|الاف|آلاف)/.test(t);
+  const financialReadiness = /(?:استعداد|جاهزيه|جاهزية).{0,45}(?:مالي|المالي|التزام|الالتزام)/.test(t);
+  const notApprovalPurchase = /(?:مش|ليس|ليست|لا).{0,35}(?:ضمان|موافقه نهائيه|موافقة نهائية|شراء.*موافقه|شراء.*موافقة)|(?:لا يضمن|ما بضمن).{0,20}(?:الموافقه|الموافقة|القبول)/.test(t);
+  const nonCoercive = !/(?:ادفع\s+او\s+(?:وقف|اترك|روح)|يا\s+بتدفع|اذا\s+ما\s+بدك\s+تدفع\s+(?:وقف|روح))/i.test(t);
+  return seriousness && volume && financialReadiness && notApprovalPurchase && nonCoercive;
+}
+
 
 function hasReviewWindowAndPressure(reply: string) {
   const n = normalizeArabic(reply);
@@ -371,6 +383,8 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   }
 
   const journeyStage = applicationJourneyStage(input.truth.application);
+  const informedDisclosureDelivered = commercialDisclosureDelivered(input.state, input.truth);
+  const informedDisclosureNeeded = preliminaryApprovalNeedsInformedDisclosure(input.state, input.truth);
   const customerStatusText = normalizeArabic(reply);
   const claimsCancelledOrClosed = /(?:الطلب|الملف)[^\n]{0,30}(?:ملغي|ملغى|انلغى|مقفول|متوقف)|(?:تم|صار)[^\n]{0,20}(?:الغاء|إلغاء)[^\n]{0,20}(?:الطلب|الملف)/.test(customerStatusText);
   if (claimsCancelledOrClosed && !["cancelled","refund_requested","refund_completed"].includes(journeyStage)) {
@@ -467,7 +481,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
       if (hasContinuationDecisionQuestion(reply)) policyViolations.push("continuation_question_before_preliminary_approval");
     }
 
-    if (journeyStage === "preliminary_approved_waiting_decision" && !continuationNow) {
+    if (journeyStage === "preliminary_approved_waiting_decision" && (!continuationNow || informedDisclosureNeeded)) {
       if (!t.includes(normalizeArabic("موافقة مبدئية"))) policyViolations.push("preliminary_approval_customer_label_missing");
       if (!hasContinuationDecisionQuestion(reply)) policyViolations.push("preliminary_approval_continue_question_missing");
       const saysNotFinal = t.includes(normalizeArabic("ليست موافقة نهائية")) ||
@@ -477,6 +491,8 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
         t.includes(normalizeArabic("الموافقة النهائية لسه"));
       if (!saysNotFinal) policyViolations.push("preliminary_approval_not_final_explanation_missing");
       if (!hasFiveJodJourneyExplanation(reply)) policyViolations.push("preliminary_approval_5_jod_next_step_missing");
+      if (!hasRespectfulFeeRationale(reply)) policyViolations.push("preliminary_approval_fee_rationale_missing_or_coercive");
+      if (restrictedPaymentDestinationDetail(reply)) policyViolations.push("payment_destination_exposed_before_informed_continuation");
       if (!hasReviewWindowAndPressure(reply)) policyViolations.push("preliminary_approval_review_window_missing");
     }
   }
@@ -564,14 +580,19 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
       const feeMentioned = /(?:5|٥)\s*(?:دنانير|دينار)/.test(reply) && /رسوم\s*فتح\s*الملف/.test(t);
       if (!feeMentioned) policyViolations.push("continuation_payment_ready_missing_5_jod_fee");
       if (/لا\s*يوجد\s*اي\s*دفع\s*مطلوب|ما\s*في\s*دفع\s*مطلوب|لا\s*دفع\s*مطلوب/.test(t)) truthContradictions.push("continuation_payment_ready_wrong_no_payment_claim");
-      if (!containsCurrentFileOpeningPaymentDestination(reply)) policyViolations.push("continuation_payment_ready_missing_current_payment_destination");
-      if (containsLegacyFileOpeningPaymentDestination(reply)) policyViolations.push("legacy_payment_destination_forbidden");
-      const receiptLink = buildOfficialLinkContext(input.turn, input.truth).relevant.receipt;
-      if (receiptLink && !reply.includes(receiptLink)) policyViolations.push("continuation_payment_ready_missing_receipt_link");
+      if (informedDisclosureDelivered) {
+        if (!containsCurrentFileOpeningPaymentDestination(reply)) policyViolations.push("continuation_payment_ready_missing_current_payment_destination");
+        if (containsLegacyFileOpeningPaymentDestination(reply)) policyViolations.push("legacy_payment_destination_forbidden");
+        const receiptLink = buildOfficialLinkContext(input.turn, input.truth).relevant.receipt;
+        if (receiptLink && !reply.includes(receiptLink)) policyViolations.push("continuation_payment_ready_missing_receipt_link");
+      } else {
+        if (restrictedPaymentDestinationDetail(reply)) policyViolations.push("payment_destination_exposed_before_informed_continuation");
+        if (!hasRespectfulFeeRationale(reply)) policyViolations.push("continuation_informed_fee_rationale_missing_or_coercive");
+      }
       if (!/القسط\s*الاول|القسط\s*الأول/.test(t)) policyViolations.push("continuation_payment_ready_first_installment_distinction_missing");
-      if (!/(?:مسترده|مستردة)\s*(?:بالكامل|كامل)/.test(t)) policyViolations.push("continuation_payment_ready_refundability_missing");
+      if (!/(?:مسترده|مستردة)\s*(?:بالكامل|كامل)|(?:مسار\s*الاسترداد|الاسترداد\s*الرسمي)/.test(t)) policyViolations.push("continuation_payment_ready_refundability_missing");
       if (!/(?:فتح\s*الملف|استكمال\s*(?:اجراءات|إجراءات)\s*الطلب)/.test(t)) policyViolations.push("continuation_payment_ready_fee_purpose_missing");
-      if (!/(?:القرار\s*(?:الك|إلك|لك)|براحتك|بدون\s*ضغط|ما\s*في\s*ضغط|حقك\s*محفوظ|اذا\s*غيرت\s*رايك|إذا\s*غيرت\s*رأيك)/.test(t)) policyViolations.push("continuation_payment_ready_human_reassurance_missing");
+      if (!/(?:القرار\s*(?:الك|إلك|لك)|براحتك|بدون\s*ضغط|ما\s*في\s*ضغط|حقك\s*محفوظ|اذا\s*غيرت\s*رايك|إذا\s*غيرت\s*رأيك|خذ\s*قرارك)/.test(t)) policyViolations.push("continuation_payment_ready_human_reassurance_missing");
     }
     if (["already_paid","payment_pending_admin"].includes(commercial) && /(?:ادفع|حول|حوّل)[^\n]{0,40}(?:5|٥|رسوم)/.test(t)) truthContradictions.push("continuation_payment_already_handled_but_fee_requested_again");
   }
