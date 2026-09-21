@@ -497,6 +497,7 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (claimExecuted(reply,["تم تعديل البيانات","عدلت البيانات"]) && !actionOk(input.actions,["change_application_data"])) actionClaimViolations.push("unverified_application_change_claim");
   if (claimExecuted(reply,["تم تحديد موعد","حجزتلك","حجزنا موعد"])) actionClaimViolations.push("unverified_appointment_claim");
   if (claimExecuted(reply,["رح نتصل","سنتصل","موظف رح يتواصل","سيتواصل معك موظف"])) actionClaimViolations.push("future_human_contact_claim");
+  if (/(?:رح|راح)\s+(?:ا?راجع|أتأكد|اتأكد).{0,35}(?:الاداره|الإدارة|الموضوع)|(?:براجع|سأراجع|ساراجع|سأتحقق).{0,35}(?:الاداره|الإدارة|الموضوع)|(?:بمجرد|اول\s+ما|أول\s+ما).{0,35}(?:يطلع|يصدر|يجيني).{0,25}(?:القرار|الرد).{0,25}(?:بخبرك|ببلغك|برجعلك)/i.test(reply)) actionClaimViolations.push("unsupported_future_admin_followup_claim");
   if (/(?:رح|راح|بنبعث|رح\s+نبعث|بنرسل|رح\s+نرسل).{0,45}(?:على|ع)\s*(?:هاض|هاد|هذا)\s+الرقم/i.test(reply) && !actionOk(input.actions,["change_application_data"])) actionClaimViolations.push("unverified_contact_number_change_claim");
   if (continuationNow && /(?:بمجرد|لما).{0,35}(?:تنفذ|تنفّذ|تعمل).{0,35}(?:الاداره|الإدارة).{0,35}(?:فتح\s+الملف|خطوه\s+فتح|خطوة\s+فتح)/i.test(reply)) policyViolations.push("invented_admin_gate_before_5_jod");
 
@@ -618,3 +619,5 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     repetitionFlags: Array.from(new Set(repetitionFlags)),
   };
 }
+
+// PHASE 7.8.0: future admin-review promises require a real synchronous execution receipt; otherwise they are blocked.

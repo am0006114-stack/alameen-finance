@@ -1,7 +1,7 @@
 import { executeActions } from "./actionPlane";
 import { buildReplyPlan } from "./planner";
 import { contactPhonesMatch, resolveV3ProductionTruth } from "./productionTruth";
-import { closeAnsweredLoops, emptyState, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
+import { closeAnsweredLoops, emptyState, finalizeStateSemanticMemory, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
 import type { ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
 import { verifyReply } from "./verifier";
@@ -37,6 +37,9 @@ import { contactExplanationFromText, markContactResolution, clearContactResoluti
 import { applyConversationConstraintsToReply, updateConversationConstraints } from "./conversationConstraints";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 import { applyHumanRelationshipEgress } from "./humanRelationshipRuntime";
+import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto, semanticWriterAuthority } from "./semanticAuthority";
+import { verifySemanticReply, type SemanticReplyCheck } from "./semanticReplyVerifier";
+import { buildSemanticFailClosedReply } from "./semanticRescue";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -72,6 +75,10 @@ export type V3LiveResult = OsRunResult & {
 
 function repairPrompt(base: string, reply: string, verification: VerificationReport) {
   return `${base}\n\nالرد السابق فشل التحقق الداخلي.\nPREVIOUS_REPLY=${JSON.stringify(reply)}\nVIOLATIONS=${JSON.stringify(verification)}\n\nأعد كتابة الرد النهائي فقط. أصلح المخالفات، لا تحذف أي موضوع مطلوب، ولا تدّعي أي إجراء غير منفذ.`;
+}
+
+function semanticRepairPrompt(base: string, reply: string, check: SemanticReplyCheck) {
+  return `${base}\n\nPHASE_7_8_0_SEMANTIC_REPAIR=true\nالرد السابق كان آمنًا من ناحية الحقيقة لكنه فشل في فهم/جواب المعنى الحالي.\nPREVIOUS_REPLY=${JSON.stringify(reply)}\nSEMANTIC_FAILURE=${JSON.stringify(check)}\n\nأعد كتابة الرد النهائي فقط. جاوب currentQuestion وanswerObligations الحالية مباشرة، لا ترجع لموضوع قديم، لا تقلب قرارًا مؤجلًا إلى استمرار، ولا تخترع حقيقة عن كيان/محفظة غير موثقة.`;
 }
 
 function actionNeedsTruthRefresh(actions: ActionResult[]) {
@@ -382,14 +389,14 @@ export async function runV3ProductionLive(input: {
     recentTurns: safeRecentTurns,
     provider: interpreter,
   });
-  let turn = enforceFreshTurnAuthority({
+  let turn = enforceSemanticDecisionAuthority(enforceFreshTurnAuthority({
     turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
       turn: interpreted.turn,
       state: stateBefore,
       recentTurns: safeRecentTurns,
     }))),
     state: stateBefore,
-  });
+  }));
   const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
   const reducedState = reduceState({ state: stateBefore, turn });
   const constrainedState = updateConversationConstraints({ state: reducedState, customerText: effectiveCustomerText, turnId: input.turnId });
@@ -775,9 +782,12 @@ export async function runV3ProductionLive(input: {
   // application changes to customer_confirmed_continue, and Discord receives the
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
+  const semanticContinueVeto = semanticContinuationVeto(turn);
   const continuationDecisionThisTurn = truthAfterActions.contactAccess !== "safe_preview"
+    && !semanticContinueVeto
     && !explicitDoNotContinueText(effectiveCustomerText, executionState.lastAssistantText) && (
-      explicitContinuationText(effectiveCustomerText)
+      semanticConfirmsContinuation(turn)
+      || explicitContinuationText(effectiveCustomerText)
       || turn.requestedActions.includes("continue_application")
       || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
     );
@@ -881,6 +891,8 @@ export async function runV3ProductionLive(input: {
     : null;
 
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
+  const semanticWriterPreferred = Boolean(writer && interpreted.modelUsed && semanticWriterAuthority(turn));
+  let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
   let reply: string | null = null;
   let verification: VerificationReport = PASS;
   let replyAttempts = 0;
@@ -912,7 +924,7 @@ export async function runV3ProductionLive(input: {
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (currentQuestionReply) {
+    } else if (!semanticWriterPreferred && currentQuestionReply) {
       reply = currentQuestionReply;
       verification = verifyReply({
         reply,
@@ -924,7 +936,7 @@ export async function runV3ProductionLive(input: {
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (humanAuthorityReply) {
+    } else if (!semanticWriterPreferred && humanAuthorityReply) {
       reply = humanAuthorityReply;
       verification = verifyReply({
         reply,
@@ -936,7 +948,7 @@ export async function runV3ProductionLive(input: {
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (prioritizeRecovery && recoveryReply) {
+    } else if (!semanticWriterPreferred && prioritizeRecovery && recoveryReply) {
       // Only truth-critical recovery paths pre-empt the writer: explicit
       // continuation/opt-out, new application, foreign form blocker, showroom
       // policy, and contact-number correction. Normal status/timing stays with
@@ -1018,6 +1030,58 @@ export async function runV3ProductionLive(input: {
       }
     }
 
+    // PHASE 7.8.0 AI-NATIVE SEMANTIC ANSWER GATE: deterministic safety is not
+    // enough if the reply answers the wrong human question. DeepSeek's semantic
+    // frame is independently checked against the candidate before fallback/egress.
+    if (reply && verification.pass) {
+      semanticCheck = await verifySemanticReply({
+        provider: interpreter,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        reply,
+      });
+      if (!semanticCheck.pass && writer) {
+        const semanticBasePrompt = buildWriterPrompt({
+          turn,
+          state: conversationState,
+          truth: truthAfterActions,
+          plan,
+          actions,
+          recentTurns: scopedRecentTurns,
+          profileName: input.profileName,
+        });
+        try {
+          replyAttempts++;
+          const repaired = await writer.generate({
+            system: "أصلح الرد دلاليًا. أخرج رد العميل النهائي فقط.",
+            user: semanticRepairPrompt(semanticBasePrompt, reply, semanticCheck),
+            temperature: 0.08,
+            maxTokens: 850,
+          });
+          const repairedVerification = verifyReply({
+            reply: repaired, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName,
+          });
+          const repairedSemantic = repairedVerification.pass ? await verifySemanticReply({ provider: interpreter, turn, state: conversationState, truth: truthAfterActions, reply: repaired }) : semanticCheck;
+          if (repairedVerification.pass && repairedSemantic.pass) {
+            reply = repaired;
+            verification = repairedVerification;
+            semanticCheck = repairedSemantic;
+          } else {
+            reply = null;
+            verification = { ...verification, pass: false, repetitionFlags: Array.from(new Set([...verification.repetitionFlags, "semantic_answer_gate_failed"])) };
+          }
+        } catch (error) {
+          console.error("v3 semantic repair failed:", error);
+          reply = null;
+          verification = { ...verification, pass: false, repetitionFlags: Array.from(new Set([...verification.repetitionFlags, "semantic_answer_gate_failed"])) };
+        }
+      } else if (!semanticCheck.pass) {
+        reply = null;
+        verification = { ...verification, pass: false, repetitionFlags: Array.from(new Set([...verification.repetitionFlags, "semantic_answer_gate_failed"])) };
+      }
+    }
+
     if (!reply || !verification.pass) {
       const deterministicJourneyRescue = humanJourneyReply || recoveryReply;
       if (deterministicJourneyRescue) {
@@ -1061,6 +1125,43 @@ export async function runV3ProductionLive(input: {
       });
       reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: conversationState, customerText: effectiveCustomerText });
       verification = rescueVerification.pass ? rescueVerification : PASS;
+    }
+  }
+
+  // A deterministic fallback may be truth-safe yet semantically stale. Before any
+  // identity/style post-processing, run the semantic gate once more and, when
+  // possible, let the writer repair only the meaning while deterministic truth stays fixed.
+  if (plan.shouldRespond && reply && verification.pass) {
+    const finalSemanticCheck = await verifySemanticReply({ provider: interpreter, turn, state: conversationState, truth: truthAfterActions, reply });
+    semanticCheck = finalSemanticCheck;
+    if (!finalSemanticCheck.pass && writer) {
+      try {
+        const semanticBasePrompt = buildWriterPrompt({ turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
+        replyAttempts++;
+        const repaired = await writer.generate({
+          system: "هذه آخر محاولة قبل الإرسال. جاوب معنى العميل الحالي فقط داخل الحقيقة المثبتة.",
+          user: semanticRepairPrompt(semanticBasePrompt, reply, finalSemanticCheck),
+          temperature: 0.05,
+          maxTokens: 850,
+        });
+        const deterministic = verifyReply({ reply: repaired, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
+        const semantic = deterministic.pass ? await verifySemanticReply({ provider: interpreter, turn, state: conversationState, truth: truthAfterActions, reply: repaired }) : finalSemanticCheck;
+        if (deterministic.pass && semantic.pass) { reply = repaired; verification = deterministic; semanticCheck = semantic; fallbackUsed = true; }
+      } catch (error) {
+        console.error("v3 final semantic repair failed:", error);
+      }
+    }
+    if (!semanticCheck.pass) {
+      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions });
+      if (semanticRescue) {
+        const rescueVerification = verifyReply({ reply: semanticRescue, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
+        if (rescueVerification.pass) {
+          reply = semanticRescue;
+          verification = rescueVerification;
+          semanticCheck = { ...semanticCheck, pass: true, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [] };
+          fallbackUsed = true;
+        }
+      }
     }
   }
 
@@ -1323,7 +1424,71 @@ export async function runV3ProductionLive(input: {
     }
   }
 
-  const finalSafetyPass = !plan.shouldRespond || policySuppressed || Boolean(reply && verification.pass && finalGate.pass);
+  // PHASE 7.8.0 FINAL SEMANTIC EGRESS VETO: downstream deterministic arbiters
+  // may legitimately repair truth/policy wording after the earlier semantic check.
+  // Re-check the *actual* one reply that is about to leave the runtime so a late
+  // stale-topic repair can never undo current-question authority. This is a veto
+  // layer, not a second conversational egress: at most one customer reply leaves.
+  if (plan.shouldRespond && reply && verification.pass && finalGate.pass) {
+    const actualEgressSemantic = await verifySemanticReply({
+      provider: interpreter,
+      turn,
+      state: conversationState,
+      truth: truthAfterActions,
+      reply,
+    });
+    semanticCheck = actualEgressSemantic;
+    if (!actualEgressSemantic.pass) {
+      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions });
+      if (semanticRescue) {
+        const rescueVerification = verifyReply({
+          reply: semanticRescue,
+          turn,
+          state: conversationState,
+          truth: truthAfterActions,
+          plan,
+          actions,
+          recentTurns: scopedRecentTurns,
+          profileName: input.profileName,
+        });
+        const rescueGate = rescueVerification.pass ? enforceFinalResponseGate({
+          reply: semanticRescue,
+          turn,
+          state: conversationState,
+          truth: truthAfterActions,
+          actions,
+          applicationChanged: false,
+        }) : finalGate;
+        if (rescueVerification.pass && rescueGate.pass) {
+          reply = semanticRescue;
+          verification = rescueVerification;
+          finalGate = rescueGate;
+          semanticCheck = { ...actualEgressSemantic, pass: true, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [] };
+          fallbackUsed = true;
+          logIntegrityTelemetry({
+            event: "ai_native_final_semantic_egress_rescue",
+            waId: input.waId,
+            turnId: input.turnId,
+            applicationId: truthAfterActions.application?.id || null,
+            trackingId: truthAfterActions.application?.trackingId || null,
+            severity: "warning",
+            details: {
+              staleTopic: actualEgressSemantic.staleTopic,
+              invertedDecision: actualEgressSemantic.invertedDecision,
+              unknownEntityMisread: actualEgressSemantic.unknownEntityMisread,
+              missingObligations: actualEgressSemantic.missingObligations,
+            },
+          });
+        } else {
+          reply = null;
+        }
+      } else {
+        reply = null;
+      }
+    }
+  }
+
+  const finalSafetyPass = !plan.shouldRespond || policySuppressed || Boolean(reply && verification.pass && finalGate.pass && semanticCheck.pass);
   if (!finalSafetyPass) {
     await notifyV3Discord({
       event: "final_safety_fail_closed",
@@ -1401,7 +1566,8 @@ export async function runV3ProductionLive(input: {
   const answeredState = answeredTopics.length
     ? closeAnsweredLoops({ ...actionAdjustedState, lastAssistantText: reply }, answeredTopics)
     : { ...actionAdjustedState, lastAssistantText: reply || actionAdjustedState.lastAssistantText };
-  const stateAfter = markRoleIntroducedFromReply(answeredState, reply);
+  const semanticFinalizedState = finalizeStateSemanticMemory({ state: answeredState, turn, reply, answered: Boolean(reply && verification.pass && semanticCheck.pass) });
+  const stateAfter = markRoleIntroducedFromReply(semanticFinalizedState, reply);
 
   return {
     version: stateAfter.version,

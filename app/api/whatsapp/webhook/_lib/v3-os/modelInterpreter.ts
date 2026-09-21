@@ -1,4 +1,4 @@
-import type { ActionKey, ConversationState, DialogueAct, DialogueActType, InterpretedTurn, TopicKey } from "./types";
+import type { ActionKey, ConversationState, DialogueAct, DialogueActType, InterpretedTurn, SemanticTurnFrame, TopicKey } from "./types";
 import { interpretTurn } from "./interpreter";
 import type { V3TextProvider } from "./provider";
 import { normalizeArabic } from "./text";
@@ -31,12 +31,34 @@ type ModelAct = {
   confidence?: unknown;
 };
 
+type ModelSemanticEntity = {
+  surface?: unknown; kind?: unknown; role?: unknown; knownFactStatus?: unknown; countryHint?: unknown; confidence?: unknown;
+};
+
+type ModelSemantic = {
+  meaningSummary?: unknown;
+  customerGoal?: unknown;
+  currentQuestion?: unknown;
+  answerObligations?: unknown;
+  references?: unknown;
+  entities?: ModelSemanticEntity[];
+  decision?: any;
+  correctionOfPrevious?: unknown;
+  socialClosure?: unknown;
+  requiresExternalFact?: unknown;
+  externalFactNeeded?: unknown;
+  answerMode?: unknown;
+  confidence?: unknown;
+  warnings?: unknown;
+};
+
 type ModelInterpretation = {
   acts?: ModelAct[];
   sentiment?: unknown;
   urgency?: unknown;
   explicitRoleRequest?: unknown;
   warnings?: unknown;
+  semantic?: ModelSemantic;
 };
 
 function clampConfidence(v: unknown) {
@@ -62,11 +84,35 @@ function modelPrompt(input: { customerText: string; state: ConversationState; re
   "sentiment":"calm|confused|frustrated|angry",
   "urgency":"normal|urgent",
   "explicitRoleRequest":"manager|staff|tala|fadwa|abdullah|abdulrahman|omran|null",
-  "warnings":[]
+  "warnings":[],
+  "semantic":{
+    "meaningSummary":"المعنى البشري النهائي للرسالة أو دفعة الرسائل",
+    "customerGoal":"ما الذي يحاول العميل إنجازه الآن أو null",
+    "currentQuestion":"السؤال الحالي بصياغة واضحة أو null",
+    "answerObligations":["كل نقطة مادية يجب أن يجيب عنها الرد"],
+    "references":[{"surface":"منها","refersTo":"محفظة سويس","confidence":0.96}],
+    "entities":[{"surface":"محفظة سويس","kind":"wallet_or_payment_app","role":"source_payment_instrument","knownFactStatus":"unknown","countryHint":"unknown","confidence":0.9}],
+    "decision":{"continuation":"confirmed|declined|deferred|conditional|unknown","cancellation":"requested|question|declined|unknown","refund":"requested|question|unknown","aliasConfirmation":"confirmed|declined|unknown","condition":null},
+    "correctionOfPrevious":false,
+    "socialClosure":false,
+    "requiresExternalFact":false,
+    "externalFactNeeded":null,
+    "answerMode":"direct|grounded_reasoning|clarify|social",
+    "confidence":0.9,
+    "warnings":[]
+  }
 }
 
 قواعد:
 - الرسالة قد تحتوي أكثر من فعل/سؤال. استخرج كل الأفعال المادية.
+- **منطقة العمل الأردن**. افهم اللهجة والأسماء ضمن سياق الأردن، لكن لا تخترع أن خدمة/محفظة/بنك معين موجود أو غير موجود إذا لم تكن لديك حقيقة موثقة.
+- إذا ظهر اسم غير مألوف مثل «محفظة سويس»، لا تستبدله تلقائيًا بـZain Cash أو بنك أو كشف راتب. استنتج **دوره النحوي والوظيفي** في السؤال: هنا هو أداة/محفظة يريد العميل أن يبدأ منها تحويل رسوم الملف. صنّفه entity غير موثقة، وافصل فهم السؤال عن معرفة توافق الخدمة.
+- فرّق بين **مصدر التحويل** و**وجهة التحويل**. سؤال «بقدر أبعت من محفظتي؟» بعد إعطاء بيانات رسوم الملف هو سؤال interoperability/طريقة دفع، وليس سؤال إثبات دخل.
+- CURRENT MESSAGE/BURST أعلى سلطة في المعنى من أي state أو topic قديم. السياق القديم يساعد على حل المرجع فقط، ولا يجوز أن يبتلع السؤال الجديد.
+- «بس يطلع القرار بزبط أو لا بستمر» = continuation deferred/conditional، **وليس** اختيار استمرار الآن. لا تنشئ continue_application في هذه الحالة.
+- «تمام/إن شاء الله/شكراً» بدون سؤال أو طلب جديد = socialClosure=true. أما إذا معها سؤال أو فقاعة لاحقة مادية فليست closure.
+- املأ semantic.currentQuestion وanswerObligations بالمعنى النهائي بعد دمج كل الفقاعات، حتى لو intent التقليدي غير واضح.
+- إذا العميل يصحح فهمنا («قصدي رسوم فتح الملف») اجعل correctionOfPrevious=true والسؤال المصحح هو الحاكم.
 - اربط "هيك/هاذ/الرسوم*/ماعندي/طيب/كيف يعني" بالسياق والـopen loops عندما يكون المرجع واضحًا.
 - لا تحول سبب الإلغاء إلى طلب دفع أو استمرار.
 - لا تعتبر سؤال "بقدر ألغي؟" تنفيذ إلغاء.
@@ -94,7 +140,16 @@ STATE=${JSON.stringify({
     openLoops: input.state.openLoops.filter(x=>x.state==="open").slice(-12),
     facts: input.state.facts.slice(-20),
     lastCustomerText: input.state.lastCustomerText,
-    lastAssistantText: input.state.lastAssistantText
+    lastAssistantText: input.state.lastAssistantText,
+    semanticMemory: input.state.semanticMemory ? {
+      activeGoal: input.state.semanticMemory.activeGoal,
+      activeQuestion: input.state.semanticMemory.activeQuestion,
+      lastMeaningSummary: input.state.semanticMemory.lastMeaningSummary,
+      continuationDecision: input.state.semanticMemory.continuationDecision,
+      continuationCondition: input.state.semanticMemory.continuationCondition,
+      entries: input.state.semanticMemory.entries.slice(-20),
+      episodes: input.state.semanticMemory.episodes.slice(-8)
+    } : null
   })}
 
 RECENT=${JSON.stringify(input.recentTurns || [])}
@@ -102,6 +157,63 @@ RECENT=${JSON.stringify(input.recentTurns || [])}
 DETERMINISTIC_ANCHOR=${JSON.stringify(input.deterministic)}
 
 CUSTOMER_MESSAGE=${JSON.stringify(input.customerText)}`;
+}
+
+
+function str(v: unknown, max = 420) {
+  const value = String(v ?? "").replace(/\s+/g, " ").trim();
+  return value ? (value.length > max ? `${value.slice(0,max).trim()}…` : value) : null;
+}
+
+function bool(v: unknown) { return v === true || String(v).toLowerCase() === "true"; }
+
+function oneOf<T extends string>(v: unknown, allowed: readonly T[], fallback: T): T {
+  const s = String(v ?? "") as T;
+  return allowed.includes(s) ? s : fallback;
+}
+
+function semanticFrame(parsed: ModelInterpretation, customerText: string): SemanticTurnFrame | null {
+  const semantic = parsed.semantic;
+  if (!semantic) return null;
+  const entityKinds = ["person","device","wallet_or_payment_app","bank","company","location","document","amount","date","other"] as const;
+  const knownStates = ["known","unknown","customer_claim"] as const;
+  const entities = (Array.isArray(semantic.entities) ? semantic.entities : []).slice(0,16).map((entity) => ({
+    surface: str(entity.surface, 120) || "",
+    kind: oneOf(entity.kind, entityKinds, "other"),
+    role: str(entity.role, 120),
+    knownFactStatus: oneOf(entity.knownFactStatus, knownStates, "unknown"),
+    countryHint: oneOf(entity.countryHint, ["JO","unknown"] as const, "unknown"),
+    confidence: clampConfidence(entity.confidence),
+  })).filter((entity) => entity.surface);
+  const refs = Array.isArray(semantic.references) ? semantic.references.slice(0,12).map((ref:any) => ({
+    surface: str(ref?.surface, 100) || "",
+    refersTo: str(ref?.refersTo, 160),
+    confidence: clampConfidence(ref?.confidence),
+  })).filter((ref:any) => ref.surface) : [];
+  const decision = semantic.decision || {};
+  const obligations = Array.isArray(semantic.answerObligations) ? semantic.answerObligations.map((x) => str(x,260)).filter(Boolean).slice(0,10) as string[] : [];
+  return {
+    meaningSummary: str(semantic.meaningSummary, 420) || str(customerText, 420) || "",
+    customerGoal: str(semantic.customerGoal, 260),
+    currentQuestion: str(semantic.currentQuestion, 420),
+    answerObligations: obligations,
+    references: refs,
+    entities,
+    decision: {
+      continuation: oneOf(decision.continuation, ["confirmed","declined","deferred","conditional","unknown"] as const, "unknown"),
+      cancellation: oneOf(decision.cancellation, ["requested","question","declined","unknown"] as const, "unknown"),
+      refund: oneOf(decision.refund, ["requested","question","unknown"] as const, "unknown"),
+      aliasConfirmation: oneOf(decision.aliasConfirmation, ["confirmed","declined","unknown"] as const, "unknown"),
+      condition: str(decision.condition, 300),
+    },
+    correctionOfPrevious: bool(semantic.correctionOfPrevious),
+    socialClosure: bool(semantic.socialClosure),
+    requiresExternalFact: bool(semantic.requiresExternalFact),
+    externalFactNeeded: str(semantic.externalFactNeeded, 300),
+    answerMode: oneOf(semantic.answerMode, ["direct","grounded_reasoning","clarify","social"] as const, "direct"),
+    confidence: clampConfidence(semantic.confidence),
+    warnings: Array.isArray(semantic.warnings) ? semantic.warnings.map((x) => String(x)).slice(0,12) : [],
+  };
 }
 
 function signature(a: Pick<DialogueAct,"type"|"topic"|"action"|"value">) {
@@ -257,7 +369,7 @@ export async function interpretTurnWithAi(input: {
       system: "أنت محلل محادثات صارم. أخرج JSON فقط ولا تكتب ردًا للعميل.",
       user: modelPrompt({ customerText: input.customerText, state: input.state, recentTurns: input.recentTurns, deterministic }),
       temperature: 0,
-      maxTokens: 1200,
+      maxTokens: 1800,
     });
     const parsed = jsonFromText(generated);
     const merged = [...deterministic.acts];
@@ -299,6 +411,7 @@ export async function interpretTurnWithAi(input: {
       ...(Array.isArray(parsed.warnings) ? parsed.warnings.map(String).slice(0,12) : []),
     ]));
 
+    const semantic = semanticFrame(parsed, input.customerText);
     return {
       turn: enrichOperationalActs({
         ...deterministic,
@@ -308,8 +421,9 @@ export async function interpretTurnWithAi(input: {
         explicitRoleRequest,
         sentiment,
         urgency,
-        confidence: Math.max(deterministic.confidence, merged.length ? Math.min(0.99, merged.reduce((s,a)=>s+a.confidence,0)/merged.length) : 0),
-        warnings,
+        confidence: Math.max(deterministic.confidence, semantic?.confidence || 0, merged.length ? Math.min(0.99, merged.reduce((s,a)=>s+a.confidence,0)/merged.length) : 0),
+        warnings: Array.from(new Set([...warnings, ...(semantic?.warnings || [])])),
+        semantic,
       }, input.customerText),
       modelUsed: true,
       modelError: null,

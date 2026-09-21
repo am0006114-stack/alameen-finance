@@ -3,6 +3,7 @@ import { V3_OS_VERSION, type ConversationState, type InterpretedTurn, type OpenL
 import { normalizeArabic } from "./text";
 import { BUSINESS_REGISTRATION_PROTECTION_REPLY } from "./unifiedConversationDecisionPlane";
 import { updateHumanRelationshipState } from "./humanRelationshipRuntime";
+import { emptySemanticMemory, finalizeSemanticMemoryAfterReply, updateSemanticMemoryFromTurn } from "./semanticMemory";
 
 function now() { return new Date().toISOString(); }
 
@@ -28,6 +29,7 @@ export function emptyState(waId: string): ConversationState {
     contactResolution: null,
     conversationConstraints: { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
     humanRelationship: { lastEmotion: "neutral", lastConcern: null, frustrationStreak: 0, delayTurnCount: 0, warmTurnCount: 0, lastGreetingTurnId: null, updatedAt: now() },
+    semanticMemory: emptySemanticMemory(),
     updatedAt: now(),
   };
 }
@@ -81,6 +83,7 @@ export function reduceState(input: { state: ConversationState; turn: Interpreted
   const risk = input.turn.sentiment === "angry" || input.turn.topics.some((t) => ["legal","social_threat","complaint","refund","cancellation"].includes(t));
   s.consecutiveRiskTurns = risk ? s.consecutiveRiskTurns + 1 : Math.max(0, s.consecutiveRiskTurns - 1);
   s.humanRelationship = updateHumanRelationshipState({ state: input.state, turn: input.turn, stamp });
+  s.semanticMemory = updateSemanticMemoryFromTurn({ state: input.state, turn: input.turn });
 
   for (const act of input.turn.acts) {
     if (act.type === "provide_fact" && act.value) {
@@ -117,6 +120,14 @@ export function closeAnsweredLoops(state: ConversationState, topics: string[]): 
   };
 }
 
+
+export function finalizeStateSemanticMemory(input: { state: ConversationState; turn: InterpretedTurn; reply: string | null | undefined; answered: boolean }): ConversationState {
+  return {
+    ...input.state,
+    semanticMemory: finalizeSemanticMemoryAfterReply({ state: input.state, turn: input.turn, reply: input.reply, answered: input.answered }),
+    updatedAt: now(),
+  };
+}
 
 export function markRoleIntroducedFromReply(state: ConversationState, reply: string | null | undefined): ConversationState {
   if (!reply || state.role.introduced) return state;

@@ -174,6 +174,18 @@ export function sanitizeStateForWriter(state: ConversationState) {
       : null,
     contactResolution: state.contactResolution ? { ...state.contactResolution } : null,
     conversationConstraints: state.conversationConstraints ? { ...state.conversationConstraints } : { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
+    semanticMemory: state.semanticMemory ? {
+      revision: state.semanticMemory.revision,
+      activeGoal: state.semanticMemory.activeGoal ? redact(state.semanticMemory.activeGoal) : null,
+      activeQuestion: state.semanticMemory.activeQuestion ? redact(state.semanticMemory.activeQuestion) : null,
+      activeQuestionTurnId: state.semanticMemory.activeQuestionTurnId,
+      lastMeaningSummary: state.semanticMemory.lastMeaningSummary ? redact(state.semanticMemory.lastMeaningSummary) : null,
+      continuationDecision: state.semanticMemory.continuationDecision,
+      continuationCondition: state.semanticMemory.continuationCondition ? redact(state.semanticMemory.continuationCondition) : null,
+      entries: state.semanticMemory.entries.slice(-30).map((entry) => ({ ...entry, value: redact(entry.value) })),
+      episodes: state.semanticMemory.episodes.slice(-10).map((episode) => ({ ...episode, customerMeaning: redact(episode.customerMeaning), currentQuestion: episode.currentQuestion ? redact(episode.currentQuestion) : null, customerGoal: episode.customerGoal ? redact(episode.customerGoal) : null, assistantAnswer: episode.assistantAnswer ? redact(episode.assistantAnswer) : null })),
+      updatedAt: state.semanticMemory.updatedAt,
+    } : null,
   };
 }
 
@@ -188,6 +200,17 @@ export function sanitizeTurnForWriter(turn: InterpretedTurn) {
     rawText: redact(turn.rawText),
     normalizedText: redact(turn.normalizedText),
     acts: turn.acts.map((act) => ({ ...act, text: redact(act.text) })),
+    semantic: turn.semantic ? {
+      ...turn.semantic,
+      meaningSummary: redact(turn.semantic.meaningSummary),
+      customerGoal: turn.semantic.customerGoal ? redact(turn.semantic.customerGoal) : null,
+      currentQuestion: turn.semantic.currentQuestion ? redact(turn.semantic.currentQuestion) : null,
+      answerObligations: turn.semantic.answerObligations.map(redact),
+      references: turn.semantic.references.map((ref) => ({ ...ref, surface: redact(ref.surface), refersTo: ref.refersTo ? redact(ref.refersTo) : null })),
+      entities: turn.semantic.entities.map((entity) => ({ ...entity, surface: redact(entity.surface), role: entity.role ? redact(entity.role) : null })),
+      decision: { ...turn.semantic.decision, condition: turn.semantic.decision.condition ? redact(turn.semantic.decision.condition) : null },
+      externalFactNeeded: turn.semantic.externalFactNeeded ? redact(turn.semantic.externalFactNeeded) : null,
+    } : null,
     customerUrls,
   };
 }

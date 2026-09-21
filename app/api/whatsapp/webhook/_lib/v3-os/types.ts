@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.7.2-fresh-turn-open-loop-egress-integrity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.8.0-ai-native-conversation-brain-semantic-memory" as const;
+// Backward compatibility anchor: v3.0.0-phase7.7.2-fresh-turn-open-loop-egress-integrity
 // Backward compatibility anchor: v3.0.0-phase7.7.1-payment-journey-continuity-human-repair
 // Backward compatibility anchor: v3.0.0-phase7.6.1-human-meaning-authority-semantic-residue-elimination
 // Backward compatibility anchor: v3.0.0-phase7.6.0-human-company-runtime-identity-action-safety-conversation-control
@@ -68,6 +69,73 @@ export type DialogueAct = {
   source: "deterministic" | "model" | "resolved";
 };
 
+
+export type SemanticEntity = {
+  surface: string;
+  kind: "person" | "device" | "wallet_or_payment_app" | "bank" | "company" | "location" | "document" | "amount" | "date" | "other";
+  role: string | null;
+  knownFactStatus: "known" | "unknown" | "customer_claim";
+  countryHint: "JO" | "unknown";
+  confidence: number;
+};
+
+export type SemanticDecision = {
+  continuation: "confirmed" | "declined" | "deferred" | "conditional" | "unknown";
+  cancellation: "requested" | "question" | "declined" | "unknown";
+  refund: "requested" | "question" | "unknown";
+  aliasConfirmation: "confirmed" | "declined" | "unknown";
+  condition: string | null;
+};
+
+export type SemanticTurnFrame = {
+  meaningSummary: string;
+  customerGoal: string | null;
+  currentQuestion: string | null;
+  answerObligations: string[];
+  references: Array<{ surface: string; refersTo: string | null; confidence: number }>;
+  entities: SemanticEntity[];
+  decision: SemanticDecision;
+  correctionOfPrevious: boolean;
+  socialClosure: boolean;
+  requiresExternalFact: boolean;
+  externalFactNeeded: string | null;
+  answerMode: "direct" | "grounded_reasoning" | "clarify" | "social";
+  confidence: number;
+  warnings: string[];
+};
+
+export type SemanticMemoryEntry = {
+  key: string;
+  value: string;
+  kind: "goal" | "decision" | "entity" | "preference" | "constraint" | "concern" | "reference" | "fact";
+  confidence: number;
+  sourceTurnId: string;
+  updatedAt: string;
+};
+
+export type SemanticMemoryEpisode = {
+  turnId: string;
+  customerMeaning: string;
+  currentQuestion: string | null;
+  customerGoal: string | null;
+  continuationDecision: SemanticDecision["continuation"];
+  assistantAnswer: string | null;
+  createdAt: string;
+};
+
+export type SemanticMemoryState = {
+  revision: number;
+  activeGoal: string | null;
+  activeQuestion: string | null;
+  activeQuestionTurnId: string | null;
+  lastMeaningSummary: string | null;
+  continuationDecision: SemanticDecision["continuation"];
+  continuationCondition: string | null;
+  entries: SemanticMemoryEntry[];
+  episodes: SemanticMemoryEpisode[];
+  updatedAt: string;
+};
+
 export type InterpretedTurn = {
   turnId: string;
   rawText: string;
@@ -80,6 +148,7 @@ export type InterpretedTurn = {
   explicitRoleRequest: AiRoleKey | "manager" | "staff" | null;
   confidence: number;
   warnings: string[];
+  semantic?: SemanticTurnFrame | null;
 };
 
 export type OpenLoop = {
@@ -177,6 +246,7 @@ export type ConversationState = {
   contactResolution: ContactResolutionState | null;
   conversationConstraints: ConversationConstraintsState;
   humanRelationship?: HumanRelationshipState;
+  semanticMemory?: SemanticMemoryState;
   updatedAt: string;
 };
 

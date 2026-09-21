@@ -69,6 +69,15 @@ export async function waitForV3EgressFreshnessBarrier(input: {
   quietMs?: number;
 }) {
   if (await shouldSuppressStaleV3Reply(input)) return false;
-  await new Promise((resolve) => setTimeout(resolve, Math.max(100, input.quietMs ?? 450)));
+  // Phase 7.8.0: 450ms was too narrow in production for human multi-bubble turns.
+  // Keep the public call signature backward-compatible, but enforce a real quiet
+  // window long enough for a follow-up bubble to supersede an already-authored reply.
+  const effectiveQuietMs = Math.max(1800, input.quietMs ?? 1800);
+  await new Promise((resolve) => setTimeout(resolve, effectiveQuietMs));
+  if (await shouldSuppressStaleV3Reply(input)) return false;
+  // Small second edge check closes the DB-write/Meta-send race after the main quiet window.
+  await new Promise((resolve) => setTimeout(resolve, 220));
   return !(await shouldSuppressStaleV3Reply(input));
 }
+
+// PHASE 7.8.0 CONVERSATION TRANSACTION EGRESS: effective quiet window >= 1800ms.

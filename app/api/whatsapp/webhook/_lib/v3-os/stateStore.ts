@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { V3_OS_VERSION, type ConversationState } from "./types";
+import { emptySemanticMemory } from "./semanticMemory";
 
 const TABLE = "whatsapp_v3_conversation_state";
 const STATE_READ_DELAYS_MS = [0, 120, 360];
@@ -11,6 +12,7 @@ function compactState(state: ConversationState): ConversationState {
     ...state,
     openLoops: state.openLoops.slice(-60),
     facts: state.facts.slice(-120),
+    semanticMemory: state.semanticMemory ? { ...state.semanticMemory, entries: state.semanticMemory.entries.slice(-80), episodes: state.semanticMemory.episodes.slice(-24) } : emptySemanticMemory(),
   };
 }
 
@@ -38,6 +40,7 @@ export async function loadV3ConversationState(waId: string): Promise<Conversatio
         verifiedContactBinding: state.verifiedContactBinding || null,
         contactResolution: state.contactResolution || null,
         conversationConstraints: state.conversationConstraints || { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
+        semanticMemory: state.semanticMemory || emptySemanticMemory(),
       };
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);

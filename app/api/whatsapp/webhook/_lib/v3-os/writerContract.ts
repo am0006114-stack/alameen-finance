@@ -18,6 +18,7 @@ import { humanFirstJourneyWriterContext } from "./humanFirstJourneyIntelligence"
 import { buildHumanEmployeePresenceContext } from "./employeePresence";
 import { resolveCurrentHumanTurnAuthority } from "./currentHumanTurnAuthority";
 import { buildHumanRelationshipProfile } from "./humanRelationshipRuntime";
+import { semanticMemoryForPrompt } from "./semanticMemory";
 
 function explicitFeePolicyQuestion(turn: InterpretedTurn) {
   const q = normalizeArabic(turn.rawText);
@@ -108,6 +109,8 @@ export function buildWriterPrompt(input: { turn: InterpretedTurn; state: Convers
   const previousAssistantText = input.state.lastAssistantText
     ? sanitizeRecentTurnsForModel([input.state.lastAssistantText])[0] || null
     : null;
+  const semanticFrame = input.turn.semantic || null;
+  const semanticMemory = semanticMemoryForPrompt(input.state);
   const humanJudgmentContext = {
     currentTurnKind: currentHumanTurnAuthority.kind,
     currentTurnReason: currentHumanTurnAuthority.reason,
@@ -146,6 +149,10 @@ GENERAL_ASSISTANT_MODE=false
 HUMAN_JUDGMENT_RUNTIME=true
 CURRENT_HUMAN_TURN_AUTHORITY=${JSON.stringify(currentHumanTurnAuthority)}
 HUMAN_JUDGMENT_CONTEXT=${JSON.stringify(humanJudgmentContext)}
+AI_NATIVE_SEMANTIC_FRAME=${JSON.stringify(semanticFrame)}
+AI_NATIVE_SEMANTIC_MEMORY=${JSON.stringify(semanticMemory)}
+OPERATING_COUNTRY=Jordan
+OPERATING_CURRENCY=JOD
 CONTACT_IDENTITY_CONTEXT=${JSON.stringify({
     verifiedContactBinding: safeState.verifiedContactBinding,
     contactResolution: safeState.contactResolution,
@@ -390,6 +397,16 @@ ${delaySupport.active ? delaySupport.guidance : ""}
 ${humanVoiceGuidance({ recentTurns: safeRecentTurns, tone: input.plan.tone, roleName })}
 
 HUMAN_CONVERSATION_PRIORITY:
+- PHASE 7.8.0 AI-NATIVE CONVERSATION BRAIN: AI_NATIVE_SEMANTIC_FRAME هو السلطة الأولى على **معنى كلام العميل الحالي** عندما تكون confidence جيدة. Topics/intents القديمة مجرد إشارات مساعدة ولا يجوز أن تتغلب على currentQuestion أو answerObligations أو correctionOfPrevious.
+- منطقة العمل هي الأردن. افهم أسماء الخدمات/المحافظ/البنوك الغريبة من **دورها في الجملة**، ولا تستبدل اسمًا غير معروف باسم معروف. مثال: «محفظة سويس» بعد بيانات دفع رسوم الملف تعني أن العميل يسأل هل يستطيع أن يبدأ التحويل من محفظته؛ لا تحول السؤال إلى كشف راتب أو Zain Cash. إذا توافق الخدمة غير موثق، قل ذلك بدون اختراع ووجّه حسب الوجهات الرسمية الموثقة.
+- إذا AI_NATIVE_SEMANTIC_FRAME.decision.continuation=deferred أو conditional، العميل **لم يختر الاستمرار الآن**. جاوب الشرط/القرار الذي ينتظره ولا تفتح بيانات الدفع ولا تقل «اخترت تكمل».
+- إذا AI_NATIVE_SEMANTIC_FRAME.correctionOfPrevious=true، اعتبر أن الرد السابق فهم العميل غلط. جاوب التصحيح مباشرة ولا ترجع لنفس المسار السابق.
+- كل عنصر في AI_NATIVE_SEMANTIC_FRAME.answerObligations يجب أن يظهر معناه في الرد. إذا لم تعرف حقيقة لازمة، صرّح بحدود المعرفة ثم أعطِ ما يمكن فعله عمليًا؛ لا تغيّر السؤال إلى موضوع تعرفه.
+- AI_NATIVE_SEMANTIC_MEMORY ذاكرة محادثة **وليست مصدر حقيقة تشغيلية**: استخدمها لتذكر ما كان العميل يقصده، ما الذي سأل عنه، وما الذي أُجيب سابقًا حتى لا تعيد نفس الشرح. لا تجعل أي assistantAnswer قديم أو entity غير موثقة تتغلب على TRUTH/POLICY أو على الرسالة الحالية.
+- إذا الذاكرة تبين أن نفس الحقيقة شُرحت سابقًا والعميل عاد بسبب عدم الرضا/التأخير، لا تنسخ الجواب القديم؛ أعطِ delta مفيدًا أو اشرح حدود ما تغير. وإذا correctionOfPrevious موجود، صحح الفهم القديم بدل الدفاع عنه.
+- الذاكرة تحفظ continuity فقط: ممنوع تحويل تخمين سابق أو كلام العميل غير المثبت إلى حقيقة عن الدفع/الأهلية/الموافقة/المورد/البنك/المحفظة/الإجراء المنفذ.
+- ممنوع ادعاء «رح أراجع مع الإدارة/حولت للإدارة/سجلت عند المسؤول/بخبرك أول ما يطلع القرار» إلا إذا ACTION_RESULTS أو حقيقة النظام تثبت أن هذا الإجراء أو التسجيل حصل فعلًا.
+- إذا العميل يسأل عن **طريقة دفع القسط الشهري** (اقتطاع بنك/تحويل/قناة سداد) ولا توجد قناة موثقة في TRUTH/POLICY، قل بوضوح إن آلية السداد الشهرية غير موثقة عندك في هذه اللحظة وأن مرجعها العقد/التعليمات الرسمية؛ ممنوع قلب السؤال إلى رسوم فتح الملف.
 - أنت تكمل محادثة مع شخص، مش شاشة حالة ولا قارئ صف من قاعدة البيانات. ابدأ بجواب الرسالة الحالية نفسها، وبعدها أعطِ فقط الحقيقة والخطوة التالية اللي يحتاجها العميل.
 - TURN.rawText قد يكون دمجًا لعدة فقاعات واتساب متتالية أرسلها العميل قبل أن نرد. اعتبرها فكرة بشرية واحدة مرتبة زمنيًا، وافهمها كاملة قبل الكتابة. غطِّ كل سؤال/طلب مادي فيها برد واحد طبيعي بدل الرد على آخر فقاعة فقط.
 - HUMAN_FIRST_JOURNEY_CONTEXT.authoritativeStage هو المرحلة الحاكمة الآن. أي open loop أو سؤال قديم يتعارض معها أصبح تاريخًا لا تعليمات حالية. مثال حاسم: بعد cancelled/refund_requested ممنوع الرجوع إلى «أود الاستمرار» أو رسوم فتح الملف أو طلب وصل جديد.
@@ -449,3 +466,9 @@ ${JSON.stringify(safeRecentTurns,null,2)}
 // GENERATIVE_CONVERSATION_WITH_DETERMINISTIC_TRUTH=true
 // SAFETY_CONTINUITY_LATCH=true
 // 7.5.6 PAYMENT CONVERSION INTEGRITY remains HARD-PRESERVED.
+
+// PHASE 7.8.0 AI-NATIVE CONVERSATION BRAIN + SEMANTIC MEMORY
+// CURRENT_MEANING_OVER_LEGACY_INTENT=true
+// UNKNOWN_ENTITY_ROLE_INFERENCE_WITHOUT_FACT_INVENTION=true
+// CONTINUATION_DEFERRED_IS_NOT_CONTINUE=true
+// SEMANTIC_MEMORY_PERSISTED_IN_V3_STATE=true
