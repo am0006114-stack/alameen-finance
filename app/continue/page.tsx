@@ -311,7 +311,7 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
                       className="mt-1 h-5 w-5 accent-[#169447]"
                     />
                     <span className="text-sm font-black leading-7 text-[#2b4934]">
-                      لقد قرأت تفاصيل المرحلة القادمة وفهمت أن رسوم فتح الملف 5 دنانير وهي مستردة بالكامل في حال عدم الموافقة.
+                      لقد قرأت تفاصيل المرحلة القادمة وفهمت أن رسوم فتح الملف تظهر ضمن مرحلة الاستكمال الحالية وتخضع لإجراءات الطلب والاسترداد المعتمدة.
                     </span>
                   </label>
 
@@ -358,7 +358,7 @@ export default async function ContinueDecisionPage({ searchParams }: PageProps) 
 
               <div className="rounded-[30px] border border-[#e2c984] bg-[#fff8e8] p-5 shadow-sm">
                 <h2 className="text-lg font-black text-[#7c5b13]">
-                  رسوم فتح الملف: 5 دنانير فقط
+                  رسوم فتح الملف
                 </h2>
                 <p className="mt-3 text-sm font-bold leading-8 text-[#594c2c]">
                   رسوم فتح الملف هدفها تأكيد جدية الطلب، فتح ملف دراسة رسمي باسمكم، وتحويل الطلب للقسم المختص بدل بقائه كطلب مبدئي فقط.

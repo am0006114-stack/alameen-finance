@@ -63,7 +63,7 @@ function buildPaymentWhatsAppUrl(params: {
 الجهاز: ${params.deviceName || "—"}
 
 معلومات رسوم فتح الملف:
-قيمة الرسوم: 5 دنانير فقط
+قيمة الرسوم: تظهر ضمن التعليمات الرسمية المرتبطة بالطلب
 
 اسم المستفيد: AMEENPAY
 اسم المحفظة: Orang-Money
