@@ -1,6 +1,7 @@
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { InterpretedTurn, TruthBundle } from "./types";
+import { isIphone18Question } from "./businessTruthRegistry";
 
 type CacheItem = { expiresAt: number; reply: string };
 const cache = new Map<string, CacheItem>();
@@ -28,6 +29,8 @@ function outputText(json: any) {
 }
 
 export async function resolveFreshPublicProductReply(input:{turn:InterpretedTurn;truth:TruthBundle}):Promise<string|null>{
+  // Internal catalog truth for iPhone 18 is authoritative for Al Ameen. Never let public web search override it.
+  if(isIphone18Question(input.turn.rawText)) return null;
   if(!freshPublicProductQuestion(input.turn)) return null;
   const key=n(input.turn.rawText).slice(0,220);
   const hit=cache.get(key); if(hit && hit.expiresAt>Date.now()) return hit.reply;

@@ -147,9 +147,9 @@ export function buildHumanCompanyOverrideReply(input: { kind: HumanCompanyOverri
     case "review_timing_direct":
       return reviewTimingReply(input.truth);
     case "recent_release_device":
-      return input.truth.policy.recentReleaseAvailabilityRule || "الأجهزة الحديثة جدًا غير المتوفرة عند الوكلاء، ومنها iPhone 18، ما بنتوقع توفرها قبل 3 أشهر على الأقل من 19 سبتمبر 2026، ولما تتوفر فعليًا وتستقر أسعارها وتنضاف رسميًا لصفحة المنتجات بنقدر نعطي سعر وقسط حقيقيين.";
+      return input.truth.policy.recentReleaseAvailabilityRule || "أجهزة iPhone 18 Pro وPro Max موجودة ضمن الأجهزة المعروضة للتقديم، والاستلام بعد شهر من الموافقة النهائية وبموعد مؤكد من المكتب؛ وجودها بالكتالوج لا يعني استلامًا فوريًا.";
     case "recent_release_change":
-      return `${input.truth.policy.recentReleaseAvailabilityRule || "iPhone 18 والأجهزة الحديثة جدًا غير المتوفرة عند الوكلاء ما بنتوقع توفرها قبل 3 أشهر على الأقل من 19 سبتمبر 2026."} لذلك ما بقدر أغيّر طلبك لـ18 هسا ولا أعطيك حسبة عليه. إذا توفر لاحقًا رسميًا واستقر سعره، وقتها تغيير الجهاز أو تقديم طلب عليه لازم يعتمد على السعر والحسبة الفعلية وقتها، ومش بنعتبر التغيير صار من المحادثة وحدها.`;
+      return `${input.truth.policy.recentReleaseAvailabilityRule || "أجهزة iPhone 18 Pro وPro Max معروضة للتقديم ضمن الكتالوج الرسمي."} تغيير الجهاز على طلب قائم ما بصير من المحادثة وحدها؛ لازم يعتمد على الإجراء الفعلي والحسبة المعتمدة للطلب.`;
     case "catalog_product_question": {
       const q = n(input.state.lastCustomerText || "");
       const appName = n(app?.deviceName || "");

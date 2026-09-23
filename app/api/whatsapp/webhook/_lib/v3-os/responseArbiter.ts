@@ -12,6 +12,7 @@ import { buildCurrentHumanTurnReply, currentHumanTurnCandidateAligned, resolveCu
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 import { buildHumanCompanyOverrideReply, resolveHumanCompanyOverride } from "./humanCompanyRuntime";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
+import { buildIphone18AuthoritativeReply } from "./businessTruthRegistry";
 
 export type ResponseObligation =
   | "protected_business_registration"
@@ -473,13 +474,13 @@ function feeQuestionReply(input: { turn: InterpretedTurn; truth: TruthBundle }) 
   const fee = input.truth.policy.fileOpeningFeeJod || 5;
   const stage = applicationJourneyStage(input.truth.application);
   if (/(?:بدون|ما\s+في|مفيش).{0,16}(?:دفعه|دفعة).{0,8}(?:اولي|اولا|أولى|اولى)/.test(q)) {
-    return `نعم، ما في دفعة أولى للجهاز. القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد. ورسوم فتح الملف ${fee} دنانير خطوة منفصلة بعد الموافقة المبدئية واختيار الاستمرار.`;
+    return `نعم، ما في دفعة أولى للجهاز. القسط الأول يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز. ورسوم فتح الملف ${fee} دنانير خطوة منفصلة بعد الموافقة المبدئية واختيار الاستمرار.`;
   }
   if (/(?:بترجع|برجع|مسترده|مستردة|بترجعو|برجعو)/.test(q)) {
-    return `نعم، رسوم فتح الملف ${fee} دنانير مستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ما بعتبر الاسترداد منفذ إلا لما تتحدث الحالة فعليًا.`;
+    return `نعم، رسوم فتح الملف ${fee} دنانير مستردة بالكامل عبر المسار الرسمي إذا ما صدرت الموافقة النهائية بعد دفع مؤكد، وكذلك إذا ألغيت بعد دفع مؤكد. ما بعتبر الاسترداد منفذ إلا لما تتحدث الحالة فعليًا.`;
   }
   if (/(?:ليش|ليه|لشو|شو\s+سبب|شو\s+فايده|شو\s+فائدة)/.test(q)) {
-    return `رسوم فتح الملف ${fee} دنانير هي خطوة فتح الملف واستكماله للدراسة النهائية. هدفها تنظيم الدخول لهالمرحلة وقياس جدية الطلب والاستعداد المبدئي لإكمال الالتزامات المالية؛ لأن حجم الطلبات كبير جدًا وما بنقدر ندخل كل الطلبات غير الجادة في المراجعة التفصيلية ونأخر أصحاب الطلبات الجادة. هي مؤشر أولي فقط، ومش تقييم نهائي للقدرة الائتمانية ولا ضمان للموافقة، ومش ثمن الجهاز ولا قسط مقدم ولا القسط الأول. وإذا تم دفعها وبعدها قررت تلغي، بتدخل ضمن مسار الاسترداد الرسمي بعد تأكيد الدفع إداريًا.`;
+    return `رسوم فتح الملف ${fee} دنانير هي خطوة فتح الملف واستكماله للدراسة النهائية. هدفها تنظيم الدخول لهالمرحلة وقياس جدية الطلب والاستعداد المبدئي لإكمال الالتزامات المالية؛ لأن حجم الطلبات كبير جدًا وما بنقدر ندخل كل الطلبات غير الجادة في المراجعة التفصيلية ونأخر أصحاب الطلبات الجادة. هي مؤشر أولي فقط، ومش تقييم نهائي للقدرة الائتمانية ولا ضمان للموافقة، ومش ثمن الجهاز ولا قسط مقدم ولا القسط الأول. وإذا ما صدرت الموافقة النهائية بعد دفع مؤكد فهي مستردة بالكامل عبر المسار الرسمي، وإذا تم دفعها وبعدها قررت تلغي بتدخل ضمن مسار الاسترداد الرسمي بعد تأكيد الدفع إداريًا.`;
   }
   if (["payment_confirmed_under_review", "payment_proof_pending_admin"].includes(stage)) return "لا، ما تدفع 5 دنانير مرة ثانية؛ الدفع/الوصل موجود على الملف حسب الحالة الحالية.";
   if (stage === "continuation_confirmed_fee_due") return `نعم، إذا بدك تكمل من المرحلة الحالية فالمطلوب ${fee} دنانير رسوم فتح الملف. بعدها ترفع الوصل من الرابط الرسمي، وبعد اعتماد الدفع يدخل الملف للدراسة النهائية.`;
@@ -488,6 +489,8 @@ function feeQuestionReply(input: { turn: InterpretedTurn; truth: TruthBundle }) 
 }
 
 function productAvailabilityReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const iphone18 = buildIphone18AuthoritativeReply(input.turn.rawText);
+  if (iphone18) return iphone18;
   const q = n(input.turn.rawText);
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const products = links.relevant.products || `${links.baseUrl}/products`;
@@ -540,7 +543,7 @@ function generalEligibilityReply(input: { turn: InterpretedTurn; truth: TruthBun
 function installmentServiceOverviewReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const links = buildOfficialLinkContext(input.turn, input.truth);
   const products = links.relevant.products || `${links.baseUrl}/products`;
-  return `أكيد. التقديم بيبدأ من الموقع الرسمي باختيار الجهاز وتعبئة طلب الموافقة المبدئية. الأساس هو الهوية وإثبات الدخل؛ وإذا ما عندك كشف أو شهادة راتب ممكن ترفع بديل رسمي مثل كشف حساب بنكي أو عقد عمل أو مستند يوضح مصدر الدخل، والدراسة هي اللي بتحدد المقبول النهائي. الكفيل مش شرط ثابت لكل طلب. بعد الموافقة المبدئية، إذا اخترت الاستمرار، رسوم فتح الملف 5 دنانير فقط وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. القسط الأول بيستحق بعد شهر من استلام الجهاز وتوقيع العقد.\n${products}`;
+  return `أكيد. التقديم بيبدأ من الموقع الرسمي باختيار الجهاز وتعبئة طلب الموافقة المبدئية. الأساس هو الهوية وإثبات الدخل؛ وإذا ما عندك كشف أو شهادة راتب ممكن ترفع بديل رسمي مثل كشف حساب بنكي أو عقد عمل أو مستند يوضح مصدر الدخل، والدراسة هي اللي بتحدد المقبول النهائي. الكفيل مش شرط ثابت لكل طلب. بعد الموافقة المبدئية، إذا اخترت الاستمرار، رسوم فتح الملف 5 دنانير فقط وهي منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. القسط الأول بيستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.\n${products}`;
 }
 
 function documentUploadGuidanceReply(input: { truth: TruthBundle }) {

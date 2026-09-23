@@ -1,7 +1,7 @@
 import { applicationJourneyStage } from "./applicationJourney";
 import type { ApplicationTruth, CommercialDisclosureState, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
-export const COMMERCIAL_DISCLOSURE_VERSION = "2026-09-informed-fee-v1" as const;
+export const COMMERCIAL_DISCLOSURE_VERSION = "2026-09-informed-fee-v2-full-rationale" as const;
 
 export function emptyCommercialDisclosure(): CommercialDisclosureState {
   return {
@@ -26,6 +26,9 @@ function sameApplication(disclosure: CommercialDisclosureState | null | undefine
 export function currentCommercialDisclosure(state: ConversationState, truth: TruthBundle) {
   const existing = state.commercialDisclosure || emptyCommercialDisclosure();
   if (!truth.application || !sameApplication(existing, truth.application)) return emptyCommercialDisclosure();
+  // v1/partial disclosures are intentionally not enough for 7.9.0. A customer
+  // must receive the full rationale version before payment destinations open.
+  if (existing.version !== COMMERCIAL_DISCLOSURE_VERSION) return emptyCommercialDisclosure();
   return existing;
 }
 
@@ -35,7 +38,8 @@ export function commercialDisclosureDelivered(state: ConversationState, truth: T
 }
 
 export function preliminaryApprovalNeedsInformedDisclosure(state: ConversationState, truth: TruthBundle) {
-  return applicationJourneyStage(truth.application) === "preliminary_approved_waiting_decision"
+  const stage = applicationJourneyStage(truth.application);
+  return ["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)
     && !commercialDisclosureDelivered(state, truth);
 }
 
@@ -95,13 +99,13 @@ export function shouldExplainCommercialStep(input: { state: ConversationState; t
 export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {
   const fee = truth.policy.fileOpeningFeeJod;
   const review = truth.policy.normalReviewWindow;
-  return `أكيد. قبل ما نثبت الاستمرار، بوضحلك الخطوة كاملة حتى يكون قرارك على بينة. بعد الموافقة المبدئية، إذا حاب تكمل للدراسة النهائية، في رسوم فتح ملف مقدارها ${fee} دنانير. هي مش دفعة أولى، ومش جزء من سعر الجهاز أو القسط الأول، ودفعها ما يعني موافقة نهائية ولا يضمن قبول الطلب.
+  return `أكيد. قبل ما نثبت الاستمرار، بوضحلك المرحلة كاملة حتى يكون قرارك على بينة. بعد الموافقة المبدئية، إذا حاب تكمل للدراسة النهائية، في رسوم فتح ملف مقدارها ${fee} دنانير. هي مش دفعة أولى، ومش جزء من سعر الجهاز أو القسط الأول، ودفعها ما يعني موافقة نهائية ولا يضمن قبول الطلب.
 
-الهدف منها تنظيم مرحلة الدراسة النهائية وقياس جدية الطلب والاستعداد المبدئي لإكمال الالتزامات المالية؛ لأن حجم الطلبات كبير جدًا، وما بنقدر ندخل كل الطلبات غير الجادة في المراجعة التفصيلية ونأخر أصحاب الطلبات الجادة. وهي مؤشر أولي فقط، وليست تقييمًا نهائيًا للقدرة الائتمانية أو قرار الموافقة.
+سبب الرسوم إن مرحلة الدراسة النهائية بتحتاج معالجة فعلية للملف، ومع وجود عدد كبير جدًا من الطلبات بنستخدم خطوة فتح الملف لتمييز العملاء الراغبين فعلًا بالاستمرار والمستعدين لإكمال الالتزامات الأساسية، حتى ما تأخر الطلبات غير الجادة ملفات العملاء الجادين. هاي الخطوة مؤشر أولي على الجدية والاستعداد للاستمرار، وليست تقييمًا نهائيًا للقدرة على السداد ولا شراءً للموافقة.
 
-إذا تم دفعها وبعدها قررت تلغي، بتدخل ضمن مسار الاسترداد الرسمي بعد تأكيد الدفع إداريًا. وبالنسبة للمدة: ${review}، مع احتمال تأخير بعض الملفات بسبب ضغط المراجعات الحالي.
+إذا صار دفع مؤكد وما صدرت الموافقة النهائية، الرسوم مستردة بالكامل عبر المسار الرسمي. وإذا قررت تلغي بعد دفع مؤكد، الرسوم إلها مسار استرداد رسمي. وبالنسبة للدراسة: ${review}، ومع ضغط المراجعات ممكن تتأخر بعض الملفات بدون ما نعطيك وعد بموعد غير موثق.
 
-خذ قرارك براحتك؛ إذا التفاصيل مناسبة إلك وبدك تكمل، احكيلي إنك حاب تكمل، وساعتها بعطيك بيانات الدفع الرسمية ورابط رفع الوصل.`;
+خذ قرارك براحتك؛ إذا التفاصيل مناسبة إلك وبدك تكمل، أكدلي بشكل طبيعي إنك حاب تستمر، وساعتها بعطيك بيانات الدفع الرسمية ورابط رفع الوصل.`;
 }
 
 export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: string | null) {
@@ -109,5 +113,5 @@ export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: 
   const upload = receiptUrl
     ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receiptUrl}`
     : "\nرابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن، لذلك ما رح أعطيك رابطًا عامًا بدل الصحيح.";
-  return `تمام، هيك ثبتنا إنك حاب تكمل بعد ما وضحنا الخطوة. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وهاي بيانات الدفع الرسمية:\n${p.paymentMethodRule}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
+  return `تمام، هيك ثبتنا إنك حاب تكمل بعد ما وضحنا الخطوة. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وهاي بيانات الدفع الرسمية:\n${p.paymentMethodRule}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.`;
 }

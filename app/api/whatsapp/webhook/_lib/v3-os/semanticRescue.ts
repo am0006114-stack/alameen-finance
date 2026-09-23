@@ -1,10 +1,13 @@
 import type { InterpretedTurn, TruthBundle } from "./types";
 import { applicationJourneyStage } from "./applicationJourney";
 import { fileOpeningPaymentWriterTruth } from "./paymentDestinationOverride";
+import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 
 function quoted(value: string) { return `«${String(value || "").replace(/\s+/g," ").trim()}»`; }
 
-export function buildSemanticFailClosedReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+export function buildSemanticFailClosedReply(input: { turn: InterpretedTurn; truth: TruthBundle; state?: import("./types").ConversationState }) {
+  const authority = input.state ? buildSingleConversationAuthorityReply({ turn: input.turn, state: input.state, truth: input.truth }) : null;
+  if (authority) return authority;
   const frame = input.turn.semantic;
   if (!frame) return null;
 
@@ -28,11 +31,11 @@ export function buildSemanticFailClosedReply(input: { turn: InterpretedTurn; tru
 
   const question = String(frame.currentQuestion || "").toLowerCase();
   if (question && /قسط|الأقساط|اقساط/.test(question) && /كيف|تحويل|اقتطاع|اسدد|أدفع|ادفع|دفع/.test(question)) {
-    return "إذا قصدك طريقة تسديد القسط الشهري كل شهر: ما عندي قناة سداد شهرية موثقة في بيانات الطلب الحالية أقدر أقول إنها اقتطاع بنك أو تحويل مباشر. ما بدي أخمّن عليك؛ آلية السداد المعتمدة بتكون حسب تعليمات الطلب والعقد عند المرحلة النهائية.";
+    return "إذا قصدك طريقة تسديد القسط الشهري: السداد بيكون حسب تفضيلك عبر CliQ، أو تحويل بنكي، أو بالحضور للموقع اللي تم فيه توقيع العقد والدفع هناك. هاي مختلفة عن رسوم فتح الملف.";
   }
 
   if (frame.currentQuestion) {
-    return `فهمت سؤالك الحالي، وما بدي أرجع أجاوبك على موضوع قديم. بالنقطة هاي ما عندي حقيقة موثقة كفاية أعطيك جواب مؤكد من عندي بدون تخمين.`;
+    return `سؤالك واضح: ${quoted(frame.currentQuestion)}. المعلومة المحددة اللازمة للجواب مش موجودة عندي ضمن الحقيقة الموثقة الحالية، لذلك ما رح أخمّن أو أبدل سؤالك بموضوع ثاني.`;
   }
   return null;
 }

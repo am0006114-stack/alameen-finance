@@ -1,6 +1,7 @@
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 import type { V3TextProvider } from "./provider";
 import { applicationJourneyStage } from "./applicationJourney";
+import { businessTruthForPrompt } from "./businessTruthRegistry";
 
 export type SemanticReplyCheck = {
   pass: boolean;
@@ -63,6 +64,7 @@ export async function verifySemanticReply(input: {
     paymentAliases: input.truth.policy.paymentAliases,
     paymentWalletType: input.truth.policy.paymentWalletType,
     paymentBeneficiaryName: input.truth.policy.paymentBeneficiaryName,
+    businessTruthRegistry: businessTruthForPrompt(),
   };
 
   const prompt = `أنت بوابة دلالية نهائية قبل إرسال رد واتساب لعميل في الأردن. لا تكتب ردًا للعميل. قيّم فقط هل CANDIDATE يجيب **المعنى الحالي** بدون الرجوع لموضوع قديم.
@@ -89,6 +91,7 @@ export async function verifySemanticReply(input: {
 - entity غير موثقة مثل اسم محفظة/تطبيق: يجوز فهم وظيفتها من الجملة، لكن ممنوع استبدالها بكيان آخر أو اختراع معلومات عنها. إذا سأل العميل هل يمكن التحويل "منها"، الجواب يجب أن يتعامل مع سؤال مصدر التحويل/التوافق، لا أن يقلبه إلى إثبات دخل أو بنك.
 - إذا الحقيقة لا تثبت توافق خدمة خارجية، الرد الجيد يشرح الشرط بشكل عام ولا يخترع نعم/لا مطلقة.
 - كل answerObligations التزامات مستقلة.
+- BUSINESS_TRUTH_REGISTRY داخل TRUTH_SUMMARY حقيقة موثقة للشركة: استخدمها لتقييم القسط الأول، طرق سداد الأقساط الشهرية، وحقائق iPhone 18. لا تعتبرها معرفة خارجية.
 - لا تعاقب الرد لأنه مختصر إذا جاوب المطلوب وحافظ على الحقيقة.
 
 SEMANTIC_FRAME=${JSON.stringify(frame)}

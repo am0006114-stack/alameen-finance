@@ -41,6 +41,8 @@ import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanti
 import { verifySemanticReply, type SemanticReplyCheck } from "./semanticReplyVerifier";
 import { buildSemanticFailClosedReply } from "./semanticRescue";
 import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { answerPlanCoverage, buildSingleConversationAnswerPlan, buildSingleConversationAuthorityReply, renderSingleConversationAnswerPlan, repairReplyAgainstAnswerPlan } from "./singleConversationAuthority";
+import { enforceGroundedBusinessEgress } from "./groundingGuard";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -120,7 +122,10 @@ async function notifyActionProblems(input: {
 }
 
 export function buildV3LastResortReply(input?: { truth: TruthBundle; state: ConversationState; customerText: string }) {
-  if (!input) return "احكيلي شو بدك تعرف، وبجاوبك على الموجود فعليًا بدون ما أفترض خطوة ما صارت.";
+  if (!input) return "اكتب سؤالك أو رقم التتبع، وبجاوبك فقط من الحقيقة الموثقة عندنا.";
+  const syntheticTurn: InterpretedTurn = { turnId: "last-resort", rawText: input.customerText, normalizedText: input.customerText, acts: [], topics: [], requestedActions: [], sentiment: "calm", urgency: "normal", explicitRoleRequest: null, confidence: 0.5, warnings: [], semantic: null };
+  const authority = buildSingleConversationAuthorityReply({ turn: syntheticTurn, state: input.state, truth: input.truth });
+  if (authority) return authority;
   const app = input.truth.application;
   const q = String(input.customerText || "").trim();
   const nq = q.replace(/[؟?!.,،]+/g, " ").replace(/\s+/g, " ").trim().toLowerCase();
@@ -137,7 +142,7 @@ export function buildV3LastResortReply(input?: { truth: TruthBundle; state: Conv
   if (app) {
     const stage = applicationJourneyStage(app);
     if (stage === "preliminary_approved_waiting_decision") {
-      return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} أخذ موافقة مبدئية، ولسا مش موافقة نهائية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسومه ${input.truth.policy.fileOpeningFeeJod} دنانير؛ منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. الدراسة عادة ${input.truth.policy.normalReviewWindow} ومع ضغط المراجعات الحالي ممكن تتأخر بعض الملفات. إذا بدك نكمل اكتبلي: أود الاستمرار.`;
+      return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} أخذ موافقة مبدئية، ولسا مش موافقة نهائية. إذا بدك تكمل، الخطوة التالية فتح الملف للدراسة النهائية ورسومه ${input.truth.policy.fileOpeningFeeJod} دنانير؛ منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. الدراسة عادة ${input.truth.policy.normalReviewWindow} ومع ضغط المراجعات الحالي ممكن تتأخر بعض الملفات. إذا التفاصيل مناسبة إلك وبدك تكمل، أكدلي بشكل طبيعي إنك حاب تستمر.`;
     }
     if (/(?:متى|امتى|ايمتى).{0,30}(?:استلم|اجي|أجي)|(?:موعد).{0,20}(?:استلام|اجي|أجي)/i.test(nq)) {
       return `لسا ما في موعد استلام رسمي. طلبك حالته ${customerFacingStatusLabel(app)}، والموعد ما بينحدد إلا بعد اكتمال الإجراءات وصدوره رسميًا على الطلب.`;
@@ -196,7 +201,7 @@ function buildRepeatDeltaReply(input: { turn: InterpretedTurn; truth: TruthBundl
   if (!app) return "تمام، أنا متابع نفس السياق معك.";
   const stage = applicationJourneyStage(app);
   if (stage === "preliminary_approved_waiting_decision") {
-    return `لسا نفس المرحلة: موافقة مبدئية. إذا بدك نكمل للدراسة النهائية، رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير وبعدها ارفع الوصل الرسمي. اكتبلي: أود الاستمرار.`;
+    return `لسا نفس المرحلة: موافقة مبدئية. إذا بدك نكمل للدراسة النهائية، رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير وبعدها ارفع الوصل الرسمي. أكدلي بشكل طبيعي إنك حاب تستمر.`;
   }
   if (stage === "preliminary_review") return "لسا بالمراجعة المبدئية، وما في رسوم أو موعد استلام بهالمرحلة.";
   if (["final_review", "under_review"].includes(stage)) return "لسا قيد الدراسة النهائية، وما ظهر قرار جديد على الطلب لحد هسا.";
@@ -879,6 +884,16 @@ export async function runV3ProductionLive(input: {
   const informedCommercialDisclosureReply = disclosureRequiredThisTurn
     ? buildInformedCommercialDisclosureReply(truthAfterActions)
     : null;
+  // PHASE 7.9.0 SINGLE CONVERSATION AUTHORITY: one business-answer layer owns
+  // the current question whenever authoritative truth exists. Legacy recovery/
+  // fallback layers may veto unsafe facts, but they no longer replace a known
+  // business answer with a generic canned response.
+  const singleConversationAnswerPlan = buildSingleConversationAnswerPlan({
+    turn,
+    state: conversationState,
+    truth: truthAfterActions,
+  });
+  const singleAuthorityReply = renderSingleConversationAnswerPlan(singleConversationAnswerPlan);
   // REVENUE INVARIANT: once a preliminarily-qualified customer explicitly chooses
   // to continue, the 5 JOD file-opening step becomes protected customer-facing
   // truth for this turn. It must survive writer repair, fallback, duplicate
@@ -911,6 +926,8 @@ export async function runV3ProductionLive(input: {
 
   const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
   const semanticWriterPreferred = Boolean(writer && interpreted.modelUsed && semanticWriterAuthority(turn));
+  const singleAuthorityWriterPreferred = Boolean(writer && singleConversationAnswerPlan.hasMaterialObligation);
+  const generativeWriterPreferred = semanticWriterPreferred || singleAuthorityWriterPreferred;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
   let reply: string | null = null;
   let verification: VerificationReport = PASS;
@@ -956,7 +973,7 @@ export async function runV3ProductionLive(input: {
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (!semanticWriterPreferred && currentQuestionReply) {
+    } else if (!generativeWriterPreferred && currentQuestionReply) {
       reply = currentQuestionReply;
       verification = verifyReply({
         reply,
@@ -968,7 +985,7 @@ export async function runV3ProductionLive(input: {
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (!semanticWriterPreferred && humanAuthorityReply) {
+    } else if (!generativeWriterPreferred && humanAuthorityReply) {
       reply = humanAuthorityReply;
       verification = verifyReply({
         reply,
@@ -980,7 +997,7 @@ export async function runV3ProductionLive(input: {
         recentTurns: scopedRecentTurns,
         profileName: input.profileName,
       });
-    } else if (!semanticWriterPreferred && prioritizeRecovery && recoveryReply) {
+    } else if (!generativeWriterPreferred && prioritizeRecovery && recoveryReply) {
       // Only truth-critical recovery paths pre-empt the writer: explicit
       // continuation/opt-out, new application, foreign form blocker, showroom
       // policy, and contact-number correction. Normal status/timing stays with
@@ -1114,6 +1131,24 @@ export async function runV3ProductionLive(input: {
       }
     }
 
+    if ((!reply || !verification.pass) && singleAuthorityReply) {
+      const authorityVerification = verifyReply({
+        reply: singleAuthorityReply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
+      if (authorityVerification.pass) {
+        reply = singleAuthorityReply;
+        verification = authorityVerification;
+        fallbackUsed = true;
+      }
+    }
+
     if (!reply || !verification.pass) {
       const deterministicJourneyRescue = humanJourneyReply || recoveryReply;
       if (deterministicJourneyRescue) {
@@ -1184,7 +1219,7 @@ export async function runV3ProductionLive(input: {
       }
     }
     if (!semanticCheck.pass) {
-      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions });
+      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions, state: conversationState });
       if (semanticRescue) {
         const rescueVerification = verifyReply({ reply: semanticRescue, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
         if (rescueVerification.pass) {
@@ -1456,6 +1491,125 @@ export async function runV3ProductionLive(input: {
     }
   }
 
+  // PHASE 7.9.0 SINGLE CONVERSATION ANSWER PLAN GATE: final candidate must
+  // cover every grounded obligation that this turn resolved from semantic meaning
+  // and authoritative business/application truth. Legacy generic fallbacks are
+  // retired when a concrete fact is known. Missing facts are merged into the one
+  // reply; no second customer message is emitted.
+  if (plan.shouldRespond && reply && verification.pass && finalGate.pass && singleConversationAnswerPlan.items.length) {
+    const coverageBefore = answerPlanCoverage({ reply, plan: singleConversationAnswerPlan });
+    if (!coverageBefore.pass) {
+      const repairedPlanReply = repairReplyAgainstAnswerPlan({ reply, plan: singleConversationAnswerPlan });
+      if (repairedPlanReply.repaired && repairedPlanReply.reply) {
+        reply = repairedPlanReply.reply;
+        fallbackUsed = true;
+        verification = verifyReply({
+          reply,
+          turn,
+          state: conversationState,
+          truth: truthAfterActions,
+          plan,
+          actions,
+          recentTurns: scopedRecentTurns,
+          profileName: input.profileName,
+        });
+        finalGate = verification.pass ? enforceFinalResponseGate({
+          reply,
+          turn,
+          state: conversationState,
+          truth: truthAfterActions,
+          actions,
+          applicationChanged: false,
+        }) : finalGate;
+        logIntegrityTelemetry({
+          event: "phase7_9_single_conversation_answer_plan_repair",
+          waId: input.waId,
+          turnId: input.turnId,
+          applicationId: truthAfterActions.application?.id || null,
+          trackingId: truthAfterActions.application?.trackingId || null,
+          severity: "warning",
+          details: { missing: repairedPlanReply.missing },
+        });
+      }
+    }
+  }
+
+  // PHASE 7.9.0 GROUNDED BUSINESS EGRESS: impossible claims such as receiving
+  // media before a real media event, or stale iPhone 18 release dates, are vetoed
+  // on the actual candidate that is about to leave the runtime.
+  if (plan.shouldRespond && reply && verification.pass && finalGate.pass) {
+    const grounding = enforceGroundedBusinessEgress({ reply, turn, truth: truthAfterActions });
+    if (!grounding.pass) {
+      reply = grounding.replacement;
+      fallbackUsed = true;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
+      finalGate = verification.pass ? enforceFinalResponseGate({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        actions,
+        applicationChanged: false,
+      }) : finalGate;
+      logIntegrityTelemetry({
+        event: "phase7_9_grounded_business_egress_repair",
+        waId: input.waId,
+        turnId: input.turnId,
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        severity: "warning",
+        details: { reason: grounding.reason },
+      });
+    }
+  }
+
+  // Re-apply the answer plan after business grounding. A grounding replacement
+  // may intentionally canonicalize one risky product/media fact; any other current
+  // obligations from the same burst are merged back before semantic egress.
+  if (plan.shouldRespond && reply && verification.pass && finalGate.pass && singleConversationAnswerPlan.items.length) {
+    const postGroundingRepair = repairReplyAgainstAnswerPlan({ reply, plan: singleConversationAnswerPlan });
+    if (postGroundingRepair.repaired && postGroundingRepair.reply) {
+      reply = postGroundingRepair.reply;
+      fallbackUsed = true;
+      verification = verifyReply({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        plan,
+        actions,
+        recentTurns: scopedRecentTurns,
+        profileName: input.profileName,
+      });
+      finalGate = verification.pass ? enforceFinalResponseGate({
+        reply,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        actions,
+        applicationChanged: false,
+      }) : finalGate;
+      logIntegrityTelemetry({
+        event: "phase7_9_post_grounding_answer_plan_repair",
+        waId: input.waId,
+        turnId: input.turnId,
+        applicationId: truthAfterActions.application?.id || null,
+        trackingId: truthAfterActions.application?.trackingId || null,
+        severity: "warning",
+        details: { missing: postGroundingRepair.missing },
+      });
+    }
+  }
+
   // PHASE 7.8.0 FINAL SEMANTIC EGRESS VETO: downstream deterministic arbiters
   // may legitimately repair truth/policy wording after the earlier semantic check.
   // Re-check the *actual* one reply that is about to leave the runtime so a late
@@ -1471,7 +1625,7 @@ export async function runV3ProductionLive(input: {
     });
     semanticCheck = actualEgressSemantic;
     if (!actualEgressSemantic.pass) {
-      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions });
+      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions, state: conversationState });
       if (semanticRescue) {
         const rescueVerification = verifyReply({
           reply: semanticRescue,

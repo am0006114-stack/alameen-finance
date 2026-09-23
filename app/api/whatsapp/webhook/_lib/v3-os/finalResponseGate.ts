@@ -431,7 +431,7 @@ function buildStatusReply(input: { truth: TruthBundle }) {
   if (!app) return "ما عندي طلب موثوق مربوط بهالرسالة هسا، وما بدي أخمّن عليك بحالة طلب غير مؤكدة.";
   const stage = applicationJourneyStage(app);
   if (stage === "preliminary_approved_waiting_decision") {
-    return `طلبك أخذ موافقة مبدئية ولسا مش نهائية. إذا بدك تكمل للدراسة النهائية، الخطوة التالية فتح الملف ورسومه ${input.truth.policy.fileOpeningFeeJod} دنانير؛ منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. إذا بدك نكمل اكتبلي: أود الاستمرار.`;
+    return `طلبك أخذ موافقة مبدئية ولسا مش نهائية. إذا بدك تكمل للدراسة النهائية، الخطوة التالية فتح الملف ورسومه ${input.truth.policy.fileOpeningFeeJod} دنانير؛ منفصلة عن ثمن الجهاز والقسط الأول ومستردة عبر المسار الرسمي بعد دفع مؤكد. إذا التفاصيل مناسبة إلك وبدك تكمل، أكدلي بشكل طبيعي إنك حاب تستمر.`;
   }
   if (stage === "preliminary_review") return "طلبك قيد المراجعة المبدئية، وما في خطوة دفع أو حضور مطلوبة منك هسا.";
   if (["final_review", "under_review"].includes(stage)) return "طلبك قيد الدراسة النهائية، وما في خطوة ناقصة منك حسب الحالة الحالية. أول شي منتظره هسا هو قرار المراجعة النهائية.";
@@ -542,7 +542,7 @@ function buildFinancingStructureReply(truth: TruthBundle) {
 }
 
 function buildInstallmentAdjustmentReply() {
-  return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو دفعة أكبر أو أكثر من قسط مرة وحدة: ما عندي سياسة موثقة أقدر أقول منها إنك تختار دفعة أولى عالية أو إن المبلغ الإضافي يخفض سعر الجهاز تلقائيًا. القاعدة المؤكدة إن القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد، وأي تغيير بالحسبة أو آلية السداد لازم يكون مثبتًا على الطلب أو بالعقد. وسؤالك هذا مش عن رسوم فتح الملف.";
+  return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو دفعة أكبر أو أكثر من قسط مرة وحدة: ما عندي سياسة موثقة أقدر أقول منها إنك تختار دفعة أولى عالية أو إن المبلغ الإضافي يخفض سعر الجهاز تلقائيًا. القاعدة المؤكدة إن القسط الأول يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز، وأي تغيير بالحسبة أو آلية السداد لازم يكون مثبتًا على الطلب أو بالعقد. وسؤالك هذا مش عن رسوم فتح الملف.";
 }
 
 function buildDeviceModelReferenceReply() {
@@ -597,7 +597,7 @@ function buildFeeTimingReply(input: { truth: TruthBundle; turn: InterpretedTurn 
     customerText: input.turn.rawText,
     explicitContinuationThisTurn: input.turn.requestedActions.includes("continue_application") || input.turn.topics.includes("continuation"),
   });
-  const firstInstallment = "القسط الأول مش عند الاستلام؛ يستحق بعد شهر من استلام الجهاز وتوقيع العقد.";
+  const firstInstallment = "القسط الأول مش عند الاستلام؛ يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.";
   if (decision.alreadyPaid) return `الدفع مؤكد إداريًا، فما في داعي تدفع رسوم فتح الملف مرة ثانية. ${firstInstallment}`;
   if (decision.receiptPending) return `وصل الدفع موجود على الملف وبانتظار مراجعة الإدارة، فما في داعي تعيد الدفع. ${firstInstallment}`;
 

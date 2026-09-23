@@ -80,7 +80,7 @@ function buildStaffIdentityReply(state: ConversationState) {
 function buildFeeTimingReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const app = input.truth.application;
   const commercial = continuationCommercialState(app);
-  const firstInstallment = "القسط الأول مش عند الاستلام؛ يستحق بعد شهر من استلام الجهاز وتوقيع العقد.";
+  const firstInstallment = "القسط الأول مش عند الاستلام؛ يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.";
   if (paymentHistoricallyConfirmed(app) || commercial === "already_paid") {
     return `الدفع مؤكد إداريًا على طلبك، فما في داعي تدفع 5 دنانير مرة ثانية. ${firstInstallment}`;
   }
@@ -795,7 +795,7 @@ ${products}`;
   }
 
   if (dialogueSignals.installmentAdjustment || installmentAdjustmentQuestionText(raw)) {
-    return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو دفعة أكبر أو أكثر من قسط مرة وحدة: ما عندي سياسة موثقة أقدر أقول منها إنك تختار دفعة أولى عالية أو إن المبلغ الإضافي يخفض سعر الجهاز تلقائيًا. القاعدة المؤكدة إن القسط الأول يستحق بعد شهر من استلام الجهاز وتوقيع العقد، وأي تغيير بالحسبة أو آلية السداد لازم يكون مثبتًا على الطلب أو بالعقد. وسؤالك هذا مش عن رسوم فتح الملف، لذلك ما رح أخلطه معها.";
+    return "إذا قصدك تدفع مبلغ أكبر من القسط الشهري أو دفعة أكبر أو أكثر من قسط مرة وحدة: ما عندي سياسة موثقة أقدر أقول منها إنك تختار دفعة أولى عالية أو إن المبلغ الإضافي يخفض سعر الجهاز تلقائيًا. القاعدة المؤكدة إن القسط الأول يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز، وأي تغيير بالحسبة أو آلية السداد لازم يكون مثبتًا على الطلب أو بالعقد. وسؤالك هذا مش عن رسوم فتح الملف، لذلك ما رح أخلطه معها.";
   }
 
   if (dialogueSignals.noPriorApplication || explicitNoPriorApplicationText(raw)) {

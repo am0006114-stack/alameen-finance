@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.8.0.1-informed-commercial-continuation-fee-rationale-integrity" as const;
+export const V3_OS_VERSION = "v3.0.0-phase7.9.0-single-conversation-authority-grounded-business-truth" as const;
+// Backward compatibility anchor: v3.0.0-phase7.8.0.1-informed-commercial-continuation-fee-rationale-integrity
 // Backward compatibility anchor: v3.0.0-phase7.8.0-ai-native-conversation-brain-semantic-memory
 // Backward compatibility anchor: v3.0.0-phase7.7.2-fresh-turn-open-loop-egress-integrity
 // Backward compatibility anchor: v3.0.0-phase7.7.1-payment-journey-continuity-human-repair
@@ -215,7 +216,7 @@ export type ConversationConstraintsState = {
 
 
 export type CommercialDisclosureState = {
-  version: "2026-09-informed-fee-v1";
+  version: "2026-09-informed-fee-v2-full-rationale";
   applicationId: string | null;
   trackingId: string | null;
   status: "not_delivered" | "delivered" | "acknowledged";

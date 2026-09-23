@@ -96,7 +96,7 @@ function paymentNowReply(turn: InterpretedTurn, truth: TruthBundle) {
     return "وصل الدفع موجود على الملف وبانتظار اعتماد الإدارة، فما في داعي تدفع أو ترفع الوصل مرة ثانية.";
   }
   if (commercial === "payment_ready" || stage === "continuation_confirmed_fee_due") {
-    return `نعم، هسا مطلوب 5 دنانير رسوم فتح الملف لأن اختيار الاستمرار مسجل. ${currentFileOpeningPaymentRule({ includeApology: false })}${receiptLine(turn, truth)}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ بيستحق بعد شهر من استلام الجهاز وتوقيع العقد.`;
+    return `نعم، هسا مطلوب 5 دنانير رسوم فتح الملف لأن اختيار الاستمرار مسجل. ${currentFileOpeningPaymentRule({ includeApology: false })}${receiptLine(turn, truth)}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ بيستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.`;
   }
   if (stage === "preliminary_approved_waiting_decision") {
     return "الموافقة الحالية مبدئية. رسوم فتح الملف 5 دنانير بتصير بعد ما تختار الاستمرار؛ قبل ما أعطيك بيانات التحويل لازم يكون قرار الاستمرار مسجل على الطلب.";
