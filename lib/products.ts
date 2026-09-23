@@ -13,6 +13,95 @@ export type Product = {
 
 const baseProducts: Product[] = [
   {
+    id: "iphone-18-pro-256",
+    brand: "Apple",
+    name: "iPhone 18 Pro",
+    model: "256GB",
+    price: 1199,
+    image: "/assets/iphone18-black.jpg",
+    imageLabel: "iPhone 18 Pro - Black",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-512",
+    brand: "Apple",
+    name: "iPhone 18 Pro",
+    model: "512GB",
+    price: 1399,
+    image: "/assets/iphone18-silver.jpg",
+    imageLabel: "iPhone 18 Pro - Silver",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-1tb",
+    brand: "Apple",
+    name: "iPhone 18 Pro",
+    model: "1TB",
+    price: 1799,
+    image: "/assets/iphone18-ice.jpg",
+    imageLabel: "iPhone 18 Pro - Ice",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-2tb",
+    brand: "Apple",
+    name: "iPhone 18 Pro",
+    model: "2TB",
+    price: 2399,
+    image: "/assets/iphone18-burgundy.jpg",
+    imageLabel: "iPhone 18 Pro - Burgundy",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-max-256",
+    brand: "Apple",
+    name: "iPhone 18 Pro Max",
+    model: "256GB",
+    price: 1299,
+    image: "/assets/iphone18-black.jpg",
+    imageLabel: "iPhone 18 Pro Max - Black",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-max-512",
+    brand: "Apple",
+    name: "iPhone 18 Pro Max",
+    model: "512GB",
+    price: 1499,
+    image: "/assets/iphone18-silver.jpg",
+    imageLabel: "iPhone 18 Pro Max - Silver",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-max-1tb",
+    brand: "Apple",
+    name: "iPhone 18 Pro Max",
+    model: "1TB",
+    price: 1899,
+    image: "/assets/iphone18-ice.jpg",
+    imageLabel: "iPhone 18 Pro Max - Ice",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+  {
+    id: "iphone-18-pro-max-2tb",
+    brand: "Apple",
+    name: "iPhone 18 Pro Max",
+    model: "2TB",
+    price: 2499,
+    image: "/assets/iphone18-burgundy.jpg",
+    imageLabel: "iPhone 18 Pro Max - Burgundy",
+    badge: "جديد",
+    warranty: "iSYSTEMS الأردن",
+  },
+
+  {
     id: "iphone-17-pro-max",
     brand: "Apple",
     name: "iPhone 17 Pro Max",
@@ -335,7 +424,7 @@ const baseProducts: Product[] = [
 ];
 
 export const products: Product[] = baseProducts.map((product) => {
-  if (product.brand !== "Apple") return product;
+  if (product.brand !== "Apple" || product.id.startsWith("iphone-18-")) return product;
 
   return {
     ...product,

@@ -43,6 +43,7 @@ function ProductCard({ product }: { product: Product }) {
         <div className="v2-product-meta"><span>{product.brand}</span><span>{product.model}</span></div>
         <h2>{product.name}</h2>
         <p className="v2-warranty">{product.warranty}</p>
+        {product.id.startsWith("iphone-18-") && <p className="v2-warranty">الألوان المتاحة: أسود، فضي، جليدي، عنّابي</p>}
         <div className="v2-catalog-price">
           <div>{product.originalPrice && <del>{formatJod(product.originalPrice)}</del>}<strong>{formatJod(product.price)}</strong></div>
           <span>السعر النقدي</span>
@@ -111,9 +112,10 @@ export default function ProductsPage() {
       </section>
 
       <section className="v2-container v2-catalog-results">
-        <div className="v2-results-title"><p>عرض <strong>{filteredProducts.length}</strong> جهاز</p>{brand === "Apple" && <span><TagIcon size={15}/> أسعار iPhone مخفضة 5%</span>}</div>
+        <div className="v2-results-title"><p>عرض <strong>{filteredProducts.length}</strong> جهاز</p>{brand === "Apple" && <span><TagIcon size={15}/> خصم 5% على أجهزة iPhone السابقة فقط</span>}</div>
         {filteredProducts.length ? <div className="v2-catalog-grid">{filteredProducts.map((product) => <ProductCard key={product.id} product={product} />)}</div> : <div className="v2-empty-state"><SearchIcon size={34}/><h2>ما لقينا جهازًا مطابقًا</h2><p>جرّب كلمة بحث مختلفة أو اختر «الكل».</p><button type="button" onClick={() => { setSearch(""); setBrand("all"); }}>إعادة ضبط البحث</button></div>}
       </section>
+      <div className="v2-container v2-catalog-disclaimer">موعد الاستلام المتوقع: بعد شهر من الموافقة النهائية. الاستلام من المكتب بموعد مؤكد.</div>
       <div className="v2-container v2-catalog-disclaimer">القسط الظاهر تقديري ويعاد احتسابه حسب المدة والدفعة الأولى. تقديم الطلب لا يعني الموافقة النهائية.</div>
       <SiteFooter />
       <MobileBottomNav active="products" />
