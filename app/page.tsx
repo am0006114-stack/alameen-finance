@@ -26,10 +26,10 @@ function requiredProduct(id: string) {
 }
 
 const featured = [
-  requiredProduct("iphone-16-pro"),
-  requiredProduct("s25-ultra-5g-sm-s938b"),
-  requiredProduct("iphone-15"),
-  requiredProduct("honor-600-pro"),
+  requiredProduct("iphone-18-pro-max-256"),
+  requiredProduct("iphone-18-pro-256"),
+  requiredProduct("iphone-18-pro-max-512"),
+  requiredProduct("iphone-18-pro-512"),
 ];
 
 const trustItems = [
@@ -90,7 +90,7 @@ export default function HomePage() {
           </div>
           <div className="v2-discount-card">
             <span><TagIcon size={22}/></span>
-            <div><strong>وفر 5%</strong><small>على جميع أجهزة iPhone</small></div>
+            <div><strong>خصم 5%</strong><small>على أجهزة iPhone السابقة فقط</small></div>
           </div>
           <div className="v2-monthly-card">
             <small>{heroProduct.name}</small>
@@ -115,6 +115,7 @@ export default function HomePage() {
           <Link href="/products">عرض جميع الأجهزة <ArrowIcon size={17}/></Link>
         </div>
         <div className="v2-featured-grid">
+          <div dir="rtl" style={{ gridColumn: "1 / -1", border: "2px solid #b58a2d", background: "linear-gradient(135deg, rgba(181,138,45,.12), rgba(0,104,69,.08))", borderRadius: 18, padding: "16px 18px", marginBottom: 8, fontWeight: 900, fontSize: 16, lineHeight: 1.9, textAlign: "center", color: "#173b2b" }}>ملاحظة مهمة: أجهزة iPhone 18 Pro و iPhone 18 Pro Max — الاستلام بعد شهر من الموافقة النهائية، وبموعد مؤكد من المكتب.</div>
           {featured.map((product, index) => {
             const monthly = calculateInstallment({ price: product.price, months: 36, downPayment: 0 }).monthly;
             return (
@@ -126,6 +127,11 @@ export default function HomePage() {
                 <div className="v2-product-body">
                   <small>{product.brand} · {product.model}</small>
                   <h3>{product.name}</h3>
+                  {product.id.startsWith("iphone-18-") && (
+                    <p style={{ marginTop: 8, borderRadius: 12, padding: "9px 10px", background: "#fff7dc", border: "1px solid #d7b85b", color: "#5b4310", fontSize: 12, fontWeight: 900, lineHeight: 1.7 }}>
+                      الاستلام بعد شهر من الموافقة النهائية
+                    </p>
+                  )}
                   <div className="v2-price-row">
                     <div>
                       {product.originalPrice && <del>{formatJod(product.originalPrice)}</del>}
