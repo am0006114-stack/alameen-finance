@@ -57,6 +57,17 @@ export function mutationDecline(action: ActionKey, value: string | null | undefi
   return false;
 }
 
+function semanticMutationRequest(action: ActionKey, turn: InterpretedTurn) {
+  const semantic = turn.semantic;
+  if (!semantic || semantic.confidence < 0.82) return false;
+  if (action === "cancel_application") return semantic.decision.cancellation === "requested";
+  if (action === "request_refund") return semantic.decision.refund === "requested";
+  // Alias linking has an explicit identity/open-loop contract and is intentionally
+  // not opened from model semantics alone. Destructive execution still always
+  // requires the separate deterministic action-specific confirmation turn.
+  return false;
+}
+
 export function explicitMutationRequest(action: ActionKey, value: string | null | undefined) {
   const q = normalized(value);
   if (!q || mutationQuestion(action, q) || mutationDecline(action, q)) return false;
@@ -303,7 +314,7 @@ export function enforceMutationConfirmationGate(input: {
       info = informationalReply(action.action, input.truth);
       continue;
     }
-    if (!input.truth.application && (explicitMutationRequest(action.action, input.turn.rawText) || explicitMutationConfirmation({ action: action.action, value: input.turn.rawText, state: input.state }))) {
+    if (!input.truth.application && (explicitMutationRequest(action.action, input.turn.rawText) || semanticMutationRequest(action.action, input.turn) || explicitMutationConfirmation({ action: action.action, value: input.turn.rawText, state: input.state }))) {
       clearPendingConfirmation = true;
       info = missingApplicationMutationReply(action.action, input.state);
       continue;
@@ -323,7 +334,7 @@ export function enforceMutationConfirmationGate(input: {
       });
       continue;
     }
-    if (explicitMutationRequest(action.action, input.turn.rawText)) {
+    if (explicitMutationRequest(action.action, input.turn.rawText) || semanticMutationRequest(action.action, input.turn)) {
       const staged = { ...action, requiresConfirmation: true, authority: "deterministic" as const, payload: payloadWithConfirmationScope(action, input.truth, input.turn.turnId, input.state.waId) };
       output.push(staged);
       prompt = confirmationPrompt(action.action, input.truth);
@@ -357,12 +368,12 @@ export function enforceMutationConfirmationGate(input: {
 
   for (const action of REAL_MUTATIONS) {
     if (prompt || confirmedAction || blockedQuestionAction || info) break;
-    if (!input.truth.application && (explicitMutationRequest(action, input.turn.rawText) || explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state }))) {
+    if (!input.truth.application && (explicitMutationRequest(action, input.turn.rawText) || semanticMutationRequest(action, input.turn) || explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state }))) {
       clearPendingConfirmation = true;
       info = missingApplicationMutationReply(action, input.state);
       break;
     }
-    if (explicitMutationRequest(action, input.turn.rawText)) {
+    if (explicitMutationRequest(action, input.turn.rawText) || semanticMutationRequest(action, input.turn)) {
       const staged: PlannedAction = {
         action,
         sourceActId: input.turn.acts[0]?.id || input.turn.turnId,

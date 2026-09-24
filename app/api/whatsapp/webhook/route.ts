@@ -10812,21 +10812,31 @@ export async function POST(request: Request) {
               profileName: contactName,
               realActionsEnabled: v3ProductionControl.realActionsEnabled,
             });
-            reply = v3Run.reply || buildV3LastResortReply();
+            if (!v3Run.finalSafetyPass || !v3Run.reply) {
+              console.error("V3 Phase 8.1 fail-closed: Native Kernel produced no validated reply", {
+                waId: from,
+                messageId: message.id || null,
+                violations: v3Run.verification.policyViolations || [],
+              });
+              await markIncomingWhatsAppMessageProcessed(message.id);
+              return;
+            }
+            reply = v3Run.reply;
           } catch (v3RuntimeError) {
             console.error("V3 live runtime failed", { waId: from, messageId: message.id || null, error: v3RuntimeError });
-            reply = buildV3LastResortReply();
             try {
               await notifyV3Discord({
                 event: "final_safety_fail_closed",
                 waId: from,
-                title: "V3 — Runtime failure",
-                description: "فشل Runtime المباشر وتم إرسال رد احتياطي لا يدعي أي إجراء.",
+                title: "V3 Phase 8.1 — Runtime fail-closed",
+                description: "فشل Native Conversation Runtime. لم يتم إرسال أي رد Legacy أو generic للعميل.",
                 details: { messageId: message.id || null, error: v3RuntimeError instanceof Error ? v3RuntimeError.message : String(v3RuntimeError) },
               });
             } catch (v3NotifyError) {
               console.error("V3 runtime failure notification failed", v3NotifyError);
             }
+            await markIncomingWhatsAppMessageProcessed(message.id);
+            return;
           }
 
           if (await shouldSuppressStaleV3Reply({ waId: from, currentMessageId: message.id, lookbackSeconds: 120 })) {
@@ -10864,23 +10874,20 @@ export async function POST(request: Request) {
               await markIncomingWhatsAppMessageProcessed(message.id);
               return;
             }
-            // First try the verified V3 reply. If Meta rejects it, do NOT retry the same body:
-            // retry once with a short URL-free emergency message. If that also fails, trip
-            // the V3 circuit breaker so the next customer turn goes to the safe route.
+            // Phase 8.1: WhatsApp delivery may retry the SAME validated Native Kernel
+            // body once. The route never authors or substitutes another customer reply.
             let replyActuallySent = reply;
             let sendAttempt = await sendWhatsAppTextDetailed(from, reply, true);
             let outgoingMessageId = sendAttempt.messageId;
-            let emergencyDeliveryUsed = false;
+            const emergencyDeliveryUsed = false;
 
             if (!outgoingMessageId) {
               await new Promise((resolve) => setTimeout(resolve, 500));
-              const emergencyReply = buildV3LastResortReply();
-              const emergencyAttempt = await sendWhatsAppTextDetailed(from, emergencyReply, false);
+              const emergencyAttempt = await sendWhatsAppTextDetailed(from, reply, false);
               if (emergencyAttempt.messageId) {
                 outgoingMessageId = emergencyAttempt.messageId;
-                replyActuallySent = emergencyReply;
-                emergencyDeliveryUsed = true;
-                console.warn("V3 primary WhatsApp reply rejected; emergency reply delivered", {
+                replyActuallySent = reply;
+                console.warn("V3 primary WhatsApp send failed; same validated Native Kernel reply delivered on retry", {
                   waId: from,
                   firstStatus: sendAttempt.httpStatus,
                   firstCode: sendAttempt.errorCode,

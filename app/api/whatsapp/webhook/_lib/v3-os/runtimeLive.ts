@@ -29,7 +29,7 @@ import { applyConversationConstraintsToReply, updateConversationConstraints } fr
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto } from "./semanticAuthority";
 import type { SemanticReplyCheck } from "./semanticReplyVerifier";
-import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
@@ -635,7 +635,10 @@ export async function runV3ProductionLive(input: {
   const rawContinuationIntent = truthBeforeActions.contactAccess !== "safe_preview"
     && !semanticContinuationVeto(turn)
     && !explicitDoNotContinueText(effectiveCustomerText, boundState.lastAssistantText)
-    && (semanticConfirmsContinuation(turn) || explicitContinuationText(effectiveCustomerText) || turn.requestedActions.includes("continue_application"));
+    && (semanticConfirmsContinuation(turn)
+      || informedCommercialContinuationConfirmed({ state: boundState, truth: truthBeforeActions, turn, customerText: effectiveCustomerText })
+      || explicitContinuationText(effectiveCustomerText)
+      || turn.requestedActions.includes("continue_application"));
   const disclosureRequiredThisTurn = shouldExplainCommercialStep({
     state: boundState,
     truth: truthBeforeActions,
@@ -644,6 +647,11 @@ export async function runV3ProductionLive(input: {
   });
 
   let plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  // PHASE 8.1 ABSOLUTE RUNTIME AUTHORITY: legacy planner remains an action/truth
+  // compatibility helper only. It no longer decides whether a valid Native Kernel
+  // customer reply is allowed to exist. A model-produced native reply owns response
+  // intent even when the semantic act is a bare confirm/acknowledgement.
+  plan = { ...plan, shouldRespond: Boolean(nativeKernelInitial.reply) || plan.shouldRespond };
   if (disclosureRequiredThisTurn) {
     plan = { ...plan, actions: plan.actions.filter((action) => action.action !== "continue_application") };
   }
@@ -664,6 +672,7 @@ export async function runV3ProductionLive(input: {
     plan = {
       ...plan,
       actions: [aliasAction, ...plan.actions.filter((action) => !blockedUntilAlias.has(action.action))],
+      shouldRespond: true,
     };
   }
   plan = { ...plan, actions: plan.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)) };
@@ -712,7 +721,11 @@ export async function runV3ProductionLive(input: {
     state: boundState,
     truth: truthBeforeActions,
   });
-  plan = { ...plan, actions: mutationGate.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)) };
+  plan = {
+    ...plan,
+    actions: mutationGate.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)),
+    shouldRespond: plan.shouldRespond || Boolean(mutationGate.confirmationPrompt || mutationGate.informationalReply || mutationGate.actions.length),
+  };
   const executionState: ConversationState = mutationGate.clearPendingConfirmation
     ? { ...boundState, pendingAction: null, pendingActionPayload: null }
     : boundState;
@@ -833,6 +846,7 @@ export async function runV3ProductionLive(input: {
     && !semanticContinueVeto
     && !explicitDoNotContinueText(effectiveCustomerText, executionState.lastAssistantText) && (
       semanticConfirmsContinuation(turn)
+      || informedCommercialContinuationConfirmed({ state: executionState, truth: truthAfterActions, turn, customerText: effectiveCustomerText })
       || explicitContinuationText(effectiveCustomerText)
       || turn.requestedActions.includes("continue_application")
       || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
@@ -889,7 +903,7 @@ export async function runV3ProductionLive(input: {
     conversationState = clearContactResolution(conversationState);
   }
 
-  // PHASE 8.0 NATIVE CONVERSATION EGRESS: the model draft is the sole normal
+  // PHASE 8.1 ABSOLUTE RUNTIME AUTHORITY EGRESS: the model draft is the sole normal
   // customer-facing writer. Deterministic layers below may validate, veto, execute
   // business actions, or trigger one bounded regeneration, but they do not replace
   // a valid conversational answer with legacy canned text.
@@ -1023,22 +1037,13 @@ export async function runV3ProductionLive(input: {
     });
   }
 
-  // Emergency fail-safe only when the provider is unavailable or both bounded
-  // generations fail. This path is deliberately not used as normal conversation.
+  // PHASE 8.1 ABSOLUTE RUNTIME AUTHORITY: there is no legacy conversational
+  // fallback after the Native Kernel. If the bounded native generations cannot
+  // produce a validated answer, fail closed and alert operations. The only
+  // deterministic customer-facing exceptions above are the protected 5-JOD
+  // commercial invariants; generic/status fallback ownership is retired.
   if (plan.shouldRespond && (!reply || !nativeValidation.pass)) {
-    fallbackUsed = true;
-    reply = buildV3LastResortReply({ truth: truthAfterActions, state: conversationState, customerText: effectiveCustomerText });
-    nativeValidation = validateNativeConversationReply({
-      reply,
-      turn,
-      state: conversationState,
-      truth: truthAfterActions,
-      actions,
-      recentTurns: scopedRecentTurns,
-      customerText: effectiveCustomerText,
-      disclosureRequiredThisTurn,
-      protectedFiveJodStep,
-    });
+    reply = null;
   }
 
   // Phase 8 native safety result is the only normal egress verdict. Legacy

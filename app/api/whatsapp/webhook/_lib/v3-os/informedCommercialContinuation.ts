@@ -1,4 +1,5 @@
 import { applicationJourneyStage } from "./applicationJourney";
+import { normalizeArabic } from "./text";
 import type { ApplicationTruth, CommercialDisclosureState, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export const COMMERCIAL_DISCLOSURE_VERSION = "2026-09-informed-fee-v2-full-rationale" as const;
@@ -35,6 +36,36 @@ export function currentCommercialDisclosure(state: ConversationState, truth: Tru
 export function commercialDisclosureDelivered(state: ConversationState, truth: TruthBundle) {
   const disclosure = currentCommercialDisclosure(state, truth);
   return disclosure.status === "delivered" || disclosure.status === "acknowledged";
+}
+
+export function informedCommercialContinuationConfirmed(input: {
+  state: ConversationState;
+  truth: TruthBundle;
+  turn: InterpretedTurn;
+  customerText: string;
+}) {
+  const disclosure = currentCommercialDisclosure(input.state, input.truth);
+  if (disclosure.status !== "delivered") return false;
+  const stage = applicationJourneyStage(input.truth.application);
+  if (!["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)) return false;
+
+  const semantic = input.turn.semantic;
+  if (semantic && semantic.confidence >= 0.68) {
+    if (["declined", "deferred", "conditional"].includes(semantic.decision.continuation)) return false;
+    if (semantic.decision.continuation === "confirmed") return true;
+  }
+
+  // This is a contextual commercial consent fallback, not a phrase router: it only
+  // becomes active after the full disclosure for this exact application was sent.
+  // A short affirmative then means “yes to the disclosed continuation decision”;
+  // it never authorizes destructive mutations or confirms payment.
+  const q = normalizeArabic(String(input.customerText || ""))
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^(?:نعم|اه|أه|ايوه|أيوه|yes|موافق|موافقة|اوافق|أوافق|اكيد|أكيد)$/.test(q)) return true;
+  const affirmativeLead = /^(?:نعم|اه|أه|ايوه|أيوه|yes)(?:\s|$)/.test(q);
+  return affirmativeLead && /(?:اوافق|أوافق|موافق|موافقة|الشروط)/.test(q);
 }
 
 export function preliminaryApprovalNeedsInformedDisclosure(state: ConversationState, truth: TruthBundle) {
