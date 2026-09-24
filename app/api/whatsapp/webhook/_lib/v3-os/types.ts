@@ -1,4 +1,4 @@
-export const V3_OS_VERSION = "v3.0.0-phase7.9.0-single-conversation-authority-grounded-business-truth" as const;
+export const V3_OS_VERSION = "v3.0.0-phase8.0-native-conversation-kernel-human-company-os" as const;
 // Backward compatibility anchor: v3.0.0-phase7.8.0.1-informed-commercial-continuation-fee-rationale-integrity
 // Backward compatibility anchor: v3.0.0-phase7.8.0-ai-native-conversation-brain-semantic-memory
 // Backward compatibility anchor: v3.0.0-phase7.7.2-fresh-turn-open-loop-egress-integrity

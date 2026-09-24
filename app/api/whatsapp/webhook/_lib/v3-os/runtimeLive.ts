@@ -4,11 +4,8 @@ import { contactPhonesMatch, resolveV3ProductionTruth } from "./productionTruth"
 import { closeAnsweredLoops, emptyState, finalizeStateSemanticMemory, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
 import type { ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
-import { verifyReply } from "./verifier";
-import { buildWriterPrompt } from "./writerContract";
-import { buildZeroFallbackReply, verifyZeroFallbackReply } from "./zeroFallback";
-import { interpretTurnWithAi } from "./modelInterpreter";
-import { v3InterpreterProviderFromEnv, v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
+import { interpretTurn } from "./interpreter";
+import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
@@ -16,11 +13,9 @@ import { applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForM
 import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
-import { buildConversationRecoveryReply, buildMandatoryFiveJodContinuationReply, explicitContactNumberChangeRequest, explicitContinuationText, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow, shouldPrioritizeConversationRecovery } from "./conversationRecovery";
+import { buildMandatoryFiveJodContinuationReply, explicitContactNumberChangeRequest, explicitContinuationText, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
 import { isContinuationRevenueReady, persistExplicitContinuation } from "./continuationPersistence";
-import { buildHumanJourneyReply } from "./humanJourney";
 import { filterPlannedActionsForApplicationScope, pendingActionMatchesCurrentApplication, scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampActionScope, stampPendingPayloadScope } from "./applicationScopeLock";
-import { enforceFinalResponseGate } from "./finalResponseGate";
 import { logIntegrityTelemetry } from "./integrityTelemetry";
 import { enforceMutationConfirmationGate, pendingActionIsCurrentTurnFocus } from "./mutationConfirmationGate";
 import { stabilizeTruthSnapshot } from "./truthSnapshotLock";
@@ -29,20 +24,14 @@ import { buildHumanFirstCustomerBurst, enrichHumanFirstTurn, supersedeConversati
 import { enforceCurrentTurnAuthority, explicitContactRequestText } from "./currentTurnAuthority";
 import { enforceFreshTurnAuthority } from "./freshTurnAuthority";
 import { applyAuthoritativeActionConversationMemory } from "./actionConversationMemory";
-import { appendSafeIdentityAnswerIfAsked, buildHumanFirstConversationAuthorityReply } from "./humanFirstConversationAuthority";
-import { buildCurrentQuestionAnswerContractReply } from "./currentQuestionAnswerContract";
-import { arbitrateProductionReply } from "./responseArbiter";
-import { resolveFreshPublicProductReply } from "./freshPublicFacts";
 import { contactExplanationFromText, markContactResolution, clearContactResolution, canonicalWaId } from "./contactIdentity";
 import { applyConversationConstraintsToReply, updateConversationConstraints } from "./conversationConstraints";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
-import { applyHumanRelationshipEgress } from "./humanRelationshipRuntime";
-import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto, semanticWriterAuthority } from "./semanticAuthority";
-import { verifySemanticReply, type SemanticReplyCheck } from "./semanticReplyVerifier";
-import { buildSemanticFailClosedReply } from "./semanticRescue";
-import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
-import { answerPlanCoverage, buildSingleConversationAnswerPlan, buildSingleConversationAuthorityReply, renderSingleConversationAnswerPlan, repairReplyAgainstAnswerPlan } from "./singleConversationAuthority";
-import { enforceGroundedBusinessEgress } from "./groundingGuard";
+import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto } from "./semanticAuthority";
+import type { SemanticReplyCheck } from "./semanticReplyVerifier";
+import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
+import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -387,22 +376,17 @@ export async function runV3ProductionLive(input: {
   const loadedState = await loadV3ConversationState(input.waId);
   const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), safeRecentTurns);
 
-  const interpreter = input.interpreter === undefined ? v3InterpreterProviderFromEnv() : input.interpreter;
-  const interpreted = await interpretTurnWithAi({
-    turnId: input.turnId,
-    customerText: effectiveCustomerText,
-    state: stateBefore,
-    recentTurns: safeRecentTurns,
-    provider: interpreter,
-  });
+  const kernelProvider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
+  const deterministicAnchor = interpretTurn({ turnId: input.turnId, customerText: effectiveCustomerText });
   let turn = enforceSemanticDecisionAuthority(enforceFreshTurnAuthority({
     turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
-      turn: interpreted.turn,
+      turn: deterministicAnchor,
       state: stateBefore,
       recentTurns: safeRecentTurns,
     }))),
     state: stateBefore,
   }));
+  let nativeKernelInitial: NativeKernelResult = { turn, reply: null, modelUsed: false, modelError: null, raw: null };
   const newApplicationFlow = isNewApplicationFlow({ turn, state: stateBefore, recentTurns: safeRecentTurns });
   const reducedState = reduceState({ state: stateBefore, turn });
   const constrainedState = updateConversationConstraints({ state: reducedState, customerText: effectiveCustomerText, turnId: input.turnId });
@@ -500,6 +484,47 @@ export async function runV3ProductionLive(input: {
   }
 
   const currentWa = canonicalWaId(input.waId);
+
+  // PHASE 8.0 NATIVE CONVERSATION KERNEL: one normal model call owns both deep
+  // semantic understanding and the customer-facing draft. Deterministic parsing
+  // above is only a safety/truth anchor for lookup and mutation protection.
+  nativeKernelInitial = await runNativeConversationKernel({
+    provider: kernelProvider,
+    customerText: effectiveCustomerText,
+    turnId: input.turnId,
+    state: boundState,
+    truth: truthBeforeActions,
+    recentTurns: scopedRecentTurns,
+    profileName: input.profileName,
+    deterministicAnchor: turn,
+  });
+  if (nativeKernelInitial.modelUsed) {
+    turn = enforceSemanticDecisionAuthority(enforceFreshTurnAuthority({
+      turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
+        turn: nativeKernelInitial.turn,
+        state: stateBefore,
+        recentTurns: scopedRecentTurns,
+      }))),
+      state: stateBefore,
+    }));
+    const nativeReduced = updateConversationConstraints({
+      state: reduceState({ state: stateBefore, turn }),
+      customerText: effectiveCustomerText,
+      turnId: input.turnId,
+    });
+    boundState = supersedeConversationStateForJourney({
+      state: {
+        ...nativeReduced,
+        activeApplicationId: boundState.activeApplicationId,
+        activeTrackingId: boundState.activeTrackingId,
+        lastVerifiedApplication: boundState.lastVerifiedApplication,
+        verifiedContactBinding: boundState.verifiedContactBinding,
+        contactResolution: boundState.contactResolution,
+      },
+      truth: truthBeforeActions,
+      turn,
+    });
+  }
 
   const paymentIncident = detectPaymentIncident(effectiveCustomerText);
   let paymentIncidentReply: string | null = null;
@@ -864,833 +889,181 @@ export async function runV3ProductionLive(input: {
     conversationState = clearContactResolution(conversationState);
   }
 
-  // HUMAN JOURNEY FIRST: transactional truth is already resolved above. From here,
-  // the customer should hear a natural journey explanation, not a bare database
-  // status. This layer is intentionally deterministic for approval/status/timing
-  // so preliminary approval always explains the next commercial step and review
-  // window even if the model intent is weak or unknown.
-  const humanJourneyReply = paymentIncidentReply || buildHumanJourneyReply({
-    turn,
-    state: conversationState,
-    truth: truthAfterActions,
-    recentTurns: scopedRecentTurns,
-  });
-  const recoveryReply = buildConversationRecoveryReply({
-    turn,
-    state: conversationState,
-    truth: truthAfterActions,
-    recentTurns: scopedRecentTurns,
-  });
-  const informedCommercialDisclosureReply = disclosureRequiredThisTurn
-    ? buildInformedCommercialDisclosureReply(truthAfterActions)
-    : null;
-  // PHASE 7.9.0 SINGLE CONVERSATION AUTHORITY: one business-answer layer owns
-  // the current question whenever authoritative truth exists. Legacy recovery/
-  // fallback layers may veto unsafe facts, but they no longer replace a known
-  // business answer with a generic canned response.
-  const singleConversationAnswerPlan = buildSingleConversationAnswerPlan({
-    turn,
-    state: conversationState,
-    truth: truthAfterActions,
-  });
-  const singleAuthorityReply = renderSingleConversationAnswerPlan(singleConversationAnswerPlan);
-  // REVENUE INVARIANT: once a preliminarily-qualified customer explicitly chooses
-  // to continue, the 5 JOD file-opening step becomes protected customer-facing
-  // truth for this turn. It must survive writer repair, fallback, duplicate
-  // suppression, and any planner wording variance. Already-paid/pending-payment
-  // truth remains protected from duplicate charging.
+  // PHASE 8.0 NATIVE CONVERSATION EGRESS: the model draft is the sole normal
+  // customer-facing writer. Deterministic layers below may validate, veto, execute
+  // business actions, or trigger one bounded regeneration, but they do not replace
+  // a valid conversational answer with legacy canned text.
   const protectedFiveJodStep = continuationRevenueReadyAtDecision;
-  const prioritizeRecovery = shouldPrioritizeConversationRecovery({
-    turn,
-    state: conversationState,
-    recentTurns: scopedRecentTurns,
-  });
-
-  const currentQuestionReply = buildCurrentQuestionAnswerContractReply({
-    turn,
-    state: conversationState,
-    truth: truthAfterActions,
-  });
-  const humanAuthorityReply = buildHumanFirstConversationAuthorityReply({
-    turn,
-    state: conversationState,
-    truth: truthAfterActions,
-    actions,
-  });
-  // 7.5.5: current public product facts may change faster than model knowledge.
-  // Search is allowed only for public product/release facts and never for order, payment,
-  // refund, legal-registration, or mutation truth. Failure is silent and falls back safely.
-  const freshPublicProductReply = plan.shouldRespond
-    ? await resolveFreshPublicProductReply({ turn, truth: truthAfterActions })
-    : null;
-
-  const writer = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
-  const semanticWriterPreferred = Boolean(writer && interpreted.modelUsed && semanticWriterAuthority(turn));
-  const singleAuthorityWriterPreferred = Boolean(writer && singleConversationAnswerPlan.hasMaterialObligation);
-  const generativeWriterPreferred = semanticWriterPreferred || singleAuthorityWriterPreferred;
-  let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
-  let reply: string | null = null;
+  let reply: string | null = plan.shouldRespond ? nativeKernelInitial.reply : null;
   let verification: VerificationReport = PASS;
-  let replyAttempts = 0;
+  let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
+  let replyAttempts = nativeKernelInitial.modelUsed ? 1 : 0;
   let fallbackUsed = false;
-  let policySuppressed = false;
 
-  if (plan.shouldRespond) {
-    const scopedMutationReply = buildScopedMutationSuccessReply({ truth: truthAfterActions, actions });
-    const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
-    const manualReplyRelevant = pendingActionIsCurrentTurnFocus({ action: manualDisposition.action, turn });
-    if (mutationGate.confirmationPrompt) {
-      reply = mutationGate.confirmationPrompt;
-      verification = PASS;
-    } else if (mutationGate.informationalReply) {
-      reply = mutationGate.informationalReply;
-      verification = PASS;
-    } else if (scopedMutationReply) {
-      reply = scopedMutationReply;
-      verification = PASS;
-    } else if (informedCommercialDisclosureReply) {
-      reply = informedCommercialDisclosureReply;
-      fallbackUsed = true;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (freshPublicProductReply) {
-      reply = freshPublicProductReply;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (!generativeWriterPreferred && currentQuestionReply) {
-      reply = currentQuestionReply;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (!generativeWriterPreferred && humanAuthorityReply) {
-      reply = humanAuthorityReply;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (!generativeWriterPreferred && prioritizeRecovery && recoveryReply) {
-      // Only truth-critical recovery paths pre-empt the writer: explicit
-      // continuation/opt-out, new application, foreign form blocker, showroom
-      // policy, and contact-number correction. Normal status/timing stays with
-      // the human writer so the conversation does not sound like a status API.
-      reply = recoveryReply;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (manualReply && manualReplyRelevant) {
-      reply = manualReply;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    } else if (writer) {
-      const basePrompt = buildWriterPrompt({
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-      try {
-        replyAttempts++;
-        reply = await writer.generate({
-          system: "اكتب رد الأمين النهائي فقط وفق العقد التالي. لا تضف شرحًا داخليًا.",
-          user: basePrompt,
-          temperature: 0.34,
-          maxTokens: 800,
-        });
-        verification = verifyReply({
-          reply,
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          plan,
-          actions,
-          recentTurns: scopedRecentTurns,
-          profileName: input.profileName,
-        });
+  const operationalContext = {
+    mutationConfirmationRequired: Boolean(mutationGate.confirmationPrompt),
+    mutationConfirmationPromptMeaning: mutationGate.confirmationPrompt || null,
+    mutationInformationalMeaning: mutationGate.informationalReply || null,
+    blockedQuestionAction: mutationGate.blockedQuestionAction || null,
+    manualDisposition,
+    paymentIncident: paymentIncident !== "none" ? paymentIncident : null,
+    paymentIncidentSafetyMeaning: paymentIncidentReply,
+    actions,
+    disclosureRequiredThisTurn,
+    protectedFiveJodStep,
+    continuationDecisionThisTurn,
+    applicationJourneyStage: applicationJourneyStage(truthAfterActions.application),
+    paymentConfirmed: hasAuthoritativePaymentConfirmation(truthAfterActions.application),
+  };
 
-        if (!verification.pass) {
-          replyAttempts++;
-          reply = await writer.generate({
-            system: "أنت مرحلة إصلاح نهائي. أعد الرد فقط بعد إزالة كل المخالفات.",
-            user: repairPrompt(basePrompt, reply, verification),
-            temperature: 0.12,
-            maxTokens: 850,
-          });
-          verification = verifyReply({
-            reply,
-            turn,
-            state: conversationState,
-            truth: truthAfterActions,
-            plan,
-            actions,
-            recentTurns: scopedRecentTurns,
-            profileName: input.profileName,
-          });
-        }
-      } catch (error) {
-        console.error("v3 live writer failed:", error);
-        reply = null;
-      }
-    }
+  const actionOrTruthChangedAfterInitialDraft = Boolean(
+    mutationGate.confirmationPrompt
+    || mutationGate.informationalReply
+    || paymentIncidentReply
+    || manualDisposition.kind !== "none"
+    || actions.some((x) => x.outcome !== "none" && x.outcome !== "dry_run")
+    || continuationPersistence.updated
+  );
 
-    // PHASE 7.8.0 AI-NATIVE SEMANTIC ANSWER GATE: deterministic safety is not
-    // enough if the reply answers the wrong human question. DeepSeek's semantic
-    // frame is independently checked against the candidate before fallback/egress.
-    if (reply && verification.pass) {
-      semanticCheck = await verifySemanticReply({
-        provider: interpreter,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        reply,
-      });
-      if (!semanticCheck.pass && writer) {
-        const semanticBasePrompt = buildWriterPrompt({
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          plan,
-          actions,
-          recentTurns: scopedRecentTurns,
-          profileName: input.profileName,
-        });
-        try {
-          replyAttempts++;
-          const repaired = await writer.generate({
-            system: "أصلح الرد دلاليًا. أخرج رد العميل النهائي فقط.",
-            user: semanticRepairPrompt(semanticBasePrompt, reply, semanticCheck),
-            temperature: 0.08,
-            maxTokens: 850,
-          });
-          const repairedVerification = verifyReply({
-            reply: repaired, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName,
-          });
-          const repairedSemantic = repairedVerification.pass ? await verifySemanticReply({ provider: interpreter, turn, state: conversationState, truth: truthAfterActions, reply: repaired }) : semanticCheck;
-          if (repairedVerification.pass && repairedSemantic.pass) {
-            reply = repaired;
-            verification = repairedVerification;
-            semanticCheck = repairedSemantic;
-          } else {
-            reply = null;
-            verification = { ...verification, pass: false, repetitionFlags: Array.from(new Set([...verification.repetitionFlags, "semantic_answer_gate_failed"])) };
-          }
-        } catch (error) {
-          console.error("v3 semantic repair failed:", error);
-          reply = null;
-          verification = { ...verification, pass: false, repetitionFlags: Array.from(new Set([...verification.repetitionFlags, "semantic_answer_gate_failed"])) };
-        }
-      } else if (!semanticCheck.pass) {
-        reply = null;
-        verification = { ...verification, pass: false, repetitionFlags: Array.from(new Set([...verification.repetitionFlags, "semantic_answer_gate_failed"])) };
-      }
-    }
-
-    if ((!reply || !verification.pass) && singleAuthorityReply) {
-      const authorityVerification = verifyReply({
-        reply: singleAuthorityReply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-      if (authorityVerification.pass) {
-        reply = singleAuthorityReply;
-        verification = authorityVerification;
-        fallbackUsed = true;
-      }
-    }
-
-    if (!reply || !verification.pass) {
-      const deterministicJourneyRescue = humanJourneyReply || recoveryReply;
-      if (deterministicJourneyRescue) {
-        const deterministicVerification = verifyReply({
-          reply: deterministicJourneyRescue,
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          plan,
-          actions,
-          recentTurns: scopedRecentTurns,
-          profileName: input.profileName,
-        });
-        if (deterministicVerification.pass) {
-          reply = deterministicJourneyRescue;
-          verification = deterministicVerification;
-          fallbackUsed = true;
-        }
-      }
-    }
-
-    if (!reply || !verification.pass) {
-      fallbackUsed = true;
-      replyAttempts++;
-      // ZERO-FALLBACK PRODUCTION GUARANTEE: once the model/repair path cannot
-      // satisfy the contract, switch to a deterministic truth-grounded rescue.
-      // The customer never sees writer/verifier/runtime failure language.
-      const rescue = buildZeroFallbackReply({
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-      });
-      const rescueVerification = verifyZeroFallbackReply({
-        reply: rescue,
-        turn,
-        truth: truthAfterActions,
-        actions,
-      });
-      reply = rescueVerification.pass ? rescue : buildV3LastResortReply({ truth: truthAfterActions, state: conversationState, customerText: effectiveCustomerText });
-      verification = rescueVerification.pass ? rescueVerification : PASS;
-    }
-  }
-
-  // A deterministic fallback may be truth-safe yet semantically stale. Before any
-  // identity/style post-processing, run the semantic gate once more and, when
-  // possible, let the writer repair only the meaning while deterministic truth stays fixed.
-  if (plan.shouldRespond && reply && verification.pass) {
-    const finalSemanticCheck = await verifySemanticReply({ provider: interpreter, turn, state: conversationState, truth: truthAfterActions, reply });
-    semanticCheck = finalSemanticCheck;
-    if (!finalSemanticCheck.pass && writer) {
-      try {
-        const semanticBasePrompt = buildWriterPrompt({ turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
-        replyAttempts++;
-        const repaired = await writer.generate({
-          system: "هذه آخر محاولة قبل الإرسال. جاوب معنى العميل الحالي فقط داخل الحقيقة المثبتة.",
-          user: semanticRepairPrompt(semanticBasePrompt, reply, finalSemanticCheck),
-          temperature: 0.05,
-          maxTokens: 850,
-        });
-        const deterministic = verifyReply({ reply: repaired, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
-        const semantic = deterministic.pass ? await verifySemanticReply({ provider: interpreter, turn, state: conversationState, truth: truthAfterActions, reply: repaired }) : finalSemanticCheck;
-        if (deterministic.pass && semantic.pass) { reply = repaired; verification = deterministic; semanticCheck = semantic; fallbackUsed = true; }
-      } catch (error) {
-        console.error("v3 final semantic repair failed:", error);
-      }
-    }
-    if (!semanticCheck.pass) {
-      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions, state: conversationState });
-      if (semanticRescue) {
-        const rescueVerification = verifyReply({ reply: semanticRescue, turn, state: conversationState, truth: truthAfterActions, plan, actions, recentTurns: scopedRecentTurns, profileName: input.profileName });
-        if (rescueVerification.pass) {
-          reply = semanticRescue;
-          verification = rescueVerification;
-          semanticCheck = { ...semanticCheck, pass: true, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [] };
-          fallbackUsed = true;
-        }
-      }
-    }
-  }
-
-  if (reply) {
-    const identityAugmented = appendSafeIdentityAnswerIfAsked({ reply, turn, state: conversationState });
-    if (identityAugmented !== reply) {
-      reply = identityAugmented;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    }
-    reply = clampRepeatedCharacters(reply);
-  }
-
-  // Absolute production guard: while Real Actions are disabled, no language that
-  // claims a business mutation completed may leave the runtime, even if an upstream
-  // planner/interpreter/verifier missed the context. Replace it with the manual
-  // disposition response or deterministic truth rescue.
-  const hasExecutedBusinessMutation = actions.some((x) => x.executed && MANUAL_ACTIONS.has(x.action));
-  if (reply && realActionsOffCompletionClaim(reply) && !hasExecutedBusinessMutation) {
-    fallbackUsed = true;
-    const manualReply = buildManualActionCustomerReply({ disposition: manualDisposition, truth: truthAfterActions });
-    reply = manualReply || buildZeroFallbackReply({
-      turn,
+  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft) {
+    const refreshed = await runNativeConversationKernel({
+      provider: kernelProvider,
+      customerText: effectiveCustomerText,
+      turnId: input.turnId,
       state: conversationState,
       truth: truthAfterActions,
-      plan,
-      actions,
-      recentTurns: scopedRecentTurns,
-    });
-    verification = verifyReply({
-      reply,
-      turn,
-      state: conversationState,
-      truth: truthAfterActions,
-      plan,
-      actions,
       recentTurns: scopedRecentTurns,
       profileName: input.profileName,
+      deterministicAnchor: turn,
+      actionResults: actions,
+      validationFailures: [
+        ...(mutationGate.confirmationPrompt ? [`ACTION_CONFIRMATION_REQUIRED=${mutationGate.confirmationPrompt}`] : []),
+        ...(mutationGate.informationalReply ? [`ACTION_INFORMATIONAL_RESULT=${mutationGate.informationalReply}`] : []),
+        ...(paymentIncidentReply ? [`PAYMENT_INCIDENT_SAFETY=${paymentIncidentReply}`] : []),
+      ],
+      operationalContext,
     });
+    replyAttempts++;
+    if (refreshed.reply) reply = refreshed.reply;
   }
 
-  // Phase 7.1.6A compatibility anchor: `!protectedFiveJodStep && runtimeNearDuplicate` remains true, now additionally restricted to low-information customer turns.
-// Phase 7.3.7 compatibility anchor: (isLowInformationCustomerTurn(input.customerText) || repeatedStatusCustomerTurn(turn))
-  if (reply && !protectedFiveJodStep && (isLowInformationCustomerTurn(effectiveCustomerText) || repeatedStatusCustomerTurn(turn)) && runtimeNearDuplicate(boundState.lastAssistantText, reply)) {
-    fallbackUsed = true;
-    reply = buildRepeatDeltaReply({ turn, truth: truthAfterActions });
-    verification = verifyReply({
-      reply,
-      turn,
-      state: { ...boundState, lastAssistantText: null },
-      truth: truthAfterActions,
-      plan,
-      actions,
-      recentTurns: scopedRecentTurns,
-      profileName: input.profileName,
-    });
-  }
-
-  // FINAL 5 JOD REVENUE INVARIANT: this runs after the duplicate-response guard,
-  // immediately before the final safety decision. No later conversational layer
-  // is allowed to erase the mandatory continuation step when authoritative truth
-  // says payment_ready.
-  if (plan.shouldRespond && protectedFiveJodStep) {
-    const officialLinksForContinuation = buildOfficialLinkContext(turn, truthAfterActions);
-    const mandatoryContinuationReply = commercialDisclosureDelivered(conversationState, truthAfterActions)
-      ? buildPostDisclosurePaymentReply(truthAfterActions, officialLinksForContinuation.relevant.receipt ?? null)
-      : buildMandatoryFiveJodContinuationReply(turn, truthAtContinuationDecision);
-    if (mandatoryContinuationReply) {
-      reply = mandatoryContinuationReply;
-      fallbackUsed = true;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    }
-  }
-
-  // PHASE 7.4.5 SINGLE RESPONSE AUTHORITY: every conversational path above
-  // produces only a candidate. Before egress, one arbiter checks the customer's
-  // current answer obligation against authoritative truth. Stale continuation,
-  // pending-action context, or zero-fallback text can no longer become the answer
-  // to a different current question. Mutation execution truth remains authoritative.
-  if (plan.shouldRespond) {
-    const arbitration = arbitrateProductionReply({
-      candidate: reply,
-      turn,
-      state: conversationState,
-      truth: truthAfterActions,
-      actions,
-    });
-    if (arbitration.repaired) {
-      fallbackUsed = true;
-      logIntegrityTelemetry({
-        event: "single_response_authority_repair",
-        waId: input.waId,
-        turnId: input.turnId,
-        applicationId: truthAfterActions.application?.id || null,
-        trackingId: truthAfterActions.application?.trackingId || null,
-        severity: "warning",
-        details: { obligation: arbitration.obligation, reason: arbitration.reason },
-      });
-    }
-    if (arbitration.suppressed) {
-      policySuppressed = true;
-      logIntegrityTelemetry({
-        event: "protected_registration_repeat_suppressed",
-        waId: input.waId,
-        turnId: input.turnId,
-        applicationId: truthAfterActions.application?.id || null,
-        trackingId: truthAfterActions.application?.trackingId || null,
-        severity: "info",
-        details: { obligation: arbitration.obligation, reason: arbitration.reason },
-      });
-    }
-    reply = applyConversationConstraintsToReply({ state: conversationState, reply: applyHumanRelationshipEgress({ reply: arbitration.reply, turn, state: conversationState, truth: truthAfterActions }) });
-    if (reply) {
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-    }
-  }
-
-  let finalGate = enforceFinalResponseGate({
+  let nativeValidation = validateNativeConversationReply({
     reply,
     turn,
     state: conversationState,
     truth: truthAfterActions,
     actions,
-    applicationChanged: scopeResult.applicationChanged,
+    recentTurns: scopedRecentTurns,
+    customerText: effectiveCustomerText,
+    disclosureRequiredThisTurn,
+    protectedFiveJodStep,
   });
-  if (!finalGate.pass && finalGate.replacementReply) {
-    fallbackUsed = true;
-    logIntegrityTelemetry({
-      event: "final_response_gate_repair",
-      waId: input.waId,
+
+  // One bounded repair call only. This is not a judge/shadow path: it runs only
+  // when deterministic truth/action validation blocks the one candidate reply.
+  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2) {
+    const repaired = await runNativeConversationKernel({
+      provider: kernelProvider,
+      customerText: effectiveCustomerText,
       turnId: input.turnId,
-      applicationId: truthAfterActions.application?.id || null,
-      trackingId: truthAfterActions.application?.trackingId || null,
-      severity: finalGate.severity === "none" ? "info" : finalGate.severity,
-      details: { violations: finalGate.violations },
-    });
-    if (finalGate.severity === "p0") {
-      try {
-        await notifyV3Discord({
-          event: "truth_integrity_failure",
-          applicationId: truthAfterActions.application?.id || null,
-          trackingId: truthAfterActions.application?.trackingId || null,
-          waId: input.waId,
-          title: "⛔ Conversation Integrity منع رد خطير قبل الإرسال",
-          description: "تم إيقاف/إصلاح رد كان سيخالف حدود الطلب أو بوابة الدفع قبل وصوله للعميل.",
-          details: { violations: finalGate.violations },
-        });
-      } catch (error) {
-        console.error("V3 final response integrity Discord alert failed", error);
-      }
-    }
-    reply = finalGate.replacementReply;
-    verification = verifyReply({
-      reply,
-      turn,
       state: conversationState,
       truth: truthAfterActions,
-      plan,
-      actions,
       recentTurns: scopedRecentTurns,
       profileName: input.profileName,
+      deterministicAnchor: turn,
+      actionResults: actions,
+      validationFailures: nativeValidation.reasons,
+      operationalContext,
     });
-    finalGate = enforceFinalResponseGate({
+    replyAttempts++;
+    if (repaired.reply) reply = repaired.reply;
+    nativeValidation = validateNativeConversationReply({
       reply,
       turn,
       state: conversationState,
       truth: truthAfterActions,
       actions,
-      applicationChanged: false,
+      recentTurns: scopedRecentTurns,
+      customerText: effectiveCustomerText,
+      disclosureRequiredThisTurn,
+      protectedFiveJodStep,
     });
   }
 
-  // PHASE 7.4.6 TRUE SINGLE EGRESS: any text produced or repaired by the
-  // final safety gate is still only a candidate. The arbiter gets the last
-  // conversational word; after that the final gate is veto-only and may not
-  // author another customer-facing reply. This closes the 7.4.5 bypass where
-  // a legacy replacement could re-introduce stale continuation/refund templates
-  // after the arbiter had already done the right thing.
-  if (plan.shouldRespond && reply) {
-    const egressArbitration = arbitrateProductionReply({
-      candidate: reply,
+  // Revenue-safe emergency only: the normal path is always Native Kernel. These
+  // deterministic replies exist solely to prevent a provider/validation failure
+  // from breaking the protected 5-JOD commercial journey.
+  if (plan.shouldRespond && !nativeValidation.pass && disclosureRequiredThisTurn) {
+    reply = buildInformedCommercialDisclosureReply(truthAfterActions);
+    fallbackUsed = true;
+    nativeValidation = validateNativeConversationReply({
+      reply,
       turn,
       state: conversationState,
       truth: truthAfterActions,
       actions,
+      recentTurns: scopedRecentTurns,
+      customerText: effectiveCustomerText,
+      disclosureRequiredThisTurn,
+      protectedFiveJodStep: false,
     });
-    if (egressArbitration.repaired) {
-      fallbackUsed = true;
-      logIntegrityTelemetry({
-        event: "true_single_egress_repair",
-        waId: input.waId,
-        turnId: input.turnId,
-        applicationId: truthAfterActions.application?.id || null,
-        trackingId: truthAfterActions.application?.trackingId || null,
-        severity: "warning",
-        details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
-      });
-    }
-    if (egressArbitration.suppressed) {
-      policySuppressed = true;
-      fallbackUsed = true;
-      logIntegrityTelemetry({
-        event: "protected_registration_repeat_suppressed",
-        waId: input.waId,
-        turnId: input.turnId,
-        applicationId: truthAfterActions.application?.id || null,
-        trackingId: truthAfterActions.application?.trackingId || null,
-        severity: "info",
-        details: { obligation: egressArbitration.obligation, reason: egressArbitration.reason },
-      });
-    }
-    reply = applyConversationConstraintsToReply({ state: conversationState, reply: applyHumanRelationshipEgress({ reply: egressArbitration.reply, turn, state: conversationState, truth: truthAfterActions }) });
-    if (reply) {
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-      // Veto-only safety pass: if this fails we fail closed below. We do not
-      // accept another authored replacement after the true single egress.
-      finalGate = enforceFinalResponseGate({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        actions,
-        applicationChanged: false,
-      });
-    }
-  }
-
-  // PHASE 7.9.0 SINGLE CONVERSATION ANSWER PLAN GATE: final candidate must
-  // cover every grounded obligation that this turn resolved from semantic meaning
-  // and authoritative business/application truth. Legacy generic fallbacks are
-  // retired when a concrete fact is known. Missing facts are merged into the one
-  // reply; no second customer message is emitted.
-  if (plan.shouldRespond && reply && verification.pass && finalGate.pass && singleConversationAnswerPlan.items.length) {
-    const coverageBefore = answerPlanCoverage({ reply, plan: singleConversationAnswerPlan });
-    if (!coverageBefore.pass) {
-      const repairedPlanReply = repairReplyAgainstAnswerPlan({ reply, plan: singleConversationAnswerPlan });
-      if (repairedPlanReply.repaired && repairedPlanReply.reply) {
-        reply = repairedPlanReply.reply;
-        fallbackUsed = true;
-        verification = verifyReply({
-          reply,
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          plan,
-          actions,
-          recentTurns: scopedRecentTurns,
-          profileName: input.profileName,
-        });
-        finalGate = verification.pass ? enforceFinalResponseGate({
-          reply,
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          actions,
-          applicationChanged: false,
-        }) : finalGate;
-        logIntegrityTelemetry({
-          event: "phase7_9_single_conversation_answer_plan_repair",
-          waId: input.waId,
-          turnId: input.turnId,
-          applicationId: truthAfterActions.application?.id || null,
-          trackingId: truthAfterActions.application?.trackingId || null,
-          severity: "warning",
-          details: { missing: repairedPlanReply.missing },
-        });
-      }
-    }
-  }
-
-  // PHASE 7.9.0 GROUNDED BUSINESS EGRESS: impossible claims such as receiving
-  // media before a real media event, or stale iPhone 18 release dates, are vetoed
-  // on the actual candidate that is about to leave the runtime.
-  if (plan.shouldRespond && reply && verification.pass && finalGate.pass) {
-    const grounding = enforceGroundedBusinessEgress({ reply, turn, truth: truthAfterActions });
-    if (!grounding.pass) {
-      reply = grounding.replacement;
-      fallbackUsed = true;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-      finalGate = verification.pass ? enforceFinalResponseGate({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        actions,
-        applicationChanged: false,
-      }) : finalGate;
-      logIntegrityTelemetry({
-        event: "phase7_9_grounded_business_egress_repair",
-        waId: input.waId,
-        turnId: input.turnId,
-        applicationId: truthAfterActions.application?.id || null,
-        trackingId: truthAfterActions.application?.trackingId || null,
-        severity: "warning",
-        details: { reason: grounding.reason },
-      });
-    }
-  }
-
-  // Re-apply the answer plan after business grounding. A grounding replacement
-  // may intentionally canonicalize one risky product/media fact; any other current
-  // obligations from the same burst are merged back before semantic egress.
-  if (plan.shouldRespond && reply && verification.pass && finalGate.pass && singleConversationAnswerPlan.items.length) {
-    const postGroundingRepair = repairReplyAgainstAnswerPlan({ reply, plan: singleConversationAnswerPlan });
-    if (postGroundingRepair.repaired && postGroundingRepair.reply) {
-      reply = postGroundingRepair.reply;
-      fallbackUsed = true;
-      verification = verifyReply({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        plan,
-        actions,
-        recentTurns: scopedRecentTurns,
-        profileName: input.profileName,
-      });
-      finalGate = verification.pass ? enforceFinalResponseGate({
-        reply,
-        turn,
-        state: conversationState,
-        truth: truthAfterActions,
-        actions,
-        applicationChanged: false,
-      }) : finalGate;
-      logIntegrityTelemetry({
-        event: "phase7_9_post_grounding_answer_plan_repair",
-        waId: input.waId,
-        turnId: input.turnId,
-        applicationId: truthAfterActions.application?.id || null,
-        trackingId: truthAfterActions.application?.trackingId || null,
-        severity: "warning",
-        details: { missing: postGroundingRepair.missing },
-      });
-    }
-  }
-
-  // PHASE 7.8.0 FINAL SEMANTIC EGRESS VETO: downstream deterministic arbiters
-  // may legitimately repair truth/policy wording after the earlier semantic check.
-  // Re-check the *actual* one reply that is about to leave the runtime so a late
-  // stale-topic repair can never undo current-question authority. This is a veto
-  // layer, not a second conversational egress: at most one customer reply leaves.
-  if (plan.shouldRespond && reply && verification.pass && finalGate.pass) {
-    const actualEgressSemantic = await verifySemanticReply({
-      provider: interpreter,
+  } else if (plan.shouldRespond && !nativeValidation.pass && protectedFiveJodStep) {
+    reply = buildMandatoryFiveJodContinuationReply(turn, truthAfterActions);
+    fallbackUsed = true;
+    nativeValidation = validateNativeConversationReply({
+      reply,
       turn,
       state: conversationState,
       truth: truthAfterActions,
-      reply,
+      actions,
+      recentTurns: scopedRecentTurns,
+      customerText: effectiveCustomerText,
+      disclosureRequiredThisTurn: false,
+      protectedFiveJodStep: true,
     });
-    semanticCheck = actualEgressSemantic;
-    if (!actualEgressSemantic.pass) {
-      const semanticRescue = buildSemanticFailClosedReply({ turn, truth: truthAfterActions, state: conversationState });
-      if (semanticRescue) {
-        const rescueVerification = verifyReply({
-          reply: semanticRescue,
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          plan,
-          actions,
-          recentTurns: scopedRecentTurns,
-          profileName: input.profileName,
-        });
-        const rescueGate = rescueVerification.pass ? enforceFinalResponseGate({
-          reply: semanticRescue,
-          turn,
-          state: conversationState,
-          truth: truthAfterActions,
-          actions,
-          applicationChanged: false,
-        }) : finalGate;
-        if (rescueVerification.pass && rescueGate.pass) {
-          reply = semanticRescue;
-          verification = rescueVerification;
-          finalGate = rescueGate;
-          semanticCheck = { ...actualEgressSemantic, pass: true, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [] };
-          fallbackUsed = true;
-          logIntegrityTelemetry({
-            event: "ai_native_final_semantic_egress_rescue",
-            waId: input.waId,
-            turnId: input.turnId,
-            applicationId: truthAfterActions.application?.id || null,
-            trackingId: truthAfterActions.application?.trackingId || null,
-            severity: "warning",
-            details: {
-              staleTopic: actualEgressSemantic.staleTopic,
-              invertedDecision: actualEgressSemantic.invertedDecision,
-              unknownEntityMisread: actualEgressSemantic.unknownEntityMisread,
-              missingObligations: actualEgressSemantic.missingObligations,
-            },
-          });
-        } else {
-          reply = null;
-        }
-      } else {
-        reply = null;
-      }
-    }
   }
 
-  const finalSafetyPass = !plan.shouldRespond || policySuppressed || Boolean(reply && verification.pass && finalGate.pass && semanticCheck.pass);
+  // Emergency fail-safe only when the provider is unavailable or both bounded
+  // generations fail. This path is deliberately not used as normal conversation.
+  if (plan.shouldRespond && (!reply || !nativeValidation.pass)) {
+    fallbackUsed = true;
+    reply = buildV3LastResortReply({ truth: truthAfterActions, state: conversationState, customerText: effectiveCustomerText });
+    nativeValidation = validateNativeConversationReply({
+      reply,
+      turn,
+      state: conversationState,
+      truth: truthAfterActions,
+      actions,
+      recentTurns: scopedRecentTurns,
+      customerText: effectiveCustomerText,
+      disclosureRequiredThisTurn,
+      protectedFiveJodStep,
+    });
+  }
+
+  // Phase 8 native safety result is the only normal egress verdict. Legacy
+  // verifiers/final gates remain in the source tree for compatibility and
+  // historical regression reference, but they no longer own or rewrite the
+  // customer reply. All critical truth/action/link/payment checks required by
+  // the live path are enforced inside validateNativeConversationReply().
+  verification = nativeValidation.pass
+    ? PASS
+    : { ...PASS, pass: false, policyViolations: nativeValidation.reasons };
+
+  const finalSafetyPass = !plan.shouldRespond || Boolean(reply && nativeValidation.pass);
   if (!finalSafetyPass) {
     await notifyV3Discord({
       event: "final_safety_fail_closed",
       applicationId: truthAfterActions.application?.id || null,
       trackingId: truthAfterActions.application?.trackingId || null,
       waId: input.waId,
-      title: "⛔ توقف الرد بأمان — يحتاج مراجعة",
-      description: "تعذر إنتاج رد نهائي يطابق حقيقة الطلب وسياسات الإرسال حتى بعد محاولة الإصلاح والرد الآمن البديل.",
+      title: "⛔ Phase 8 Native Kernel — توقف الرد بأمان",
+      description: "تعذر تمرير رد Native Conversation Kernel بعد التحقق الحتمي.",
       details: {
-        "مواضيع ناقصة": verification.missingTopics.length,
-        "ادعاءات غير مدعومة": verification.unsupportedClaims.length,
-        "تعارضات مع الحقيقة": verification.truthContradictions.length,
-        "ادعاءات تنفيذ غير مثبتة": verification.actionClaimViolations.length,
-        "مخالفات السياسة": verification.policyViolations.length,
-        "مخالفات الصلاحيات": verification.hierarchyViolations.length,
-        "ملاحظات الأسلوب والتكرار": verification.repetitionFlags.length,
+        "Native validation": nativeValidation.reasons.join(" | ") || "—",
+        "Native blockers": nativeValidation.reasons.join(" | ") || "—",
+        "Generation attempts": replyAttempts,
+        "Protected 5-JOD step": protectedFiveJodStep ? "yes" : "no",
       },
     });
   }
@@ -1772,9 +1145,9 @@ export async function runV3ProductionLive(input: {
     actions,
     verification,
     reply,
-    providerUsed: Boolean(writer),
-    interpreterUsed: interpreted.modelUsed,
-    interpreterError: interpreted.modelError,
+    providerUsed: Boolean(kernelProvider),
+    interpreterUsed: nativeKernelInitial.modelUsed,
+    interpreterError: nativeKernelInitial.modelError,
     replyAttempts,
     finalSafetyPass,
     fallbackUsed,
