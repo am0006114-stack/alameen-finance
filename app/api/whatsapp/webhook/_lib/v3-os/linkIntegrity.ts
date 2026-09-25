@@ -132,10 +132,18 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
     return { officialHost: isOfficialAmeenHost(parsed?.hostname) };
   });
 
+  const canonicalPublicUrls = [baseUrl, `${baseUrl}/products`, `${baseUrl}/track`];
+
   return {
     baseUrl,
     relevant,
-    allowedUrls: Object.values(relevant).filter(Boolean) as string[],
+    // Public navigation links are always safe to issue. Bound/sensitive links
+    // (receipt/refund/identity/salary-slip/guarantor) remain context-scoped in
+    // `relevant`, so this does not weaken sensitive-link integrity.
+    allowedUrls: Array.from(new Set([
+      ...canonicalPublicUrls,
+      ...(Object.values(relevant).filter(Boolean) as string[]),
+    ])),
     currentCustomerUrls,
     receiptLinkUnavailableReason: receiptRequested
       ? paymentConfirmed ? "payment_already_confirmed" : receipt ? null : "application_not_resolved"

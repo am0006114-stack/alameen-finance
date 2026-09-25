@@ -1,3 +1,4 @@
+import { products as websiteProducts } from "../../../../../../lib/products";
 import { normalizeArabic } from "./text";
 
 export const ALAMEEN_FIRST_INSTALLMENT_RULE =
@@ -28,12 +29,102 @@ export const IPHONE18_PRODUCTS = [
   { id: "iphone-18-pro-max-2tb", model: "iPhone 18 Pro Max", capacity: "2TB", priceJod: 2499 },
 ] as const;
 
+export type CatalogTruthProduct = {
+  id: string;
+  brand: string;
+  name: string;
+  capacity: string;
+  priceJod: number;
+  originalPriceJod: number | null;
+  warranty: string;
+  discountApplied: boolean;
+  source: "website_catalog" | "iphone18_authoritative";
+};
+
 function compact(value: string) {
   return normalizeArabic(String(value || ""))
     .toLowerCase()
     .replace(/[؟?!.,،؛:()[\]{}"'`~*_#<>+=|\\/\-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function catalogKey(name: string, capacity: string) {
+  return `${compact(name)}::${compact(capacity)}`;
+}
+
+/**
+ * Current customer-facing product catalog truth.
+ * The website catalog is the authoritative general catalog; the iPhone 18
+ * commercial truth is overlaid explicitly because those prices/discount rules
+ * are protected and must not regress if an older catalog snapshot is loaded.
+ */
+export function currentProductCatalogForPrompt(): CatalogTruthProduct[] {
+  const byKey = new Map<string, CatalogTruthProduct>();
+
+  for (const product of websiteProducts || []) {
+    const original = typeof product.originalPrice === "number" ? product.originalPrice : null;
+    byKey.set(catalogKey(product.name, product.model), {
+      id: product.id,
+      brand: product.brand,
+      name: product.name,
+      capacity: product.model,
+      priceJod: Number(product.price),
+      originalPriceJod: original,
+      warranty: product.warranty,
+      discountApplied: original !== null && Number(original) !== Number(product.price),
+      source: "website_catalog",
+    });
+  }
+
+  for (const product of IPHONE18_PRODUCTS) {
+    byKey.set(catalogKey(product.model, product.capacity), {
+      id: product.id,
+      brand: "Apple",
+      name: product.model,
+      capacity: product.capacity,
+      priceJod: product.priceJod,
+      originalPriceJod: null,
+      warranty: "iSYSTEMS الأردن",
+      discountApplied: false,
+      source: "iphone18_authoritative",
+    });
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => `${a.brand}|${a.name}|${a.capacity}`.localeCompare(`${b.brand}|${b.name}|${b.capacity}`));
+}
+
+function iphoneAliases(name: string) {
+  const n = compact(name);
+  if (!/^iphone\s+/i.test(n)) return [n];
+  const suffix = n.replace(/^iphone\s+/i, "");
+  const arabicSuffix = suffix
+    .replace(/pro\s*max/gi, "برو ماكس")
+    .replace(/pro/gi, "برو")
+    .replace(/plus/gi, "بلس")
+    .replace(/air/gi, "اير");
+  return [n, compact(`ايفون ${arabicSuffix}`), compact(`آيفون ${arabicSuffix}`)];
+}
+
+export function mentionedCatalogProduct(value: string | null | undefined): CatalogTruthProduct | null {
+  const q = compact(String(value || ""));
+  if (!q) return null;
+  const candidates = currentProductCatalogForPrompt()
+    .flatMap((product) => iphoneAliases(product.name).map((alias) => ({ product, alias })))
+    .filter(({ alias }) => alias && q.includes(alias))
+    .sort((a, b) => b.alias.length - a.alias.length);
+  return candidates[0]?.product || null;
+}
+
+export function catalogAvailabilityContradiction(input: {
+  customerText: string | null | undefined;
+  reply: string | null | undefined;
+}) {
+  const product = mentionedCatalogProduct(input.customerText);
+  if (!product) return null;
+  const reply = compact(String(input.reply || ""));
+  const denial = /(?:مش|مو|غير|ليس|ما\s+هو|ماهو)\s+(?:متوفر|موجود|معروض)|(?:غير\s+متاح|مش\s+متاح)|(?:ما\s+عندنا|مش\s+عندنا)/.test(reply);
+  return denial ? `catalog_product_incorrectly_denied:${product.id}` : null;
 }
 
 export function isIphone18Question(value: string | null | undefined) {
@@ -107,6 +198,8 @@ export function businessTruthForPrompt() {
     firstInstallment: ALAMEEN_FIRST_INSTALLMENT_RULE,
     installmentPaymentChannels: ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE,
     contractAndReceiptDate: ALAMEEN_CONTRACT_RECEIPT_DATE_RULE,
+    productCatalogRule: "وجود الجهاز في currentCatalog يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. إذا لم يظهر جهاز في currentCatalog، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا من عندك.",
+    currentCatalog: currentProductCatalogForPrompt(),
     iphone18: {
       products: IPHONE18_PRODUCTS,
       colors: IPHONE18_COLORS,
@@ -114,6 +207,7 @@ export function businessTruthForPrompt() {
       pickup: IPHONE18_PICKUP_RULE,
       discountPercent: 0,
       delivery: false,
+      precedence: "هذه الحقيقة الخاصة بـ iPhone 18 تتقدم على أي تعارض أقدم في الكتالوج العام.",
     },
   };
 }

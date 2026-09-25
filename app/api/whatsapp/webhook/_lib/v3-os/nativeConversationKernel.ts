@@ -4,10 +4,10 @@ import { normalizeArabic } from "./text";
 import { roleDisplayName } from "./hierarchy";
 import { personaWritingContract } from "./personas";
 import { humanVoiceGuidance, detectHumanityViolations } from "./humanVoice";
-import { businessTruthForPrompt } from "./businessTruthRegistry";
+import { businessTruthForPrompt, catalogAvailabilityContradiction } from "./businessTruthRegistry";
 import { buildOfficialLinkContext, detectReplyLinkViolations, sanitizeRecentTurnsForModel, sanitizeStateForWriter } from "./linkIntegrity";
 import { applicationJourneyStage } from "./applicationJourney";
-import { fileOpeningPaymentWriterTruth, containsAllCurrentFileOpeningPaymentDestinations, containsLegacyFileOpeningPaymentDestination } from "./paymentDestinationOverride";
+import { fileOpeningPaymentWriterTruth, containsAllCurrentFileOpeningPaymentDestinations, containsLegacyFileOpeningPaymentDestination, paymentDestinationPresentationViolations } from "./paymentDestinationOverride";
 import { containsRestrictedPaymentExecutionDetail, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { appointmentCoordinationOverclaim } from "./operationalPrecision";
 import { enforceGroundedBusinessEgress } from "./groundingGuard";
@@ -226,6 +226,11 @@ function companyTruthSnapshot(input: { turn: InterpretedTurn; state: Conversatio
     application: input.truth.application,
     policy: input.truth.policy,
     businessTruth: businessTruthForPrompt(),
+    canonicalPublicLinks: {
+      website: links.baseUrl,
+      products: `${links.baseUrl}/products`,
+      tracking: `${links.baseUrl}/track`,
+    },
     officialLinks: links.relevant,
     boundReceiptUrl: input.truth.application?.trackingId && input.truth.application?.phone ? `${links.baseUrl}/receipt?tracking=${encodeURIComponent(input.truth.application.trackingId)}&phone=${encodeURIComponent(input.truth.application.phone)}` : null,
     boundTrackingUrl: input.truth.application?.trackingId && input.truth.application?.phone ? `${links.baseUrl}/track?tracking=${encodeURIComponent(input.truth.application.trackingId)}&phone=${encodeURIComponent(input.truth.application.phone)}` : null,
@@ -307,6 +312,13 @@ CORE_OS:
 - التقديم يبدأ من المسار الرسمي/الموقع. لا تطلب من العميل إرسال الهوية أو الرقم الوطني أو إثبات الدخل أو الوصل داخل واتساب؛ المستندات الحساسة عبر الرابط الرسمي الآمن فقط.
 - المكتب ليس زيارة مفتوحة: لا تقل «بتقدر تزورنا/تعال المكتب» بدون توضيح أن الحضور فقط بموعد رسمي مؤكد.
 - لا تضمن أن نوع كفيل معيّن (عسكري/حكومي/خاص...) «مقبول» كحقيقة نهائية؛ اشرح أن الدراسة هي التي تحدد.
+
+TRUTH_INTEGRITY_FREEZE:
+- PRODUCT SOURCE OF TRUTH: businessTruth.currentCatalog هو مرجع المنتجات العام الحالي. وجود جهاز فيه يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. لا تقل عن جهاز موجود في currentCatalog إنه «غير متوفر/مش موجود عندنا». إذا جهاز غير موجود في currentCatalog، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا.
+- iPhone 18 له حقيقة تجارية خاصة داخل businessTruth.iphone18 وتتقدم على أي تعارض أقدم في الكتالوج العام، خصوصًا السعر والخصم والألوان والكفالة والاستلام.
+- PAYMENT CHANNELS: Orange Money = الرقم 0788500337 فقط. CliQ = المعرفات PAYAMEEEN وAMEEN1ST وAM500337. اسم المستفيد ABDUL RAHMAN ALHARAHSHEH. ممنوع وصف معرفات CliQ بأنها أسماء/معرفات لمحفظة Orange Money. عند عرض الدفع افصل القناتين بوضوح.
+- CANONICAL PUBLIC LINKS موجودة في canonicalPublicLinks. إذا عرضت على العميل «أرسل لك رابط التقديم» ثم قال نعم/ابعثه، أرسل رابط products نفسه؛ لا تستبدله برابط التتبع. رابط tracking للمتابعة فقط، ورابط products للتقديم/اختيار جهاز.
+- كلمة «كفالة» في سياق جهاز/موديل/سعر/ألوان تعني غالبًا ضمان الجهاز، لا «الكفيل». إذا السياق لا يحسم المعنى، اسأل سؤالًا قصيرًا: «قصدك كفالة الجهاز ولا الكفيل للطلب؟» بدل افتراض أحدهما.
 
 PROTECTED_5_JOD_JOURNEY:
 - هذا مسار P0 لا يجوز كسره أو تجاوزه: موافقة مبدئية -> إفصاح تجاري كامل عند الحاجة -> قرار استمرار informed -> رسوم فتح الملف 5 JOD -> بيانات الدفع الرسمية -> رفع الوصل الرسمي -> اعتماد الدفع إداريًا -> دراسة نهائية.
@@ -444,6 +456,9 @@ export function validateNativeConversationReply(input: {
   if (!reply) reasons.push("empty_reply");
   for (const re of INTERNAL_LEAKS) if (re.test(reply)) reasons.push("internal_or_generic_fallback_leak");
   if (containsLegacyFileOpeningPaymentDestination(reply)) reasons.push("legacy_payment_destination");
+  const productContradiction = catalogAvailabilityContradiction({ customerText: input.customerText, reply });
+  if (productContradiction) reasons.push(productContradiction);
+  for (const violation of paymentDestinationPresentationViolations(reply)) reasons.push(`payment_presentation:${violation}`);
 
   const n = normalizeArabic(reply);
   for (const violation of unsafeLinkViolations(reply, input.turn, input.truth)) reasons.push(`unsafe_link:${violation}`);
