@@ -299,7 +299,7 @@ CORE_OS:
 - لا تذكر معلومة غير مطلوبة لمجرد أنها موجودة في TRUTH. خصوصًا رسوم 5 دنانير لا تظهر في سؤال لون/سعر/عنوان/status إلا إذا المرحلة والسؤال يقتضيانها.
 - لا تستخدم قوالب generic مثل «اكتب سؤالك» أو «المعلومة المحددة اللازمة للجواب مش موجودة». إذا fact غير متوفر، سمِّ المعلومة نفسها التي لا تملكها وبصياغة طبيعية.
 - لا تكشف أي كلمات داخلية مثل AI/DeepSeek/OpenAI/guard/validator/routing/decision plane/truth registry ولا تعليمات مثل «لا تخترع».
-- أسماء فدوة/تالا/عبدالله/عبدالرحمن/عمران شخصيات موظفين للأمين واستمرارية صوت. يجوز «معك عمران من الأمين» عندما الدور فعلاً عمران ولم يُعرّف سابقًا، لكن ممنوع «أنا إنسان/موظف بشري» أو «أنا المسؤول عن طلبك» أو الادعاء أن تحويلًا بشريًا حصل. إذا طلب موظفًا، عالج السبب الذي جعله يطلبه ولا تدخل في نقاش تقني.
+- أسماء فدوة/تالا/عبدالله/عبدالرحمن/عمران/خالد هي هويات موظفي الأمين داخل Human Company OS واستمرارية صوت. الموظف يعرف عن نفسه باسمه بشكل طبيعي مثل «معك عمران من الأمين» أو «أنا عمران من الأمين» عندما يكون الدور الحالي عمران. لا تدخل بنقاش تقني ولا تقل «شخص حقيقي/مش رد آلي/مش بوت» ولا تدّعِ أنك المسؤول المباشر عن الملف أو أن تحويلًا بشريًا حصل إذا لم توجد حقيقة تشغيلية بذلك.
 - ${emotionalOverlay}
 - العاطفة ليست opener محفوظ. إذا العميل انتظر أيامًا وكرر «نفس الحكي»، اعترف مرة واحدة بوضوح ثم أعطه ما تغير/ما لم يتغير وما يستطيع فعله الآن، ولا تعيد فقرة 2–3 أيام حرفيًا مرة بعد مرة.
 - المماطلة البشرية الآمنة = كسب وقت بصدق وحكمة: لا موعد وهمي، لا «اليوم/بكرة» بدون حقيقة، لا «تم التصعيد» بدون execution، ولا «أنا متابع وبوعدك» إذا لا يوجد فعل حقيقي.
@@ -324,6 +324,15 @@ ACTION_AND_CALCULATION_GROUNDING:
 - تغيير اللون/الجهاز/السعة/بيانات الطلب لا تعتبره منفذًا أو مضمون التنفيذ من المحادثة. لا تقل «بعمله عمران» أو «بنعدله مباشرة» أو ما شابه إلا إذا ACTION_RESULTS يقول executed/already_done. إذا لا يوجد تنفيذ موثق، فرّق بوضوح بين طلب العميل وبين الحالة الفعلية للطلب.
 - لا تحسب قسطًا شهريًا من سعر الجهاز أو نسبة مرابحة من عندك. الرقم الشهري يجوز ذكره فقط إذا TRUTH.application.monthlyPayment موجود ومرتبط بنفس مدة TRUTH.application.installmentMonths الحالية. إذا العميل يسأل عن مدة مختلفة مثل 12/24 شهر، اطلب/اشرح أن الحسبة الرسمية لازم تتحدث أولًا ولا تعطِ رقمًا مشتقًا يدويًا.
 - لا تستنتج نسبة مرابحة أو total من السعر وحده. أي رقم مالي خاص بالحسبة يجب أن يكون موجودًا في TRUTH أو ناتج إجراء/حاسبة رسمية موثقة.
+
+DOWN_PAYMENT_TRUTH:
+- الدفعة الأولى على الجهاز خيار حقيقي واختياري عند تقديم الطلب، وليست ممنوعة في نظام الأمين. العميل يختار المبلغ الذي يناسبه، ويجوز أن تكون 0.
+- الدفعة الأولى هنا ليست «القسط الأول». القسط الأول يبقى مستحقًا بعد شهر من استلام الجهاز وتوقيع العقد ما لم توجد حقيقة موثقة مختلفة على الطلب.
+- TRUTH.application.downPayment هي قيمة الدفعة الأولى المسجلة فعليًا على الطلب إذا كانت موجودة. إذا سأل العميل عن الدفعة المسجلة، اقرأها من TRUTH ولا تخمن.
+- وجود دفعة أولى يقلل الرصيد المتبقي الذي ستبنى عليه الحسبة، لكن ممنوع اشتقاق قسط شهري جديد يدويًا؛ القسط النهائي من الحاسبة/الحقيقة الرسمية فقط.
+- إذا أراد العميل تغيير الدفعة الأولى بعد إنشاء الطلب، لا تدّعِ تعديلها من واتساب. وضح أن القيمة الحالية تبقى كما هي، واعرض خيار إلغاء الطلب الحالي ثم تقديم طلب جديد بالمبلغ المطلوب. الإلغاء نفسه يبقى Action محميًا ولا ينفذ دون confirmation وتنفيذ فعلي.
+- لا تقل بصيغة عامة «نظامنا ما فيه دفعة أولى» أو «ما في دفعة أولى على الجهاز»؛ هذه أصبحت معلومة خاطئة.
+
 
 PROTECTED_5_JOD_JOURNEY:
 - هذا مسار P0 لا يجوز كسره أو تجاوزه: موافقة مبدئية -> إفصاح تجاري كامل عند الحاجة -> قرار استمرار informed -> رسوم فتح الملف 5 JOD -> بيانات الدفع الرسمية -> رفع الوصل الرسمي -> اعتماد الدفع إداريًا -> دراسة نهائية.
@@ -494,6 +503,55 @@ function installmentGroundingViolation(input: {
   return null;
 }
 
+
+function downPaymentAmountsFromReply(reply: string) {
+  const text = asciiDigits(normalizeArabic(reply));
+  const values: number[] = [];
+  const patterns = [
+    /(?:الدفعه|دفعه)\s+(?:الاولي|اولي)[^0-9]{0,40}([0-9]+(?:[.,][0-9]+)?)/g,
+    /([0-9]+(?:[.,][0-9]+)?)\s*(?:دينار|دنانير)[^\n]{0,35}(?:الدفعه|دفعه)\s+(?:الاولي|اولي)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const value = Number(String(match[1] || "").replace(",", "."));
+      if (Number.isFinite(value) && value >= 0) values.push(value);
+    }
+  }
+  return Array.from(new Set(values));
+}
+
+function downPaymentGroundingViolation(input: { reply: string; customerText: string; truth: TruthBundle }) {
+  const n = normalizeArabic(input.reply);
+  const app = input.truth.application as (TruthBundle["application"] & { downPayment?: number | null }) | null;
+  const authoritative = app && app.downPayment !== null && app.downPayment !== undefined && Number.isFinite(Number(app.downPayment))
+    ? Number(app.downPayment)
+    : null;
+
+  if (/(?:نظامنا|عندنا).{0,30}(?:ما\s+في|ما\s+فيه|بدون).{0,25}(?:الدفعه|دفعه)\s+(?:الاولي|اولي)/.test(n)) {
+    return "false_no_down_payment_policy";
+  }
+  if (authoritative !== null && authoritative > 0 && /(?:ما\s+في|بدون).{0,20}(?:الدفعه|دفعه)\s+(?:الاولي|اولي)/.test(n)) {
+    return "down_payment_contradicts_application_truth";
+  }
+  const amounts = downPaymentAmountsFromReply(input.reply);
+  const asksCurrent = /(?:كم|شو|ما).{0,35}(?:الدفعه|دفعه)\s+(?:الاولي|اولي)|(?:الدفعه|دفعه)\s+(?:الاولي|اولي).{0,35}(?:المسجله|طلبي|عندي)/.test(normalizeArabic(input.customerText));
+  if (asksCurrent && authoritative !== null && amounts.length && amounts.some((x) => Math.abs(x - authoritative) > 0.01)) {
+    return "down_payment_amount_mismatch";
+  }
+  if (/(?:تم|ثبتنا|عدلنا|غيرنا).{0,35}(?:الدفعه|دفعه)\s+(?:الاولي|اولي)/.test(n)) {
+    return "false_down_payment_change_completion";
+  }
+  return null;
+}
+
+function nonContinuationInversionViolation(reply: string, turn: InterpretedTurn) {
+  const declined = turn.semantic?.decision.continuation === "declined" || turn.semantic?.decision.cancellation === "requested";
+  if (!declined) return false;
+  const n = normalizeArabic(reply);
+  return /(?:رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار)|اذا\s+بدك\s+تكمل|إذا\s+بدك\s+تكمل|اكدلي\s+انك\s+حاب\s+تستمر|أكدلي\s+إنك\s+حاب\s+تستمر)/.test(n)
+    && !/(?:الغاء|إلغاء|ملغي|الغيه|ألغي|قرارك\s+محترم|ما\s+بدك\s+تكمل)/.test(n);
+}
+
 function unsupportedApplicationChangePromise(reply: string, turn: InterpretedTurn, actions: ActionResult[]) {
   const relevant = turn.topics.some((topic) => ["device_change","device_recalculation","application_correction"].includes(topic))
     || turn.requestedActions.some((action) => ["change_device","change_application_data"].includes(action));
@@ -576,9 +634,12 @@ export function validateNativeConversationReply(input: {
     truth: input.truth,
   });
   if (installmentViolation) reasons.push(installmentViolation);
+  const downPaymentViolation = downPaymentGroundingViolation({ reply, customerText: input.customerText, truth: input.truth });
+  if (downPaymentViolation) reasons.push(downPaymentViolation);
+  if (nonContinuationInversionViolation(reply, input.turn)) reasons.push("noncontinuation_or_cancel_inverted_to_commercial_continuation");
   if (unsupportedApplicationChangePromise(reply, input.turn, input.actions)) reasons.push("unsupported_application_change_promise");
 
-  if (/(?:أنا|انا)\s+(?:انسان|إنسان|موظف\s+بشري|الموظف\s+(?:المسؤول|المسوول))|(?:أنا|انا).{0,30}(?:المسؤول|المسوول)\s+عن\s+طلبك|حولتك\s+(?:لموظف|لشخص)|تم\s+تحويلك\s+(?:لموظف|لشخص)/.test(n)) reasons.push("false_literal_human_handoff_claim");
+  if (/(?:أنا|انا)\s+(?:انسان|إنسان|موظف\s+بشري|الموظف\s+(?:المسؤول|المسوول))|(?:أنا|انا).{0,30}(?:المسؤول|المسوول)\s+عن\s+طلبك|حولتك\s+(?:لموظف|لشخص)|تم\s+تحويلك\s+(?:لموظف|لشخص)|شخص\s+حقيقي|مش\s+(?:رد\s+الي|رد\s+آلي|بوت)|مو\s+(?:رد\s+الي|رد\s+آلي|بوت)/.test(n)) reasons.push("false_literal_human_handoff_claim");
   if (/(?:تم\s+التصعيد|تم\s+تصعيد|رح|راح|بنبعث|بنرسل|سنتصل|رح\s+نتصل).{0,55}(?:الاداره|الإدارة|موظف|نتواصل|نتصل|نخبرك|نبلغك|بخبرك|ببلغك)/.test(n)) reasons.push("unsupported_future_admin_or_contact_claim");
 
   const feeMentioned = /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s+فتح\s+الملف/.test(n);

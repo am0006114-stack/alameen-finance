@@ -167,7 +167,16 @@ import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/produ
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
 import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
 import { shouldSuppressStaleV3Reply, waitForV3EgressFreshnessBarrier } from "./_lib/v3-os/turnIntegrity";
-import { DEFAULT_INCOMING_PROCESSING_LEASE_MS, decideDuplicateIncomingClaim, duplicateOutgoingLockMeansDelivered } from "./_lib/v3-os/egressLiveness";
+import {
+  DEFAULT_INCOMING_PROCESSING_LEASE_MS,
+  DEFAULT_OUTGOING_DELIVERY_LEASE_MS,
+  decideDuplicateIncomingClaim,
+  decideDuplicateOutgoingLock,
+  deliveredOutgoingMarker,
+  duplicateOutgoingLockMeansDelivered,
+  outgoingDeliveryEvidence,
+  providerMessageIdFromDeliveredMarker,
+} from "./_lib/v3-os/egressLiveness";
 import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
 
 export const dynamic = "force-dynamic";
@@ -4633,8 +4642,19 @@ ${deductionLine}` : ""}`;
     return `رسوم فتح الملف ${FILE_OPENING_FEE_JOD} دنانير فقط، وتُطلب بعد التأهيل المبدئي للطلب، وليست دفعة على الجهاز ولا القسط الأول.`;
   }
 
-  if (hasAny(t, ["دفعه اولى", "دفعة اولى", "القسط الاول", "القسط الأول"])) {
-    return `قيمة القسط الأول تعتمد على الجهاز وخطة التقسيط المعتمدة على طلبك، وما عندي رقم مؤكد ظاهر بالملف حاليًا. القسط الأول يكون بعد الاستلام حسب الاتفاق.`;
+  if (hasAny(t, ["دفعه اولى", "دفعة اولى", "الدفعة الاولى", "الدفعة الأولى"])) {
+    const rawApp = app as unknown as Record<string, unknown> | null;
+    const storedDownPayment = rawApp && rawApp.down_payment !== null && rawApp.down_payment !== undefined && rawApp.down_payment !== ""
+      ? Number(rawApp.down_payment)
+      : NaN;
+    if (Number.isFinite(storedDownPayment) && storedDownPayment >= 0) {
+      return `الدفعة الأولى المسجلة على طلبك حاليًا ${storedDownPayment} دينار. الدفعة الأولى اختيارية وبتختار مبلغها وقت تقديم الطلب، ووجودها بقلل الرصيد المتبقي اللي بتنبني عليه الحسبة الرسمية. إذا بدك تغيّر المبلغ بعد إنشاء الطلب، ما بنعدله من واتساب؛ الخيار هو إلغاء الطلب الحالي ثم تقديم طلب جديد بالمبلغ اللي بدك إياه.`;
+    }
+    return `الدفعة الأولى اختيارية عند تقديم الطلب، وبتقدر تختار المبلغ اللي بناسبك أو تقدم بدون دفعة أولى. إذا عندك طلب قائم وبدك تغيّر الدفعة المسجلة عليه، ما بنعدّلها من واتساب؛ بنمشي بمسار إلغاء الطلب الحالي وبعدها بتقدم طلب جديد بالمبلغ المطلوب.`;
+  }
+
+  if (hasAny(t, ["القسط الاول", "القسط الأول"])) {
+    return `قيمة القسط الأول تعتمد على الحسبة الرسمية على طلبك، وموعد استحقاقه يكون بعد شهر من تاريخ استلام الجهاز وتوقيع العقد حسب السياسة المعتمدة.`;
   }
 
   if (app?.payment_status === "confirmed") {
@@ -8324,9 +8344,9 @@ async function generateAiReply(input: AiReplyInput) {
 - إذا العميل أرسل عدة صور دفعة واحدة، لا ترد على كل صورة؛ رد مرة واحدة فقط بتعليمات الرفع الرسمية.
 
 شخصيات مدير الملف:
-- الاسم الثابت للمحادثة يكون واحدًا من: فدوة، تالا، عبدالله، عبدالرحمن.
-- عمران يظهر فقط عند طلب مدير صراحة أو في تصعيد حساس واضح.
-- ممنوع استخدام أسماء لينا أو خالد أو أي اسم غير الأسماء المعتمدة.
+- الأسماء المعتمدة داخل فريق الأمين: فدوة، تالا، عبدالله، عبدالرحمن، عمران، خالد.
+- الموظف يعرف اسمه ويقدر يعرّف عن نفسه طبيعيًا مثل: "معك عمران من الأمين" أو "أنا عبدالرحمن من الأمين" حسب الدور الحالي.
+- ممنوع قول: "شخص حقيقي" أو "مش رد آلي" أو "مش بوت"، وممنوع ادعاء أنك المسؤول المباشر عن الملف أو أن تحويلًا بشريًا حصل بدون حقيقة تشغيلية.
 - لا تذكر اسم الشخصية بكل رسالة إذا السياق مستمر، لكن حافظ على نبرة موظف يعرف ملف العميل.
 
 
@@ -8411,9 +8431,12 @@ async function generateAiReply(input: AiReplyInput) {
 - لا تطلب رسوم فتح الملف في الأسئلة العامة أو قبل التأهيل المبدئي.
 - إذا سأل العميل عن الدفع بشكل عام، وضح أن الرسوم لا تُطلب من البداية، بل فقط بعد التأهيل المبدئي.
 - لا تشرح أسبابًا أو إجراءات داخلية وراء الرسوم؛ اذكر قيمتها ووقت طلبها وسياسة الاسترداد فقط.
-- ممنوع قول: لا نملك الطاقة لدراسة كل شيء، أو الطلبات الوهمية كثيرة، أو أن العميل يدفع ثمن غيره. استخدم بدلًا منها: حجم الطلبات كبير، المراجعة يدوية، ونحرص على عدالة دراسة الملفات الجادة.
+- ممنوع قول: لا نملك الطاقة لدراسة كل شيء، أو الطلبات الوهمية كثيرة، أو أن العميل يدفع ثمن غيره. استخدم بدلًا منها: حجم الطلبات كبير، ونحرص على عدالة دراسة الملفات الجادة.
 - الرسوم مستردة بالكامل في حال عدم الموافقة النهائية.
-- القسط الأول لا يُدفع الآن، بل بعد الاستلام حسب الاتفاق.
+- الدفعة الأولى على الجهاز خيار حقيقي واختياري عند تقديم الطلب، والعميل يختار مبلغها ويمكن أن تكون صفرًا. اقرأ المبلغ المسجل من الطلب ولا تخترعه.
+- الدفعة الأولى تقلل الرصيد المتبقي، لكن ممنوع حساب قسط شهري جديد يدويًا؛ القسط النهائي يأتي من الحسبة الرسمية.
+- إذا أراد العميل تغيير الدفعة الأولى بعد إنشاء الطلب، لا تدّعِ تعديلها من واتساب؛ وضح خيار إلغاء الطلب الحالي ثم تقديم طلب جديد بالمبلغ المطلوب، مع بقاء الإلغاء إجراءً محميًا يحتاج تأكيدًا وتنفيذًا فعليًا.
+- القسط الأول لا يُدفع الآن، بل بعد شهر من استلام الجهاز وتوقيع العقد حسب الحقيقة المعتمدة.
 - دفع رسوم فتح الملف لا يعني الموافقة النهائية.
 
 قواعد المواعيد والتسليم والتهدئة:
@@ -8777,6 +8800,84 @@ async function hasRecentlySentSameReply(waId: string, reply: string, seconds = 3
   }
 }
 
+
+async function markOutgoingReplyLockDelivered(input: {
+  waId: string;
+  incomingMessageId?: string | null;
+  providerMessageId: string;
+}) {
+  const waId = String(input.waId || "").trim();
+  const incomingMessageId = String(input.incomingMessageId || "").trim();
+  const providerMessageId = String(input.providerMessageId || "").trim();
+  if (!waId || !incomingMessageId || !providerMessageId) return false;
+
+  const marker = deliveredOutgoingMarker(providerMessageId);
+  if (!marker) return false;
+
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_outgoing_reply_locks")
+      .update({ reply_body: marker })
+      .eq("lock_key", `incoming:${waId}:${incomingMessageId}`)
+      .select("id")
+      .limit(1);
+    if (error) {
+      if ((error as any).code !== "42P01") console.error("outgoing delivery marker update failed:", error);
+      return false;
+    }
+    return Array.isArray(data) && data.length > 0;
+  } catch (error) {
+    console.error("outgoing delivery marker exception:", error);
+    return false;
+  }
+}
+
+async function durableOutgoingDeliveryForIncoming(input: {
+  waId: string;
+  incomingMessageId?: string | null;
+}) {
+  const waId = String(input.waId || "").trim();
+  const incomingMessageId = String(input.incomingMessageId || "").trim();
+  if (!waId || !incomingMessageId) {
+    return { delivered: false, providerMessageId: null as string | null, sourceOutgoingRowExists: false };
+  }
+
+  let providerMessageId: string | null = null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_outgoing_reply_locks")
+      .select("reply_body")
+      .eq("lock_key", `incoming:${waId}:${incomingMessageId}`)
+      .limit(1)
+      .maybeSingle();
+    if (!error) providerMessageId = providerMessageIdFromDeliveredMarker(data?.reply_body || null);
+    else if ((error as any).code !== "42P01" && (error as any).code !== "PGRST116") console.error("outgoing delivery marker read failed:", error);
+  } catch (error) {
+    console.error("outgoing delivery marker read exception:", error);
+  }
+
+  let sourceOutgoingRowExists = false;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("id")
+      .eq("wa_id", waId)
+      .eq("direction", "outgoing")
+      .contains("raw_payload", { source_incoming_message_id: incomingMessageId })
+      .limit(1);
+    if (!error) sourceOutgoingRowExists = Array.isArray(data) && data.length > 0;
+    else console.error("source-linked outgoing delivery read failed:", error);
+  } catch (error) {
+    console.error("source-linked outgoing delivery read exception:", error);
+  }
+
+  return {
+    delivered: outgoingDeliveryEvidence({ providerMessageIdFromLock: providerMessageId, sourceOutgoingRowExists }),
+    providerMessageId,
+    sourceOutgoingRowExists,
+  };
+}
+
 async function claimOutgoingReplyLock(input: {
   waId: string;
   incomingMessageId?: string | null;
@@ -8823,7 +8924,47 @@ async function claimOutgoingReplyLock(input: {
       if (!error) continue;
 
       if ((error as any).code === "23505") {
-        return { shouldSend: false, reason: "duplicate_outgoing_lock" };
+        // Phase 8.2: a duplicate outgoing lock is a lease, not delivery proof.
+        // Fresh lock => another invocation is in the critical send window: retry later.
+        // Delivered marker => never resend. Stale orphan => compare-and-swap reclaim.
+        try {
+          const { data: existing, error: existingError } = await supabaseAdmin
+            .from("whatsapp_outgoing_reply_locks")
+            .select("reply_body,created_at")
+            .eq("lock_key", lock.lock_key)
+            .limit(1)
+            .maybeSingle();
+          if (existingError) {
+            console.error("duplicate outgoing lock state read failed:", existingError);
+            return { shouldSend: false, reason: "duplicate_outgoing_lock_state_unknown" };
+          }
+          const decision = decideDuplicateOutgoingLock({
+            replyBody: existing?.reply_body || null,
+            createdAt: existing?.created_at || null,
+            leaseMs: DEFAULT_OUTGOING_DELIVERY_LEASE_MS,
+          });
+          if (decision === "delivered") return { shouldSend: false, reason: "duplicate_outgoing_lock_delivered" };
+          if (decision === "inflight") return { shouldSend: false, reason: "duplicate_outgoing_lock_inflight" };
+
+          const observedCreatedAt = String(existing?.created_at || "").trim();
+          let reclaimQuery = supabaseAdmin
+            .from("whatsapp_outgoing_reply_locks")
+            .update({ reply_body: cleanReply, created_at: nowIso })
+            .eq("lock_key", lock.lock_key);
+          if (observedCreatedAt) reclaimQuery = reclaimQuery.eq("created_at", observedCreatedAt);
+          const { data: reclaimed, error: reclaimError } = await reclaimQuery.select("id").limit(1);
+          if (reclaimError) {
+            console.error("stale outgoing lock reclaim failed:", reclaimError);
+            return { shouldSend: false, reason: "duplicate_outgoing_lock_reclaim_failed" };
+          }
+          if (Array.isArray(reclaimed) && reclaimed.length > 0) {
+            return { shouldSend: true, reason: "duplicate_outgoing_lock_reclaimed" };
+          }
+          return { shouldSend: false, reason: "duplicate_outgoing_lock_reclaim_raced" };
+        } catch (duplicateLockError) {
+          console.error("duplicate outgoing lock state exception:", duplicateLockError);
+          return { shouldSend: false, reason: "duplicate_outgoing_lock_state_exception" };
+        }
       }
 
       if ((error as any).code === "42P01") {
@@ -10924,15 +11065,29 @@ export async function POST(request: Request) {
             reply,
             windowSeconds: 20,
           });
-          const recentSameReplyExists = outgoingClaim.shouldSend
-            ? (outgoingClaim.reason !== "outgoing_lock_claimed" && await hasRecentlySentSameReply(from, reply, 30))
-            : await hasRecentlySentSameReply(from, reply, 180);
-          const alreadySentSameReply = duplicateOutgoingLockMeansDelivered({
-            lockClaimed: outgoingClaim.shouldSend,
-            recentOutgoingExists: recentSameReplyExists,
+          const durableBeforeSend = await durableOutgoingDeliveryForIncoming({
+            waId: from,
+            incomingMessageId: message.id,
           });
+          const legacySameReplyExists = !durableBeforeSend.delivered && !outgoingClaim.shouldSend
+            ? await hasRecentlySentSameReply(from, reply, 180)
+            : false;
+          const legacySameReplyDelivered = duplicateOutgoingLockMeansDelivered({
+            lockClaimed: outgoingClaim.shouldSend,
+            recentOutgoingExists: legacySameReplyExists,
+          });
+          const alreadyDeliveredForIncoming = durableBeforeSend.delivered || legacySameReplyDelivered;
 
-          if (!alreadySentSameReply) {
+          if (!outgoingClaim.shouldSend && !alreadyDeliveredForIncoming) {
+            console.warn("V3 outgoing delivery lease still in-flight/unknown; asking transport to retry instead of racing a second send", {
+              waId: from,
+              messageId: message.id || null,
+              reason: outgoingClaim.reason,
+            });
+            throw new Error("V3_RETRYABLE_OUTGOING_INFLIGHT");
+          }
+
+          if (!alreadyDeliveredForIncoming) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
 
             // Do NOT honor legacy AUTO_REPLY_IGNORED here. V3 has no human-handoff pause.
@@ -10994,6 +11149,15 @@ export async function POST(request: Request) {
             }
 
             if (outgoingMessageId) {
+              // Record delivery evidence immediately after Meta returns a provider message ID.
+              // The outgoing lock marker is body-independent, so a later retry cannot send a
+              // second model wording merely because the Native Kernel regenerated different text.
+              const markerRecorded = await markOutgoingReplyLockDelivered({
+                waId: from,
+                incomingMessageId: message.id,
+                providerMessageId: outgoingMessageId,
+              });
+
               await logMessage({
                 waId: from,
                 direction: "outgoing",
@@ -11003,7 +11167,26 @@ export async function POST(request: Request) {
                 trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
                 needsHumanReview: false,
                 handledByAi: true,
+                rawPayload: {
+                  source_incoming_message_id: String(message.id || ""),
+                  v3_turn_id: v3TurnId,
+                  provider_message_id: outgoingMessageId,
+                  egress_version: "phase8.2",
+                },
               });
+
+              const durableAfterSend = await durableOutgoingDeliveryForIncoming({
+                waId: from,
+                incomingMessageId: message.id,
+              });
+              if (!markerRecorded && !durableAfterSend.delivered) {
+                console.error("V3 delivery succeeded at Meta but durable completion evidence could not be persisted", {
+                  waId: from,
+                  messageId: message.id || null,
+                  providerMessageId: outgoingMessageId,
+                });
+                throw new Error("V3_RETRYABLE_DELIVERY_NOT_DURABLE");
+              }
 
               await logAiConversation({
                 phone: from,
@@ -11039,7 +11222,7 @@ export async function POST(request: Request) {
               }
             }
           } else {
-            console.log("Skipped duplicate V3 outgoing reply", { waId: from, messageId: message.id, reason: outgoingClaim.reason });
+            console.log("Skipped already-delivered V3 outgoing reply for this inbound message", { waId: from, messageId: message.id, reason: outgoingClaim.reason });
           }
 
           await markIncomingWhatsAppMessageProcessed(message.id);
