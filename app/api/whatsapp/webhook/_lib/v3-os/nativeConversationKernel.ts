@@ -320,6 +320,11 @@ TRUTH_INTEGRITY_FREEZE:
 - CANONICAL PUBLIC LINKS موجودة في canonicalPublicLinks. إذا عرضت على العميل «أرسل لك رابط التقديم» ثم قال نعم/ابعثه، أرسل رابط products نفسه؛ لا تستبدله برابط التتبع. رابط tracking للمتابعة فقط، ورابط products للتقديم/اختيار جهاز.
 - كلمة «كفالة» في سياق جهاز/موديل/سعر/ألوان تعني غالبًا ضمان الجهاز، لا «الكفيل». إذا السياق لا يحسم المعنى، اسأل سؤالًا قصيرًا: «قصدك كفالة الجهاز ولا الكفيل للطلب؟» بدل افتراض أحدهما.
 
+ACTION_AND_CALCULATION_GROUNDING:
+- تغيير اللون/الجهاز/السعة/بيانات الطلب لا تعتبره منفذًا أو مضمون التنفيذ من المحادثة. لا تقل «بعمله عمران» أو «بنعدله مباشرة» أو ما شابه إلا إذا ACTION_RESULTS يقول executed/already_done. إذا لا يوجد تنفيذ موثق، فرّق بوضوح بين طلب العميل وبين الحالة الفعلية للطلب.
+- لا تحسب قسطًا شهريًا من سعر الجهاز أو نسبة مرابحة من عندك. الرقم الشهري يجوز ذكره فقط إذا TRUTH.application.monthlyPayment موجود ومرتبط بنفس مدة TRUTH.application.installmentMonths الحالية. إذا العميل يسأل عن مدة مختلفة مثل 12/24 شهر، اطلب/اشرح أن الحسبة الرسمية لازم تتحدث أولًا ولا تعطِ رقمًا مشتقًا يدويًا.
+- لا تستنتج نسبة مرابحة أو total من السعر وحده. أي رقم مالي خاص بالحسبة يجب أن يكون موجودًا في TRUTH أو ناتج إجراء/حاسبة رسمية موثقة.
+
 PROTECTED_5_JOD_JOURNEY:
 - هذا مسار P0 لا يجوز كسره أو تجاوزه: موافقة مبدئية -> إفصاح تجاري كامل عند الحاجة -> قرار استمرار informed -> رسوم فتح الملف 5 JOD -> بيانات الدفع الرسمية -> رفع الوصل الرسمي -> اعتماد الدفع إداريًا -> دراسة نهائية.
 - لا ترسل بيانات Orange Money/CliQ أو رابط الوصل قبل informed continuation المسموح.
@@ -434,6 +439,73 @@ function confirmationLanguagePresent(reply: string, action: ActionKey) {
   return true;
 }
 
+
+function asciiDigits(value: string) {
+  const map: Record<string, string> = { "٠":"0","١":"1","٢":"2","٣":"3","٤":"4","٥":"5","٦":"6","٧":"7","٨":"8","٩":"9" };
+  return String(value || "").replace(/[٠-٩]/g, (d) => map[d] || d);
+}
+
+function requestedInstallmentMonths(customerText: string) {
+  const text = asciiDigits(normalizeArabic(customerText));
+  const match = text.match(/(?:على|لمده|لمدة|مده|مدة|خلال)?\s*(12|18|24|30|36|48|60)\s*(?:شهر|اشهر|أشهر)/);
+  return match ? Number(match[1]) : null;
+}
+
+function monthlyAmountsFromReply(reply: string) {
+  const text = asciiDigits(normalizeArabic(reply));
+  const values: number[] = [];
+  const patterns = [
+    /(?:القسط(?:\s+الشهري|\s+الاول|\s+الأول)?|شهريا|شهرياً|بالشهر)[^0-9]{0,45}([0-9]+(?:[.,][0-9]+)?)/g,
+    /([0-9]+(?:[.,][0-9]+)?)\s*(?:دينار)?[^\n]{0,24}(?:شهريا|شهرياً|بالشهر|قسط\s+شهري)/g,
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const value = Number(String(match[1] || "").replace(",", "."));
+      if (Number.isFinite(value)) values.push(value);
+    }
+  }
+  return Array.from(new Set(values));
+}
+
+function installmentGroundingViolation(input: {
+  reply: string;
+  customerText: string;
+  turn: InterpretedTurn;
+  truth: TruthBundle;
+}) {
+  const relevant = input.turn.topics.some((topic) => ["installment_amount","installment_duration","device_recalculation","first_installment"].includes(topic));
+  if (!relevant) return null;
+
+  const amounts = monthlyAmountsFromReply(input.reply);
+  if (!amounts.length) return null;
+
+  const app = input.truth.application;
+  const requestedMonths = requestedInstallmentMonths(input.customerText);
+  const authoritativeMonths = Number(app?.installmentMonths || 0) || null;
+  const authoritativeMonthly = Number(app?.monthlyPayment || 0) || null;
+
+  if (requestedMonths && authoritativeMonths && requestedMonths !== authoritativeMonths) {
+    return "unsupported_hypothetical_installment_recalculation";
+  }
+  if (!authoritativeMonthly) return "monthly_installment_not_in_authoritative_truth";
+  if (amounts.some((amount) => Math.abs(amount - authoritativeMonthly) > 0.11)) {
+    return "monthly_installment_amount_mismatch";
+  }
+  return null;
+}
+
+function unsupportedApplicationChangePromise(reply: string, turn: InterpretedTurn, actions: ActionResult[]) {
+  const relevant = turn.topics.some((topic) => ["device_change","device_recalculation","application_correction"].includes(topic))
+    || turn.requestedActions.some((action) => ["change_device","change_application_data"].includes(action));
+  if (!relevant) return false;
+  if (actionSucceeded(actions, "change_device") || actionSucceeded(actions, "change_application_data")) return false;
+
+  const text = normalizeArabic(reply);
+  return /(?:عمران|عبدالله|عبدالرحمن|تالا|فدوه|فدوة).{0,45}(?:بعمل|بيعمل|بعدل|يعدل|بغير|يغير).{0,45}(?:اللون|الجهاز|الموديل|السعه|السعة|الطلب)/.test(text)
+    || /(?:بعمله|بعملها|بنعدله|بنعدلها|بنغيره|بنغيرها|رح\s+نعدل|راح\s+نعدل|رح\s+نغير|راح\s+نغير).{0,45}(?:اللون|الجهاز|الموديل|السعه|السعة|الطلب)/.test(text)
+    || /(?:تعديل|تغيير).{0,35}(?:مباشره|مباشرة).{0,35}(?:ما\s+بتحتاج|ما\s+بحتاج|بدون\s+اجراء|بدون\s+إجراء)/.test(text);
+}
+
 function unsafeLinkViolations(reply: string, turn: InterpretedTurn, truth: TruthBundle) {
   return detectReplyLinkViolations({ reply, turn, truth }).filter((reason) =>
     !reason.startsWith("required_") && reason !== "receipt_link_requires_application_resolution"
@@ -496,6 +568,15 @@ export function validateNativeConversationReply(input: {
   if (!actionSucceeded(input.actions, "reopen_application") && /تم\s+(?:اعاده|إعادة)\s+(?:فتح|تفعيل)\s+(?:طلبك|الطلب)/.test(n)) reasons.push("false_reopen_completion_claim");
   if (!actionSucceeded(input.actions, "stop_refund") && /تم\s+(?:وقف|ايقاف|إيقاف)\s+(?:الاسترداد|الاسترجاع)/.test(n)) reasons.push("false_stop_refund_completion_claim");
   if (!actionSucceeded(input.actions, "link_whatsapp_alias") && /تم\s+(?:اعتماد|ربط)\s+(?:رقم|الرقم|واتساب)/.test(n)) reasons.push("false_contact_link_completion_claim");
+
+  const installmentViolation = installmentGroundingViolation({
+    reply,
+    customerText: input.customerText,
+    turn: input.turn,
+    truth: input.truth,
+  });
+  if (installmentViolation) reasons.push(installmentViolation);
+  if (unsupportedApplicationChangePromise(reply, input.turn, input.actions)) reasons.push("unsupported_application_change_promise");
 
   if (/(?:أنا|انا)\s+(?:انسان|إنسان|موظف\s+بشري|الموظف\s+(?:المسؤول|المسوول))|(?:أنا|انا).{0,30}(?:المسؤول|المسوول)\s+عن\s+طلبك|حولتك\s+(?:لموظف|لشخص)|تم\s+تحويلك\s+(?:لموظف|لشخص)/.test(n)) reasons.push("false_literal_human_handoff_claim");
   if (/(?:تم\s+التصعيد|تم\s+تصعيد|رح|راح|بنبعث|بنرسل|سنتصل|رح\s+نتصل).{0,55}(?:الاداره|الإدارة|موظف|نتواصل|نتصل|نخبرك|نبلغك|بخبرك|ببلغك)/.test(n)) reasons.push("unsupported_future_admin_or_contact_claim");

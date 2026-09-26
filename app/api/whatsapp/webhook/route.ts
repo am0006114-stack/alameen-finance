@@ -163,10 +163,11 @@ import {
   buildConversationKernelActionReply,
   resolveConversationKernelIntent,
 } from "./_lib/conversationKernel";
-import { getV3ProductionControl, isV3ProductionActive, tripV3ProductionCircuitBreaker } from "./_lib/v3-os/productionControl";
+import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
 import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
 import { shouldSuppressStaleV3Reply, waitForV3EgressFreshnessBarrier } from "./_lib/v3-os/turnIntegrity";
+import { DEFAULT_INCOMING_PROCESSING_LEASE_MS, decideDuplicateIncomingClaim, duplicateOutgoingLockMeansDelivered } from "./_lib/v3-os/egressLiveness";
 import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
 
 export const dynamic = "force-dynamic";
@@ -6816,8 +6817,10 @@ async function claimIncomingWhatsAppMessage(input: {
   const messageId = String(input.messageId || "").trim();
 
   if (!messageId) {
-    return { shouldProcess: true, duplicate: false, reason: "missing_message_id" };
+    return { shouldProcess: true, duplicate: false, retryable: false, reason: "missing_message_id" };
   }
+
+  const nowIso = new Date().toISOString();
 
   try {
     const { error } = await supabaseAdmin.from("whatsapp_incoming_message_dedupe").insert({
@@ -6826,15 +6829,70 @@ async function claimIncomingWhatsAppMessage(input: {
       body: input.body,
       message_type: input.messageType,
       raw_payload: input.rawPayload || null,
-      received_at: new Date().toISOString(),
+      received_at: nowIso,
     });
 
     if (!error) {
-      return { shouldProcess: true, duplicate: false, reason: "claimed" };
+      return { shouldProcess: true, duplicate: false, retryable: false, reason: "claimed" };
     }
 
     if ((error as any).code === "23505") {
-      return { shouldProcess: false, duplicate: true, reason: "duplicate_message_id" };
+      // Phase 8.1.2 liveness lease: an incoming message is not considered finished
+      // merely because its dedupe row exists. If the original invocation died before
+      // processed_at was written, Meta must be allowed to retry the SAME message.
+      const { data: existingRows, error: readError } = await supabaseAdmin
+        .from("whatsapp_incoming_message_dedupe")
+        .select("id,processed_at,received_at")
+        .eq("message_id", messageId)
+        .limit(1);
+
+      if (readError) {
+        console.error("whatsapp_incoming_message_dedupe duplicate read failed:", readError);
+        return { shouldProcess: false, duplicate: true, retryable: true, reason: "duplicate_state_unreadable" };
+      }
+
+      const existing = Array.isArray(existingRows) ? existingRows[0] : null;
+      const decision = decideDuplicateIncomingClaim({
+        processedAt: existing?.processed_at || null,
+        receivedAt: existing?.received_at || null,
+        nowMs: Date.now(),
+        leaseMs: DEFAULT_INCOMING_PROCESSING_LEASE_MS,
+      });
+
+      if (decision === "processed") {
+        return { shouldProcess: false, duplicate: true, retryable: false, reason: "duplicate_processed" };
+      }
+
+      if (decision === "retry_later") {
+        return { shouldProcess: false, duplicate: true, retryable: true, reason: "duplicate_inflight_unprocessed" };
+      }
+
+      const leaseCutoff = new Date(Date.now() - DEFAULT_INCOMING_PROCESSING_LEASE_MS).toISOString();
+      const { data: reclaimedRows, error: reclaimError } = await supabaseAdmin
+        .from("whatsapp_incoming_message_dedupe")
+        .update({
+          received_at: nowIso,
+          wa_id: input.waId,
+          body: input.body,
+          message_type: input.messageType,
+          raw_payload: input.rawPayload || null,
+        })
+        .eq("message_id", messageId)
+        .is("processed_at", null)
+        .lte("received_at", leaseCutoff)
+        .select("id")
+        .limit(1);
+
+      if (reclaimError) {
+        console.error("whatsapp_incoming_message_dedupe reclaim failed:", reclaimError);
+        return { shouldProcess: false, duplicate: true, retryable: true, reason: "duplicate_reclaim_error" };
+      }
+
+      if (Array.isArray(reclaimedRows) && reclaimedRows.length > 0) {
+        return { shouldProcess: true, duplicate: true, retryable: false, reason: "duplicate_unprocessed_reclaimed" };
+      }
+
+      return { shouldProcess: false, duplicate: true, retryable: true, reason: "duplicate_reclaim_lost_race" };
     }
 
     if ((error as any).code !== "42P01") {
@@ -6855,13 +6913,13 @@ async function claimIncomingWhatsAppMessage(input: {
       .limit(1);
 
     if (!error && data && data.length > 0) {
-      return { shouldProcess: false, duplicate: true, reason: "duplicate_existing_log" };
+      return { shouldProcess: false, duplicate: true, retryable: false, reason: "duplicate_existing_log" };
     }
   } catch (error) {
     console.error("whatsapp_messages duplicate fallback failed:", error);
   }
 
-  return { shouldProcess: true, duplicate: false, reason: "fallback_process" };
+  return { shouldProcess: true, duplicate: false, retryable: false, reason: "fallback_process" };
 }
 
 async function markIncomingWhatsAppMessageProcessed(messageId?: string) {
@@ -10439,7 +10497,11 @@ async function claimIncomingBurstProcessingLock(waId: string, latestMessageId: s
       });
 
     if (!error) return { shouldProcess: true, reason: "burst_lock_claimed" };
-    if ((error as any).code === "23505") return { shouldProcess: false, reason: "burst_lock_duplicate" };
+    if ((error as any).code === "23505") {
+      // Phase 8.1.2: this lock is advisory only. The incoming-message lease is the
+      // authoritative dedupe boundary, so a stale burst lock must never strand a turn.
+      return { shouldProcess: true, reason: "burst_lock_duplicate_advisory" };
+    }
     if ((error as any).code === "42P01") {
       console.error("whatsapp_outgoing_reply_locks table is missing; incoming burst lock degraded.");
       return { shouldProcess: true, reason: "missing_burst_lock_table" };
@@ -10642,6 +10704,14 @@ export async function POST(request: Request) {
         });
 
         if (!incomingClaim.shouldProcess) {
+          if (incomingClaim.retryable) {
+            console.warn("WhatsApp incoming message is claimed but not completed; requesting Meta retry:", {
+              messageId: message.id,
+              waId: from,
+              reason: incomingClaim.reason,
+            });
+            throw new Error(`WHATSAPP_RETRYABLE_UNPROCESSED_INCOMING:${incomingClaim.reason}`);
+          }
           console.log("WhatsApp duplicate incoming message skipped:", {
             messageId: message.id,
             waId: from,
@@ -10813,13 +10883,14 @@ export async function POST(request: Request) {
               realActionsEnabled: v3ProductionControl.realActionsEnabled,
             });
             if (!v3Run.finalSafetyPass || !v3Run.reply) {
-              console.error("V3 Phase 8.1 fail-closed: Native Kernel produced no validated reply", {
+              console.error("V3 Phase 8.1.2 liveness retry: Native Kernel produced no validated reply", {
                 waId: from,
                 messageId: message.id || null,
                 violations: v3Run.verification.policyViolations || [],
               });
-              await markIncomingWhatsAppMessageProcessed(message.id);
-              return;
+              // Never mark this turn processed without a delivered reply. Throwing keeps
+              // the webhook retryable; the incoming dedupe lease will reclaim it safely.
+              throw new Error("V3_RETRYABLE_NO_VALIDATED_REPLY");
             }
             reply = v3Run.reply;
           } catch (v3RuntimeError) {
@@ -10835,8 +10906,8 @@ export async function POST(request: Request) {
             } catch (v3NotifyError) {
               console.error("V3 runtime failure notification failed", v3NotifyError);
             }
-            await markIncomingWhatsAppMessageProcessed(message.id);
-            return;
+            // A runtime failure is retryable. Do not consume the message silently.
+            throw v3RuntimeError instanceof Error ? v3RuntimeError : new Error(String(v3RuntimeError));
           }
 
           if (await shouldSuppressStaleV3Reply({ waId: from, currentMessageId: message.id, lookbackSeconds: 120 })) {
@@ -10853,10 +10924,13 @@ export async function POST(request: Request) {
             reply,
             windowSeconds: 20,
           });
-          const alreadySentSameReply = !outgoingClaim.shouldSend || (
-            outgoingClaim.reason !== "outgoing_lock_claimed" &&
-            await hasRecentlySentSameReply(from, reply, 30)
-          );
+          const recentSameReplyExists = outgoingClaim.shouldSend
+            ? (outgoingClaim.reason !== "outgoing_lock_claimed" && await hasRecentlySentSameReply(from, reply, 30))
+            : await hasRecentlySentSameReply(from, reply, 180);
+          const alreadySentSameReply = duplicateOutgoingLockMeansDelivered({
+            lockClaimed: outgoingClaim.shouldSend,
+            recentOutgoingExists: recentSameReplyExists,
+          });
 
           if (!alreadySentSameReply) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
@@ -10893,14 +10967,12 @@ export async function POST(request: Request) {
                   firstCode: sendAttempt.errorCode,
                 });
               } else {
-                const circuitTripped = await tripV3ProductionCircuitBreaker("whatsapp_delivery_failed_after_safe_retry");
-                console.error("V3 WhatsApp delivery failed after safe retry", {
+                console.error("V3 WhatsApp delivery failed after safe retry; keeping turn retryable", {
                   waId: from,
                   firstStatus: sendAttempt.httpStatus,
                   firstCode: sendAttempt.errorCode,
                   secondStatus: emergencyAttempt.httpStatus,
                   secondCode: emergencyAttempt.errorCode,
-                  circuitTripped,
                 });
                 try {
                   await notifyV3Discord({
@@ -10908,24 +10980,16 @@ export async function POST(request: Request) {
                     applicationId: v3Run?.truthAfterActions.application?.id || null,
                     trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
                     waId: from,
-                    description: "تعذر إرسال الرد الأساسي ثم الرد القصير الآمن. تم إيقاف V3 تلقائيًا حتى لا تتكرر خسارة الرسائل.",
+                    description: "تعذر إرسال نفس رد Native Kernel مرتين. الرسالة لم تُعتبر مكتملة وسيُطلب من Meta إعادة تسليمها بدل إسقاطها بصمت.",
                     details: {
                       "حالة واتساب": emergencyAttempt.httpStatus || sendAttempt.httpStatus || "غير متوفر",
                       "رمز الخطأ": emergencyAttempt.errorCode || sendAttempt.errorCode || "غير متوفر",
                     },
                   });
-                  if (circuitTripped) {
-                    await notifyV3Discord({
-                      event: "v3_circuit_breaker_tripped",
-                      applicationId: v3Run?.truthAfterActions.application?.id || null,
-                      trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
-                      waId: from,
-                      description: "تم إيقاف V3 تلقائيًا. الرسائل الجديدة ستعود للمسار الآمن إلى أن تتم المراجعة.",
-                    });
-                  }
                 } catch (v3SendNotifyError) {
                   console.error("V3 send failure notification failed", v3SendNotifyError);
                 }
+                throw new Error("V3_RETRYABLE_WHATSAPP_DELIVERY_FAILURE");
               }
             }
 
