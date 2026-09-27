@@ -14,6 +14,7 @@ import { enforceGroundedBusinessEgress } from "./groundingGuard";
 import { commercialDisclosureDelivered, currentCommercialDisclosure } from "./informedCommercialContinuation";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { replySimilarity } from "./humanVoice";
+import { applicationModificationRoutingViolation, buildApplicationModificationRoutingReply, resolveApplicationModificationRoute } from "./applicationModificationRouting";
 
 const TOPICS: TopicKey[] = [
   "greeting","thanks","acknowledgement","unknown","application_status","application_correction","requirements","guarantor",
@@ -239,6 +240,15 @@ function companyTruthSnapshot(input: { turn: InterpretedTurn; state: Conversatio
     journeyStage: applicationJourneyStage(input.truth.application),
     informedCommercialDisclosureDelivered: commercialDisclosureDelivered(input.state, input.truth),
     informedCommercialDisclosure: currentCommercialDisclosure(input.state, input.truth),
+    modificationRouting: resolveApplicationModificationRoute({
+      topics: input.turn.topics,
+      requestedActions: input.turn.requestedActions,
+      customerText: input.turn.acts.map((act) => act.text).filter(Boolean).join("\n"),
+      hasApplication: Boolean(input.truth.application),
+      paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
+      trackingId: input.truth.application?.trackingId || null,
+      registeredPhone: input.truth.application?.phone || null,
+    }),
   };
 }
 
@@ -322,6 +332,7 @@ TRUTH_INTEGRITY_FREEZE:
 
 ACTION_AND_CALCULATION_GROUNDING:
 - تغيير اللون/الجهاز/السعة/بيانات الطلب لا تعتبره منفذًا أو مضمون التنفيذ من المحادثة. لا تقل «بعمله عمران» أو «بنعدله مباشرة» أو ما شابه إلا إذا ACTION_RESULTS يقول executed/already_done. إذا لا يوجد تنفيذ موثق، فرّق بوضوح بين طلب العميل وبين الحالة الفعلية للطلب.
+- APPLICATION MODIFICATION ROUTING حقيقة تشغيلية حتمية: إذا TRUTH.modificationRouting.route="cancel_reapply_unpaid" فالطلب غير مدفوع والتوجيه الصحيح هو إلغاء الطلب الحالي ثم تقديم طلب جديد بالمواصفات الصحيحة. إذا route="facebook_manual_paid" فالدفع مؤكد، وممنوع اقتراح الإلغاء/إعادة التقديم لأجل التعديل؛ وجّه العميل لصفحة الأمين الرسمية على فيسبوك واطلب إرفاق رقم الطلب + رقم الهاتف المسجل + التعديل المطلوب. لا تدّعِ أن واتساب نفّذ التعديل.
 - لا تحسب قسطًا شهريًا من سعر الجهاز أو نسبة مرابحة من عندك. الرقم الشهري يجوز ذكره فقط إذا TRUTH.application.monthlyPayment موجود ومرتبط بنفس مدة TRUTH.application.installmentMonths الحالية. إذا العميل يسأل عن مدة مختلفة مثل 12/24 شهر، اطلب/اشرح أن الحسبة الرسمية لازم تتحدث أولًا ولا تعطِ رقمًا مشتقًا يدويًا.
 - لا تستنتج نسبة مرابحة أو total من السعر وحده. أي رقم مالي خاص بالحسبة يجب أن يكون موجودًا في TRUTH أو ناتج إجراء/حاسبة رسمية موثقة.
 
@@ -330,7 +341,7 @@ DOWN_PAYMENT_TRUTH:
 - الدفعة الأولى هنا ليست «القسط الأول». القسط الأول يبقى مستحقًا بعد شهر من استلام الجهاز وتوقيع العقد ما لم توجد حقيقة موثقة مختلفة على الطلب.
 - TRUTH.application.downPayment هي قيمة الدفعة الأولى المسجلة فعليًا على الطلب إذا كانت موجودة. إذا سأل العميل عن الدفعة المسجلة، اقرأها من TRUTH ولا تخمن.
 - وجود دفعة أولى يقلل الرصيد المتبقي الذي ستبنى عليه الحسبة، لكن ممنوع اشتقاق قسط شهري جديد يدويًا؛ القسط النهائي من الحاسبة/الحقيقة الرسمية فقط.
-- إذا أراد العميل تغيير الدفعة الأولى بعد إنشاء الطلب، لا تدّعِ تعديلها من واتساب. وضح أن القيمة الحالية تبقى كما هي، واعرض خيار إلغاء الطلب الحالي ثم تقديم طلب جديد بالمبلغ المطلوب. الإلغاء نفسه يبقى Action محميًا ولا ينفذ دون confirmation وتنفيذ فعلي.
+- إذا أراد العميل تغيير الدفعة الأولى بعد إنشاء الطلب، لا تدّعِ تعديلها من واتساب. طبّق APPLICATION MODIFICATION ROUTING نفسها: الطلب غير المدفوع = إلغاء ثم تقديم جديد بالمبلغ الصحيح؛ الطلب المدفوع والمؤكد إداريًا = التعديل اليدوي عبر صفحة الأمين الرسمية على فيسبوك مع رقم الطلب + الهاتف المسجل + التعديل المطلوب.
 - لا تقل بصيغة عامة «نظامنا ما فيه دفعة أولى» أو «ما في دفعة أولى على الجهاز»؛ هذه أصبحت معلومة خاطئة.
 
 
@@ -404,7 +415,20 @@ export async function runNativeConversationKernel(input: {
     });
     const payload = jsonObject(raw);
     const turn = modelTurn({ payload, anchor: input.deterministicAnchor, turnId: input.turnId, customerText: input.customerText });
-    const reply = safeString(payload.reply);
+    const modelReply = safeString(payload.reply);
+    const cancelResult = (input.actionResults || []).find((x) => x.action === "cancel_application");
+    const modificationReply = buildApplicationModificationRoutingReply({
+      topics: turn.topics,
+      requestedActions: turn.requestedActions,
+      customerText: input.customerText,
+      hasApplication: Boolean(input.truth.application),
+      paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
+      trackingId: input.truth.application?.trackingId || null,
+      registeredPhone: input.truth.application?.phone || null,
+      cancelExecuted: Boolean(cancelResult && (cancelResult.executed || cancelResult.outcome === "executed" || cancelResult.outcome === "already_done")),
+      cancelNeedsConfirmation: Boolean(cancelResult?.outcome === "needs_confirmation"),
+    });
+    const reply = modificationReply || modelReply;
     return { turn, reply, modelUsed: true, modelError: null, raw };
   } catch (error) {
     return { turn: input.deterministicAnchor, reply: null, modelUsed: false, modelError: error instanceof Error ? error.message : String(error), raw: null };
@@ -638,6 +662,17 @@ export function validateNativeConversationReply(input: {
   if (downPaymentViolation) reasons.push(downPaymentViolation);
   if (nonContinuationInversionViolation(reply, input.turn)) reasons.push("noncontinuation_or_cancel_inverted_to_commercial_continuation");
   if (unsupportedApplicationChangePromise(reply, input.turn, input.actions)) reasons.push("unsupported_application_change_promise");
+  const modificationRoutingIssue = applicationModificationRoutingViolation({
+    reply,
+    topics: input.turn.topics,
+    requestedActions: input.turn.requestedActions,
+    customerText: input.customerText,
+    hasApplication: Boolean(input.truth.application),
+    paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
+    trackingId: input.truth.application?.trackingId || null,
+    registeredPhone: input.truth.application?.phone || null,
+  });
+  if (modificationRoutingIssue) reasons.push(`application_modification_routing:${modificationRoutingIssue}`);
 
   if (/(?:أنا|انا)\s+(?:انسان|إنسان|موظف\s+بشري|الموظف\s+(?:المسؤول|المسوول))|(?:أنا|انا).{0,30}(?:المسؤول|المسوول)\s+عن\s+طلبك|حولتك\s+(?:لموظف|لشخص)|تم\s+تحويلك\s+(?:لموظف|لشخص)|شخص\s+حقيقي|مش\s+(?:رد\s+الي|رد\s+آلي|بوت)|مو\s+(?:رد\s+الي|رد\s+آلي|بوت)/.test(n)) reasons.push("false_literal_human_handoff_claim");
   if (/(?:تم\s+التصعيد|تم\s+تصعيد|رح|راح|بنبعث|بنرسل|سنتصل|رح\s+نتصل).{0,55}(?:الاداره|الإدارة|موظف|نتواصل|نتصل|نخبرك|نبلغك|بخبرك|ببلغك)/.test(n)) reasons.push("unsupported_future_admin_or_contact_claim");
