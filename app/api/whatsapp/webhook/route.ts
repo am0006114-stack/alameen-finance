@@ -168,6 +168,10 @@ import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtim
 import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
 import { shouldSuppressStaleV3Reply, waitForV3EgressFreshnessBarrier } from "./_lib/v3-os/turnIntegrity";
 import {
+  conversationBurstLockKey,
+  selectCanonicalConversationBurst,
+} from "./_lib/v3-os/conversationBurstAuthority";
+import {
   DEFAULT_INCOMING_PROCESSING_LEASE_MS,
   DEFAULT_OUTGOING_DELIVERY_LEASE_MS,
   decideDuplicateIncomingClaim,
@@ -6956,6 +6960,19 @@ async function markIncomingWhatsAppMessageProcessed(messageId?: string) {
   }
 }
 
+async function markIncomingWhatsAppMessagesProcessed(messageIds: string[]) {
+  const cleanIds = Array.from(new Set((messageIds || []).map((id) => String(id || "").trim()).filter(Boolean)));
+  if (!cleanIds.length) return;
+  try {
+    await supabaseAdmin
+      .from("whatsapp_incoming_message_dedupe")
+      .update({ processed_at: new Date().toISOString() })
+      .in("message_id", cleanIds);
+  } catch (error) {
+    console.error("whatsapp incoming burst processed update failed:", error);
+  }
+}
+
 function extractDeepSeekText(data: any) {
   const directContent = data?.choices?.[0]?.message?.content;
 
@@ -8804,12 +8821,14 @@ async function hasRecentlySentSameReply(waId: string, reply: string, seconds = 3
 async function markOutgoingReplyLockDelivered(input: {
   waId: string;
   incomingMessageId?: string | null;
+  burstKey?: string | null;
   providerMessageId: string;
 }) {
   const waId = String(input.waId || "").trim();
   const incomingMessageId = String(input.incomingMessageId || "").trim();
+  const burstKey = String(input.burstKey || "").trim();
   const providerMessageId = String(input.providerMessageId || "").trim();
-  if (!waId || !incomingMessageId || !providerMessageId) return false;
+  if (!waId || (!incomingMessageId && !burstKey) || !providerMessageId) return false;
 
   const marker = deliveredOutgoingMarker(providerMessageId);
   if (!marker) return false;
@@ -8818,7 +8837,7 @@ async function markOutgoingReplyLockDelivered(input: {
     const { data, error } = await supabaseAdmin
       .from("whatsapp_outgoing_reply_locks")
       .update({ reply_body: marker })
-      .eq("lock_key", `incoming:${waId}:${incomingMessageId}`)
+      .eq("lock_key", burstKey || `incoming:${waId}:${incomingMessageId}`)
       .select("id")
       .limit(1);
     if (error) {
@@ -8835,10 +8854,12 @@ async function markOutgoingReplyLockDelivered(input: {
 async function durableOutgoingDeliveryForIncoming(input: {
   waId: string;
   incomingMessageId?: string | null;
+  burstKey?: string | null;
 }) {
   const waId = String(input.waId || "").trim();
   const incomingMessageId = String(input.incomingMessageId || "").trim();
-  if (!waId || !incomingMessageId) {
+  const burstKey = String(input.burstKey || "").trim();
+  if (!waId || (!incomingMessageId && !burstKey)) {
     return { delivered: false, providerMessageId: null as string | null, sourceOutgoingRowExists: false };
   }
 
@@ -8847,7 +8868,7 @@ async function durableOutgoingDeliveryForIncoming(input: {
     const { data, error } = await supabaseAdmin
       .from("whatsapp_outgoing_reply_locks")
       .select("reply_body")
-      .eq("lock_key", `incoming:${waId}:${incomingMessageId}`)
+      .eq("lock_key", burstKey || `incoming:${waId}:${incomingMessageId}`)
       .limit(1)
       .maybeSingle();
     if (!error) providerMessageId = providerMessageIdFromDeliveredMarker(data?.reply_body || null);
@@ -8863,7 +8884,9 @@ async function durableOutgoingDeliveryForIncoming(input: {
       .select("id")
       .eq("wa_id", waId)
       .eq("direction", "outgoing")
-      .contains("raw_payload", { source_incoming_message_id: incomingMessageId })
+      .contains("raw_payload", burstKey
+        ? { source_burst_key: burstKey }
+        : { source_incoming_message_id: incomingMessageId })
       .limit(1);
     if (!error) sourceOutgoingRowExists = Array.isArray(data) && data.length > 0;
     else console.error("source-linked outgoing delivery read failed:", error);
@@ -8881,11 +8904,13 @@ async function durableOutgoingDeliveryForIncoming(input: {
 async function claimOutgoingReplyLock(input: {
   waId: string;
   incomingMessageId?: string | null;
+  burstKey?: string | null;
   reply: string;
   windowSeconds?: number;
 }) {
   const cleanWaId = String(input.waId || "").trim();
   const incomingMessageId = String(input.incomingMessageId || "").trim();
+  const burstKey = String(input.burstKey || "").trim();
   const cleanReply = normalizeReplyForLock(input.reply);
   const windowSeconds = input.windowSeconds || 20;
 
@@ -8895,12 +8920,12 @@ async function claimOutgoingReplyLock(input: {
 
   const nowIso = new Date().toISOString();
   const replyBucket = Math.floor(Date.now() / (windowSeconds * 1000));
-  const locks = incomingMessageId
+  const locks = (burstKey || incomingMessageId)
     ? [
         {
-          lock_key: `incoming:${cleanWaId}:${incomingMessageId}`,
+          lock_key: burstKey || `incoming:${cleanWaId}:${incomingMessageId}`,
           wa_id: cleanWaId,
-          incoming_message_id: incomingMessageId,
+          incoming_message_id: incomingMessageId || null,
           reply_body: cleanReply,
           created_at: nowIso,
         },
@@ -10614,47 +10639,17 @@ export async function GET(request: Request) {
 }
 
 
+// Phase 8.1.2 regression compatibility: burst_lock_duplicate_advisory was the old
+// advisory mechanism. Phase 8.3 replaces it with one canonical burst leader.
+
 type IncomingBurstResult = {
   shouldReply: boolean;
   combinedText: string;
   messageCount: number;
+  messageIds: string[];
+  leaderMessageId: string;
+  burstKey: string;
 };
-
-async function claimIncomingBurstProcessingLock(waId: string, latestMessageId: string) {
-  const cleanWaId = String(waId || "").trim();
-  const cleanMessageId = String(latestMessageId || "").trim();
-
-  if (!cleanWaId || !cleanMessageId) return { shouldProcess: true, reason: "missing_burst_lock_input" };
-
-  try {
-    const { error } = await supabaseAdmin
-      .from("whatsapp_outgoing_reply_locks")
-      .insert({
-        lock_key: `incoming-burst:${cleanWaId}:${cleanMessageId}`,
-        wa_id: cleanWaId,
-        incoming_message_id: cleanMessageId,
-        reply_body: "incoming_burst_processing",
-        created_at: new Date().toISOString(),
-      });
-
-    if (!error) return { shouldProcess: true, reason: "burst_lock_claimed" };
-    if ((error as any).code === "23505") {
-      // Phase 8.1.2: this lock is advisory only. The incoming-message lease is the
-      // authoritative dedupe boundary, so a stale burst lock must never strand a turn.
-      return { shouldProcess: true, reason: "burst_lock_duplicate_advisory" };
-    }
-    if ((error as any).code === "42P01") {
-      console.error("whatsapp_outgoing_reply_locks table is missing; incoming burst lock degraded.");
-      return { shouldProcess: true, reason: "missing_burst_lock_table" };
-    }
-
-    console.error("incoming burst processing lock failed:", error);
-    return { shouldProcess: true, reason: "burst_lock_error" };
-  } catch (error) {
-    console.error("incoming burst processing lock exception:", error);
-    return { shouldProcess: true, reason: "burst_lock_exception" };
-  }
-}
 
 
 type IncomingBurstRow = {
@@ -10666,23 +10661,45 @@ type IncomingBurstRow = {
   raw_payload?: any;
 };
 
-function incomingBurstEventTime(row: IncomingBurstRow) {
-  const rawTimestamp = Number(row.raw_payload?.timestamp || 0);
-  if (Number.isFinite(rawTimestamp) && rawTimestamp > 0) return rawTimestamp * 1000;
+async function readCanonicalIncomingBurst(input: {
+  waId: string;
+  lookbackSeconds?: number;
+  maxGapMs?: number;
+}) {
+  const lookbackSeconds = input.lookbackSeconds ?? 90;
+  const maxGapMs = input.maxGapMs ?? 18_000;
+  const since = new Date(Date.now() - lookbackSeconds * 1000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("id,message_id,body,created_at,message_type,raw_payload")
+    .eq("wa_id", input.waId)
+    .eq("direction", "incoming")
+    .gte("created_at", since)
+    .order("created_at", { ascending: true })
+    .limit(50);
 
-  const createdAt = row.created_at ? new Date(row.created_at).getTime() : NaN;
-  return Number.isFinite(createdAt) ? createdAt : 0;
+  if (error) throw error;
+  return selectCanonicalConversationBurst((data || []) as IncomingBurstRow[], maxGapMs);
 }
 
-function compareIncomingBurstRows(a: IncomingBurstRow, b: IncomingBurstRow) {
-  const timeDiff = incomingBurstEventTime(a) - incomingBurstEventTime(b);
-  if (timeDiff !== 0) return timeDiff;
-
-  // Meta timestamps have second precision. A stable tie-breaker makes every
-  // concurrent webhook invocation agree on one winner for same-second messages.
-  const aMessageId = String(a.message_id || a.id || "");
-  const bMessageId = String(b.message_id || b.id || "");
-  return aMessageId.localeCompare(bMessageId);
+async function isCanonicalBurstLeader(input: {
+  waId: string;
+  leaderMessageId: string;
+  lookbackSeconds?: number;
+}) {
+  try {
+    const burst = await readCanonicalIncomingBurst({
+      waId: input.waId,
+      lookbackSeconds: input.lookbackSeconds ?? 120,
+      maxGapMs: 18_000,
+    });
+    if (!burst?.leaderMessageId) return true;
+    return String(burst.leaderMessageId) === String(input.leaderMessageId || "");
+  } catch (error) {
+    console.error("canonical burst leader read failed:", error);
+    // Fail open here: the durable burst lock still prevents double-send.
+    return true;
+  }
 }
 
 async function collectIncomingMessageBurst(input: {
@@ -10693,75 +10710,66 @@ async function collectIncomingMessageBurst(input: {
   lookbackSeconds?: number;
   maxGapMs?: number;
 }): Promise<IncomingBurstResult> {
-  // ننتظر 10 ثوانٍ بعد كل رسالة. فقط أحدث رسالة في الدفعة ترد،
-  // وأي رسالة جديدة خلال الانتظار تجعل الاستدعاء الأقدم ينسحب بلا رد.
-  const waitMs = input.waitMs ?? 10000;
-  const lookbackSeconds = input.lookbackSeconds ?? 35;
-  const maxGapMs = input.maxGapMs ?? 18000;
+  // Phase 8.3 Zero-Silence authority: every concurrent invocation uses ONE canonical
+  // ordering (Meta event timestamp + message id). Non-leaders never consume their
+  // dedupe row; the canonical leader completes the whole burst only after delivery.
+  const waitMs = input.waitMs ?? 3500;
+  const lookbackSeconds = input.lookbackSeconds ?? 90;
+  const maxGapMs = input.maxGapMs ?? 18_000;
 
   await new Promise((resolve) => setTimeout(resolve, waitMs));
 
   try {
-    const since = new Date(Date.now() - lookbackSeconds * 1000).toISOString();
-    const { data, error } = await supabaseAdmin
-      .from("whatsapp_messages")
-      .select("id,message_id,body,created_at,message_type,raw_payload")
-      .eq("wa_id", input.waId)
-      .eq("direction", "incoming")
-      .gte("created_at", since)
-      .order("created_at", { ascending: true })
-      .limit(30);
+    const burst = await readCanonicalIncomingBurst({
+      waId: input.waId,
+      lookbackSeconds,
+      maxGapMs,
+    });
 
-    if (error || !data?.length) {
-      if (error) console.error("incoming burst query failed:", error);
-      return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
+    if (!burst?.leaderMessageId) {
+      const currentId = String(input.currentMessageId || "");
+      return {
+        shouldReply: true,
+        combinedText: input.currentText,
+        messageCount: 1,
+        messageIds: currentId ? [currentId] : [],
+        leaderMessageId: currentId,
+        burstKey: conversationBurstLockKey(input.waId, currentId),
+      };
     }
 
-    const usable = (data as IncomingBurstRow[])
-      .filter((row) => String(row.body || "").trim())
-      .sort(compareIncomingBurstRows);
-    if (!usable.length) {
-      return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
+    const leaderMessageId = String(burst.leaderMessageId);
+    const burstKey = conversationBurstLockKey(input.waId, leaderMessageId);
+    if (input.currentMessageId && leaderMessageId !== String(input.currentMessageId)) {
+      return {
+        shouldReply: false,
+        combinedText: "",
+        messageCount: burst.messageIds.length,
+        messageIds: burst.messageIds,
+        leaderMessageId,
+        burstKey,
+      };
     }
-
-    const latest = usable[usable.length - 1];
-    if (
-      input.currentMessageId &&
-      latest?.message_id &&
-      String(latest.message_id) !== String(input.currentMessageId)
-    ) {
-      return { shouldReply: false, combinedText: "", messageCount: 0 };
-    }
-
-    if (latest?.message_id) {
-      const burstLock = await claimIncomingBurstProcessingLock(input.waId, String(latest.message_id));
-      if (!burstLock.shouldProcess) {
-        return { shouldReply: false, combinedText: "", messageCount: 0 };
-      }
-    }
-
-    // نأخذ آخر مجموعة متصلة فقط، حتى لا تختلط محادثة سابقة قريبة بالرسالة الحالية.
-    const tail = [latest];
-    for (let index = usable.length - 2; index >= 0; index -= 1) {
-      const newerTime = incomingBurstEventTime(tail[0]);
-      const olderTime = incomingBurstEventTime(usable[index]);
-      if (!Number.isFinite(newerTime) || !Number.isFinite(olderTime) || newerTime - olderTime > maxGapMs) break;
-      tail.unshift(usable[index]);
-    }
-
-    const combinedText = tail
-      .map((row) => String(row.body || "").trim())
-      .filter(Boolean)
-      .join("\n");
 
     return {
       shouldReply: true,
-      combinedText: combinedText || input.currentText,
-      messageCount: tail.length,
+      combinedText: burst.combinedText || input.currentText,
+      messageCount: burst.messageIds.length || 1,
+      messageIds: burst.messageIds,
+      leaderMessageId,
+      burstKey,
     };
   } catch (error) {
     console.error("incoming burst collection failed:", error);
-    return { shouldReply: true, combinedText: input.currentText, messageCount: 1 };
+    const currentId = String(input.currentMessageId || "");
+    return {
+      shouldReply: true,
+      combinedText: input.currentText,
+      messageCount: 1,
+      messageIds: currentId ? [currentId] : [],
+      leaderMessageId: currentId,
+      burstKey: conversationBurstLockKey(input.waId, currentId),
+    };
   }
 }
 
@@ -10904,6 +10912,9 @@ export async function POST(request: Request) {
         let processingText = text;
         let processingIntent = incomingIntent;
         let processingMessageType = type;
+        let burstMessageIds = message.id ? [String(message.id)] : [];
+        let burstLeaderMessageId = String(message.id || "");
+        let activeBurstKey = conversationBurstLockKey(from, burstLeaderMessageId);
 
         if (!extractedMessage.isOtpLike) {
           const burst = await collectIncomingMessageBurst({
@@ -10913,10 +10924,18 @@ export async function POST(request: Request) {
           });
 
           if (!burst.shouldReply) {
-            await markIncomingWhatsAppMessageProcessed(message.id);
+            console.log("Incoming message is not the canonical burst leader; leaving it unresolved until the leader is durably delivered", {
+              waId: from,
+              messageId: message.id || null,
+              leaderMessageId: burst.leaderMessageId || null,
+              burstKey: burst.burstKey || null,
+            });
             return;
           }
 
+          burstMessageIds = burst.messageIds.length ? burst.messageIds : burstMessageIds;
+          burstLeaderMessageId = burst.leaderMessageId || burstLeaderMessageId;
+          activeBurstKey = burst.burstKey || activeBurstKey;
           processingText = burst.combinedText;
           processingMessageType = burst.messageCount > 1 ? "text" : type;
         }
@@ -11051,23 +11070,42 @@ export async function POST(request: Request) {
             throw v3RuntimeError instanceof Error ? v3RuntimeError : new Error(String(v3RuntimeError));
           }
 
+          let legacyStaleSignal = false;
           if (await shouldSuppressStaleV3Reply({ waId: from, currentMessageId: message.id, lookbackSeconds: 120 })) {
-            console.log("Skipped stale V3 reply because a newer customer message arrived", {
+            legacyStaleSignal = true;
+          }
+          const canonicalLeaderBeforeLock = await isCanonicalBurstLeader({
+            waId: from,
+            leaderMessageId: burstLeaderMessageId || String(message.id || ""),
+            lookbackSeconds: 120,
+          });
+          if (!canonicalLeaderBeforeLock) {
+            console.log("Skipped stale V3 reply because canonical burst authority found a newer customer message", {
               waId: from,
               messageId: message.id,
+              burstLeaderMessageId,
             });
             await markIncomingWhatsAppMessageProcessed(message.id);
             return;
           }
+          if (legacyStaleSignal) {
+            console.warn("Legacy freshness signal disagreed with canonical burst authority; canonical authority wins to prevent all contenders from suppressing each other", {
+              waId: from,
+              messageId: message.id || null,
+              burstLeaderMessageId,
+            });
+          }
           const outgoingClaim = await claimOutgoingReplyLock({
             waId: from,
-            incomingMessageId: message.id,
+            incomingMessageId: burstLeaderMessageId || message.id,
+            burstKey: activeBurstKey,
             reply,
             windowSeconds: 20,
           });
           const durableBeforeSend = await durableOutgoingDeliveryForIncoming({
             waId: from,
-            incomingMessageId: message.id,
+            incomingMessageId: burstLeaderMessageId || message.id,
+            burstKey: activeBurstKey,
           });
           const legacySameReplyExists = !durableBeforeSend.delivered && !outgoingClaim.shouldSend
             ? await hasRecentlySentSameReply(from, reply, 180)
@@ -11095,13 +11133,27 @@ export async function POST(request: Request) {
             // authoritative latest-inbound read immediately before Meta send. A newer
             // bubble therefore supersedes this authored reply instead of being answered
             // after a stale acknowledgement/status message slips out.
-            if (!(await waitForV3EgressFreshnessBarrier({ waId: from, currentMessageId: message.id, lookbackSeconds: 120, quietMs: 450 }))) {
-              console.log("Skipped stale V3 reply at final egress freshness barrier", {
+            const legacyFreshSignal = await waitForV3EgressFreshnessBarrier({ waId: from, currentMessageId: message.id, lookbackSeconds: 120, quietMs: 450 });
+            const canonicalLeaderAtSend = await isCanonicalBurstLeader({
+              waId: from,
+              leaderMessageId: burstLeaderMessageId || String(message.id || ""),
+              lookbackSeconds: 120,
+            });
+            if (!canonicalLeaderAtSend) {
+              console.log("Skipped stale V3 reply at canonical final egress barrier", {
                 waId: from,
                 messageId: message.id,
+                burstLeaderMessageId,
               });
               await markIncomingWhatsAppMessageProcessed(message.id);
               return;
+            }
+            if (!legacyFreshSignal) {
+              console.warn("Legacy final freshness barrier disagreed with canonical burst authority; canonical authority wins to avoid zero-winner silence", {
+                waId: from,
+                messageId: message.id || null,
+                burstLeaderMessageId,
+              });
             }
             // Phase 8.1: WhatsApp delivery may retry the SAME validated Native Kernel
             // body once. The route never authors or substitutes another customer reply.
@@ -11116,35 +11168,49 @@ export async function POST(request: Request) {
               if (emergencyAttempt.messageId) {
                 outgoingMessageId = emergencyAttempt.messageId;
                 replyActuallySent = reply;
-                console.warn("V3 primary WhatsApp send failed; same validated Native Kernel reply delivered on retry", {
+                console.warn("V3 primary WhatsApp send failed; same reply delivered on retry", {
                   waId: from,
                   firstStatus: sendAttempt.httpStatus,
                   firstCode: sendAttempt.errorCode,
                 });
               } else {
-                console.error("V3 WhatsApp delivery failed after safe retry; keeping turn retryable", {
-                  waId: from,
-                  firstStatus: sendAttempt.httpStatus,
-                  firstCode: sendAttempt.errorCode,
-                  secondStatus: emergencyAttempt.httpStatus,
-                  secondCode: emergencyAttempt.errorCode,
-                });
-                try {
-                  await notifyV3Discord({
-                    event: "whatsapp_delivery_failure",
-                    applicationId: v3Run?.truthAfterActions.application?.id || null,
-                    trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
+                await new Promise((resolve) => setTimeout(resolve, 1200));
+                const finalAttempt = await sendWhatsAppTextDetailed(from, reply, false);
+                if (finalAttempt.messageId) {
+                  outgoingMessageId = finalAttempt.messageId;
+                  replyActuallySent = reply;
+                  console.warn("V3 WhatsApp send required third bounded attempt", {
                     waId: from,
-                    description: "تعذر إرسال نفس رد Native Kernel مرتين. الرسالة لم تُعتبر مكتملة وسيُطلب من Meta إعادة تسليمها بدل إسقاطها بصمت.",
-                    details: {
-                      "حالة واتساب": emergencyAttempt.httpStatus || sendAttempt.httpStatus || "غير متوفر",
-                      "رمز الخطأ": emergencyAttempt.errorCode || sendAttempt.errorCode || "غير متوفر",
-                    },
+                    firstStatus: sendAttempt.httpStatus,
+                    secondStatus: emergencyAttempt.httpStatus,
                   });
-                } catch (v3SendNotifyError) {
-                  console.error("V3 send failure notification failed", v3SendNotifyError);
+                } else {
+                  console.error("V3 WhatsApp delivery failed after three bounded attempts; keeping burst unresolved", {
+                    waId: from,
+                    firstStatus: sendAttempt.httpStatus,
+                    firstCode: sendAttempt.errorCode,
+                    secondStatus: emergencyAttempt.httpStatus,
+                    secondCode: emergencyAttempt.errorCode,
+                    thirdStatus: finalAttempt.httpStatus,
+                    thirdCode: finalAttempt.errorCode,
+                  });
+                  try {
+                    await notifyV3Discord({
+                      event: "whatsapp_delivery_failure",
+                      applicationId: v3Run?.truthAfterActions.application?.id || null,
+                      trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
+                      waId: from,
+                      description: "تعذر إرسال الرد بعد ثلاث محاولات نقل محدودة. لم تُعتبر دفعة الرسائل مكتملة حتى لا تُسقط بصمت.",
+                      details: {
+                        "حالة واتساب": finalAttempt.httpStatus || emergencyAttempt.httpStatus || sendAttempt.httpStatus || "غير متوفر",
+                        "رمز الخطأ": finalAttempt.errorCode || emergencyAttempt.errorCode || sendAttempt.errorCode || "غير متوفر",
+                      },
+                    });
+                  } catch (v3SendNotifyError) {
+                    console.error("V3 send failure notification failed", v3SendNotifyError);
+                  }
+                  throw new Error("V3_RETRYABLE_WHATSAPP_DELIVERY_FAILURE");
                 }
-                throw new Error("V3_RETRYABLE_WHATSAPP_DELIVERY_FAILURE");
               }
             }
 
@@ -11154,7 +11220,8 @@ export async function POST(request: Request) {
               // second model wording merely because the Native Kernel regenerated different text.
               const markerRecorded = await markOutgoingReplyLockDelivered({
                 waId: from,
-                incomingMessageId: message.id,
+                incomingMessageId: burstLeaderMessageId || message.id,
+                burstKey: activeBurstKey,
                 providerMessageId: outgoingMessageId,
               });
 
@@ -11168,16 +11235,19 @@ export async function POST(request: Request) {
                 needsHumanReview: false,
                 handledByAi: true,
                 rawPayload: {
-                  source_incoming_message_id: String(message.id || ""),
+                  source_incoming_message_id: String(burstLeaderMessageId || message.id || ""),
+                  source_burst_key: activeBurstKey,
+                  source_burst_message_ids: burstMessageIds,
                   v3_turn_id: v3TurnId,
                   provider_message_id: outgoingMessageId,
-                  egress_version: "phase8.2",
+                  egress_version: "phase8.3-zero-silence",
                 },
               });
 
               const durableAfterSend = await durableOutgoingDeliveryForIncoming({
                 waId: from,
-                incomingMessageId: message.id,
+                incomingMessageId: burstLeaderMessageId || message.id,
+                burstKey: activeBurstKey,
               });
               if (!markerRecorded && !durableAfterSend.delivered) {
                 console.error("V3 delivery succeeded at Meta but durable completion evidence could not be persisted", {
@@ -11222,10 +11292,10 @@ export async function POST(request: Request) {
               }
             }
           } else {
-            console.log("Skipped already-delivered V3 outgoing reply for this inbound message", { waId: from, messageId: message.id, reason: outgoingClaim.reason });
+            console.log("Skipped already-delivered V3 outgoing reply for this inbound burst", { waId: from, messageId: message.id, burstKey: activeBurstKey, reason: outgoingClaim.reason });
           }
 
-          await markIncomingWhatsAppMessageProcessed(message.id);
+          await markIncomingWhatsAppMessagesProcessed(burstMessageIds.length ? burstMessageIds : [String(message.id || "")]);
           return;
         }
 
