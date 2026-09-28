@@ -153,9 +153,6 @@ export default function ControlActions(props: Props) {
           <button disabled={Boolean(busy)} onClick={() => control("enable_replies")} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black disabled:opacity-50">
             تشغيل V3 — ردود فقط
           </button>
-          <button disabled={Boolean(busy)} onClick={() => control("disable_v3")} className="rounded-2xl border border-amber-300/30 bg-amber-400/10 px-5 py-3 text-sm font-black text-amber-100 disabled:opacity-50">
-            إيقاف V3 / المسار الآمن
-          </button>
           {props.realActions ? (
             <button disabled={Boolean(busy)} onClick={() => control("disable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
               إيقاف الإلغاء والاسترداد التلقائي
@@ -174,14 +171,14 @@ export default function ControlActions(props: Props) {
       <div className="rounded-3xl border border-[#d6b56b]/20 bg-[#d6b56b]/[0.055] p-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="text-xs font-bold text-[#d6b56b]">Backlog Recovery</div>
-            <h3 className="mt-1 text-xl font-black text-white">استعادة المحادثات التي توقفت بدون رد</h3>
+            <div className="text-xs font-bold text-[#d6b56b]">Emergency Recovery — احتياط فقط</div>
+            <h3 className="mt-1 text-xl font-black text-white">استعادة طارئة للحالات غير المكتملة</h3>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-[#cfd5cf]">
-              يتم إرسال رد واحد فقط لكل محادثة متوقفة، باستخدام V3 مع Real Actions مقفلة. الرسائل الأقدم من نافذة واتساب للرد الحر تُعرض ولا يتم إرسال نص مخالف لها.
+              المسار الحي لا يعتمد على هذا الزر. هذه أداة احتياط للحالات السابقة فقط: تستبعد reactions والإغلاقات الاجتماعية والرسائل القديمة غير القابلة للتصرف، وتضع العملاء الجاهزين للدفع أولًا ثم الإجراءات والأسئلة.
             </p>
           </div>
           <button disabled={Boolean(busy) || props.pendingCount === 0} onClick={recoverAll} className="rounded-2xl bg-[#d6b56b] px-6 py-3 text-sm font-black text-black disabled:opacity-40">
-            {busy === "recover" ? "جاري الاستعادة..." : `رد على المتوقفين (${props.pendingCount})`}
+            {busy === "recover" ? "جاري الاستعادة..." : `استعادة الطوارئ (${props.pendingCount})`}
           </button>
         </div>
 

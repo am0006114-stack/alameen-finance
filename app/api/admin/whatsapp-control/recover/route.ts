@@ -4,6 +4,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getV3ProductionControl, isV3ProductionActive } from "@/app/api/whatsapp/webhook/_lib/v3-os/productionControl";
 import { runV3ProductionLive } from "@/app/api/whatsapp/webhook/_lib/v3-os/runtimeLive";
 import { saveV3ConversationState } from "@/app/api/whatsapp/webhook/_lib/v3-os/stateStore";
+import { classifyRecoveryCandidate } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationsAutopilot";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -94,6 +95,25 @@ function recentTurns(messages: MessageRow[]) {
   return messages.slice(-24).map((row) => `${row.direction === "incoming" ? "العميل" : row.direction === "outgoing" ? "الأمين" : "حالة"}: ${String(row.body || "").trim()}`).filter((line) => !line.endsWith(":"));
 }
 
+async function stillPendingImmediatelyBeforeRecovery(waId: string, sourceMessageId?: string | null) {
+  const { data, error } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("id,wa_id,direction,body,message_id,message_type,created_at,intent")
+    .eq("wa_id", waId)
+    .order("created_at", { ascending: false })
+    .limit(30);
+  if (error) throw new Error(error.message);
+  const rows = (data || []) as MessageRow[];
+  const latestIncoming = rows.find((row) => row.direction === "incoming");
+  const latestOutgoing = rows.find((row) => row.direction === "outgoing" && row.message_type !== "admin_control");
+  if (!latestIncoming?.created_at) return false;
+  const sourceId = String(sourceMessageId || "").trim();
+  const latestId = String(latestIncoming.message_id || latestIncoming.id || "").trim();
+  if (sourceId && latestId && sourceId !== latestId) return false;
+  if (latestOutgoing?.created_at && new Date(latestOutgoing.created_at).getTime() >= new Date(latestIncoming.created_at).getTime()) return false;
+  return true;
+}
+
 export async function POST(request: NextRequest) {
   if (!(await isAdminLoggedIn())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const input = await request.json().catch(() => ({}));
@@ -107,8 +127,26 @@ export async function POST(request: NextRequest) {
   try {
     const rows = await fetchRows(since);
     const pending = pendingFromRows(rows);
-    const eligible = pending.filter((item) => item.latestIncoming?.created_at && Date.now() - new Date(item.latestIncoming.created_at).getTime() <= FREEFORM_WINDOW_MS);
-    const outside = pending.length - eligible.length;
+    const now = Date.now();
+    const classified = pending.map((item) => {
+      const incoming = item.latestIncoming!;
+      const ageMs = incoming.created_at ? now - new Date(incoming.created_at).getTime() : Number.POSITIVE_INFINITY;
+      return {
+        ...item,
+        recovery: classifyRecoveryCandidate({
+          body: incoming.body,
+          intent: incoming.intent,
+          messageType: incoming.message_type,
+          ageMs,
+          freeformWindowMs: FREEFORM_WINDOW_MS,
+        }),
+      };
+    });
+    const eligible = classified
+      .filter((item) => item.recovery.eligible)
+      .sort((a, b) => a.recovery.priority - b.recovery.priority || new Date(a.latestIncoming!.created_at || 0).getTime() - new Date(b.latestIncoming!.created_at || 0).getTime());
+    const outside = classified.filter((item) => item.recovery.reason === "outside_freeform_window").length;
+    const skippedNonActionable = classified.filter((item) => !item.recovery.eligible && item.recovery.reason !== "outside_freeform_window").length;
     const batch = eligible.slice(0, batchSize);
     let sent = 0;
     let failed = 0;
@@ -116,6 +154,10 @@ export async function POST(request: NextRequest) {
 
     for (const item of batch) {
       const incoming = item.latestIncoming!;
+      const sourceMessageId = String(incoming.message_id || incoming.id || "").trim();
+      if (!(await stillPendingImmediatelyBeforeRecovery(item.waId, sourceMessageId))) {
+        continue;
+      }
       const customerText = String(incoming.body || "").trim() || "متابعة المحادثة";
       const turnId = `recovery:${incoming.message_id || incoming.id || item.waId}:${Date.now()}`;
       let reply: string | null = null;
@@ -132,7 +174,9 @@ export async function POST(request: NextRequest) {
         console.error("V3 backlog recovery generation failed", { waId: item.waId, error });
       }
       if (!reply) {
-        reply = "أعتذر منك عن انقطاع الرد قبل شوي. رجعت المتابعة الآن، وبكمل معك من نفس النقطة بدون ما أخمّن عليك بأي معلومة.";
+        reply = item.recovery.className === "payment"
+          ? "وصلني إنك جاهز تكمل بالدفع. ما رح أخمّن عليك ببيانات تحويل غير موثقة؛ بكمل معك من نفس الطلب وبعطيك الخطوة الرسمية فقط."
+          : "وصلت رسالتك، وبكمل معك من نفس النقطة بدون ما أخمّن بحالة أو إجراء غير موثق.";
       }
 
       const delivery = await sendWhatsAppText(item.waId, reply);
@@ -155,6 +199,7 @@ export async function POST(request: NextRequest) {
         needs_human_review: false,
         handled_by_ai: true,
         status: "sent_to_meta",
+        raw_payload: { recovery: true, recovery_class: item.recovery.className, recovery_reason: item.recovery.reason, source_incoming_message_id: sourceMessageId },
         created_at: new Date().toISOString(),
       });
       if (logError) console.error("Backlog recovery outgoing log failed", { waId: item.waId, error: logError.message });
@@ -165,8 +210,8 @@ export async function POST(request: NextRequest) {
       await new Promise((resolve) => setTimeout(resolve, 250));
     }
 
-    const remainingEligible = Math.max(0, eligible.length - sent);
-    return NextResponse.json({ ok: true, pendingTotal: pending.length, attempted: batch.length, sent, failed, skippedOutsideWindow: outside, remainingEligible, errors });
+    const remainingEligible = Math.max(0, eligible.length - sent - failed);
+    return NextResponse.json({ ok: true, pendingTotal: pending.length, attempted: batch.length, sent, failed, skippedOutsideWindow: outside, skippedNonActionable, remainingEligible, errors });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "Recovery failed" }, { status: 500 });
   }

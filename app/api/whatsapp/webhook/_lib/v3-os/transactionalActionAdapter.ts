@@ -87,6 +87,10 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
       if (planned.action === "none") return { success: true, alreadyDone: true, summary: "لا يوجد إجراء تنفيذي مطلوب." };
       if (planned.action === "switch_ai_role") return { success: true, alreadyDone: true, summary: "تم تغيير مستوى المعالجة داخل فريق AI." };
       if (planned.action === "record_call_preference") return { success: true, alreadyDone: true, summary: "تم تسجيل تفضيل المكالمة بدون وعد باتصال غير منفذ." };
+      // Phase 8.5: official links are deterministic views over existing Truth; they
+      // are NOT database mutations and must never fail through the Real Action plane.
+      if (planned.action === "generate_receipt_link") return { success: true, alreadyDone: true, summary: "رابط رفع الوصل الرسمي يُبنى مباشرة من بيانات الطلب الموثقة بدون تعديل قاعدة البيانات." };
+      if (planned.action === "generate_secure_upload_link") return { success: true, alreadyDone: true, summary: "رابط الرفع الآمن يُبنى مباشرة من بيانات الطلب الموثقة بدون تعديل قاعدة البيانات." };
       return { success: false, blocker: `unsupported_transactional_action:${planned.action}` };
     }
 

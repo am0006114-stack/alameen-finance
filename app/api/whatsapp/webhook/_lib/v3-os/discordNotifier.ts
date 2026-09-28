@@ -2,6 +2,7 @@ import { sendDiscordNotification } from "@/lib/discord";
 import { BUSINESS_WEBSITE } from "../constants";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { decideV3DiscordNotification, type V3NotificationEvent } from "./notificationPolicy";
+import { arabicOperationalActionName, formatWaitingAge } from "./operationsAutopilot";
 
 function readableValue(value: unknown): string {
   if (value == null) return "";
@@ -35,18 +36,7 @@ function arabicDetailLabel(name: string) {
 
 
 function arabicDetailValue(name: string, value: unknown) {
-  if (name === "action") {
-    const actions: Record<string,string> = {
-      cancel_application: "إلغاء الطلب",
-      continue_application: "استمرار الطلب",
-      request_refund: "طلب الاسترداد",
-      stop_refund: "إيقاف الاسترداد",
-      reopen_application: "إعادة فتح الطلب",
-      change_device: "تغيير الجهاز وإعادة الحسبة",
-      change_application_data: "تعديل بيانات الطلب",
-    };
-    return actions[String(value || "")] || "إجراء على الطلب";
-  }
+  if (name === "action") return arabicOperationalActionName(String(value || ""));
   if (name === "blocker") {
     const blockers: Record<string,string> = {
       payment_refund_integrity_conflict_requires_admin: "يوجد تعارض بين حالة الدفع والاسترداد ويحتاج مراجعة الإدارة",
@@ -54,8 +44,12 @@ function arabicDetailValue(name: string, value: unknown) {
       stale_truth: "تغيرت بيانات الطلب منذ اتخاذ القرار ويجب إعادة القراءة قبل التنفيذ",
       stale_truth_detected: "تغيرت بيانات الطلب منذ اتخاذ القرار ويجب إعادة القراءة قبل التنفيذ",
       real_actions_disabled: "التغييرات الحقيقية غير مفعلة حاليًا",
+      v3_real_actions_production_gate_disabled: "بوابة الإجراءات الحقيقية غير مفعلة حاليًا؛ يحتاج تنفيذ الإدارة",
     };
-    return blockers[String(value || "")] || "تعذر تنفيذ الإجراء بأمان ويحتاج مراجعة";
+    const raw = String(value || "");
+    if (raw.startsWith("scoped_real_actions_disallowed:")) return `الإجراء ${arabicOperationalActionName(raw.split(":")[1])} غير مفعّل تلقائيًا ويحتاج تنفيذ الإدارة.`;
+    if (raw.startsWith("unsupported_transactional_action:")) return `الإجراء ${arabicOperationalActionName(raw.split(":")[1])} ليس تغيير قاعدة بيانات مدعومًا في Action Plane.`;
+    return blockers[raw] || "تعذر تنفيذ الإجراء بأمان ويحتاج مراجعة";
   }
   return value;
 }
@@ -117,6 +111,43 @@ async function loadApplicationSummary(applicationId?: string | null) {
   }
 }
 
+async function loadConversationSummary(waId?: string | null) {
+  const cleanWaId = String(waId || "").trim();
+  if (!cleanWaId) return null;
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_messages")
+      .select("direction,body,created_at,intent,message_type")
+      .eq("wa_id", cleanWaId)
+      .order("created_at", { ascending: false })
+      .limit(14);
+    if (error) return null;
+    const rows = (data || []) as Array<{ direction?: string | null; body?: string | null; created_at?: string | null; intent?: string | null; message_type?: string | null }>;
+    const incoming = rows.filter((row) => row.direction === "incoming" && String(row.body || "").trim() && row.message_type !== "reaction");
+    const latest = incoming[0] || null;
+    const context = incoming.slice(0, 3).reverse().map((row) => String(row.body || "").replace(/\s+/g, " ").trim()).filter(Boolean);
+    const latestMs = latest?.created_at ? new Date(latest.created_at).getTime() : NaN;
+    return {
+      latestCustomerMessage: latest ? String(latest.body || "").trim() : null,
+      latestIntent: latest?.intent || null,
+      context,
+      waitingAge: Number.isFinite(latestMs) ? formatWaitingAge(Date.now() - latestMs) : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function operatorInstruction(input: { event: V3NotificationEvent; action?: string | null; blocker?: string | null }) {
+  const actionName = arabicOperationalActionName(input.action || "");
+  if (input.event === "manual_action_required") return `نفّذ ${actionName} على الطلب من زر "فتح الطلب مباشرة" ثم حدّث الحالة الفعلية. لا تحتاج للبحث عن المحادثة يدويًا.`;
+  if (input.event === "business_mutation_failed") return `راجع الطلب ونفّذ/صحح ${actionName} يدويًا. سبب الفشل ظاهر أدناه، وبعد التنفيذ حدّث الحقيقة على الطلب.`;
+  if (input.event === "whatsapp_delivery_failure") return "تحقق من حالة WhatsApp/Meta والاعتماديات فورًا. المحادثة بقيت غير مكتملة ولن تُعتبر منتهية بدون دليل إرسال.";
+  if (input.event === "truth_integrity_failure") return "راجع حقيقة الطلب أولًا ثم صحح الحالة من المصدر الموثق. لا تعتمد على نص المحادثة وحده.";
+  if (input.event === "payment_confirmation_required" || input.event === "official_receipt_uploaded") return "راجع الوصل من الطلب وثبّت الدفع إداريًا فقط إذا كانت البيانات صحيحة.";
+  return input.blocker ? "راجع الطلب والسبب أدناه ونفّذ الإجراء المطلوب من المصدر الموثق." : "راجع الطلب من الرابط المباشر ونفّذ المطلوب إذا كان يحتاج تدخلًا إداريًا.";
+}
+
 export async function notifyV3Discord(input: {
   event: V3NotificationEvent;
   applicationId?: string | null;
@@ -164,7 +195,12 @@ export async function notifyV3Discord(input: {
   if (!claimed?.id) return { sent: false, suppressed: true, reason: "notification_claim_not_created" };
 
   const mention = decision.mentionAdmin ? String(process.env.DISCORD_ADMIN_MENTION || "").trim() : "";
-  const appSummary = await loadApplicationSummary(input.applicationId);
+  const [appSummary, conversationSummary] = await Promise.all([
+    loadApplicationSummary(input.applicationId),
+    loadConversationSummary(input.waId),
+  ]);
+  const actionValue = String(input.actionKey || input.details?.action || "").split(":")[0] || null;
+  const blockerValue = input.details?.blocker ? String(input.details.blocker) : null;
   const hiddenDetailKeys = new Set(["messageId", "turnId", "verification", "mutationId"]);
   const detailFields = Object.entries(input.details || {})
     .filter(([name]) => !hiddenDetailKeys.has(name))
@@ -180,15 +216,28 @@ export async function notifyV3Discord(input: {
     (input.trackingId || appSummary?.tracking_id) ? { name: "رقم الطلب", value: clipped(input.trackingId || appSummary?.tracking_id), inline: true } : null,
     appSummary?.full_name ? { name: "العميل", value: clipped(appSummary.full_name), inline: true } : null,
     input.waId ? { name: "رقم واتساب", value: clipped(input.waId), inline: true } : null,
+    conversationSummary?.waitingAge ? { name: "مدة انتظار العميل", value: clipped(conversationSummary.waitingAge), inline: true } : null,
+    conversationSummary?.latestCustomerMessage ? { name: "آخر رسالة من العميل", value: clipped(`«${conversationSummary.latestCustomerMessage}»`, 700), inline: false } : null,
+    conversationSummary?.context?.length ? { name: "آخر رسائل العميل", value: clipped(conversationSummary.context.map((line, index) => `${index + 1}) ${line}`).join("\n"), 900), inline: false } : null,
     appSummary?.phone ? { name: "رقم الهاتف الأساسي", value: clipped(appSummary.phone), inline: true } : null,
     appSummary?.device_name ? { name: "الجهاز", value: clipped(appSummary.device_name), inline: true } : null,
     adminApplicationUrl ? { name: "فتح الطلب مباشرة", value: adminApplicationUrl, inline: false } : null,
+    { name: "المطلوب منك الآن", value: clipped(operatorInstruction({ event: input.event, action: actionValue, blocker: blockerValue }), 900), inline: false },
     ...detailFields,
     { name: "سبب التنبيه", value: clipped(arabicReason(decision.reason)), inline: false },
   ].filter(Boolean) as Array<{ name: string; value: string; inline?: boolean }>;
 
+  const actionName = actionValue ? arabicOperationalActionName(actionValue) : null;
+  const resolvedTitle = input.event === "manual_action_required" && actionName
+    ? `🛠️ ${actionName} — يحتاج تنفيذ الإدارة`
+    : input.event === "business_mutation_failed" && actionName
+      ? `⛔ ${actionName} — تعذر التنفيذ ويحتاج مراجعة`
+      : input.event === "whatsapp_delivery_failure"
+        ? "⛔ واتساب لم يرسل الرد — العميل ينتظر"
+        : input.title || defaultTitle(input.event);
+
   const result = await sendDiscordNotification({
-    title: input.title || defaultTitle(input.event),
+    title: resolvedTitle,
     description: clipped(`${mention ? `${mention} ` : ""}${input.description || "يوجد حدث تشغيلي يحتاج تدخلًا فعليًا."}`, 1800),
     fields,
     footer: { text: "نظام الأمين للأقساط" },

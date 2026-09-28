@@ -5,7 +5,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const RUNTIME_VERSION = "v3.0.0-phase7.1.3-scoped-cancel-refund-actions";
+const RUNTIME_VERSION = "v3.0.0-phase8.5-never-silent-revenue-priority-ops-autopilot";
 
 type Action = "enable_replies" | "disable_v3" | "enable_real_actions" | "disable_real_actions";
 

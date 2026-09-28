@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import ControlActions from "./ControlActions";
+import { classifyRecoveryCandidate } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationsAutopilot";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +20,7 @@ type MessageRow = {
   tracking_id?: string | null;
   application_id?: string | null;
   status?: string | null;
+  intent?: string | null;
 };
 
 const ALLOWED_HOURS = [1, 2, 6, 12, 24, 48, 168];
@@ -63,14 +65,25 @@ function pendingConversations(rows: MessageRow[]) {
     }
     byWa.set(wa, entry);
   }
+  const now = Date.now();
   return Array.from(byWa.entries())
     .filter(([, entry]) => {
       if (!entry.latestIncoming?.created_at) return false;
-      if (!entry.latestOutgoing?.created_at) return true;
-      return new Date(entry.latestIncoming.created_at).getTime() > new Date(entry.latestOutgoing.created_at).getTime();
+      if (entry.latestOutgoing?.created_at && new Date(entry.latestIncoming.created_at).getTime() <= new Date(entry.latestOutgoing.created_at).getTime()) return false;
+      const ageMs = now - new Date(entry.latestIncoming.created_at).getTime();
+      return classifyRecoveryCandidate({
+        body: entry.latestIncoming.body,
+        intent: entry.latestIncoming.intent,
+        messageType: entry.latestIncoming.message_type,
+        ageMs,
+      }).eligible;
     })
     .map(([waId, entry]) => ({ waId, incoming: entry.latestIncoming! }))
-    .sort((a, b) => new Date(b.incoming.created_at || 0).getTime() - new Date(a.incoming.created_at || 0).getTime());
+    .sort((a, b) => {
+      const aa = classifyRecoveryCandidate({ body: a.incoming.body, intent: a.incoming.intent, messageType: a.incoming.message_type, ageMs: now - new Date(a.incoming.created_at || 0).getTime() });
+      const bb = classifyRecoveryCandidate({ body: b.incoming.body, intent: b.incoming.intent, messageType: b.incoming.message_type, ageMs: now - new Date(b.incoming.created_at || 0).getTime() });
+      return aa.priority - bb.priority || new Date(a.incoming.created_at || 0).getTime() - new Date(b.incoming.created_at || 0).getTime();
+    });
 }
 
 export default async function WhatsAppControlPage({ searchParams }: { searchParams?: SearchParams }) {
@@ -81,7 +94,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
 
   const [{ data: settings }, { data: messages, error: messagesError }, actionResult, notificationResult, manualActionCountResult, deliveryFailureCountResult] = await Promise.all([
     supabaseAdmin.from("whatsapp_v3_production_settings").select("id,live_enabled,kill_switch,real_actions_enabled,resume_legacy_ignored,runtime_version,updated_at").eq("id", "default").maybeSingle(),
-    supabaseAdmin.from("whatsapp_messages").select("id,wa_id,direction,body,message_type,created_at,customer_name,tracking_id,application_id,status").gte("created_at", since).order("created_at", { ascending: true }).limit(5000),
+    supabaseAdmin.from("whatsapp_messages").select("id,wa_id,direction,body,message_type,created_at,customer_name,tracking_id,application_id,status,intent").gte("created_at", since).order("created_at", { ascending: true }).limit(5000),
     supabaseAdmin.from("whatsapp_v3_action_ledger").select("id,action_type,status,application_id,wa_id,created_at,blocker").gte("created_at", since).order("created_at", { ascending: false }).limit(20),
     supabaseAdmin.from("whatsapp_v3_notification_ledger").select("id,event_type,severity,status,wa_id,application_id,created_at,error_message").gte("created_at", since).order("created_at", { ascending: false }).limit(20),
     supabaseAdmin.from("whatsapp_v3_notification_ledger").select("id", { count: "exact", head: true }).eq("event_type", "manual_action_required").gte("created_at", since),
@@ -110,7 +123,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
           <div>
             <div className="text-sm font-black text-[#d6b56b]">الأمين للأقساط</div>
             <h1 className="mt-1 text-3xl font-black">V3 Control Center</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#aeb8b0]">تشغيل ومراقبة V3 من مكان واحد. Real Actions مقفلة؛ أي تغيير حقيقي يتحول إلى تنبيه Discord واضح للإدارة، واللوحة تراقب الـFallback الظاهر وفشل الإرسال والمحادثات المتوقفة.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#aeb8b0]">تشغيل ومراقبة V3 من مكان واحد. Phase 8.5 يعمل بسياسة Never-Silent: فشل النموذج لا يوقف الرد، والعملاء الجاهزون للدفع لهم أولوية فورية. Discord يعرض آخر رسالة والمطلوب من الإدارة بدل التنبيهات التقنية الغامضة.</p>
           </div>
           <div className="flex gap-2">
             <Link href="/admin/whatsapp" className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black">محادثات واتساب</Link>
@@ -122,7 +135,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
           <Stat title="حالة V3" value={liveEnabled && !killSwitch ? "شغال" : "موقف"} accent={liveEnabled && !killSwitch ? "good" : "warn"} />
           <Stat title="رسائل واردة" value={String(incoming)} />
           <Stat title="ردود صادرة" value={String(outgoing)} />
-          <Stat title="محادثات متوقفة" value={String(pending.length)} accent={pending.length ? "bad" : "good"} />
+          <Stat title="تحتاج استعادة" value={String(pending.length)} accent={pending.length ? "bad" : "good"} />
           <Stat title="Fallback ظاهر" value={String(visibleFallbacks)} accent={visibleFallbacks ? "bad" : "good"} />
           <Stat title="إجراءات يدوية" value={String(manualActionRequests)} accent={manualActionRequests ? "warn" : undefined} />
           <Stat title="فشل إرسال" value={String(deliveryFailures)} accent={deliveryFailures ? "bad" : "good"} />
@@ -147,7 +160,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
         <section className="rounded-3xl border border-white/10 bg-white/[0.035] p-5">
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <div>
-              <h2 className="text-xl font-black">المحادثات التي تنتظر ردًا</h2>
+              <h2 className="text-xl font-black">الحالات القابلة للاستعادة الطارئة</h2>
               <p className="mt-1 text-xs text-[#9fa9a1]">{outsideWindow.length ? `${outsideWindow.length} منها خارج نافذة الرد الحر في واتساب.` : "كل المحادثات الظاهرة ما زالت ضمن نافذة الرد الحر."}</p>
             </div>
             <div className="text-xs font-black text-[#d6b56b]">فشل حالات Meta المسجلة: {failedStatuses}</div>

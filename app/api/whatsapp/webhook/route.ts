@@ -171,6 +171,7 @@ import {
   conversationBurstLockKey,
   selectCanonicalConversationBurst,
 } from "./_lib/v3-os/conversationBurstAuthority";
+import { isPaymentPriorityCustomerText } from "./_lib/v3-os/operationsAutopilot";
 import {
   DEFAULT_INCOMING_PROCESSING_LEASE_MS,
   DEFAULT_OUTGOING_DELIVERY_LEASE_MS,
@@ -5450,6 +5451,12 @@ function replyDelayRangeForIntent(intent: CustomerIntent, text: string, messageT
     return { min: 1800, max: 3600 };
   }
 
+  // Phase 8.5 revenue priority: customers actively asking how/where to pay
+  // should not wait behind cosmetic human-delay simulation.
+  if (isPaymentPriorityCustomerText(text, String(intent))) {
+    return { min: 0, max: 180 };
+  }
+
   if (looksSensitive(text) || isTinyContextFollowupText(t)) {
     return { min: 2500, max: 5500 };
   }
@@ -10702,6 +10709,58 @@ async function isCanonicalBurstLeader(input: {
   }
 }
 
+async function waitForDurableBurstDelivery(input: {
+  waId: string;
+  leaderMessageId: string;
+  burstKey: string;
+  waitMs?: number;
+}) {
+  const deadline = Date.now() + (input.waitMs ?? 12_000);
+  do {
+    const delivery = await durableOutgoingDeliveryForIncoming({
+      waId: input.waId,
+      incomingMessageId: input.leaderMessageId,
+      burstKey: input.burstKey,
+    });
+    if (delivery.delivered) return true;
+    if (Date.now() >= deadline) break;
+    await new Promise((resolve) => setTimeout(resolve, 600));
+  } while (true);
+  return false;
+}
+
+async function settleSupersededIncomingOrRetry(input: {
+  waId: string;
+  currentMessageId?: string | null;
+  lookbackSeconds?: number;
+}) {
+  const currentMessageId = String(input.currentMessageId || "").trim();
+  const burst = await readCanonicalIncomingBurst({
+    waId: input.waId,
+    lookbackSeconds: input.lookbackSeconds ?? 180,
+    maxGapMs: 18_000,
+  });
+  const leaderMessageId = String(burst?.leaderMessageId || "").trim();
+  if (!leaderMessageId || leaderMessageId === currentMessageId) return false;
+
+  const burstKey = conversationBurstLockKey(input.waId, leaderMessageId);
+  const delivered = await waitForDurableBurstDelivery({
+    waId: input.waId,
+    leaderMessageId,
+    burstKey,
+  });
+
+  if (delivered) {
+    await markIncomingWhatsAppMessageProcessed(currentMessageId);
+    return true;
+  }
+
+  // Never consume the superseded turn until the newer canonical leader has
+  // durable delivery evidence. Throwing keeps Meta retry semantics alive and
+  // eliminates the all-contenders-suppressed zero-winner race.
+  throw new Error(`V3_RETRYABLE_SUPERSEDED_BURST:${leaderMessageId}`);
+}
+
 async function collectIncomingMessageBurst(input: {
   waId: string;
   currentMessageId?: string | null;
@@ -10895,16 +10954,11 @@ export async function POST(request: Request) {
         const v3ProductionControl = await getV3ProductionControl();
         const v3LiveActive = isV3ProductionActive(v3ProductionControl);
 
-        if (type === "reaction") {
-          await markIncomingWhatsAppMessageProcessed(message.id);
-          return;
-        }
+        // Phase 8.5 absolute availability: historical AUTO_REPLY_IGNORED markers
+        // no longer suppress customer replies. There is no staffed WhatsApp handoff
+        // queue in this operating model; V3 or the emergency safe route must answer.
 
-        if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
-          console.log("WhatsApp automatic reply skipped for ignored customer:", {
-            waId: from,
-            messageId: message.id,
-          });
+        if (type === "reaction") {
           await markIncomingWhatsAppMessageProcessed(message.id);
           return;
         }
@@ -10924,13 +10978,22 @@ export async function POST(request: Request) {
           });
 
           if (!burst.shouldReply) {
-            console.log("Incoming message is not the canonical burst leader; leaving it unresolved until the leader is durably delivered", {
+            console.log("Incoming message is not the canonical burst leader; requiring durable leader delivery before completion", {
               waId: from,
               messageId: message.id || null,
               leaderMessageId: burst.leaderMessageId || null,
               burstKey: burst.burstKey || null,
             });
-            return;
+            const leaderDelivered = await waitForDurableBurstDelivery({
+              waId: from,
+              leaderMessageId: burst.leaderMessageId,
+              burstKey: burst.burstKey,
+            });
+            if (leaderDelivered) {
+              await markIncomingWhatsAppMessageProcessed(message.id);
+              return;
+            }
+            throw new Error(`V3_RETRYABLE_NONLEADER_AWAITING_DELIVERY:${burst.leaderMessageId}`);
           }
 
           burstMessageIds = burst.messageIds.length ? burst.messageIds : burstMessageIds;
@@ -10946,16 +11009,6 @@ export async function POST(request: Request) {
         const replyInputText = processingText;
         processingIntent = classifyIncomingIntent(replyInputText, processingMessageType);
         needsHumanReview = shouldFlagHumanReview(replyInputText, processingIntent);
-
-        // إعادة الفحص بعد تجميع الرسائل؛ يمكن للإدارة ضغط زر التجاهل أثناء نافذة الانتظار.
-        if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
-          console.log("WhatsApp automatic reply skipped after burst for ignored customer:", {
-            waId: from,
-            messageId: message.id,
-          });
-          await markIncomingWhatsAppMessageProcessed(message.id);
-          return;
-        }
 
         const replyStartedAt = Date.now();
         const targetReplyDelayMs = humanReplyDelayMs(processingIntent, processingText, type);
@@ -10991,15 +11044,6 @@ export async function POST(request: Request) {
 
           if (outgoingClaim.shouldSend && !(await hasRecentlySentSameReply(from, reply, 30))) {
             await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
-
-            if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
-              console.log("WhatsApp OTP safety reply skipped because customer was ignored before send:", {
-                waId: from,
-                messageId: message.id,
-              });
-              await markIncomingWhatsAppMessageProcessed(message.id);
-              return;
-            }
 
             const outgoingMessageId = await sendWhatsAppText(from, reply);
             await logMessage({
@@ -11054,20 +11098,12 @@ export async function POST(request: Request) {
             }
             reply = v3Run.reply;
           } catch (v3RuntimeError) {
-            console.error("V3 live runtime failed", { waId: from, messageId: message.id || null, error: v3RuntimeError });
-            try {
-              await notifyV3Discord({
-                event: "final_safety_fail_closed",
-                waId: from,
-                title: "V3 Phase 8.1 — Runtime fail-closed",
-                description: "فشل Native Conversation Runtime. لم يتم إرسال أي رد Legacy أو generic للعميل.",
-                details: { messageId: message.id || null, error: v3RuntimeError instanceof Error ? v3RuntimeError.message : String(v3RuntimeError) },
-              });
-            } catch (v3NotifyError) {
-              console.error("V3 runtime failure notification failed", v3NotifyError);
-            }
-            // A runtime failure is retryable. Do not consume the message silently.
-            throw v3RuntimeError instanceof Error ? v3RuntimeError : new Error(String(v3RuntimeError));
+            console.error("V3 live runtime failed; Phase 8.5 fail-open transport fallback will answer", { waId: from, messageId: message.id || null, error: v3RuntimeError });
+            // Absolute liveness policy: runtime/model failure must never create silence.
+            // This short fallback makes no transaction-state claim and still passes through
+            // the same burst lock, freshness authority and Meta delivery evidence below.
+            reply = buildV3LastResortReply();
+            v3Run = null;
           }
 
           let legacyStaleSignal = false;
@@ -11080,13 +11116,13 @@ export async function POST(request: Request) {
             lookbackSeconds: 120,
           });
           if (!canonicalLeaderBeforeLock) {
-            console.log("Skipped stale V3 reply because canonical burst authority found a newer customer message", {
+            console.log("Canonical burst authority found a newer customer message; waiting for durable newer-leader delivery", {
               waId: from,
               messageId: message.id,
               burstLeaderMessageId,
             });
-            await markIncomingWhatsAppMessageProcessed(message.id);
-            return;
+            const covered = await settleSupersededIncomingOrRetry({ waId: from, currentMessageId: message.id, lookbackSeconds: 180 });
+            if (covered) return;
           }
           if (legacyStaleSignal) {
             console.warn("Legacy freshness signal disagreed with canonical burst authority; canonical authority wins to prevent all contenders from suppressing each other", {
@@ -11140,13 +11176,13 @@ export async function POST(request: Request) {
               lookbackSeconds: 120,
             });
             if (!canonicalLeaderAtSend) {
-              console.log("Skipped stale V3 reply at canonical final egress barrier", {
+              console.log("Canonical final egress barrier found a newer customer message; waiting for durable newer-leader delivery", {
                 waId: from,
                 messageId: message.id,
                 burstLeaderMessageId,
               });
-              await markIncomingWhatsAppMessageProcessed(message.id);
-              return;
+              const covered = await settleSupersededIncomingOrRetry({ waId: from, currentMessageId: message.id, lookbackSeconds: 180 });
+              if (covered) return;
             }
             if (!legacyFreshSignal) {
               console.warn("Legacy final freshness barrier disagreed with canonical burst authority; canonical authority wins to avoid zero-winner silence", {
@@ -11634,15 +11670,6 @@ export async function POST(request: Request) {
 
         if (!alreadySentSameReply) {
           await waitUntilReplyLooksHuman(replyStartedAt, targetReplyDelayMs);
-
-          if ((!v3LiveActive || !v3ProductionControl.resumeLegacyIgnored) && await isAutoReplyIgnored(from)) {
-            console.log("WhatsApp automatic reply skipped because customer was ignored before send:", {
-              waId: from,
-              messageId: message.id,
-            });
-            await markIncomingWhatsAppMessageProcessed(message.id);
-            return;
-          }
 
           const outgoingMessageId = await sendWhatsAppText(from, reply);
           await logMessage({
