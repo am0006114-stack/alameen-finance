@@ -18,6 +18,11 @@ const migration = read('supabase/migrations/20260929013000_v3_phase11_human_conv
 pass('single cutover switch defaults safe/off', /enabled:\s*false/.test(control) && /solEnabled:\s*false/.test(control));
 pass('runtime has one Human OS branch and legacy fallback only when switch off', /if \(humanOs\.enabled\)/.test(runtime) && /runHumanConversationOS/.test(runtime) && /runLegacyV3ProductionLive/.test(runtime));
 pass('Human OS has durable turn replay before model work', /existing\?\.final_reply/.test(os) && /reusedDecision:\s*true/.test(os));
+pass('explicit tracking status becomes deterministic authoritative read', /explicitTrackingStatusAuthority/.test(os) && /explicitStatusTracking \? "deterministic"/.test(os));
+pass('explicit tracking status reply uses customer-facing DB status', /explicitTrackingStatusReply/.test(os) && /customerFacingStatusLabel/.test(os));
+pass('safe preview persists mismatch context without binding full application id', /contactAccess !== "safe_preview"/.test(os) && /markContactResolution/.test(os) && /blocked_mismatch/.test(os));
+pass('authoritative tracking reply survives safety fallback', /reply = authoritativeTrackingReply \|\| gate\.confirmationPrompt/.test(os));
+pass('authoritative tracking reply bypasses generic model verifier with native safety shape', /AUTHORITATIVE_TRACKING_SAFETY/.test(os) && /const safety = authoritativeTrackingReply \? AUTHORITATIVE_TRACKING_SAFETY/.test(os) && /const finalSafety = authoritativeTrackingReply \? AUTHORITATIVE_TRACKING_SAFETY/.test(os));
 pass('turn journal persists final reply before delivery', /status:\s*"reply_ready"/.test(os) && /finalReply:\s*reply/.test(os));
 pass('route finalizes journal only after provider message id exists', /completeHumanTurnDelivery/.test(route) && /providerMessageId:\s*outgoingMessageId/.test(route));
 pass('compact human memory is persisted only on delivered path', /saveCompactHumanMemory/.test(route) && /memoryAfter/.test(route));

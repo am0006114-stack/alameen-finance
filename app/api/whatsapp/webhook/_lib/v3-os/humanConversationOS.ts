@@ -10,7 +10,7 @@ import { applicationReceiptUrl, applicationRefundUrl, sanitizeRecentTurnsForMode
 import { scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampActionScope } from "./applicationScopeLock";
 import { enforceMutationConfirmationGate } from "./mutationConfirmationGate";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
-import { applicationJourneyStage } from "./applicationJourney";
+import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { explicitContinuationText } from "./conversationRecovery";
 import { validateNativeConversationReply } from "./nativeConversationKernel";
@@ -19,6 +19,7 @@ import { beginHumanTurn, checkpointHumanTurn, loadHumanTurnJournal } from "./dur
 import { humanDecisionPlane } from "./humanDecisionPlane";
 import { routeHumanModel, type HumanModelTier } from "./modelCostLadder";
 import { obviousContextualContinuation, runHumanConversationBrain, type HumanBrainMeaning } from "./humanConversationBrain";
+import { markContactResolution } from "./contactIdentity";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
 
@@ -32,6 +33,11 @@ const PASS: VerificationReport = {
   hierarchyViolations: [],
   repetitionFlags: [],
 };
+
+// Phase 11.0.1: authoritative tracking replies bypass the generic native-reply
+// validator, but keep the same minimal safety shape expected below. Do not use
+// VerificationReport here: it has policyViolations, while native validation uses reasons.
+const AUTHORITATIVE_TRACKING_SAFETY = { pass: true, reasons: [] as string[] };
 
 export type HumanConversationOsMetadata = {
   enabled: true;
@@ -126,6 +132,71 @@ function updatePendingState(input: { state: ConversationState; gate: ReturnType<
   return { ...state, lastTurnId: input.turn.turnId, lastCustomerText: input.turn.rawText, updatedAt: new Date().toISOString() };
 }
 
+function explicitTrackingFromText(value: string | null | undefined) {
+  const matches = String(value || "").match(/AM-\d{8,}/gi) || [];
+  return matches.length ? matches[matches.length - 1].toUpperCase() : null;
+}
+
+function explicitTrackingStatusAuthority(input: { customerText: string; turn: InterpretedTurn }) {
+  const trackingId = explicitTrackingFromText(input.customerText);
+  if (!trackingId) return null;
+
+  const disqualifyingTopics = new Set([
+    "payment_fee", "payment_method", "payment_timing", "payment_recipient", "payment_status", "payment_confirmation", "receipt_upload",
+    "refund", "cancellation", "continuation", "reopen", "device_change", "device_recalculation", "application_correction", "requirements",
+  ]);
+  if (input.turn.requestedActions.length > 0) return null;
+  if (input.turn.topics.some((topic) => disqualifyingTopics.has(topic))) return null;
+
+  const normalized = String(input.customerText || "")
+    .replace(/AM-\d{8,}/gi, " ")
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  const asksForApplication = /(?:شوف|شيك|تشيك|تابع|متابعه|متابعة|طلبي|الطلب|حاله|حالة|شو صار|وين وصل|اخر تحديث|آخر تحديث|status|check|follow)/i.test(normalized);
+  const onlyTracking = normalized.length === 0;
+  if (!asksForApplication && !onlyTracking && !input.turn.topics.includes("application_status")) return null;
+  return trackingId;
+}
+
+function makeExplicitTrackingStatusTurn(turn: InterpretedTurn): InterpretedTurn {
+  const topics = Array.from(new Set([...turn.topics, "tracking" as const, "application_status" as const]));
+  return {
+    ...turn,
+    topics,
+    requestedActions: [],
+    semantic: turn.semantic ? {
+      ...turn.semantic,
+      customerGoal: turn.semantic.customerGoal || "متابعة الطلب المحدد برقم التتبع",
+      currentQuestion: turn.semantic.currentQuestion || "ما الحالة الحالية لهذا الطلب؟",
+      answerObligations: Array.from(new Set([...(turn.semantic.answerObligations || []), "اذكر أن الطلب تم العثور عليه وحالته الحالية من الحقيقة الموثقة"])),
+      answerMode: "direct",
+      confidence: Math.max(turn.semantic.confidence || 0, 0.99),
+    } : turn.semantic,
+  };
+}
+
+function explicitTrackingStatusReply(input: { trackingId: string; truth: TruthBundle }) {
+  const app = input.truth.application;
+  if (!app) {
+    if (input.truth.degraded || (input.truth.readWarnings || []).length) {
+      return `وصلني رقم الطلب ${input.trackingId}، لكن تعذر عليّ التحقق من حالته من قاعدة البيانات بهاللحظة. ما رح أخمّن بحالته؛ حاول معي بعد شوي.`;
+    }
+    return `دققت على رقم الطلب ${input.trackingId}، وما ظهر عندي طلب مطابق لهذا الرقم. تأكد من الرقم كما هو ظاهر عندك وابعتلي إياه مرة ثانية.`;
+  }
+
+  const status = customerFacingStatusLabel(app);
+  const device = app.deviceName ? ` للجهاز ${app.deviceName}` : "";
+  const safePreview = input.truth.contactAccess === "safe_preview";
+  const privacy = safePreview ? " بما إنك بتراسلني من رقم واتساب مختلف عن الرقم المرتبط بالطلب، بعطيك الحالة العامة الآمنة للطلب بدون بيانات شخصية." : "";
+  return `أكيد، لقيت الطلب ${app.trackingId || input.trackingId}${device}. حالته الحالية: ${status}.${privacy}`;
+}
+
 function makeDeterministicContinuationTurn(turn: InterpretedTurn): InterpretedTurn {
   const has = turn.requestedActions.includes("continue_application");
   const topics = turn.topics.includes("continuation") ? turn.topics : [...turn.topics, "continuation" as const];
@@ -205,18 +276,35 @@ export async function runHumanConversationOS(input: {
     topics: deterministicAnchor.topics,
   });
 
-  const scopedBefore = scopeStateToCurrentApplication({ state: stateBefore, truth: truthBeforeActions, customerText: input.customerText });
-  let stateWorking = { ...scopedBefore.state, activeApplicationId: truthBeforeActions.application?.id || scopedBefore.state.activeApplicationId, activeTrackingId: truthBeforeActions.application?.trackingId || scopedBefore.state.activeTrackingId };
+  const explicitStatusTracking = explicitTrackingStatusAuthority({ customerText: input.customerText, turn: deterministicAnchor });
+  if (explicitStatusTracking) deterministicAnchor = makeExplicitTrackingStatusTurn(deterministicAnchor);
+
+  let authorityState = stateBefore;
+  if (explicitStatusTracking && truthBeforeActions.contactAccess === "safe_preview") {
+    authorityState = markContactResolution({
+      state: authorityState,
+      status: "blocked_mismatch",
+      trackingId: truthBeforeActions.application?.trackingId || explicitStatusTracking,
+      customerText: input.customerText,
+    });
+  }
+
+  const scopedBefore = scopeStateToCurrentApplication({ state: authorityState, truth: truthBeforeActions, customerText: input.customerText });
+  const canBindFullApplication = truthBeforeActions.contactAccess !== "safe_preview";
+  let stateWorking = {
+    ...scopedBefore.state,
+    activeApplicationId: canBindFullApplication ? (truthBeforeActions.application?.id || scopedBefore.state.activeApplicationId) : scopedBefore.state.activeApplicationId,
+    activeTrackingId: truthBeforeActions.application?.trackingId || scopedBefore.state.activeTrackingId,
+  };
   deterministicAnchor = scopeTurnToCurrentApplication({ turn: deterministicAnchor, applicationChanged: scopedBefore.applicationChanged });
 
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
   if (contextualContinuation) deterministicAnchor = makeDeterministicContinuationTurn(deterministicAnchor);
 
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
-  // Phase 11 explicitly has no paid shadow. Sol routing exists only as a future
-  // opt-in tier; until an explicit Sol provider is wired here, high-complexity
-  // traffic safely stays on the normal DeepSeek provider rather than duplicating it.
-  const modelTier: HumanModelTier = provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier;
+  // Explicit tracking + status lookup is already authoritative DB work. Do not
+  // pay a model to reinterpret it and do not let a legacy verifier replace it.
+  const modelTier: HumanModelTier = explicitStatusTracking ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
   const provider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
 
   let brainMeaning: HumanBrainMeaning | null = null;
@@ -275,7 +363,10 @@ export async function runHumanConversationOS(input: {
   const disclosureRequired = shouldExplainCommercialStep({ state: reduced, truth: truthAfterActions, turn, explicitContinuationIntent: Boolean(continuationIntent) });
   const alreadyDisclosed = commercialDisclosureDelivered(reduced, truthAfterActions);
 
-  let reply = gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
+  const authoritativeTrackingReply = explicitStatusTracking
+    ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
+    : null;
+  let reply = authoritativeTrackingReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -290,7 +381,7 @@ export async function runHumanConversationOS(input: {
   reduced = markRoleIntroducedFromReply({ ...reduced, lastAssistantText: reply, updatedAt: new Date().toISOString() }, reply);
 
   const protectedFiveJodStep = disclosureRequired || (alreadyDisclosed && Boolean(continuationIntent));
-  const safety = validateNativeConversationReply({
+  const safety = authoritativeTrackingReply ? AUTHORITATIVE_TRACKING_SAFETY : validateNativeConversationReply({
     reply,
     turn,
     state: reduced,
@@ -303,11 +394,11 @@ export async function runHumanConversationOS(input: {
   });
   let fallbackUsed = false;
   if (!safety.pass) {
-    reply = gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions) || deterministicFallback({ turn, truth: truthAfterActions, customerText: input.customerText });
+    reply = authoritativeTrackingReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions) || deterministicFallback({ turn, truth: truthAfterActions, customerText: input.customerText });
     fallbackUsed = true;
   }
 
-  const finalSafety = validateNativeConversationReply({
+  const finalSafety = authoritativeTrackingReply ? AUTHORITATIVE_TRACKING_SAFETY : validateNativeConversationReply({
     reply,
     turn,
     state: reduced,
