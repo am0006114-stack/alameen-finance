@@ -41,9 +41,8 @@ export default function ControlActions(props: Props) {
   const [progress, setProgress] = useState({ done: 0, total: Math.max(props.pendingCount, 0) });
 
   const statusText = useMemo(() => {
-    if (props.v3Live && !props.killSwitch) return "V3 شغال على الردود";
-    if (props.killSwitch) return "المسار الآمن شغال — V3 موقف";
-    return "V3 غير مفعّل";
+    if (props.v3Live && !props.killSwitch) return "Conversation OS شغال";
+    return "Conversation OS شغال بوضع آمن — Real Actions يجب أن تبقى OFF";
   }, [props.v3Live, props.killSwitch]);
 
   async function control(action: string) {
@@ -52,7 +51,7 @@ export default function ControlActions(props: Props) {
     try {
       let confirmValue: string | undefined;
       if (action === "enable_real_actions") {
-        const accepted = window.confirm("سيتم تفعيل الإلغاء والاسترداد التلقائي فقط. تغيير الجهاز والبيانات وإعادة الفتح تبقى يدوية عبر Discord. متابعة؟");
+        const accepted = window.confirm("سيتم تفعيل Real Actions المقيدة فقط حسب allow-list الحالي (الإلغاء، طلب الاسترداد، وربط واتساب الموثق). تغيير الجهاز والبيانات وإعادة الفتح لا تعتبر منفذة من واتساب. متابعة؟");
         if (!accepted) return;
         confirmValue = "ENABLE_SCOPED_CANCEL_REFUND";
       }
@@ -73,49 +72,21 @@ export default function ControlActions(props: Props) {
   }
 
   async function recoverAll() {
-    if (!props.v3Live || props.killSwitch) {
-      setMessage("شغّل V3 Replies Only أولًا قبل استعادة المحادثات.");
-      return;
-    }
-    if (!window.confirm(`سيتم الرد على المحادثات المتوقفة ضمن آخر ${labelForHours(props.currentHours)}. Real Actions تبقى مقفلة داخل الاستعادة. متابعة؟`)) return;
-
     setBusy("recover");
     setMessage("");
-    setProgress({ done: 0, total: Math.max(props.pendingCount - props.outsideWindowCount, 0) });
-    let totalSent = 0;
-    let totalFailed = 0;
-    let safety = 0;
     try {
-      while (safety < 100) {
-        safety += 1;
-        const response = await fetch("/api/admin/whatsapp-control/recover", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ hours: props.currentHours, batchSize: 8 }),
-        });
-        const payload = (await response.json().catch(() => ({}))) as RecoveryResult & { error?: string };
-        if (!response.ok) throw new Error(payload?.error || "تعذر تشغيل استعادة المحادثات");
-        totalSent += Number(payload.sent || 0);
-        totalFailed += Number(payload.failed || 0);
-        setProgress((prev) => ({
-          total: Math.max(prev.total, Number(payload.pendingTotal || 0) - Number(payload.skippedOutsideWindow || 0)),
-          done: prev.done + Number(payload.sent || 0) + Number(payload.failed || 0),
-        }));
-
-        if (payload.failed > 0) {
-          setMessage(`تم إرسال ${totalSent} رد، لكن فشل ${totalFailed}. تم إيقاف الاستعادة حتى لا نكرر المحاولات على نفس العملاء.`);
-          break;
-        }
-        if (!payload.remainingEligible || payload.attempted === 0) break;
-        await new Promise((resolve) => setTimeout(resolve, 600));
-      }
-      setMessage(`انتهت الاستعادة: تم إرسال ${totalSent} رد، وفشل ${totalFailed}.`);
+      const response = await fetch("/api/admin/whatsapp-control/recover", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ hours: props.currentHours }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload?.error || "تعذر تحليل الحالات غير المكتملة");
+      setMessage(payload?.message || `تم تحليل ${Number(payload?.unresolvedCount || 0)} حالة غير مكتملة.`);
+      setProgress({ done: 0, total: Number(payload?.unresolvedCount || 0) });
       router.refresh();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "فشلت الاستعادة");
-    } finally {
-      setBusy(null);
-    }
+      setMessage(error instanceof Error ? error.message : "فشل التحليل");
+    } finally { setBusy(null); }
   }
 
   async function copyWindow(hours: number) {
@@ -145,13 +116,13 @@ export default function ControlActions(props: Props) {
             <div className="mt-1 text-lg font-black text-white">{statusText}</div>
           </div>
           <div className={`rounded-full px-4 py-2 text-xs font-black ${props.v3Live && !props.killSwitch ? "bg-emerald-500/15 text-emerald-200" : "bg-amber-500/15 text-amber-100"}`}>
-            Real Actions: {props.realActions ? "ON — إلغاء + استرداد فقط" : "OFF"}
+            Real Actions: {props.realActions ? "ON — scoped" : "OFF"}
           </div>
         </div>
 
         <div className="flex flex-wrap gap-3">
           <button disabled={Boolean(busy)} onClick={() => control("enable_replies")} className="rounded-2xl bg-emerald-500 px-5 py-3 text-sm font-black text-black disabled:opacity-50">
-            تشغيل V3 — ردود فقط
+            تأكيد تشغيل Conversation OS
           </button>
           {props.realActions ? (
             <button disabled={Boolean(busy)} onClick={() => control("disable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
@@ -159,11 +130,11 @@ export default function ControlActions(props: Props) {
             </button>
           ) : (
             <button disabled={Boolean(busy) || !props.v3Live || props.killSwitch} onClick={() => control("enable_real_actions")} className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-5 py-3 text-sm font-black text-emerald-100 disabled:opacity-40">
-              تفعيل الإلغاء + الاسترداد التلقائي
+              تفعيل Real Actions المقيدة
             </button>
           )}
           <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-xs font-black text-sky-100">
-            تغيير الجهاز/البيانات/إعادة الفتح: يدوي عبر Discord
+            تغيير الجهاز/البيانات: حسب مسار Phase 8.4 الموثق؛ لا ادعاء تنفيذ من واتساب
           </div>
         </div>
       </div>
@@ -171,14 +142,14 @@ export default function ControlActions(props: Props) {
       <div className="rounded-3xl border border-[#d6b56b]/20 bg-[#d6b56b]/[0.055] p-5">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
-            <div className="text-xs font-bold text-[#d6b56b]">Emergency Recovery — احتياط فقط</div>
-            <h3 className="mt-1 text-xl font-black text-white">استعادة طارئة للحالات غير المكتملة</h3>
+            <div className="text-xs font-bold text-[#d6b56b]">Unresolved Diagnostics — تشخيص فقط</div>
+            <h3 className="mt-1 text-xl font-black text-white">تحليل الحالات غير المكتملة بدون إرسال</h3>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-[#cfd5cf]">
-              المسار الحي لا يعتمد على هذا الزر. هذه أداة احتياط للحالات السابقة فقط: تستبعد reactions والإغلاقات الاجتماعية والرسائل القديمة غير القابلة للتصرف، وتضع العملاء الجاهزين للدفع أولًا ثم الإجراءات والأسئلة.
+              Phase 9 ألغى Recovery كمرسل مستقل حتى لا يوجد chatbot ثانٍ أو ghost replies. هذه الأداة تحلل فقط الحالات التي ما زالت مفتوحة زمنيًا أو دلاليًا؛ الإرسال يملكه Conversation OS الحي وحده.
             </p>
           </div>
           <button disabled={Boolean(busy) || props.pendingCount === 0} onClick={recoverAll} className="rounded-2xl bg-[#d6b56b] px-6 py-3 text-sm font-black text-black disabled:opacity-40">
-            {busy === "recover" ? "جاري الاستعادة..." : `استعادة الطوارئ (${props.pendingCount})`}
+            {busy === "recover" ? "جاري التحليل..." : `تحليل غير المكتمل (${props.pendingCount})`}
           </button>
         </div>
 

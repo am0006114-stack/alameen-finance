@@ -1,5 +1,18 @@
 import type { PolicyTruth } from "./types";
-import { ALAMEEN_FIRST_INSTALLMENT_RULE, ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE, IPHONE18_PICKUP_RULE } from "./businessTruthRegistry";
+import {
+  ALAMEEN_DOWN_PAYMENT_RULE,
+  ALAMEEN_FIRST_INSTALLMENT_RULE,
+  ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE,
+  ALAMEEN_OFFICE_OPERATION_RULE,
+  IPHONE18_PICKUP_RULE,
+} from "./businessTruthRegistry";
+import {
+  FILE_OPENING_PAYMENT_ALIASES,
+  FILE_OPENING_PAYMENT_BENEFICIARY,
+  FILE_OPENING_PAYMENT_PHONE,
+  FILE_OPENING_PAYMENT_WALLET_TYPE,
+  currentFileOpeningPaymentRule,
+} from "./paymentDestinationOverride";
 
 type ReviewPressureLevel = PolicyTruth["reviewPressureLevel"];
 
@@ -26,16 +39,16 @@ function buildPolicy(): PolicyTruth {
     fileOpeningFeeRefundRule: "رسوم فتح الملف مستردة بالكامل عبر المسار الرسمي إذا لم تصدر الموافقة النهائية بعد دفع مؤكد، وكذلك إذا قرر العميل إلغاء الطلب بعد دفعها، على أن يكون الدفع مثبتًا ومؤكدًا إداريًا.",
     continuationReassuranceRule: "اشرح الخطوة بوضوح واحترام ومن دون ضغط: العميل يجب أن يعرف سبب الرسوم وما الذي تفتحه قبل تثبيت قراره. الموافقة المبدئية ليست نهائية، والـ5 دنانير ليست شراءً للموافقة ولا التزامًا بثمن الجهاز. القرار للعميل، ويجوز له أخذ وقته قبل الاختيار. إذا دفع ولم تصدر الموافقة النهائية فالرسوم مستردة بالكامل عبر المسار الرسمي، وإذا دفع ثم قرر الإلغاء فحقه محفوظ وفق مسار الإلغاء والاسترداد. لا تستخدم صياغة من نوع ادفع أو توقف، ولا تخويفًا أو استعجالًا مصطنعًا.",
     commercialStructureRule: "نظام التعامل عند الأمين للأقساط مرابحة وليس قرضًا ربويًا.",
-    additionalFeesRule: `لا توجد دفعة أولى على الجهاز، ولا تأمين، ولا رسوم عقد أو رسوم إدارية إضافية غير رسوم فتح الملف 5 دنانير. ${ALAMEEN_FIRST_INSTALLMENT_RULE} ${ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE}`,
+    additionalFeesRule: `${ALAMEEN_DOWN_PAYMENT_RULE} لا يوجد تأمين، ولا توجد رسوم عقد أو رسوم إدارية إضافية معتمدة غير رسوم فتح الملف 5 دنانير. ${ALAMEEN_FIRST_INSTALLMENT_RULE} ${ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE}`,
     requirementsGuidanceRule: "الهوية وإثبات الدخل من الأساسيات. بيانات الكفيل ليست شرطًا ثابتًا لكل طلب، والملف القوي قد يمشي بدون كفيل حسب الدراسة. إذا ما في كشف أو شهادة راتب، ممكن تُذكر/تُرفع بدائل مناسبة لطبيعة الدخل مثل كشف حساب بنكي أو عقد عمل أو مستند رسمي يوضح مصدر الدخل، والدراسة تحدد المقبول النهائي حسب حالة الملف.",
     firstInstallmentRule: ALAMEEN_FIRST_INSTALLMENT_RULE,
-    pickupRule: "الاستلام من المكتب فقط وبموعد رسمي؛ لا يوجد توصيل",
+    pickupRule: ALAMEEN_OFFICE_OPERATION_RULE,
     secureDocumentsRule: "الهوية وكشف الراتب وشهادة الراتب وبيانات الكفيل وإثبات الدفع والمستندات الحساسة ترفع فقط عبر الرابط الرسمي الآمن، ولا تُستلم عبر واتساب",
     independenceStatement: "الأمين للأقساط جهة مستقلة تمامًا، ولا توجد أي علاقة أو شراكة أو تبعية بينها وبين شركة الأمين للتمويل الأصغر على الإطلاق",
-    paymentAliases: ["PAYAMEEEN", "AMEEN1ST", "AM500337"],
-    paymentWalletType: "Orange Money",
-    paymentBeneficiaryName: "ABDUL RAHMAN ALHARAHSHEH",
-    paymentMethodRule: "التحويل ممكن من أي حساب بنكي يدعم CliQ أو من محفظة إلكترونية. الجهة المستلمة محفظة Orange Money، والتحويل يكون إلى PAYAMEEEN أو AMEEN1ST أو AM500337 أو الرقم 0788500337، ويجب مراجعة اسم المستفيد ABDUL RAHMAN ALHARAHSHEH قبل تأكيد الحوالة.",
+    paymentAliases: [...FILE_OPENING_PAYMENT_ALIASES],
+    paymentWalletType: FILE_OPENING_PAYMENT_WALLET_TYPE,
+    paymentBeneficiaryName: FILE_OPENING_PAYMENT_BENEFICIARY,
+    paymentMethodRule: `${currentFileOpeningPaymentRule()} لا تفترض توافق محفظة/بنك غير موثق مع قناة معينة؛ اشرح فقط قنوات الاستلام الرسمية المعتمدة.`,
     paymentConfirmationRule: "رسالة العميل أو صورة الوصل لا تؤكد الدفع تلقائيًا. تأكيد الدفع النهائي يتم يدويًا من الإدارة/الأدمن بعد مراجعة الإثبات الرسمي المرفوع من الرابط الآمن.",
     normalReviewWindow: "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل",
     recentReleaseAvailabilityRule: `${IPHONE18_PICKUP_RULE} وجود iPhone 18 في الكتالوج يعني أنه معروض للتقديم، ولا يعني مخزونًا أو استلامًا فوريًا. لا تخترع سعرًا أو لونًا أو قسطًا أو توفرًا خارج الحقيقة التجارية المعتمدة.`,
@@ -44,7 +57,7 @@ function buildPolicy(): PolicyTruth {
     severePressureRule: pressureRule(level),
     refundPressureRule: "الاسترداد حق مرتبط بالدفع المؤكد. قد يحتاج وقتًا للمعالجة وله دوره مثل الدراسة والمراجعة؛ وجود الضغط لا يلغي حق العميل ولا يبرر إعطاء موعد وهمي.",
     disputeResolutionRule: "عند اتهام بالنصب أو تهديد بالنشر لا تدخل في دفاع عصبي ولا استجداء. اعرض الحل الفعلي بثبات: إن لم يرد العميل الاستمرار فالإلغاء متاح، وإذا كان الدفع مؤكدًا فمسار الاسترداد محفوظ. وضّح أن حقه لا يضيع وأن الاسترداد له معالجة ودور. عند تهديد نشر صريح فقط يمكن التنبيه باحترام إلى أن التشهير المتعمد أو نشر معلومات غير صحيحة قد تكون له تبعات قانونية.",
-    autonomousSupervisorRule: "كل تغيير فعلي على الطلب أو الإلغاء أو التراجع أو الاسترداد أو تعديل الجهاز/الحسبة ينفذه عمران فقط. عمران يكمل الحالة مباشرة ولا ينتظر تحويلًا لشخص آخر.",
+    autonomousSupervisorRule: "عمران هو صوت الإشراف في محادثات الإلغاء والاسترداد والتعديل والتصعيد. لا يُعتبر أي تغيير أو إلغاء أو استرداد منفذًا لمجرد أن عمران قاله؛ التنفيذ يُثبت فقط من Action Result أو من الحقيقة التشغيلية/الإدارية الموثقة.",
     forbiddenClaims: [
       "الأمين للأقساط والتمويل",
       "شركة تمويل",

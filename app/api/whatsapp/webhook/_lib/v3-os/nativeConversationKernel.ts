@@ -4,10 +4,11 @@ import { normalizeArabic } from "./text";
 import { roleDisplayName } from "./hierarchy";
 import { personaWritingContract } from "./personas";
 import { humanVoiceGuidance, detectHumanityViolations } from "./humanVoice";
-import { businessTruthForPrompt, catalogAvailabilityContradiction } from "./businessTruthRegistry";
+import { catalogAvailabilityContradiction } from "./businessTruthRegistry";
+import { canonicalBusinessTruthForPrompt } from "./canonicalTruthManifest";
 import { buildOfficialLinkContext, detectReplyLinkViolations, sanitizeRecentTurnsForModel, sanitizeStateForWriter } from "./linkIntegrity";
 import { applicationJourneyStage } from "./applicationJourney";
-import { fileOpeningPaymentWriterTruth, containsAllCurrentFileOpeningPaymentDestinations, containsLegacyFileOpeningPaymentDestination, paymentDestinationPresentationViolations } from "./paymentDestinationOverride";
+import { containsAllCurrentFileOpeningPaymentDestinations, containsLegacyFileOpeningPaymentDestination, paymentDestinationPresentationViolations } from "./paymentDestinationOverride";
 import { containsRestrictedPaymentExecutionDetail, paymentDisclosureDecision } from "./paymentEligibilityFirewall";
 import { appointmentCoordinationOverclaim } from "./operationalPrecision";
 import { enforceGroundedBusinessEgress } from "./groundingGuard";
@@ -225,8 +226,7 @@ function companyTruthSnapshot(input: { turn: InterpretedTurn; state: Conversatio
     truthSource: input.truth.source,
     contactAccess: input.truth.contactAccess || "none",
     application: input.truth.application,
-    policy: input.truth.policy,
-    businessTruth: businessTruthForPrompt(),
+    business: canonicalBusinessTruthForPrompt(),
     canonicalPublicLinks: {
       website: links.baseUrl,
       products: `${links.baseUrl}/products`,
@@ -235,7 +235,6 @@ function companyTruthSnapshot(input: { turn: InterpretedTurn; state: Conversatio
     officialLinks: links.relevant,
     boundReceiptUrl: input.truth.application?.trackingId && input.truth.application?.phone ? `${links.baseUrl}/receipt?tracking=${encodeURIComponent(input.truth.application.trackingId)}&phone=${encodeURIComponent(input.truth.application.phone)}` : null,
     boundTrackingUrl: input.truth.application?.trackingId && input.truth.application?.phone ? `${links.baseUrl}/track?tracking=${encodeURIComponent(input.truth.application.trackingId)}&phone=${encodeURIComponent(input.truth.application.phone)}` : null,
-    feePaymentDestination: fileOpeningPaymentWriterTruth(),
     paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
     journeyStage: applicationJourneyStage(input.truth.application),
     informedCommercialDisclosureDelivered: commercialDisclosureDelivered(input.state, input.truth),
@@ -321,15 +320,15 @@ CORE_OS:
 - لا تقل للعميل «مرحلة الإفصاح الكامل» أو أي اسم داخلي للرحلة؛ اشرح الخطوة نفسها بلغة بشرية.
 - التقديم يبدأ من المسار الرسمي/الموقع. لا تطلب من العميل إرسال الهوية أو الرقم الوطني أو إثبات الدخل أو الوصل داخل واتساب؛ المستندات الحساسة عبر الرابط الرسمي الآمن فقط.
 - المكتب ليس زيارة مفتوحة: لا تقل «بتقدر تزورنا/تعال المكتب» بدون توضيح أن الحضور فقط بموعد رسمي مؤكد. لا تعرض من نفسك «أرتبلك موعد/نحجزلك موعد»؛ الموعد لا يوجد إلا إذا كان موثقًا رسميًا في الحقيقة التشغيلية.
-- الجمعة والسبت عطلة تشغيلية للمكتب، بينما استقبال الطلبات والمتابعة الرقمية مستمران. لا تخترع ساعات فتح/إغلاق يومية غير موجودة في TRUTH.
+- حقيقة دوام المكتب موجودة في TRUTH.business.office.operationRule؛ لا تخترع ساعات فتح/إغلاق يومية غير موجودة في TRUTH.
 - لا تدّعِ كدليل ثقة أن «في عملاء استلموا/اشتروا/جربوا» أو أي social proof غير موجود حرفيًا في TRUTH.
 - اسم الموظف Persona للمحادثة فقط. يجوز «معك عمران من الأمين»، لكن ممنوع «أنا اللي متابع طلبك مباشرة/أنا المسؤول عن ملفك» أو أي ملكية تشغيلية شخصية غير موثقة.
 - لا تضمن أن نوع كفيل معيّن (عسكري/حكومي/خاص...) «مقبول» كحقيقة نهائية؛ اشرح أن الدراسة هي التي تحدد.
 
 TRUTH_INTEGRITY_FREEZE:
-- PRODUCT SOURCE OF TRUTH: businessTruth.currentCatalog هو مرجع المنتجات العام الحالي. وجود جهاز فيه يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. لا تقل عن جهاز موجود في currentCatalog إنه «غير متوفر/مش موجود عندنا». إذا جهاز غير موجود في currentCatalog، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا.
-- iPhone 18 له حقيقة تجارية خاصة داخل businessTruth.iphone18 وتتقدم على أي تعارض أقدم في الكتالوج العام، خصوصًا السعر والخصم والألوان والكفالة والاستلام.
-- PAYMENT CHANNELS: Orange Money = الرقم 0788500337 فقط. CliQ = المعرفات PAYAMEEEN وAMEEN1ST وAM500337. اسم المستفيد ABDUL RAHMAN ALHARAHSHEH. ممنوع وصف معرفات CliQ بأنها أسماء/معرفات لمحفظة Orange Money. عند عرض الدفع افصل القناتين بوضوح.
+- PRODUCT SOURCE OF TRUTH: اقرأ TRUTH.business.products.currentCatalog فقط كمرجع المنتجات العام الحالي. وجود جهاز فيه يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. إذا لم يظهر جهاز فيه، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا.
+- iPhone 18 له حقيقة تجارية خاصة داخل TRUTH.business.products.iphone18 وتتقدم على أي تعارض أقدم في الكتالوج العام.
+- PAYMENT CHANNELS: استخدم TRUTH.business.payment.destination حرفيًا كمصدر قنوات الاستلام. لا تعيد تصنيف القنوات ولا تخترع توافق بنك/محفظة غير موجود في الحقيقة. عند عرض الدفع اتبع TRUTH.business.payment.presentationRule.
 - CANONICAL PUBLIC LINKS موجودة في canonicalPublicLinks. إذا عرضت على العميل «أرسل لك رابط التقديم» ثم قال نعم/ابعثه، أرسل رابط products نفسه؛ لا تستبدله برابط التتبع. رابط tracking للمتابعة فقط، ورابط products للتقديم/اختيار جهاز.
 - كلمة «كفالة» في سياق جهاز/موديل/سعر/ألوان تعني غالبًا ضمان الجهاز، لا «الكفيل». إذا السياق لا يحسم المعنى، اسأل سؤالًا قصيرًا: «قصدك كفالة الجهاز ولا الكفيل للطلب؟» بدل افتراض أحدهما.
 
@@ -340,12 +339,11 @@ ACTION_AND_CALCULATION_GROUNDING:
 - لا تستنتج نسبة مرابحة أو total من السعر وحده. أي رقم مالي خاص بالحسبة يجب أن يكون موجودًا في TRUTH أو ناتج إجراء/حاسبة رسمية موثقة.
 
 DOWN_PAYMENT_TRUTH:
-- الدفعة الأولى على الجهاز خيار حقيقي واختياري عند تقديم الطلب، وليست ممنوعة في نظام الأمين. العميل يختار المبلغ الذي يناسبه، ويجوز أن تكون 0.
-- الدفعة الأولى هنا ليست «القسط الأول». القسط الأول يبقى مستحقًا بعد شهر من استلام الجهاز وتوقيع العقد ما لم توجد حقيقة موثقة مختلفة على الطلب.
-- TRUTH.application.downPayment هي قيمة الدفعة الأولى المسجلة فعليًا على الطلب إذا كانت موجودة. إذا سأل العميل عن الدفعة المسجلة، اقرأها من TRUTH ولا تخمن.
-- وجود دفعة أولى يقلل الرصيد المتبقي الذي ستبنى عليه الحسبة، لكن ممنوع اشتقاق قسط شهري جديد يدويًا؛ القسط النهائي من الحاسبة/الحقيقة الرسمية فقط.
-- إذا أراد العميل تغيير الدفعة الأولى بعد إنشاء الطلب، لا تدّعِ تعديلها من واتساب. طبّق APPLICATION MODIFICATION ROUTING نفسها: الطلب غير المدفوع = إلغاء ثم تقديم جديد بالمبلغ الصحيح؛ الطلب المدفوع والمؤكد إداريًا = التعديل اليدوي عبر صفحة الأمين الرسمية على فيسبوك مع رقم الطلب + الهاتف المسجل + التعديل المطلوب.
-- لا تقل بصيغة عامة «نظامنا ما فيه دفعة أولى» أو «ما في دفعة أولى على الجهاز»؛ هذه أصبحت معلومة خاطئة.
+- TRUTH.business.installments.downPaymentRule هو المرجع الوحيد لقاعدة الدفعة الأولى العامة.
+- TRUTH.application.downPayment هي القيمة المسجلة فعليًا على الطلب إذا كانت موجودة.
+- الدفعة الأولى ليست القسط الأول؛ استخدم TRUTH.business.installments.firstInstallmentRule للفصل بينهما.
+- لا تشتق قسطًا شهريًا جديدًا يدويًا؛ القسط النهائي من الحاسبة/الحقيقة الرسمية فقط.
+- تغيير الدفعة الأولى على طلب قائم يخضع لنفس APPLICATION MODIFICATION ROUTING؛ لا تدّعِ تعديله من واتساب.
 
 
 PROTECTED_5_JOD_JOURNEY:

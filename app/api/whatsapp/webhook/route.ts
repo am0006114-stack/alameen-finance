@@ -165,7 +165,9 @@ import {
 } from "./_lib/conversationKernel";
 import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
-import { saveV3ConversationState } from "./_lib/v3-os/stateStore";
+import { loadV3ConversationState, saveV3ConversationState } from "./_lib/v3-os/stateStore";
+import { emptyState } from "./_lib/v3-os/state";
+import { V3_OS_VERSION, type ConversationState } from "./_lib/v3-os/types";
 import { shouldSuppressStaleV3Reply, waitForV3EgressFreshnessBarrier } from "./_lib/v3-os/turnIntegrity";
 import {
   conversationBurstLockKey,
@@ -10949,10 +10951,13 @@ export async function POST(request: Request) {
           createdAt: incomingCreatedAt,
         });
 
-        // V3 production control is fail-safe: if the settings table is absent or unreadable,
-        // V3 stays inactive and the currently deployed safe route continues unchanged.
+        // Phase 9: control-plane failure may disable mutations, but never changes the
+        // customer's conversation architecture. The Native Conversation OS remains the
+        // only non-OTP customer path; DB control only gates scoped Real Actions.
         const v3ProductionControl = await getV3ProductionControl();
         const v3LiveActive = isV3ProductionActive(v3ProductionControl);
+        const v3ConversationOsActive = true as const;
+        const v3RealActionsEnabled = v3LiveActive && v3ProductionControl.realActionsEnabled;
 
         // Phase 8.5 absolute availability: historical AUTO_REPLY_IGNORED markers
         // no longer suppress customer replies. There is no staffed WhatsApp handoff
@@ -11063,10 +11068,10 @@ export async function POST(request: Request) {
           return;
         }
 
-        // V3 PHASE 6 LIVE CUTOVER. When explicitly activated in DB, V3 owns the
-        // customer turn end-to-end. Legacy AUTO_REPLY_IGNORED markers are intentionally
-        // bypassed so conversations previously "handed off" do not remain abandoned.
-        if (v3LiveActive) {
+        // Phase 9 CLEAN CUTOVER: Native Conversation OS owns every normal customer
+        // turn. Legacy V1/V2 stacks are retained below only as historical code during
+        // the consolidation window and are no longer eligible for customer traffic.
+        if (v3ConversationOsActive) {
           const v3TurnId = message.id || `fallback:${from}:${message.timestamp || Date.now()}`;
           const v3RecentTurns = String(preReplyMemory.conversationContext || "")
             .split(/\n+/)
@@ -11075,6 +11080,7 @@ export async function POST(request: Request) {
             .slice(-24);
 
           let v3Run: Awaited<ReturnType<typeof runV3ProductionLive>> | null = null;
+          let degradedStateAfter: ConversationState | null = null;
           let reply = "";
 
           try {
@@ -11084,7 +11090,7 @@ export async function POST(request: Request) {
               customerText: replyInputText,
               recentTurns: v3RecentTurns,
               profileName: contactName,
-              realActionsEnabled: v3ProductionControl.realActionsEnabled,
+              realActionsEnabled: v3RealActionsEnabled,
             });
             if (!v3Run.finalSafetyPass || !v3Run.reply) {
               console.error("V3 Phase 8.1.2 liveness retry: Native Kernel produced no validated reply", {
@@ -11098,11 +11104,19 @@ export async function POST(request: Request) {
             }
             reply = v3Run.reply;
           } catch (v3RuntimeError) {
-            console.error("V3 live runtime failed; Phase 8.5 fail-open transport fallback will answer", { waId: from, messageId: message.id || null, error: v3RuntimeError });
-            // Absolute liveness policy: runtime/model failure must never create silence.
-            // This short fallback makes no transaction-state claim and still passes through
-            // the same burst lock, freshness authority and Meta delivery evidence below.
+            console.error("V3 live runtime failed; Phase 9 degraded Native reply will answer", { waId: from, messageId: message.id || null, error: v3RuntimeError });
+            // Never-silent remains true, but a degraded reply is now stateful and observable
+            // instead of being a stateless transport-only response.
             reply = buildV3LastResortReply();
+            const prior = (await loadV3ConversationState(from)) || emptyState(from);
+            degradedStateAfter = {
+              ...prior,
+              version: V3_OS_VERSION,
+              lastTurnId: v3TurnId,
+              lastCustomerText: replyInputText,
+              lastAssistantText: reply,
+              updatedAt: new Date().toISOString(),
+            };
             v3Run = null;
           }
 
@@ -11276,7 +11290,8 @@ export async function POST(request: Request) {
                   source_burst_message_ids: burstMessageIds,
                   v3_turn_id: v3TurnId,
                   provider_message_id: outgoingMessageId,
-                  egress_version: "phase8.3-zero-silence",
+                  egress_version: "phase9.0-single-conversation-os",
+                  degraded_turn: Boolean(degradedStateAfter),
                 },
               });
 
@@ -11308,27 +11323,36 @@ export async function POST(request: Request) {
               });
             }
 
-            // Commit conversation state only after the intended V3 reply was actually delivered.
-            if (v3Run && outgoingMessageId && !emergencyDeliveryUsed) {
+            // Phase 9 completion contract: a delivered customer reply is not considered
+            // complete until the semantic/degraded conversation state is durable too.
+            const stateToPersist = v3Run?.stateAfter || degradedStateAfter;
+            if (stateToPersist && outgoingMessageId && !emergencyDeliveryUsed) {
               try {
-                await saveV3ConversationState(v3Run.stateAfter);
+                await saveV3ConversationState(stateToPersist);
               } catch (v3StateError) {
-                console.error("V3 state save failed after send", { waId: from, messageId: message.id || null, error: v3StateError });
+                console.error("V3 state save failed after send; keeping inbound retryable", { waId: from, messageId: message.id || null, error: v3StateError });
                 try {
                   await notifyV3Discord({
                     event: "truth_integrity_failure",
-                    applicationId: v3Run.truthAfterActions.application?.id || null,
-                    trackingId: v3Run.truthAfterActions.application?.trackingId || null,
+                    applicationId: v3Run?.truthAfterActions.application?.id || null,
+                    trackingId: v3Run?.truthAfterActions.application?.trackingId || null,
                     waId: from,
                     title: "⛔ تعذر حفظ حالة المحادثة",
-                    description: "تم إرسال الرد لكن تعذر حفظ حالة المحادثة الدائمة.",
+                    description: "تم إرسال الرد لكن لم تُعتبر المحادثة مكتملة لأن حالة Conversation OS لم تُحفظ. سيُعاد المحاولة بدون إرسال رد ثانٍ.",
                     details: { messageId: message.id || null },
                   });
                 } catch {}
+                throw new Error("V3_RETRYABLE_STATE_PERSISTENCE_FAILURE");
               }
             }
           } else {
             console.log("Skipped already-delivered V3 outgoing reply for this inbound burst", { waId: from, messageId: message.id, burstKey: activeBurstKey, reason: outgoingClaim.reason });
+            const retryStateToPersist = v3Run?.stateAfter || degradedStateAfter;
+            if (retryStateToPersist && alreadyDeliveredForIncoming) {
+              // If a previous invocation delivered successfully but state persistence
+              // failed, the retry repairs state without sending a second customer reply.
+              await saveV3ConversationState(retryStateToPersist);
+            }
           }
 
           await markIncomingWhatsAppMessagesProcessed(burstMessageIds.length ? burstMessageIds : [String(message.id || "")]);

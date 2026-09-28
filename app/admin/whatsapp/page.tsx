@@ -1,6 +1,5 @@
-﻿import Link from "next/link";
+import Link from "next/link";
 import CopyConversationButtons from "./CopyConversationButtons";
-import IgnoreCustomerButton from "./IgnoreCustomerButton";
 import { redirect } from "next/navigation";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
@@ -601,24 +600,17 @@ export default async function AdminWhatsAppInboxPage({ searchParams }: PageProps
                     <p className="mt-2 text-xs font-bold text-[#aeb9af]">
                       تم تحميل {selectedConversationMessages.length} رسالة محفوظة لهذا الرقم، من الأقدم إلى الأحدث.
                     </p>
-                    <span
-                      className={`mt-3 inline-flex rounded-full border px-3 py-1 text-xs font-black ${
-                        selectedAutoReplyIgnored
-                          ? "border-red-300/30 bg-red-950/30 text-red-100"
-                          : "border-emerald-300/25 bg-emerald-950/25 text-emerald-100"
-                      }`}
-                    >
-                      {selectedAutoReplyIgnored
-                        ? "الرد التلقائي متوقف"
-                        : "الرد التلقائي يعمل"}
+                    <span className="mt-3 inline-flex rounded-full border border-emerald-300/25 bg-emerald-950/25 px-3 py-1 text-xs font-black text-emerald-100">
+                      Conversation OS يعمل دائمًا — لا يوجد تجاهل صامت للعميل
                     </span>
+                    {selectedAutoReplyIgnored ? (
+                      <span className="mt-2 inline-flex rounded-full border border-amber-300/25 bg-amber-950/20 px-3 py-1 text-xs font-black text-amber-100">
+                        يوجد وسم Ignore قديم في السجل لكنه غير فعّال في Phase 9
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-2 sm:flex-row">
-                    <IgnoreCustomerButton
-                      phone={phoneFilter}
-                      initialIgnored={selectedAutoReplyIgnored}
-                    />
                     <CopyConversationButtons
                       fullText={selectedConversationCopyText}
                       recentText={selectedRecentConversationCopyText}

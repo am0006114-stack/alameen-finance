@@ -73,11 +73,9 @@ function safeErrorText(value: string | null | undefined) {
 }
 
 function buildPreviewText(app: ApplicationRecord) {
-  return `تم إرسال Template الموافقة المبدئية للعميل.
-
-الاسم: ${firstTwoNames(app.full_name)}
-الجهاز: ${app.device_name || "الجهاز المطلوب"}
-رقم التتبع: ${app.tracking_id || app.id}`;
+  // Internal event metadata only. Phase 9 transcript readers exclude template_event
+  // so this synthetic summary can never masquerade as customer-visible dialogue.
+  return `PRELIMINARY_APPROVAL_TEMPLATE_SENT | name=${firstTwoNames(app.full_name)} | device=${app.device_name || "الجهاز المطلوب"} | tracking=${app.tracking_id || app.id}`;
 }
 
 async function logOutgoingWhatsApp(app: ApplicationRecord, to: string, body: string) {
@@ -87,7 +85,7 @@ async function logOutgoingWhatsApp(app: ApplicationRecord, to: string, body: str
       direction: "outgoing",
       customer_name: app.full_name || null,
       message_id: null,
-      message_type: "template",
+      message_type: "template_event",
       body,
     });
   } catch {

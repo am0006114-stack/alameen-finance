@@ -11,7 +11,7 @@ export type V3ProductionControl = {
 };
 
 const SAFE_DEFAULT: V3ProductionControl = {
-  liveEnabled: false,
+  liveEnabled: true,
   killSwitch: false,
   realActionsEnabled: false,
   resumeLegacyIgnored: true,
@@ -60,9 +60,12 @@ export async function tripV3ProductionCircuitBreaker(reason: string) {
     const { error } = await supabaseAdmin
       .from("whatsapp_v3_production_settings")
       .update({
-        live_enabled: false,
-        kill_switch: true,
+        // Phase 9: a runtime safety event may disable mutations, but it must not
+        // demote customer traffic into the retired V1 conversation stack.
+        live_enabled: true,
+        kill_switch: false,
         real_actions_enabled: false,
+        runtime_version: V3_OS_VERSION,
         updated_at: new Date().toISOString(),
       })
       .eq("id", "default");

@@ -33,7 +33,9 @@ export function isSocialClosureCustomerText(text: string | null | undefined, mes
   const n = normalize(text);
   if (!n) return true;
   if (/^[\p{Extended_Pictographic}\u200d\ufe0f\s]+$/u.test(n)) return true;
-  return /^(?:تمام|تم|اوك|اوكي|اوكيه|شكرا|شكرا الك|يسلمو|يعطيك العافيه|الله يعطيك العافيه|حياك|حياكي|ان شاء الله|الحمد لله|ماشي|خلص|👍|❤️|❤)$/.test(n);
+  // Phase 9: ambiguous acknowledgements such as "تم/تمام/ماشي/خلص" can be
+  // confirmations of a pending business action. Never discard them without context.
+  return /^(?:اوك|اوكي|اوكيه|شكرا|شكرا الك|يسلمو|يعطيك العافيه|الله يعطيك العافيه|حياك|حياكي|ان شاء الله|الحمد لله|👍|❤️|❤)$/.test(n);
 }
 
 export function isBusinessActionText(text: string | null | undefined, intent?: string | null) {

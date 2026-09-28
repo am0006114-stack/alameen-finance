@@ -97,6 +97,15 @@ function looksLikeCustomerQuestion(value: string | null | undefined) {
 }
 
 
+
+function isSyntheticConversationRow(message: { direction?: string | null; body?: string | null; message_type?: string | null }) {
+  const type = String(message.message_type || "").toLowerCase();
+  const body = String(message.body || "");
+  if (type === "admin_control" || type === "template_event") return true;
+  if (type === "template" && /تم إرسال Template الموافقة المبدئية للعميل|Template الموافقة المبدئية/i.test(body)) return true;
+  return false;
+}
+
 function inferLastConcernFromMemory(value: string | null | undefined) {
   const text = String(value || "");
   if (/الموقع|السايت|التتبع|الرابط|جلب الطلبات|خطأ|خطا|404|not found|error/i.test(text)) return "site_or_tracking_issue";
@@ -152,8 +161,10 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     }
 
     const chronological = [...data].reverse();
+    const transcriptRows = chronological.filter((message) => !isSyntheticConversationRow(message));
+    const newestTranscriptRows = [...transcriptRows].reverse();
 
-    const conversationContext = chronological
+    const conversationContext = transcriptRows
       .map((message) => {
         const body = trimLine(message.body, 420);
         if (!body) return "";
@@ -167,20 +178,20 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .filter(Boolean)
       .join("\n");
 
-    const lastAssistantReplies = data
+    const lastAssistantReplies = newestTranscriptRows
       .filter((message) => message.direction === "outgoing")
       .map((message) => trimLine(message.body, 280))
       .filter(Boolean)
       .slice(0, 4);
 
-    const lastCustomerMessages = data
+    const lastCustomerMessages = newestTranscriptRows
       .filter((message) => message.direction === "incoming")
       .map((message) => trimLine(message.body, 220))
       .filter(Boolean)
       .slice(0, 6);
 
 
-    const incomingMessagesNewest = data
+    const incomingMessagesNewest = newestTranscriptRows
       .filter((message) => message.direction === "incoming")
       .map((message) => ({
         body: trimLine(message.body, 420),
@@ -195,8 +206,10 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       .find((message) => looksLikeCustomerQuestion(message.body))?.body || null;
 
     const recentTemplateMessage = data.find((message) =>
-      message.direction === "outgoing" &&
-      /تم إرسال Template الموافقة المبدئية للعميل|Template الموافقة المبدئية/i.test(String(message.body || ""))
+      message.direction === "outgoing" && (
+        String(message.message_type || "").toLowerCase() === "template_event"
+        || /PRELIMINARY_APPROVAL_TEMPLATE_SENT|تم إرسال Template الموافقة المبدئية للعميل|Template الموافقة المبدئية/i.test(String(message.body || ""))
+      )
     );
     const recentTemplateTime = recentTemplateMessage?.created_at
       ? new Date(recentTemplateMessage.created_at).getTime()
@@ -205,14 +218,14 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       Number.isFinite(recentTemplateTime) &&
       Date.now() - recentTemplateTime <= 6 * 60 * 60 * 1000;
 
-    const outgoingText = data
+    const outgoingText = newestTranscriptRows
       .filter((message) => message.direction === "outgoing")
       .map((message) => String(message.body || ""))
       .join("\n");
 
     // رقم الهاتف الذي يرسله العميل قد يخص طلبًا مسجلًا على رقم مختلف عن رقم واتساب الحالي.
     // نأخذه من رسائل العميل فقط حتى لا نلتقط رقم الشركة من ردودنا الرسمية.
-    const incomingText = chronological
+    const incomingText = transcriptRows
       .filter((message) => message.direction === "incoming")
       .map((message) => String(message.body || ""))
       .join("\n");
@@ -220,7 +233,7 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
     const sentUrls = extractUrlsFromMemory(outgoingText);
     const latestRelevantUrl = sentUrls[0] || null;
 
-    const latestPaymentOutgoing = data.find((message) =>
+    const latestPaymentOutgoing = newestTranscriptRows.find((message) =>
       message.direction === "outgoing" &&
       /(AMENPAY|AMEEENPAY|رسوم فتح الملف|\/receipt(?:$|[?#]))/i.test(String(message.body || ""))
     );
@@ -231,7 +244,7 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       Number.isFinite(latestPaymentTime) &&
       Date.now() - latestPaymentTime <= 48 * 60 * 60 * 1000;
 
-    const newestMessageTime = data[0]?.created_at ? new Date(data[0].created_at).getTime() : NaN;
+    const newestMessageTime = newestTranscriptRows[0]?.created_at ? new Date(newestTranscriptRows[0].created_at).getTime() : NaN;
     const hasRecentConversation =
       Number.isFinite(newestMessageTime) && Date.now() - newestMessageTime <= 30 * 60 * 1000;
 
@@ -239,14 +252,14 @@ export async function getConversationMemory(waId: string, limit = 60): Promise<C
       conversationContext,
       lastAssistantReplies,
       lastCustomerMessages,
-      lastIntent: data[0]?.intent || null,
-      lastDirection: data[0]?.direction || null,
+      lastIntent: newestTranscriptRows[0]?.intent || null,
+      lastDirection: newestTranscriptRows[0]?.direction || null,
       lastTrackingId: extractTrackingFromMemory(incomingText) || extractTrackingFromMemory(conversationContext) || null,
       lastPhoneNumber: extractJordanPhoneFromMemory(incomingText) || null,
       lastCustomerConcern: inferLastConcernFromMemory(conversationContext),
       hasRecentConversation,
       sentUrls,
-      hasRecentStaffIntro: data
+      hasRecentStaffIntro: newestTranscriptRows
         .filter((message) => message.direction === "outgoing")
         .some((message) => hasStaffIntro(message.body)),
       hasSentProductsLink: sentUrls.some((url) => /\/products(?:$|[?#])/i.test(url)),

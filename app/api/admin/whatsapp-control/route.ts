@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { V3_OS_VERSION } from "@/app/api/whatsapp/webhook/_lib/v3-os/types";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const RUNTIME_VERSION = "v3.0.0-phase8.5-never-silent-revenue-priority-ops-autopilot";
 
 type Action = "enable_replies" | "disable_v3" | "enable_real_actions" | "disable_real_actions";
 
@@ -16,15 +15,15 @@ export async function POST(request: NextRequest) {
 
   if (!action) return NextResponse.json({ error: "Missing action" }, { status: 400 });
 
-  const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), runtime_version: RUNTIME_VERSION };
+  const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), runtime_version: V3_OS_VERSION };
   let message = "";
 
   if (action === "enable_replies") {
-    Object.assign(patch, { live_enabled: true, kill_switch: false, real_actions_enabled: false, resume_legacy_ignored: true });
-    message = "تم تشغيل V3 على الردود فقط. الإجراءات الحقيقية تبقى يدوية وتصل كتنبيه Discord للإدارة.";
+    Object.assign(patch, { live_enabled: true, kill_switch: false, resume_legacy_ignored: true });
+    message = "تم تأكيد تشغيل Conversation OS. وضع Real Actions لم يتغير.";
   } else if (action === "disable_v3") {
-    Object.assign(patch, { live_enabled: false, kill_switch: true, real_actions_enabled: false });
-    message = "تم إيقاف V3 وتفعيل المسار الآمن.";
+    Object.assign(patch, { live_enabled: true, kill_switch: false, real_actions_enabled: false });
+    message = "Phase 9 لا يعيد العملاء إلى V1. تم إبقاء الردود شغالة وتعطيل Real Actions فقط كوضع آمن.";
   } else if (action === "disable_real_actions") {
     Object.assign(patch, { real_actions_enabled: false });
     message = "تم إيقاف Real Actions.";
@@ -32,8 +31,8 @@ export async function POST(request: NextRequest) {
     if (String(body?.confirm || "") !== "ENABLE_SCOPED_CANCEL_REFUND") {
       return NextResponse.json({ error: "التأكيد المطلوب لتفعيل الإلغاء والاسترداد التلقائي غير موجود." }, { status: 400 });
     }
-    Object.assign(patch, { live_enabled: true, kill_switch: false, real_actions_enabled: true, resume_legacy_ignored: true });
-    message = "تم تفعيل Real Actions بشكل مقيد: إلغاء الطلب + طلب الاسترداد فقط. باقي التغييرات تبقى يدوية عبر Discord.";
+    Object.assign(patch, { real_actions_enabled: true });
+    message = "تم تفعيل Real Actions المقيدة بدون تغيير وضع الردود.";
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
