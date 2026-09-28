@@ -58,6 +58,10 @@ function boundApplicationUrl(path: string, truth: TruthBundle) {
   return `${canonicalBaseUrl()}${path}?tracking=${encodeURIComponent(app.trackingId)}&phone=${encodeURIComponent(app.phone)}`;
 }
 
+export function applicationReceiptUrl(truth: TruthBundle) {
+  return boundApplicationUrl("/receipt", truth);
+}
+
 export function applicationRefundUrl(truth: TruthBundle) {
   const app = truth.application;
   if (!app?.id || !app.trackingId || !app.phone) return null;
@@ -109,6 +113,9 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
   const receiptRequested = paymentDisclosureAllowed && (
     turnNeeds("receipt_upload", turn.topics) ||
     turnNeeds("payment_confirmation", turn.topics) ||
+    turnNeeds("payment_method", turn.topics) ||
+    turnNeeds("payment_recipient", turn.topics) ||
+    (turnNeeds("payment_fee", turn.topics) && continuationNeedsFeeNow(truth)) ||
     (turnNeeds("continuation", turn.topics) && continuationNeedsFeeNow(truth))
   );
   const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
@@ -227,10 +234,15 @@ function normalizeAllowedSet(urls: string[]) {
   return new Set(urls.map((url) => normalizedHttpUrl(url)).filter(Boolean) as string[]);
 }
 
-export function detectReplyLinkViolations(input: { reply: string; turn: InterpretedTurn; truth: TruthBundle }) {
+export function detectReplyLinkViolations(input: { reply: string; turn: InterpretedTurn; truth: TruthBundle; allowProtectedPaymentReceipt?: boolean }) {
   const violations: string[] = [];
   const context = buildOfficialLinkContext(input.turn, input.truth);
-  const allowed = normalizeAllowedSet(context.allowedUrls);
+  const allowedUrls = [...context.allowedUrls];
+  if (input.allowProtectedPaymentReceipt && !hasAuthoritativePaymentConfirmation(input.truth.application)) {
+    const protectedReceipt = applicationReceiptUrl(input.truth);
+    if (protectedReceipt) allowedUrls.push(protectedReceipt);
+  }
+  const allowed = normalizeAllowedSet(allowedUrls);
   const replyUrls = extractHttpUrls(input.reply);
 
   for (const raw of replyUrls) {

@@ -52,7 +52,7 @@ export function guardAction(action: PlannedAction, state: ConversationState, tru
 }
 
 function realMutationOwnershipBlocker(action: PlannedAction, state: ConversationState, truth: TruthBundle) {
-  if (!["cancel_application", "request_refund", "link_whatsapp_alias"].includes(action.action)) return null;
+  if (!["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(action.action)) return null;
   const payload = action.payload || {};
   if (!truth.application) return "application_truth_required";
   if (String(payload._scopeApplicationId || "") !== truth.application.id) return "mutation_application_scope_required";

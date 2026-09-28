@@ -1,5 +1,6 @@
 import type { ActionKey, DialogueAct, InterpretedTurn, TopicKey } from "./types";
 import { hasAny, isQuestion, normalizeArabic } from "./text";
+import { stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 
 function id(turnId: string, i: number) { return `${turnId}:a${i + 1}`; }
 function unique<T>(a: T[]) { return Array.from(new Set(a)); }
@@ -28,7 +29,7 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   else if (staff) add("request_role","human_request",0.99,"switch_ai_role");
   if (call) add("ask","call_request",0.98,"record_call_preference");
 
-  const stopRefund = hasAny(n,["تراجعت عن الاسترداد","ما بدي الاسترداد","وقف الاسترداد","الغي الاسترداد","إلغاء الاسترداد","بدي اكمل بدل الاسترداد"]);
+  const stopRefund = stopRefundKeepRequest(raw) || hasAny(n,["تراجعت عن الاسترداد","ما بدي الاسترداد","وقف الاسترداد","الغي الاسترداد","إلغاء الاسترداد","بدي اكمل بدل الاسترداد"]);
   const undoCancel = hasAny(n,["بطلت الغي","بطلت ألغي","ما بدي الغي","ما بدي ألغي","اريد الغاء طلب الالغاء","أريد إلغاء طلب الإلغاء","الغاء طلب الالغاء","إلغاء طلب الإلغاء","بدي ارجع عن الالغاء","بدي أرجع عن الإلغاء"]);
   const reopen = undoCancel || hasAny(n,["تراجعت عن الالغاء","تراجعت عن الإلغاء","الغاء الالغاء","إلغاء الإلغاء","فك الالغاء","فك الإلغاء","اعاده فتح الطلب","إعادة فتح الطلب","رجع افتح الطلب","بدي ارجع اكمل","غيرت رايي وبدي اكمل","غيرت رأيي وبدي أكمل"]);
   const cancelMention = !undoCancel && hasAny(n,["الغاء الطلب","إلغاء الطلب","الغي الطلب","بدي الغي","الغاء طلبي","إلغاء طلبي","ما بدي اكمل","وقف الطلب","الغي","الغاء"]);
@@ -50,14 +51,14 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   if (hasAny(n,["حاله الطلب","حالة الطلب","شو صار بالطلب","وين طلبي","طلبي شو صار","معلومات الطلب","معلومات طلبي","شو معلومات الطلب","شو معلومات طلبي","تفاصيل الطلب","تفاصيل طلبي","شو تفاصيل الطلب","شو تفاصيل طلبي","بيانات الطلب","بيانات طلبي"])) add("ask","application_status",0.98);
   if (hasAny(n,["متى الموافقه","متى الموافقة","قديش بتقعد","كم بتقعد","متى بردولي خبر","مدة الدراسه","مدة الدراسة","قديش المراجعه","قديش المراجعة","كم يوم بعد المده","كم يوم بعد المدة","بعد المده المحدده","بعد المدة المحددة","كم يوم زياده","كم يوم زيادة","قديش زياده","قديش زيادة","لايمتا","لامتى"])) add("ask","review_timing",0.98);
   if (hasAny(n,["ضغط المراجعات","ضغط المراجعه","ضغط شديد","ليش متاخر","ليش متأخر","التاخير","التأخير"])) add("ask","operational_pressure",0.88);
-  if (hasAny(n,["وين موقعكم","وين المكتب","موقع الاستلام","العنوان"])) add("ask","office_location",0.99);
+  if (hasAny(n,["وين موقعكم","وين المكتب","موقع الاستلام","العنوان"]) || (/(?:موقع|عنوان)/.test(n) && /(?:شركت|المكتب|الاستلام|عندكم)/.test(n))) add("ask","office_location",0.99);
   if (hasAny(n,["موعد","احجز موعد","حجز موعد","اجي عالمكتب","اروح عالمكتب"])) add("ask","appointment",0.96);
-  if (hasAny(n,["توصيل","كيف الاستلام","وين استلم","متى استلم"])) add("ask","delivery",0.97);
+  if (hasAny(n,["توصيل","كيف الاستلام","وين استلم","متى استلم"]) || /(?:استلام|استلم)/.test(n)) add("ask","delivery",0.97);
 
   if (hasAny(n,["5 دنانير","٥ دنانير","رسوم فتح الملف","الخمس دنانير"])) add("ask","payment_fee",0.99);
   if (hasAny(n,["متى ادفع","متى احول","متى الدفع","ادفع هسا","احول هسا"])) add("ask","payment_timing",0.98);
-  if (hasAny(n,["لمين احول","اسم المستفيد","على مين احول","كليك"])) add("ask","payment_recipient",0.96);
-  if (hasAny(n,["كيف ادفع","طريقه الدفع","طريقة الدفع"])) add("ask","payment_method",0.97);
+  if (hasAny(n,["لمين احول","اسم المستفيد","على مين احول","كليك"]) || /(?:وين|لمين|على\s+مين).{0,18}(?:احول|تحويل|كليك)/.test(n)) add("ask","payment_recipient",0.96);
+  if (hasAny(n,["كيف ادفع","طريقه الدفع","طريقة الدفع"]) || /(?:كيف|وين).{0,20}(?:بقدر|اقدر|بدي|ممكن)?\s*(?:ادفع|احول)|(?:دفع|ادفع).{0,24}(?:رسوم|فتح\s*الملف|الخمس|5|٥)/.test(n)) add("ask","payment_method",0.985);
   if (hasAny(n,["وصل الدفع","اثبات الدفع","إثبات الدفع","رفع الوصل","رابط الوصل","كيف ارفع الوصل"])) add("ask","receipt_upload",0.99,"generate_receipt_link");
   if (hasAny(n,["دفعت","حولت المبلغ","حولت الرسوم","تم الدفع","بعت الوصل","ارسلت الوصل","أرسلت الوصل"])) add("provide_fact","payment_confirmation",0.98,"generate_receipt_link","customer_claims_paid");
 

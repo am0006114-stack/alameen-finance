@@ -4,16 +4,12 @@ import { normalizeArabic } from "./text";
 import type { ActionKey, ActionPayload, ActionResult, ConversationState, PlannedAction, ReplyPlan, TruthBundle } from "./types";
 
 export const MANUAL_MUTATION_ACTIONS = new Set<ActionKey>([
-  "cancel_application",
-  "request_refund",
-  "stop_refund",
-  "reopen_application",
   "change_device",
   "change_application_data",
 ]);
 
 export type ManualActionDisposition = {
-  kind: "none" | "awaiting_admin" | "cancel_reapply_guidance" | "reconciled_by_truth";
+  kind: "none" | "external_facebook" | "reconciled_by_truth";
   action: ActionKey | null;
   requestedValue: string | null;
   currentValue: string | null;
@@ -124,19 +120,8 @@ export function resolveManualActionDisposition(input: {
     };
   }
 
-  if (plannedCandidate.action === "change_device" && !paymentProtected) {
-    return {
-      kind: "cancel_reapply_guidance",
-      action: "change_device",
-      requestedValue,
-      currentValue,
-      paymentProtected,
-      payload: plannedCandidate.payload || null,
-    };
-  }
-
   return {
-    kind: "awaiting_admin",
+    kind: "external_facebook",
     action: plannedCandidate.action,
     requestedValue,
     currentValue,
@@ -166,22 +151,10 @@ export function buildManualActionCustomerReply(input: {
   if (!app || !d.action) return null;
   const tracking = app.trackingId ? ` على الطلب ${app.trackingId}` : "";
 
-  if (d.kind === "cancel_reapply_guidance" && d.action === "change_device") {
-    const requested = d.requestedValue ? ` إلى ${d.requestedValue}` : "";
-    const current = app.deviceName ? `الجهاز المسجل حاليًا هو ${app.deviceName}. ` : "";
-    return `${current}طلب تغيير الجهاز${requested} واضح عندي، لكن ما عدّلت الطلب الحالي. بما إن الطلب الحالي ما عليه ارتباط مالي مثبت، الأنظف حتى يطلع السعر والقسط على المواصفات الصحيحة هو إلغاء الطلب الحالي وتقديم طلب جديد بالجهاز المطلوب. إذا بدك ألغي الطلب الحالي${tracking}، أكدلي وبسجل طلب الإلغاء للإدارة.`;
-  }
-
-  if (d.kind === "awaiting_admin") {
-    if (d.action === "change_device") {
-      const requested = d.requestedValue || "الجهاز المطلوب";
-      const current = app.deviceName || "الجهاز الحالي المسجل";
-      const paymentNote = d.paymentProtected
-        ? "وبما إن على الملف دفع/إثبات دفع، ما بنلغي الطلب ولا بنطلب منك تعيد التقديم."
-        : "";
-      return `طلبك لتغيير الجهاز إلى ${requested} واضح ومسجل كطلب تغيير. الجهاز الموجود فعليًا على الطلب الآن هو ${current}. ${paymentNote} التعديل نفسه بانتظار تنفيذ الإدارة وإعادة الحسبة، وما رح أعتبره تم قبل ما تتحدث بيانات الطلب فعليًا.`.replace(/\s+/g, " ").trim();
-    }
-    return `طلبك واضح: ${actionLabel(d.action)}${tracking}. ما تم تنفيذ التغيير على الطلب حتى الآن؛ الطلب بانتظار تنفيذ الإدارة، وبأكدلك فقط بعد ما تتحدث الحالة الفعلية.`;
+  if (d.kind === "external_facebook") {
+    const requested = d.requestedValue ? ` (${d.requestedValue})` : "";
+    const phone = app.phone ? ` رقم الهاتف المسجل: ${app.phone}.` : "";
+    return `طلبك واضح: ${actionLabel(d.action)}${requested}${tracking}. هذا تعديل يدوي وما بتننفذ من واتساب. تواصل مع صفحة الأمين الرسمية على فيسبوك، وابعت رقم الطلب${app.trackingId ? ` ${app.trackingId}` : ""}.${phone} واكتب التعديل المطلوب بوضوح. ما رح أعتبر التعديل تم إلا بعد ما تتحدث بيانات الطلب فعليًا.`.replace(/\s+/g, " ").trim();
   }
 
   if (d.kind === "reconciled_by_truth") {
@@ -195,21 +168,8 @@ export function buildManualActionCustomerReply(input: {
 }
 
 export function manualStatePayload(disposition: ManualActionDisposition): ActionPayload | null {
-  if (!disposition.action) return null;
-  if (disposition.kind === "awaiting_admin") {
-    return {
-      ...(disposition.payload || {}),
-      requestedValue: disposition.requestedValue,
-      _manualStatus: "awaiting_admin",
-      _manualAction: disposition.action,
-    };
-  }
-  if (disposition.kind === "cancel_reapply_guidance") {
-    return {
-      requestedValue: disposition.requestedValue,
-      requestedChangeAction: "change_device",
-      _manualStatus: "awaiting_customer_cancel_confirmation",
-    };
-  }
+  // Phase 9.1: purely manual modifications are handed off to the official Facebook
+  // channel; WhatsApp does not keep a fake awaiting-admin mutation state for them.
+  if (!disposition.action || disposition.kind !== "external_facebook") return null;
   return null;
 }

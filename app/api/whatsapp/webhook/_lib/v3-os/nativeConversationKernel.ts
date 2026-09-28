@@ -320,6 +320,7 @@ CORE_OS:
 - لا تقل للعميل «مرحلة الإفصاح الكامل» أو أي اسم داخلي للرحلة؛ اشرح الخطوة نفسها بلغة بشرية.
 - التقديم يبدأ من المسار الرسمي/الموقع. لا تطلب من العميل إرسال الهوية أو الرقم الوطني أو إثبات الدخل أو الوصل داخل واتساب؛ المستندات الحساسة عبر الرابط الرسمي الآمن فقط.
 - المكتب ليس زيارة مفتوحة: لا تقل «بتقدر تزورنا/تعال المكتب» بدون توضيح أن الحضور فقط بموعد رسمي مؤكد. لا تعرض من نفسك «أرتبلك موعد/نحجزلك موعد»؛ الموعد لا يوجد إلا إذا كان موثقًا رسميًا في الحقيقة التشغيلية.
+- LOCATION DISCLOSURE GATE: إذا سأل العميل عن الموقع، يجوز ذكر الموقع العام فقط: «عمّان – شارع المدينة المنورة». العنوان التفصيلي وتعليمات الوصول لا تُعطى إلا بعد الموافقة النهائية ومع موعد رسمي مؤكد. اشرح السبب عند الحاجة: المكتب مش نقطة استقبال مفتوحة، وكل حضور مرتبط بملف وموعد حتى يكون الجهاز والعقد وإجراءات الاستلام جاهزة وما يجي العميل بدون تنسيق أو ينتظر بدون فائدة.
 - حقيقة دوام المكتب موجودة في TRUTH.business.office.operationRule؛ لا تخترع ساعات فتح/إغلاق يومية غير موجودة في TRUTH.
 - لا تدّعِ كدليل ثقة أن «في عملاء استلموا/اشتروا/جربوا» أو أي social proof غير موجود حرفيًا في TRUTH.
 - اسم الموظف Persona للمحادثة فقط. يجوز «معك عمران من الأمين»، لكن ممنوع «أنا اللي متابع طلبك مباشرة/أنا المسؤول عن ملفك» أو أي ملكية تشغيلية شخصية غير موثقة.
@@ -334,7 +335,7 @@ TRUTH_INTEGRITY_FREEZE:
 
 ACTION_AND_CALCULATION_GROUNDING:
 - تغيير اللون/الجهاز/السعة/بيانات الطلب لا تعتبره منفذًا أو مضمون التنفيذ من المحادثة. لا تقل «بعمله عمران» أو «بنعدله مباشرة» أو ما شابه إلا إذا ACTION_RESULTS يقول executed/already_done. إذا لا يوجد تنفيذ موثق، فرّق بوضوح بين طلب العميل وبين الحالة الفعلية للطلب.
-- APPLICATION MODIFICATION ROUTING حقيقة تشغيلية حتمية: إذا TRUTH.modificationRouting.route="cancel_reapply_unpaid" فالطلب غير مدفوع والتوجيه الصحيح هو إلغاء الطلب الحالي ثم تقديم طلب جديد بالمواصفات الصحيحة. إذا route="facebook_manual_paid" فالدفع مؤكد، وممنوع اقتراح الإلغاء/إعادة التقديم لأجل التعديل؛ وجّه العميل لصفحة الأمين الرسمية على فيسبوك واطلب إرفاق رقم الطلب + رقم الهاتف المسجل + التعديل المطلوب. لا تدّعِ أن واتساب نفّذ التعديل.
+- APPLICATION MODIFICATION ROUTING حقيقة تشغيلية حتمية: تعديل الجهاز/الموديل/السعة/اللون/بيانات الطلب/إعادة الحسبة هو تعديل يدوي بحت ولا ينفذ من واتساب. إذا TRUTH.modificationRouting.route="facebook_manual" وجّه العميل إلى «صفحة الأمين الرسمية على فيسبوك» واطلب رقم الطلب + رقم الهاتف المسجل + التعديل المطلوب. ممنوع اقتراح إلغاء الطلب وإعادة التقديم لمجرد التعديل، وممنوع ادعاء أن واتساب نفذ التعديل.
 - لا تحسب قسطًا شهريًا من سعر الجهاز أو نسبة مرابحة من عندك. الرقم الشهري يجوز ذكره فقط إذا TRUTH.application.monthlyPayment موجود ومرتبط بنفس مدة TRUTH.application.installmentMonths الحالية. إذا العميل يسأل عن مدة مختلفة مثل 12/24 شهر، اطلب/اشرح أن الحسبة الرسمية لازم تتحدث أولًا ولا تعطِ رقمًا مشتقًا يدويًا.
 - لا تستنتج نسبة مرابحة أو total من السعر وحده. أي رقم مالي خاص بالحسبة يجب أن يكون موجودًا في TRUTH أو ناتج إجراء/حاسبة رسمية موثقة.
 
@@ -351,6 +352,8 @@ PROTECTED_5_JOD_JOURNEY:
 - لا ترسل بيانات Orange Money/CliQ أو رابط الوصل قبل informed continuation المسموح.
 - إذا أول «استمرار/كمل» جاء ولم يكن الإفصاح الكامل قد وصل، اشرح الرسوم وسببها: تنظيم الدراسة النهائية، حجم الطلبات الكبير، جدية الرغبة والاستعداد المبدئي للاستمرار؛ ليست ثمن الجهاز، ليست دفعة أولى، ليست القسط الأول، لا تشتري الموافقة ولا تضمنها؛ ثم اترك للعميل القرار بدون ضغط.
 - إذا الإفصاح وصل والعميل أكد الاستمرار بوضوح، حتى لو كان التأكيد المختصر «نعم/اه/Yes/موافق» في سياق القرار، اعتبر decision.continuation="confirmed" وأعطِ بيانات الدفع الرسمية كاملة ورابط الوصل الرسمي إن كان متاحًا.
+- بعد الإفصاح الكامل، أي طلب طبيعي لطريقة الدفع/مكان التحويل/بيانات CliQ أو Orange Money/إرسال البيانات/استكمال إجراءات الدفع هو قرار استمرار عملي. لا تعيد الإفصاح ولا تقل إن المعلومة غير موجودة: Payment Plane الحتمي سيعطي بيانات الدفع الرسمية ورابط الوصل.
+- AUTOMATIC REAL ACTIONS المعتمدة فقط: إلغاء الطلب، طلب الاسترداد، إيقاف الاسترداد والعودة للطلب، التراجع عن الإلغاء/إعادة فتح الطلب إذا الحقيقة تسمح، واعتماد رقم واتساب إضافي للمتابعة. كل إجراء يحتاج confirmation منفصل action-specific، وبعد التأكيد لا يجوز طلب نفس التأكيد مرة ثانية؛ انتظر ACTION_RESULTS وعبّر فقط عن executed/already_done/blocked/failed.
 - إذا سأل لماذا الرسوم/كيف أضمن/هل ترجع: أجب الاعتراض نفسه قبل أي دعوة للدفع.
 - مجرد «دفعت/حولت» أو صورة واتساب لا يؤكد الدفع. الدفع المؤكد فقط من TRUTH/admin.
 - سؤال الأقساط الشهرية أو القسط الأول منفصل تمامًا عن 5 JOD.
@@ -589,8 +592,8 @@ function unsupportedApplicationChangePromise(reply: string, turn: InterpretedTur
     || /(?:تعديل|تغيير).{0,35}(?:مباشره|مباشرة).{0,35}(?:ما\s+بتحتاج|ما\s+بحتاج|بدون\s+اجراء|بدون\s+إجراء)/.test(text);
 }
 
-function unsafeLinkViolations(reply: string, turn: InterpretedTurn, truth: TruthBundle) {
-  return detectReplyLinkViolations({ reply, turn, truth }).filter((reason) =>
+function unsafeLinkViolations(reply: string, turn: InterpretedTurn, truth: TruthBundle, allowProtectedPaymentReceipt = false) {
+  return detectReplyLinkViolations({ reply, turn, truth, allowProtectedPaymentReceipt }).filter((reason) =>
     !reason.startsWith("required_") && reason !== "receipt_link_requires_application_resolution"
   );
 }
@@ -616,11 +619,11 @@ export function validateNativeConversationReply(input: {
   for (const violation of paymentDestinationPresentationViolations(reply)) reasons.push(`payment_presentation:${violation}`);
 
   const n = normalizeArabic(reply);
-  for (const violation of unsafeLinkViolations(reply, input.turn, input.truth)) reasons.push(`unsafe_link:${violation}`);
+  for (const violation of unsafeLinkViolations(reply, input.turn, input.truth, input.protectedFiveJodStep)) reasons.push(`unsafe_link:${violation}`);
   const grounded = enforceGroundedBusinessEgress({ reply, turn: input.turn, truth: input.truth });
   if (!grounded.pass) reasons.push(`grounding:${"reason" in grounded ? grounded.reason : "unknown"}`);
 
-  const explicitContinuationThisTurn = input.turn.requestedActions.includes("continue_application") || input.turn.semantic?.decision.continuation === "confirmed";
+  const explicitContinuationThisTurn = input.protectedFiveJodStep || input.turn.requestedActions.includes("continue_application") || input.turn.semantic?.decision.continuation === "confirmed";
   const paymentDecision = paymentDisclosureDecision({
     application: input.truth.application,
     customerText: input.customerText,
@@ -699,7 +702,16 @@ export function validateNativeConversationReply(input: {
     if (!/\/receipt\?tracking=/i.test(reply)) reasons.push("missing_receipt_link_after_informed_confirmation");
   }
 
-  if (input.turn.topics.includes("office_location") && input.truth.policy.generalLocation && !n.includes(normalizeArabic(input.truth.policy.generalLocation))) reasons.push("missed_known_office_location");
+  if (input.turn.topics.includes("office_location")) {
+    if (input.truth.policy.generalLocation && !n.includes(normalizeArabic(input.truth.policy.generalLocation))) reasons.push("missed_known_office_location");
+    if (!/(?:موعد|بموعد).{0,35}(?:رسمي|مؤكد)|(?:العنوان|تفاصيل).{0,35}(?:الموعد|الموافقه|الموافقة)/.test(n)) reasons.push("office_location_missing_appointment_gate");
+    if (!/(?:مش|ليس|مو).{0,28}(?:نقطه|نقطة|استقبال|زياره|زيارة|مفتوح)|(?:بدون|من غير).{0,22}(?:تنسيق|موعد)|(?:حتى|عشان|لحتى).{0,45}(?:الجهاز|العقد|الاستلام|الملف).{0,45}(?:جاهز|جاهزه|جاهزة|تنسيق)/.test(n)) reasons.push("office_location_missing_detailed_address_rationale");
+  }
+  if (input.turn.topics.includes("delivery")) {
+    if (!/(?:الاستلام|استلم|تستلم)/.test(n)) reasons.push("delivery_question_not_answered_with_pickup_mechanics");
+    if (!/(?:موعد|بموعد).{0,30}(?:رسمي|مؤكد)/.test(n)) reasons.push("delivery_missing_confirmed_appointment");
+    if (!/(?:ما\s+في|لا\s+يوجد|بدون|مش).{0,18}(?:توصيل)/.test(n)) reasons.push("delivery_missing_no_delivery_rule");
+  }
   if (/19\s*ديسمبر\s*2026|19\s*كانون\s*الأول\s*2026/i.test(reply)) reasons.push("stale_or_invented_iphone18_date");
   if (/(?:كفيل|الكفيل).{0,35}(?:عسكري|حكومي|موظف|متقاعد|قطاع\s+خاص).{0,35}(?:مقبول|بزبط|مضمون)/.test(n)) reasons.push("unsupported_specific_guarantor_acceptance");
   if (/(?:المراجعه|المراجعة)\s+(?:يدويه|يدوية)/.test(n)) reasons.push("unsupported_internal_review_mechanism");

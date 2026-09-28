@@ -51,9 +51,9 @@ export default function ControlActions(props: Props) {
     try {
       let confirmValue: string | undefined;
       if (action === "enable_real_actions") {
-        const accepted = window.confirm("سيتم تفعيل Real Actions المقيدة فقط حسب allow-list الحالي (الإلغاء، طلب الاسترداد، وربط واتساب الموثق). تغيير الجهاز والبيانات وإعادة الفتح لا تعتبر منفذة من واتساب. متابعة؟");
+        const accepted = window.confirm("سيتم تفعيل Real Actions الخمسة المعتمدة فقط: إلغاء الطلب، طلب الاسترداد، إيقاف الاسترداد، إعادة فتح الطلب إذا الحقيقة تسمح، واعتماد رقم واتساب للمتابعة. تعديل الجهاز/الموديل/السعة/اللون/بيانات الطلب وإعادة الحسبة تبقى يدوية عبر صفحة الأمين الرسمية على فيسبوك. متابعة؟");
         if (!accepted) return;
-        confirmValue = "ENABLE_SCOPED_CANCEL_REFUND";
+        confirmValue = "ENABLE_AUTONOMOUS_CORE_ACTIONS";
       }
       const response = await fetch("/api/admin/whatsapp-control", {
         method: "POST",
@@ -126,7 +126,7 @@ export default function ControlActions(props: Props) {
           </button>
           {props.realActions ? (
             <button disabled={Boolean(busy)} onClick={() => control("disable_real_actions")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
-              إيقاف الإلغاء والاسترداد التلقائي
+              إيقاف Real Actions الخمسة (طوارئ)
             </button>
           ) : (
             <button disabled={Boolean(busy) || !props.v3Live || props.killSwitch} onClick={() => control("enable_real_actions")} className="rounded-2xl border border-emerald-300/30 bg-emerald-500/10 px-5 py-3 text-sm font-black text-emerald-100 disabled:opacity-40">
@@ -134,7 +134,7 @@ export default function ControlActions(props: Props) {
             </button>
           )}
           <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-xs font-black text-sky-100">
-            تغيير الجهاز/البيانات: حسب مسار Phase 8.4 الموثق؛ لا ادعاء تنفيذ من واتساب
+            التعديلات اليدوية (الجهاز/الموديل/السعة/اللون/البيانات/إعادة الحسبة): صفحة الأمين الرسمية على فيسبوك
           </div>
         </div>
       </div>

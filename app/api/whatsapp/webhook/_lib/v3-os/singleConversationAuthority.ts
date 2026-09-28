@@ -2,6 +2,8 @@ import { applicationJourneyStage } from "./applicationJourney";
 import {
   ALAMEEN_FIRST_INSTALLMENT_RULE,
   ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE,
+  ALAMEEN_OFFICE_OPERATION_RULE,
+  IPHONE18_PICKUP_RULE,
   buildIphone18AuthoritativeReply,
   isIphone18Question,
 } from "./businessTruthRegistry";
@@ -14,6 +16,7 @@ export type ConversationAnswerKey =
   | "monthly_installment_payment"
   | "first_installment_timing"
   | "office_location"
+  | "delivery_pickup"
   | "fee_rationale"
   | "current_next_step"
   | "installment_duration_change"
@@ -101,6 +104,21 @@ function asksOfficeLocation(turn: InterpretedTurn) {
   if (hasTopic(turn, "office_location")) return true;
   const q = n(combinedQuestion(turn));
   return /(?:وين|اين|أين).{0,20}(?:موقع|مكتب|شركة|محل|عنوان)|(?:موقعكم|عنوانكم|مكتبكم)/.test(q);
+}
+
+function asksDeliveryOrPickup(turn: InterpretedTurn) {
+  if (hasTopic(turn, "delivery")) return true;
+  const q = n(combinedQuestion(turn));
+  return /(?:كيف|شو|ما|متى|امتى|وين|اين|أين).{0,28}(?:الاستلام|استلم|استلامي|اوصل|يوصل|توصيل)|(?:اليه|آليه|الية|آلية|طريقه|طريقة).{0,22}(?:الاستلام|استلم)|(?:الاستلام|استلم).{0,30}(?:وين|متى|كيف|مكان|موعد)/.test(q);
+}
+
+function deliveryPickupFact(truth: TruthBundle) {
+  const device = n(truth.application?.deviceName || "");
+  const special = /(?:iphone|ايفون|آيفون)\s*18/.test(device);
+  const base = special
+    ? IPHONE18_PICKUP_RULE
+    : "الاستلام يكون من المكتب بعد صدور الموافقة النهائية وبموعد رسمي مؤكد مرتبط بالطلب؛ ما في توصيل.";
+  return `${base} موقعنا العام عمّان – شارع المدينة المنورة، أما العنوان التفصيلي وتعليمات الوصول فبتوصلك مع الموعد الرسمي المؤكد لأن المكتب مش نقطة استقبال مفتوحة، ولازم يكون الجهاز والملف والعقد جاهزين قبل حضورك حتى ما تيجي بدون تنسيق أو تنتظر بدون فائدة. الجمعة والسبت عطلة تشغيلية للمكتب. ${ALAMEEN_FIRST_INSTALLMENT_RULE}`;
 }
 
 function asksFeeWhyOrTrust(turn: InterpretedTurn) {
@@ -213,11 +231,20 @@ export function buildSingleConversationAnswerPlan(input: {
     });
   }
 
-  if (asksOfficeLocation(turn)) {
+  if (asksOfficeLocation(turn) && !asksDeliveryOrPickup(turn)) {
     add(items, {
       key: "office_location",
       question: turn.semantic?.currentQuestion || "موقع المكتب",
-      fact: `${truth.policy.generalLocation}. الحضور للمكتب فقط بموعد رسمي مؤكد مرتبط بالطلب؛ ما بنحدد أو نقترح موعد حضور من المحادثة من حالنا.`,
+      fact: ALAMEEN_OFFICE_OPERATION_RULE,
+      source: "authoritative_business_truth",
+    });
+  }
+
+  if (asksDeliveryOrPickup(turn)) {
+    add(items, {
+      key: "delivery_pickup",
+      question: turn.semantic?.currentQuestion || "آلية الاستلام",
+      fact: deliveryPickupFact(truth),
       source: "authoritative_business_truth",
     });
   }
@@ -297,7 +324,9 @@ function coverageForItem(reply: string, item: ConversationAnswerItem) {
     case "first_installment_timing":
       return /شهر/.test(q) && /توقيع\s+العقد/.test(q) && /استلام\s+الجهاز/.test(q);
     case "office_location":
-      return /عمان/.test(q) && /شارع\s+المدينه\s+المنوره/.test(q);
+      return /عمان/.test(q) && /شارع\s+المدينه\s+المنوره/.test(q) && /موعد/.test(q) && /(?:مش|مو|ليس).{0,30}(?:استقبال|مفتوح)|بدون\s+تنسيق/.test(q);
+    case "delivery_pickup":
+      return /(?:الاستلام|استلم)/.test(q) && /موعد/.test(q) && /(?:ما\s+في|لا\s+يوجد|مش).{0,20}توصيل/.test(q);
     case "fee_rationale":
       return /(?:5|٥|خمس)/.test(q) && /جدي/.test(q) && /طلبات/.test(q) && /(?:لا\s+تضمن|مش\s+ضمان|ولا\s+ضمان|لا\s+يعني\s+موافق)/.test(q);
     case "iphone18_product_truth": {

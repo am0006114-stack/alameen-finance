@@ -1,7 +1,7 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { continuationCommercialState } from "./commercialProgression";
 import { isContinuationRevenueReady } from "./continuationPersistence";
-import { buildOfficialLinkContext } from "./linkIntegrity";
+import { applicationReceiptUrl, buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import type { ConversationState, DialogueAct, InterpretedTurn, TruthBundle } from "./types";
 import { applicationFormIssueText, commercialPauseOrDeclineText, contextualTurnSignals, deviceModelReferenceQuestionText, explicitNoPriorApplicationText, financingStructureQuestionText, foreignApplicantGeneralFormIssueText, generalRequirementsQuestionText, incomeEvidenceSourceQuestionText, installmentAdjustmentQuestionText, managementInfoQuestionText, mapLocationRequestText, multipleDeviceEligibilityQuestionText, orderChangeRequestText, orderChangeRetractionText, productPriceStructureQuestionText, punctuationOnlyTurnText } from "./contextualTurnResolver";
@@ -494,7 +494,10 @@ function continuationReply(turn: InterpretedTurn, truth: TruthBundle) {
   if (commercial === "already_paid") return "تمام، رغبتك بالاستمرار واضحة والدفع مؤكد إداريًا أصلًا. ما في داعي تدفع رسوم فتح الملف أو ترفع الوصل مرة ثانية؛ الطلب مكمل بمساره الحالي.";
   if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded) return "تمام، رغبتك بالاستمرار واضحة ووصل الدفع موجود بانتظار اعتماد الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.";
   if (isContinuationRevenueReady(app)) {
-    const receipt = links.relevant.receipt;
+    // Phase 9.1 P0: once informed continuation is confirmed, the receipt URL is
+    // a deterministic view over the bound application. Do not depend on the
+    // current topic label to decide whether this revenue-critical link exists.
+    const receipt = applicationReceiptUrl(truth) || links.relevant.receipt;
     const upload = receipt ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : "\nرابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن، لذلك ما رح أعطيك رابطًا عامًا بدل الصحيح.";
     return `تمام، هيك بنكمّل. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير فقط؛ منفصلة عن ثمن الجهاز والقسط الأول، ومستردة عبر المسار الرسمي إذا ألغيت بعد دفع مؤكد. ${currentFileOpeningPaymentRule()}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.`;
   }

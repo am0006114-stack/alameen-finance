@@ -10,7 +10,7 @@ import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transacti
 import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
 import { applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForModel } from "./linkIntegrity";
-import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
+import { buildManualActionCustomerReply, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildMandatoryFiveJodContinuationReply, explicitContactNumberChangeRequest, explicitContinuationText, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
@@ -29,7 +29,7 @@ import { applyConversationConstraintsToReply, updateConversationConstraints } fr
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto } from "./semanticAuthority";
 import type { SemanticReplyCheck } from "./semanticReplyVerifier";
-import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, resemblesFullCommercialDisclosure, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
@@ -126,14 +126,16 @@ function criticalOperationalFallbackReply(input: {
     if (stopRefund?.outcome === "needs_confirmation") {
       return `طلبك واضح: بدك توقف الاسترداد وترجع تكمل نفس الطلب${tracking ? ` ${tracking}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
     }
-    return `طلبك واضح: بدك توقف الاسترداد وترجع تكمل نفس الطلب${tracking ? ` ${tracking}` : ""}. إيقاف الاسترداد مش إجراء بنعتبره منفذ من رسالة واتساب، وما رح أطلب منك تعيد نفس التأكيد كل مرة. الحالة تظل كما هي لحد ما يتم التغيير فعليًا على الطلب.${trackingLine}`;
+    if (!stopRefund || ["failed", "blocked", "dry_run"].includes(stopRefund.outcome)) return `طلب إيقاف الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}، والتأكيد وصل. التنفيذ التلقائي تعذر بهاللحظة، لذلك ما رح أعتبره منفذ ولا أطلب منك تعيد نفس التأكيد. تم تسجيل سبب التعذر للإدارة.${trackingLine}`;
+    return `طلب إيقاف الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}. ما رح أطلب منك تعيد التأكيد إلا إذا كان الإجراء نفسه ما زال بانتظار تأكيد منفصل.${trackingLine}`;
   }
 
   if (requested.has("reopen_application")) {
     if (reopen?.outcome === "needs_confirmation") {
       return `طلبك واضح: بدك ترجع تفتح الطلب${tracking ? ` ${tracking}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
     }
-    return `طلب إعادة فتح الطلب واضح${tracking ? ` على ${tracking}` : ""}. ما رح أعتبره مفتوح من الرسالة وحدها؛ الحالة تتغير فقط بعد تنفيذ الإجراء فعليًا.${trackingLine}`;
+    if (!reopen || ["failed", "blocked", "dry_run"].includes(reopen.outcome)) return `طلب إعادة فتح الطلب واضح${tracking ? ` على ${tracking}` : ""}، والتأكيد وصل. التنفيذ التلقائي تعذر بهاللحظة، لذلك ما رح أعتبره مفتوح ولا أطلب منك تعيد نفس التأكيد. تم تسجيل سبب التعذر للإدارة.${trackingLine}`;
+    return `طلب إعادة فتح الطلب واضح${tracking ? ` على ${tracking}` : ""}. ما رح أطلب منك تعيد التأكيد إلا إذا كان الإجراء نفسه ما زال بانتظار تأكيد منفصل.${trackingLine}`;
   }
 
   if (requested.has("cancel_application")) {
@@ -143,7 +145,7 @@ function criticalOperationalFallbackReply(input: {
         ? `طلبك واضح${tracking ? ` للطلب ${tracking}` : ""}: إلغاء الطلب وطلب استرداد الرسوم المدفوعة. للتأكيد النهائي اكتب: نعم، ألغي الطلب الحالي وأطلب استرداد الرسوم. ما رح أعتبر الإلغاء أو الاسترداد منفذ قبل التنفيذ الفعلي.`
         : `طلب الإلغاء واضح${tracking ? ` للطلب ${tracking}` : ""}. بما إنه إجراء فعلي على الطلب، للتأكيد النهائي اكتب: نعم، ألغي الطلب الحالي. ما رح أعتبر الطلب ملغي قبل التنفيذ الفعلي.`;
     }
-    if (cancel.outcome === "failed" || cancel.outcome === "blocked") {
+    if (["failed", "blocked", "dry_run"].includes(cancel.outcome)) {
       return `طلب الإلغاء واضح${tracking ? ` للطلب ${tracking}` : ""}، لكن الإلغاء ما تنفذ فعليًا لحد الآن. ما رح أقول إنه تم قبل ما تتغير حالة الطلب فعليًا.${trackingLine}`;
     }
   }
@@ -155,7 +157,7 @@ function criticalOperationalFallbackReply(input: {
     if (refund?.outcome === "needs_confirmation" || !refund) {
       return `طلب الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}. للتأكيد النهائي اكتب: نعم، أطلب استرداد الرسوم على هذا الطلب. ما رح أعتبر الاسترداد مسجل أو منفذ قبل الإجراء الفعلي.`;
     }
-    if (refund.outcome === "failed" || refund.outcome === "blocked") {
+    if (["failed", "blocked", "dry_run"].includes(refund.outcome)) {
       return `طلب الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أعتبر الاسترداد مسجل أو مكتمل قبل ما تظهر الحقيقة الفعلية على الطلب.${trackingLine}`;
     }
   }
@@ -344,10 +346,6 @@ function buildRepeatDeltaReply(input: { turn: InterpretedTurn; truth: TruthBundl
 }
 
 const MANUAL_ACTIONS = new Set([
-  "cancel_application",
-  "request_refund",
-  "stop_refund",
-  "reopen_application",
   "change_device",
   "change_application_data",
 ]);
@@ -387,25 +385,21 @@ async function notifyManualActionRequests(input: {
     const scopedManualBlock = String(result.blocker || "").startsWith("scoped_real_actions_disallowed:");
     if (!(result.outcome === "dry_run" || result.blocker === "real_actions_disabled" || result.blocker === "shadow_core_no_business_mutation" || scopedManualBlock)) continue;
     const app = input.truth.application;
-    // Unpaid device changes do not need an admin mutation request yet. The safe
-    // path is cancel + reapply guidance; Discord is sent only after the customer
-    // explicitly confirms cancellation. Payment evidence protects the existing file.
-    if (planned.action === "change_device" && !hasPaymentProtection(input.truth)) continue;
     await notifyV3Discord({
       event: "manual_action_required",
       actionKey: planned.action,
       applicationId: app.id,
       trackingId: app.trackingId,
       waId: input.waId,
-      title: "🛠️ إجراء مطلوب — بانتظار تنفيذ الإدارة",
-      description: "العميل طلب تغييرًا فعليًا. لم يتم تنفيذ أي تعديل تلقائيًا، وتم إبقاء الحالة كما هي بانتظار تنفيذ الإدارة يدويًا.",
+      title: "➡️ تعديل يدوي — تم توجيه العميل لفيسبوك الأمين",
+      description: "العميل طلب تعديلًا لا ينفذ من واتساب. تم الحفاظ على الحالة كما هي، والتوجيه الرسمي للتعديل هو صفحة الأمين الرسمية على فيسبوك.",
       details: {
         action: planned.action,
         "طلب العميل": input.customerText,
         "حالة الطلب": app.status || "—",
         "حالة الدفع": app.paymentStatus || "—",
         "القيمة المطلوبة": planned.payload?.requestedValue ?? "—",
-        "وضع التنفيذ": "يدوي من الإدارة",
+        "وضع التنفيذ": "يدوي عبر صفحة الأمين الرسمية على فيسبوك",
       },
     });
   }
@@ -422,6 +416,8 @@ async function notifyScopedMutationSuccesses(input: {
     if (!result.executed || !["executed", "already_done"].includes(result.outcome) || !LIVE_SCOPED_MUTATIONS.has(result.action)) continue;
     const isCancel = result.action === "cancel_application";
     const isRefund = result.action === "request_refund";
+    const isStopRefund = result.action === "stop_refund";
+    const isReopen = result.action === "reopen_application";
     const isAlias = result.action === "link_whatsapp_alias";
     await notifyV3Discord({
       event: "business_mutation_succeeded",
@@ -429,12 +425,16 @@ async function notifyScopedMutationSuccesses(input: {
       applicationId: app.id,
       trackingId: app.trackingId,
       waId: input.waId,
-      title: isCancel ? "✅ تم إلغاء الطلب تلقائيًا" : isRefund ? "💸 تم تسجيل طلب الاسترداد تلقائيًا" : "📱 تم اعتماد رقم واتساب تابع للطلب تلقائيًا",
+      title: isCancel ? "✅ تم إلغاء الطلب تلقائيًا" : isRefund ? "💸 تم تسجيل طلب الاسترداد تلقائيًا" : isStopRefund ? "↩️ تم إيقاف الاسترداد وإعادة تفعيل الطلب تلقائيًا" : isReopen ? "🔄 تم التراجع عن الإلغاء وإعادة فتح الطلب تلقائيًا" : "📱 تم اعتماد رقم واتساب تابع للطلب تلقائيًا",
       description: isCancel
         ? "تم تنفيذ الإلغاء في قاعدة البيانات بعد تأكيد العميل الصريح. إذا كان الطلب مدفوعًا فقد تم فتح مسار الاسترداد حسب الحقيقة المالية على الملف."
         : isRefund
           ? "تم تسجيل طلب الاسترداد في قاعدة البيانات بعد تحقق شروط الدفع."
-          : "تم اعتماد رقم واتساب الحالي كرقم متابعة تابع للطلب بعد تأكيد العميل الصريح في خطوتين. رقم الهاتف الأساسي للطلب لم يتغير.",
+          : isStopRefund
+            ? "تم إيقاف مسار الاسترداد وإعادة تفعيل نفس الطلب بعد تأكيد العميل الصريح والحقيقة المالية الموثقة."
+            : isReopen
+              ? "تم التراجع عن الإلغاء وإعادة تفعيل نفس الطلب بعد تأكيد العميل الصريح وحالة الطلب المؤهلة."
+              : "تم اعتماد رقم واتساب الحالي كرقم متابعة تابع للطلب بعد تأكيد العميل الصريح في خطوتين. رقم الهاتف الأساسي للطلب لم يتغير.",
       details: {
         action: result.action,
         "رقم واتساب المنفذ منه": input.waId,
@@ -500,6 +500,20 @@ function buildScopedMutationSuccessReply(input: { truth: TruthBundle; actions: A
       return `تم تسجيل طلب الاسترداد${app.trackingId ? ` على الطلب ${app.trackingId}` : ""}. ثبّت بيانات الاسترداد من الرابط الرسمي التالي مرة واحدة:${url ? `\n${url}` : ""}\nبعد إدخال البيانات الصحيحة، يبقى الطلب تحت المراجعة إلى أن يتم تنفيذ التحويل فعليًا.`;
     }
     return `طلب الاسترداد${app.trackingId ? ` على الطلب ${app.trackingId}` : ""} مسجل بالفعل. ما في داعي تعيد الطلب؛ أول ما يتم التحويل فعليًا بنبلغك.`;
+  }
+
+  const stopRefund = input.actions.find((x) => x.action === "stop_refund" && x.executed);
+  if (stopRefund) {
+    return stopRefund.outcome === "already_done"
+      ? `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مستمر أصلًا وما في مسار استرداد نشط يحتاج إيقاف.`
+      : `تم إيقاف طلب الاسترداد وإعادة تفعيل طلبك${app.trackingId ? ` ${app.trackingId}` : ""} بنجاح. من هسا المتابعة بتكمل على نفس الطلب حسب حالته الحالية.`;
+  }
+
+  const reopen = input.actions.find((x) => x.action === "reopen_application" && x.executed);
+  if (reopen) {
+    return reopen.outcome === "already_done"
+      ? `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مفتوح ومستمر أصلًا، وما في داعي تعيد طلب فتحه.`
+      : `تم التراجع عن الإلغاء وإعادة فتح طلبك${app.trackingId ? ` ${app.trackingId}` : ""} بنجاح. المتابعة بتكمل على نفس الطلب حسب حالته الحالية.`;
   }
 
   return null;
@@ -636,10 +650,11 @@ export async function runV3ProductionLive(input: {
   // continuation signal. Payment-ready customers bypass provider latency and get
   // the deterministic, truth-bound 5-JOD payment step immediately.
   const recentCommercialDisclosureEvidence = [boundState.lastAssistantText || "", ...scopedRecentTurns.slice(-6)]
-    .some((line) => /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s+فتح\s+الملف/i.test(String(line || "")));
+    .some((line) => resemblesFullCommercialDisclosure(String(line || "")));
+  const directPaymentContinuationIntent = isPaymentPriorityCustomerText(effectiveCustomerText, turn.topics.join(","), boundState.lastAssistantText);
   const paymentPriorityAfterDisclosure = truthBeforeActions.contactAccess !== "safe_preview"
     && (commercialDisclosureDelivered(boundState, truthBeforeActions) || recentCommercialDisclosureEvidence)
-    && isPaymentPriorityCustomerText(effectiveCustomerText, turn.topics.join(","))
+    && directPaymentContinuationIntent
     && !semanticContinuationVeto(turn)
     && !explicitDoNotContinueText(effectiveCustomerText, boundState.lastAssistantText);
 
@@ -808,6 +823,7 @@ export async function runV3ProductionLive(input: {
     && (semanticConfirmsContinuation(turn)
       || informedCommercialContinuationConfirmed({ state: boundState, truth: truthBeforeActions, turn, customerText: effectiveCustomerText })
       || explicitContinuationText(effectiveCustomerText)
+      || directPaymentContinuationIntent
       || paymentPriorityAfterDisclosure
       || turn.requestedActions.includes("continue_application"));
   const disclosureRequiredThisTurn = shouldExplainCommercialStep({
@@ -815,6 +831,7 @@ export async function runV3ProductionLive(input: {
     truth: truthBeforeActions,
     turn,
     explicitContinuationIntent: rawContinuationIntent,
+    observedFullDisclosure: recentCommercialDisclosureEvidence,
   });
 
   let plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
@@ -1075,11 +1092,16 @@ export async function runV3ProductionLive(input: {
     conversationState = clearContactResolution(conversationState);
   }
 
-  // PHASE 8.1 ABSOLUTE RUNTIME AUTHORITY EGRESS: the model draft is the sole normal
+  // PHASE 9.1 POLICY-BOUNDED RUNTIME AUTHORITY EGRESS: the model draft is the sole normal
   // customer-facing writer. Deterministic layers below may validate, veto, execute
   // business actions, or trigger one bounded regeneration, but they do not replace
   // a valid conversational answer with legacy canned text.
   const protectedFiveJodStep = continuationRevenueReadyAtDecision;
+  const authoritativeCommercialJourneyReply = disclosureRequiredThisTurn
+    ? buildInformedCommercialDisclosureReply(truthAfterActions)
+    : protectedFiveJodStep
+      ? buildMandatoryFiveJodContinuationReply(turn, truthAfterActions)
+      : null;
   const criticalOperationalReply = criticalOperationalFallbackReply({
     truth: truthAfterActions,
     state: conversationState,
@@ -1087,7 +1109,7 @@ export async function runV3ProductionLive(input: {
     turn,
     actions,
   });
-  let reply: string | null = plan.shouldRespond ? (criticalOperationalReply || nativeKernelInitial.reply) : null;
+  let reply: string | null = plan.shouldRespond ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply) : null;
   let verification: VerificationReport = PASS;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
   let replyAttempts = nativeKernelInitial.modelUsed ? 1 : 0;
@@ -1118,7 +1140,7 @@ export async function runV3ProductionLive(input: {
     || continuationPersistence.updated
   );
 
-  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure && !criticalOperationalReply) {
+  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure && !criticalOperationalReply && !authoritativeCommercialJourneyReply) {
     const refreshed = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1154,7 +1176,7 @@ export async function runV3ProductionLive(input: {
 
   // One bounded repair call only. This is not a judge/shadow path: it runs only
   // when deterministic truth/action validation blocks the one candidate reply.
-  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !criticalOperationalReply) {
+  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !criticalOperationalReply && !authoritativeCommercialJourneyReply) {
     const repaired = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1298,11 +1320,7 @@ export async function runV3ProductionLive(input: {
     ? { application: truthAfterActions.application, fetchedAt: truthAfterActions.fetchedAt }
     : boundState.lastVerifiedApplication;
   const manualPayload = stampPendingPayloadScope(manualStatePayload(manualDisposition), truthAfterActions, turn.turnId);
-  const manualPendingAction = manualDisposition.kind === "awaiting_admin"
-    ? manualDisposition.action
-    : manualDisposition.kind === "cancel_reapply_guidance"
-      ? "cancel_application"
-      : null;
+  const manualPendingAction = null;
   const actionAdjustedState: ConversationState = {
     ...conversationState,
     lastVerifiedApplication: latestVerifiedSnapshot,

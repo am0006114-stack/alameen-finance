@@ -3,8 +3,8 @@ import { applicationJourneyStage, customerFacingStatusLabel } from "./applicatio
 import { stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, TruthBundle } from "./types";
 
-const REAL_MUTATIONS = new Set<ActionKey>(["cancel_application", "request_refund", "link_whatsapp_alias"]);
-const MANUAL_MUTATIONS = new Set<ActionKey>(["stop_refund", "reopen_application", "change_device", "change_application_data"]);
+const REAL_MUTATIONS = new Set<ActionKey>(["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"]);
+const MANUAL_MUTATIONS = new Set<ActionKey>(["change_device", "change_application_data"]);
 
 function normalized(value: string | null | undefined) {
   return normalizeArabic(String(value || ""))
@@ -25,9 +25,19 @@ function aliasWords(q: string) {
   return /(?:اعتمد|اربط|ضيف|اضف|ثبت|سجل).{0,34}(?:الرقم|رقم|واتساب|واتس)|(?:الرقم|رقم|واتساب|واتس).{0,34}(?:اعتمد|اربط|ضيف|اضف|ثبت|سجل)/.test(q);
 }
 
+function stopRefundWords(q: string) {
+  return /(?:وقف|اوقف|ايقاف|الغاء|الغي).{0,34}(?:طلب\s+)?(?:الاسترداد|الاسترجاع)|(?:بديش|ما\s+بدي|لا\s+اريد).{0,26}(?:الاسترداد|الاسترجاع)|(?:ارجع|بدي).{0,26}(?:اكمل|استمر).{0,28}(?:بعد|بدل).{0,20}(?:الاسترداد|الاسترجاع)/.test(q);
+}
+
+function reopenWords(q: string) {
+  return /(?:اعاده|اعيد|ارجع|رجع|استينف|استانف|افتح|فك).{0,34}(?:الطلب|الملف|الالغاء)|(?:الغاء|الغي).{0,18}(?:طلب\s+)?(?:الالغاء)|(?:بطلت|تراجعت).{0,22}(?:الغي|الالغاء)|(?:بدي|حاب).{0,24}(?:ارجع\s+)?(?:اكمل|استمر).{0,24}(?:الطلب|الجهاز)/.test(q);
+}
+
 function actionWords(action: ActionKey, q: string) {
-  if (action === "cancel_application") return cancelWords(q);
-  if (action === "request_refund") return refundWords(q);
+  if (action === "cancel_application") return cancelWords(q) && !reopenWords(q);
+  if (action === "request_refund") return refundWords(q) && !stopRefundWords(q);
+  if (action === "stop_refund") return stopRefundWords(q);
+  if (action === "reopen_application") return reopenWords(q);
   if (action === "link_whatsapp_alias") return aliasWords(q);
   return false;
 }
@@ -51,6 +61,14 @@ export function mutationDecline(action: ActionKey, value: string | null | undefi
   if (action === "request_refund") {
     return /(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+ارغب).{0,24}(?:استرد|استرجع|الاسترداد)|(?:ما\s+طلبت).{0,24}(?:استرداد|استرجاع)/.test(q);
   }
+  if (action === "stop_refund") {
+    const explicitKeepRefund = /(?:بدي|اريد|أريد).{0,20}(?:الاسترداد|الاسترجاع)/.test(q)
+      && !/(?:وقف|اوقف|أوقف|ايقاف|إيقاف|الغي|ألغي|الغاء|إلغاء|بديش|ما\s+بدي)/.test(q);
+    return /(?:لا\s+توقف|لا\s+تلغي|خلي|كمل).{0,28}(?:الاسترداد|الاسترجاع)/.test(q) || explicitKeepRefund;
+  }
+  if (action === "reopen_application") {
+    return /(?:لا\s+تعيد|لا\s+تفتح|خليه).{0,28}(?:ملغي|مغلق|الطلب)|(?:بدي|اريد).{0,20}(?:الالغاء|يبقى\s+ملغي)/.test(q);
+  }
   if (action === "link_whatsapp_alias") {
     return /(?:لا\s+تعتمد|لا\s+تربط|ما\s+بدي|بديش|لا\s+اريد|لا\s+ارغب).{0,30}(?:الرقم|واتساب|واتس|تربط|تعتمد)|(?:خليه|خليها).{0,20}(?:بدون\s+ربط|زي\s+ما\s+هو)/.test(q);
   }
@@ -62,6 +80,7 @@ function semanticMutationRequest(action: ActionKey, turn: InterpretedTurn) {
   if (!semantic || semantic.confidence < 0.82) return false;
   if (action === "cancel_application") return semantic.decision.cancellation === "requested";
   if (action === "request_refund") return semantic.decision.refund === "requested";
+  if (action === "stop_refund" || action === "reopen_application") return turn.requestedActions.includes(action);
   // Alias linking has an explicit identity/open-loop contract and is intentionally
   // not opened from model semantics alone. Destructive execution still always
   // requires the separate deterministic action-specific confirmation turn.
@@ -77,6 +96,8 @@ export function explicitMutationRequest(action: ActionKey, value: string | null 
   if (action === "request_refund") {
     return /(?:بدي|اريد|حاب|حابب).{0,20}(?:استرد|استرجع|استرداد|استرجاع)|(?:رجعلي|رجعولي).{0,20}(?:الرسوم|المبلغ|المصاري)|^(?:استرداد|استرجاع)$/.test(q);
   }
+  if (action === "stop_refund") return stopRefundWords(q);
+  if (action === "reopen_application") return reopenWords(q);
   if (action === "link_whatsapp_alias") {
     return aliasWords(q) && !/^(?:ممكن|هل|بقدر|اقدر|كيف)/.test(q);
   }
@@ -132,9 +153,9 @@ function pendingScopeMatchesTruth(state: ConversationState, truth: TruthBundle) 
 
 function missingApplicationMutationReply(action: ActionKey, state: ConversationState) {
   const known = String(state.activeTrackingId || "").trim();
-  const label = action === "cancel_application" ? "الإلغاء" : action === "request_refund" ? "الاسترداد" : "اعتماد رقم واتساب";
+  const label = action === "cancel_application" ? "الإلغاء" : action === "request_refund" ? "الاسترداد" : action === "stop_refund" ? "إيقاف الاسترداد" : action === "reopen_application" ? "إعادة فتح الطلب" : "اعتماد رقم واتساب";
   if (known) return `طلب ${label} واضح، لكن تفاصيل الطلب ${known} مش محمّلة بشكل موثوق بهاللحظة. حفاظًا على طلبك ما رح أنفذ أو أعتبر الإجراء بدأ قبل ما أقرأ الطلب الصحيح فعليًا. جرّب متابعة الطلب من جديد أو ابعث رقم التتبع نفسه مرة واحدة إذا ظلّت المشكلة.`;
-  const target = action === "cancel_application" ? "تلغيه" : action === "request_refund" ? "تسترد رسومه" : "تربط رقم واتسابك فيه";
+  const target = action === "cancel_application" ? "تلغيه" : action === "request_refund" ? "تسترد رسومه" : action === "stop_refund" ? "توقف استرداده" : action === "reopen_application" ? "تعيد فتحه" : "تربط رقم واتسابك فيه";
   return `طلب ${label} واضح، لكن ما عندي طلب موثوق مربوط بالمحادثة هسا. حفاظًا على طلبك ما رح أنفذ الإجراء على تخمين؛ ابعث رقم التتبع للطلب اللي بدك ${target} مرة واحدة.`;
 }
 
@@ -158,6 +179,12 @@ function confirmationPrompt(action: ActionKey, truth: TruthBundle) {
   if (action === "request_refund") {
     return `أكيد. بس لأن طلب الاسترداد إجراء فعلي وما بدي أسجله من سؤال أو بالغلط، بدي تأكيد منفصل منك. إذا قرارك نهائي اكتب: نعم، أريد استرداد الرسوم.`;
   }
+  if (action === "stop_refund") {
+    return `فهمت عليك: بدك توقف طلب الاسترداد وترجع تكمل نفس الطلب${tracking}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
+  }
+  if (action === "reopen_application") {
+    return `فهمت عليك: بدك تتراجع عن الإلغاء وترجع تفتح نفس الطلب${tracking}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
+  }
   const app = truth.application;
   const preview = app ? `لقيت الطلب${app.trackingId ? ` ${app.trackingId}` : ""}${app.deviceName ? ` — ${app.deviceName}` : ""}، وحالته ${customerFacingStatusLabel(app)}. ` : "";
   return `${preview}رقم واتسابك الحالي مختلف عن رقم الهاتف الأساسي على الطلب. إذا هذا رقم واتسابك وبدك أعتمده كرقم متابعة تابع لنفس الطلب، اكتب: نعم، اعتمد الرقم. رقم الهاتف الأساسي بالطلب ما رح يتغير.`;
@@ -171,6 +198,8 @@ function informationalReply(action: ActionKey, truth: TruthBundle) {
       : "نعم، الإلغاء ممكن. سؤالك هذا ما اعتبرته طلب إلغاء وما نفذت أي تغيير. إذا قررت تلغي فعليًا، اطلب الإلغاء بشكل صريح وبعدها بطلب منك تأكيد منفصل قبل التنفيذ.";
   }
   if (action === "request_refund") return "نعم، تقدر تطلب الاسترداد إذا كانت شروطه متحققة على الملف. سؤالك هذا ما اعتبرته طلب استرداد وما سجلت أي إجراء. إذا بدك تنفذه فعليًا، اطلبه بشكل صريح وبعدها بطلب منك تأكيد منفصل.";
+  if (action === "stop_refund") return "إيقاف طلب الاسترداد ممكن فقط إذا الاسترداد لسا غير مكتمل وحالة الطلب تسمح. سؤالك لحاله ما غيّر أي شيء؛ إذا بدك توقفه فعليًا اطلب ذلك بوضوح وبعدها بأخذ تأكيد منفصل قبل التنفيذ.";
+  if (action === "reopen_application") return "إعادة فتح الطلب ممكن فقط إذا الحالة الحالية تسمح وما اكتمل استرداد يمنع الرجوع لنفس الطلب. سؤالك لحاله ما غيّر أي شيء؛ إذا بدك تعيد فتحه فعليًا اطلب ذلك بوضوح وبعدها بأخذ تأكيد منفصل قبل التنفيذ.";
   return "نعم، بنقدر نعتمد رقم واتسابك الحالي كرقم متابعة تابع لنفس الطلب بدون تغيير رقم الهاتف الأساسي. سؤالك لحاله ما نفّذ أي ربط؛ لما تطلب الاعتماد بطلب منك تأكيد منفصل وواضح قبل التنفيذ.";
 }
 
@@ -192,33 +221,36 @@ export function enforceMutationConfirmationGate(input: {
   const authoritativeStage = applicationJourneyStage(input.truth.application);
   const currentQ = normalized(input.turn.rawText);
 
-  // PHASE 7.5.0 ACTION INTENT SEPARATION: "stop the refund and keep my device order"
-  // is never a cancel_application or request_refund command. Real mutations are
-  // stripped before confirmation logic; manual stop/reopen actions may continue
-  // through their existing administrative path, while customer-facing truth stays
-  // unchanged until authoritative state actually moves.
-  if (stopRefundKeepRequest(input.turn.rawText)) {
-    return {
-      actions: input.actions.filter((action) => !REAL_MUTATIONS.has(action.action)),
-      confirmationPrompt: null,
-      informationalReply: "فهمت عليك: بدك توقف/تلغي طلب الاسترداد وتكمل بطلب الجهاز، مش تلغي طلب التقسيط. ما رح أنفذ إلغاء جديد ولا أفتح استرداد جديد من هالرسالة؛ الحالة الحالية بتظل معتمدة لحد ما يتنفذ التغيير فعليًا وتتحدث على الطلب.",
-      clearPendingConfirmation: true,
-      confirmedAction: null,
-      blockedQuestionAction: null,
-    };
-  }
+  // Phase 9.1: "stop the refund and keep my device order" is an autonomous
+  // stop_refund action, never a cancellation/refund inversion. If an upstream
+  // planner missed the action, create the deterministic candidate here; it still
+  // goes through the same separate confirmation and transactional truth guards.
+  const stopRefundContinuationRequest = stopRefundKeepRequest(input.turn.rawText);
+  const candidateActions: PlannedAction[] = stopRefundContinuationRequest
+    ? [
+        ...input.actions.filter((action) => !["cancel_application", "request_refund"].includes(action.action) && action.action !== "stop_refund"),
+        {
+          action: "stop_refund",
+          sourceActId: input.turn.acts[0]?.id || input.turn.turnId,
+          requiresConfirmation: false,
+          authority: "deterministic",
+          requiredRole: "omran",
+          payload: null,
+        },
+      ]
+    : input.actions;
 
   const alreadyCancelled = ["cancelled", "refund_requested", "refund_completed"].includes(authoritativeStage);
   const cancellationInfoQuestion = /^(?:وين|متى|امتى|ليش|ليه|شو|كيف|قديش|كم|هل)\b/.test(currentQ)
     || /(?:مصاري|المبلغ|الاسترداد|استرداد).{0,28}(?:وين|متى|امتى)|(?:وين|متى|امتى).{0,28}(?:مصاري|المبلغ|الاسترداد|استرداد)/.test(currentQ);
-  if (alreadyCancelled && cancelWords(currentQ) && !cancellationInfoQuestion) {
+  if (alreadyCancelled && cancelWords(currentQ) && !reopenWords(currentQ) && !stopRefundWords(currentQ) && !cancellationInfoQuestion) {
     const info = authoritativeStage === "refund_requested"
       ? "طلبك ملغي بالفعل، وطلب الاسترداد مسجل وقيد المعالجة. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية."
       : authoritativeStage === "refund_completed"
         ? "طلبك ملغي بالفعل، والاسترداد مكتمل حسب الحالة الحالية. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية."
         : "طلبك ملغي بالفعل. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية.";
     return {
-      actions: input.actions.filter((action) => action.action !== "cancel_application"),
+      actions: candidateActions.filter((action) => action.action !== "cancel_application"),
       confirmationPrompt: null,
       informationalReply: info,
       clearPendingConfirmation: true,
@@ -289,7 +321,7 @@ export function enforceMutationConfirmationGate(input: {
   }
 
   const output: PlannedAction[] = [];
-  for (const action of input.actions) {
+  for (const action of candidateActions) {
     if (!REAL_MUTATIONS.has(action.action)) {
       output.push(action);
       continue;

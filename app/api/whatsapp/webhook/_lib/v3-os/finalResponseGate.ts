@@ -910,7 +910,7 @@ export function enforceFinalResponseGate(input: {
     severity = "p0";
   }
   if (stopRefundKeepRequest(input.turn.rawText) && /(?:اكدلي|أكدلي|اكتب).{0,35}(?:نعم).{0,35}(?:الغي\s+الطلب|ألغي\s+الطلب|استرداد\s+الرسوم)/.test(normalized(reply))) {
-    violations.push("stop_refund_keep_request_misrouted_to_real_mutation");
+    violations.push("stop_refund_keep_request_inverted_to_cancel_or_refund");
     severity = "p0";
   }
   if (officePaymentQuestion(input.turn.rawText) && /(?:تعال|اجي|أجي).{0,35}(?:المكتب|المحل|الفرع|عندنا).{0,30}(?:ادفع|أدفع|دفع)|(?:تعال|اجي|أجي).{0,25}(?:ادفع|أدفع).{0,20}(?:5|٥|الرسوم)/.test(normalized(reply))) {
@@ -922,6 +922,26 @@ export function enforceFinalResponseGate(input: {
   }
   if (/\b(?:فرعنا|الفرع)\b/.test(normalized(reply))) {
     violations.push("forbidden_branch_term_in_customer_reply");
+  }
+
+  if (input.turn.topics.includes("office_location")) {
+    const officeReply = normalized(reply);
+    if (input.truth.policy.generalLocation && !officeReply.includes(normalized(input.truth.policy.generalLocation))) {
+      violations.push("office_location_general_area_missing");
+      severity = "p0";
+    }
+    if (!/(?:موعد|بموعد).{0,35}(?:رسمي|مؤكد)|(?:العنوان|تفاصيل).{0,35}(?:الموعد|الموافقه|الموافقة)/.test(officeReply)) {
+      violations.push("office_location_detail_gate_missing");
+      severity = "p0";
+    }
+  }
+
+  if (input.turn.topics.includes("delivery")) {
+    const deliveryReply = normalized(reply);
+    if (!/(?:استلام|استلم)/.test(deliveryReply) || !/(?:موعد|بموعد).{0,30}(?:رسمي|مؤكد)/.test(deliveryReply)) {
+      violations.push("delivery_current_turn_not_answered");
+      severity = "p0";
+    }
   }
 
   if (legalThreatOrPublicEscalationText(input.turn.rawText) && /(?:بقدر\s+اسجل|بقدر\s+أسجل|بحللك|مضمون).{0,35}(?:الغاء|إلغاء|استرداد|الاسترداد)?/.test(normalized(reply))) {

@@ -17,13 +17,15 @@ const MUTATIONS = new Set([
   "reopen_application",
 ]);
 
-// Phase 7.1.3A: production mutations are deliberately scoped. Turning the
-// Control Center Real Actions switch ON does NOT unlock every historical
-// action. Only explicit cancellation, refund, and customer-confirmed WhatsApp-alias actions may mutate data.
-// Everything else stays manual/Discord-assisted until separately approved.
+// Phase 9.1 autonomous core action plane. These are the only customer-confirmed
+// mutations WhatsApp may execute automatically. Device/model/storage/color/data
+// changes and recalculation remain manual and are routed to the official Facebook
+// channel instead of being executed from WhatsApp.
 export const LIVE_SCOPED_MUTATIONS = new Set([
   "cancel_application",
   "request_refund",
+  "stop_refund",
+  "reopen_application",
   "link_whatsapp_alias",
 ]);
 
@@ -99,8 +101,8 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
       return { success: false, blocker: "v3_real_actions_production_gate_disabled" };
     }
 
-    // Hard second gate: even when Real Actions are enabled globally, only
-    // cancellation, refund, and explicit customer-confirmed WhatsApp alias linking are allowed.
+    // Hard second gate: even when Real Actions are enabled globally, only the
+    // five approved autonomous core actions are allowed.
     // The alias mutation is stored in its dedicated table and never changes applications.phone.
     if (!LIVE_SCOPED_MUTATIONS.has(planned.action)) {
       return { success: false, blocker: `scoped_real_actions_disallowed:${planned.action}` };

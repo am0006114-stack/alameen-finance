@@ -1,5 +1,6 @@
 import { applicationJourneyStage } from "./applicationJourney";
 import { normalizeArabic } from "./text";
+import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
 import type { ApplicationTruth, CommercialDisclosureState, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export const COMMERCIAL_DISCLOSURE_VERSION = "2026-09-informed-fee-v2-full-rationale" as const;
@@ -48,6 +49,8 @@ export function informedCommercialContinuationConfirmed(input: {
   if (disclosure.status !== "delivered") return false;
   const stage = applicationJourneyStage(input.truth.application);
   if (!["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)) return false;
+
+  if (isPaymentPriorityCustomerText(input.customerText, input.turn.topics.join(","), input.state.lastAssistantText)) return true;
 
   const semantic = input.turn.semantic;
   if (semantic && semantic.confidence >= 0.68) {
@@ -115,16 +118,31 @@ export function markCommercialDisclosureAcknowledged(state: ConversationState, t
   };
 }
 
-export function shouldExplainCommercialStep(input: { state: ConversationState; truth: TruthBundle; turn: InterpretedTurn; explicitContinuationIntent: boolean }) {
+export function shouldExplainCommercialStep(input: { state: ConversationState; truth: TruthBundle; turn: InterpretedTurn; explicitContinuationIntent: boolean; observedFullDisclosure?: boolean }) {
+  // Durable state is primary, but an actually-sent full disclosure visible in the
+  // canonical transcript is valid recovery evidence if state persistence lagged.
+  // Never punish a payment-ready customer by repeating the disclosure after the
+  // system itself already sent it.
+  if (input.observedFullDisclosure) return false;
   if (!preliminaryApprovalNeedsInformedDisclosure(input.state, input.truth)) return false;
   if (input.explicitContinuationIntent) return true;
   const semantic = input.turn.semantic;
   if (!semantic || semantic.confidence < 0.62 || semantic.socialClosure) return false;
   const commercialTopics = new Set(["continuation", "payment_fee", "payment_timing", "payment_method"]);
   if (input.turn.topics.some((topic) => commercialTopics.has(topic))) return true;
-  const unrelatedMaterialTopics = new Set(["products", "product_price", "device_change", "device_recalculation", "office_location", "appointment", "delivery", "refund", "cancellation", "reopen", "legal", "human_request", "manager_request", "call_request", "tracking"]);
-  if (input.turn.topics.some((topic) => unrelatedMaterialTopics.has(topic))) return false;
-  return Boolean(semantic.currentQuestion || semantic.answerObligations.length || semantic.customerGoal);
+  // Phase 9.1 positive-only disclosure authority: an unrelated or merely unknown
+  // question can never be swallowed by the 5-JOD stage. The disclosure opens only
+  // from an explicit continuation/payment signal above.
+  return false;
+}
+
+export function resemblesFullCommercialDisclosure(value: string | null | undefined) {
+  const q = normalizeArabic(String(value || ""));
+  return /رسوم\s+فتح\s+ملف/.test(q)
+    && /(?:مش|ليست).{0,20}(?:دفعه\s+اولي|دفعة\s+أولى|ثمن\s+الجهاز)/.test(q)
+    && /(?:ما|لا).{0,24}(?:تعني|تضمن).{0,24}(?:موافقه\s+نهائيه|الموافقة\s+النهائية)/.test(q)
+    && /مسترد/.test(q)
+    && /(?:حاب|بدك|تقرر).{0,30}(?:تكمل|الاستمرار)/.test(q);
 }
 
 export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {

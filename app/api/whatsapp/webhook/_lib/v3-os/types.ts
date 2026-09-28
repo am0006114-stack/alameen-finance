@@ -1,4 +1,5 @@
-export const V3_OS_VERSION = "v3.0.0-phase9.0-os-consolidation-clean-cutover" as const;
+export const V3_OS_VERSION = "v3.0.0-phase9.1-autonomous-action-payment-policy-authority" as const;
+// Phase 9.0 production baseline: v3.0.0-phase9.0-os-consolidation-clean-cutover
 // Backward compatibility anchor: v3.0.0-phase7.8.0.1-informed-commercial-continuation-fee-rationale-integrity
 // Backward compatibility anchor: v3.0.0-phase7.8.0-ai-native-conversation-brain-semantic-memory
 // Backward compatibility anchor: v3.0.0-phase7.7.2-fresh-turn-open-loop-egress-integrity

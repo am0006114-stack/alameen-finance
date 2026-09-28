@@ -16,16 +16,37 @@ function normalize(value: string | null | undefined) {
     .toLowerCase();
 }
 
-export function isPaymentPriorityCustomerText(text: string | null | undefined, intent?: string | null) {
+export function isPaymentPriorityCustomerText(
+  text: string | null | undefined,
+  intent?: string | null,
+  previousAssistantText?: string | null,
+) {
   const n = normalize(text);
   const i = String(intent || "").toLowerCase();
+  const previous = normalize(previousAssistantText);
   if (!n) return false;
-  if (/(?:ما|مش|مو)\s*(?:بدي|حاب|ناوي)?\s*(?:ادفع|احول)|ليش\s*(?:ادفع|احول)|دفعت|حولت|تم\s*الدفع/.test(n)) return false;
-  if ((["payment_method", "payment_recipient", "receipt_upload", "payment"].includes(i) || i.includes("payment")) && /(?:ادفع|احول|تحويل|رابط|محفظ|كليك|cliq|orange|اورنج|الخمس|5|٥)/i.test(n)) return true;
-  // Do not use ASCII \b word boundaries around Arabic words: JavaScript treats
-  // Arabic letters as non-\w, which can make genuine phrases such as "وين ادفع"
-  // fail matching when no intent label is available.
-  return /(?:بدي\s*(?:ادفع|احول)|حاب\s*(?:ادفع|احول)|جاهز\s*(?:ادفع|للدفع|احول)|كيف\s*(?:بدي\s*)?(?:ادفع|احول)|وين\s*(?:بدي\s*)?(?:ادفع|احول)|(?:اعطيني|اعطني)\s*(?:وين|كيف)?\s*(?:ادفع|احول)|وين\s*احول\s*(?:كليك|cliq)?|ممكن\s*(?:اعرف\s*)?كيف\s*(?:بدي\s*)?(?:ادفع|احول)|رابط\s*الدفع|بيانات\s*(?:الدفع|التحويل)|معلومات\s*(?:الدفع|التحويل)|رقم\s*التحويل|ع\s*اي\s*رقم\s*احول|على\s*اي\s*رقم\s*احول|وين\s*المحفظ|اي\s*بنك|أي\s*بنك)/i.test(n);
+
+  // A refusal, a why-question, or a customer claim that payment already happened is
+  // never a request for payment instructions. Keep confirmation truth admin-backed.
+  if (/(?:ما|مش|مو)\s*(?:بدي|حاب|ناوي)?\s*(?:ادفع|احول)|ليش\s*(?:ادفع|احول)|(?:^|\s)(?:دفعت|حولت|تم\s*الدفع|رفعت\s*الوصل)(?:\s|$)/.test(n)) return false;
+
+  const paymentTopic = i.includes("payment_method") || i.includes("payment_recipient") || i.includes("payment_fee") || i === "payment" || i.includes("payment,") || i.includes(",payment");
+  const paymentOperation = /(?:ادفع|الدفع|دفع\s*(?:رسوم|الرسوم|الخمس|الخمسه|الخمسة|5|٥)|احول|تحويل|كليك|cliq|orange|اورنج|محفظ|بيانات\s*(?:الدفع|التحويل)|معلومات\s*(?:الدفع|التحويل)|رقم\s*التحويل)/i.test(n);
+  const shortPaymentCommitment = /^(?:دفع|الدفع|ادفع)(?:\s+(?:دفع|الرسوم|رسوم|الخمس|الخمسه|الخمسة|5|٥))?$/.test(n);
+  if (shortPaymentCommitment) return true;
+  if (paymentTopic && paymentOperation) return true;
+
+  // Contextual commercial intent: after the assistant has explicitly offered the
+  // payment details, "ابعثلي إياهم" / "هاتهم" is a continuation decision, not an
+  // unknown turn. This is contextual reference resolution, not a phrase-specific
+  // payment destination router.
+  const previousOfferedPaymentData = /(?:بيانات\s*الدفع|بيانات\s*التحويل|بعطيك\s*بيانات|ببعتلك\s*بيانات|ابعثلك\s*بيانات|ساعتها\s*بعطيك)/.test(previous);
+  const asksToSendReferencedData = /^(?:اها\s+|اه\s+|نعم\s+)?(?:ابعث|ابعت|ارسل|اعطيني|هات)(?:لي)?(?:\s+(?:اياهم|إياهم|البيانات|التفاصيل))?$/.test(n);
+  if (previousOfferedPaymentData && asksToSendReferencedData) return true;
+
+  // Generic payment/procedure intent after disclosure. Avoid ASCII word boundaries
+  // around Arabic text; JS treats Arabic letters as non-\w.
+  return /(?:بدي\s*(?:ادفع|احول)|حاب\s*(?:ادفع|احول)|جاهز\s*(?:ادفع|للدفع|احول)|كيف.{0,18}(?:بقدر|اقدر|بدي|ممكن)?\s*(?:ادفع|احول)|وين.{0,18}(?:بقدر|اقدر|بدي|ممكن)?\s*(?:ادفع|احول)|(?:اعطيني|اعطني)\s*(?:وين|كيف)?\s*(?:ادفع|احول)|وين\s*احول\s*(?:كليك|cliq)?|ممكن\s*(?:اعرف\s*)?كيف.{0,18}(?:ادفع|احول)|رابط\s*الدفع|بيانات\s*(?:الدفع|التحويل)|معلومات\s*(?:الدفع|التحويل)|رقم\s*التحويل|ع\s*اي\s*رقم\s*احول|على\s*اي\s*رقم\s*احول|وين\s*المحفظ|اي\s*بنك|أي\s*بنك|(?:دفع|ادفع).{0,28}(?:رسوم|فتح\s*الملف|الخمس|5|٥)|(?:رسوم|فتح\s*الملف|الخمس|5|٥).{0,28}(?:دفع|ادفع|احول)|(?:استكمل|اكمل|كمل).{0,24}(?:الاجراءات|الإجراءات))/.test(n);
 }
 
 export function isSocialClosureCustomerText(text: string | null | undefined, messageType?: string | null) {

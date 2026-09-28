@@ -6,7 +6,7 @@ import { V3_OS_VERSION } from "@/app/api/whatsapp/webhook/_lib/v3-os/types";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Action = "enable_replies" | "disable_v3" | "enable_real_actions" | "disable_real_actions";
+type Action = "enable_replies" | "enable_real_actions" | "disable_real_actions" | "disable_v3";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminLoggedIn())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -22,17 +22,16 @@ export async function POST(request: NextRequest) {
     Object.assign(patch, { live_enabled: true, kill_switch: false, resume_legacy_ignored: true });
     message = "تم تأكيد تشغيل Conversation OS. وضع Real Actions لم يتغير.";
   } else if (action === "disable_v3") {
-    Object.assign(patch, { live_enabled: true, kill_switch: false, real_actions_enabled: false });
-    message = "Phase 9 لا يعيد العملاء إلى V1. تم إبقاء الردود شغالة وتعطيل Real Actions فقط كوضع آمن.";
+    return NextResponse.json({ error: "Phase 9.1 ألغى هذا الأمر القديم. Conversation OS لا يُعاد إلى V1، وتعطيل Real Actions له أمر طوارئ مستقل وواضح." }, { status: 400 });
   } else if (action === "disable_real_actions") {
     Object.assign(patch, { real_actions_enabled: false });
     message = "تم إيقاف Real Actions.";
   } else if (action === "enable_real_actions") {
-    if (String(body?.confirm || "") !== "ENABLE_SCOPED_CANCEL_REFUND") {
-      return NextResponse.json({ error: "التأكيد المطلوب لتفعيل الإلغاء والاسترداد التلقائي غير موجود." }, { status: 400 });
+    if (String(body?.confirm || "") !== "ENABLE_AUTONOMOUS_CORE_ACTIONS") {
+      return NextResponse.json({ error: "التأكيد المطلوب لتفعيل Real Actions الخمسة غير موجود." }, { status: 400 });
     }
     Object.assign(patch, { real_actions_enabled: true });
-    message = "تم تفعيل Real Actions المقيدة بدون تغيير وضع الردود.";
+    message = "تم تفعيل Real Actions الخمسة: الإلغاء، الاسترداد، إيقاف الاسترداد، إعادة فتح الطلب، واعتماد رقم واتساب للمتابعة.";
   } else {
     return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
