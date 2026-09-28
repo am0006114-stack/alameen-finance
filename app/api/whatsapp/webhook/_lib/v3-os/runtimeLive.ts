@@ -36,6 +36,8 @@ import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
 import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
 import { routeSemanticComplexity, type SemanticComplexityDecision } from "./semanticComplexityRouter";
 import { createSolHybridProvider, getSolHybridControl, type SolHybridControl } from "./solHybridRuntime";
+import { getHumanOsControl } from "./humanOsControl";
+import { runHumanConversationOS } from "./humanConversationOS";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -205,6 +207,16 @@ export type V3LiveResult = OsRunResult & {
   finalSafetyPass: boolean;
   fallbackUsed: boolean;
   realActionsEnabled: boolean;
+  humanOs?: {
+    enabled: true;
+    journalTurnId: string;
+    modelTier: "deterministic" | "deepseek" | "sol";
+    modelCalls: number;
+    reusedDecision: boolean;
+    needsHumanReview: boolean;
+    humanReviewReason: string | null;
+    memoryAfter: import("./compactHumanMemory").CompactHumanMemory | null;
+  };
 };
 
 function repairPrompt(base: string, reply: string, verification: VerificationReport) {
@@ -521,7 +533,7 @@ function buildScopedMutationSuccessReply(input: { truth: TruthBundle; actions: A
   return null;
 }
 
-export async function runV3ProductionLive(input: {
+async function runLegacyV3ProductionLive(input: {
   waId: string;
   turnId: string;
   customerText: string;
@@ -1435,4 +1447,26 @@ export async function runV3ProductionLive(input: {
     fallbackUsed,
     realActionsEnabled: input.realActionsEnabled,
   };
+}
+
+export async function runV3ProductionLive(input: {
+  waId: string;
+  turnId: string;
+  customerText: string;
+  recentTurns?: string[];
+  profileName?: string | null;
+  writer?: V3TextProvider | null;
+  interpreter?: V3TextProvider | null;
+  realActionsEnabled: boolean;
+}): Promise<V3LiveResult> {
+  const humanOs = await getHumanOsControl();
+  if (humanOs.enabled) {
+    return await runHumanConversationOS({
+      ...input,
+      solEnabled: humanOs.solEnabled,
+      maxRecentTurns: humanOs.maxRecentTurns,
+      maxPromptChars: humanOs.maxPromptChars,
+    }) as V3LiveResult;
+  }
+  return runLegacyV3ProductionLive(input);
 }

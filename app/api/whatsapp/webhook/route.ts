@@ -165,6 +165,8 @@ import {
 } from "./_lib/conversationKernel";
 import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
+import { completeHumanTurnDelivery } from "./_lib/v3-os/durableTurnJournal";
+import { saveCompactHumanMemory } from "./_lib/v3-os/compactHumanMemory";
 import { loadV3ConversationState, saveV3ConversationState } from "./_lib/v3-os/stateStore";
 import { emptyState } from "./_lib/v3-os/state";
 import { V3_OS_VERSION, type ConversationState } from "./_lib/v3-os/types";
@@ -11281,7 +11283,7 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                 messageId: outgoingMessageId,
                 intent: processingIntent,
                 trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
-                needsHumanReview: false,
+                needsHumanReview: Boolean(v3Run?.humanOs?.needsHumanReview),
                 handledByAi: true,
                 rawPayload: {
                   source_incoming_message_id: String(burstLeaderMessageId || message.id || ""),
@@ -11343,6 +11345,15 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                 } catch {}
                 throw new Error("V3_RETRYABLE_STATE_PERSISTENCE_FAILURE");
               }
+              if (v3Run?.humanOs && outgoingMessageId) {
+                try {
+                  if (v3Run.humanOs.memoryAfter) await saveCompactHumanMemory(from, v3Run.humanOs.memoryAfter);
+                  await completeHumanTurnDelivery({ turnId: v3Run.humanOs.journalTurnId, providerMessageId: outgoingMessageId, memoryAfter: v3Run.humanOs.memoryAfter });
+                } catch (humanOsFinalizeError) {
+                  console.error("Human Conversation OS durable completion failed after delivery", { waId: from, messageId: message.id || null, error: humanOsFinalizeError });
+                  throw new Error("V3_RETRYABLE_HUMAN_OS_COMPLETION_FAILURE");
+                }
+              }
             }
           } else {
             console.log("Skipped already-delivered V3 outgoing reply for this inbound burst", { waId: from, messageId: message.id, burstKey: activeBurstKey, reason: outgoingClaim.reason });
@@ -11351,6 +11362,11 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
               // If a previous invocation delivered successfully but state persistence
               // failed, the retry repairs state without sending a second customer reply.
               await saveV3ConversationState(retryStateToPersist);
+            }
+            if (v3Run?.humanOs && alreadyDeliveredForIncoming) {
+              const providerMessageId = durableBeforeSend.providerMessageId || "already-delivered";
+              if (v3Run.humanOs.memoryAfter) await saveCompactHumanMemory(from, v3Run.humanOs.memoryAfter);
+              await completeHumanTurnDelivery({ turnId: v3Run.humanOs.journalTurnId, providerMessageId, memoryAfter: v3Run.humanOs.memoryAfter });
             }
           }
 

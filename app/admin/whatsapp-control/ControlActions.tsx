@@ -10,6 +10,8 @@ type Props = {
   realActions: boolean;
   pendingCount: number;
   outsideWindowCount: number;
+  humanOsEnabled: boolean;
+  humanOsSolEnabled: boolean;
   solHybridConfigured: boolean;
   solHybridEnabled: boolean;
   solHybridActive: boolean;
@@ -69,6 +71,11 @@ export default function ControlActions(props: Props) {
         const accepted = window.confirm("بدء Pilot لمدة 24 ساعة: DeepSeek يبقى المسار الطبيعي، وGPT-5.6 Sol يدخل فقط للحالات المعقدة/الملتبسة. الدفع وReal Actions الواضحة لا تُرسل إلى Sol. حد الحجز الأقصى 5 دولار، ويمكن الرجوع فورًا بضغطة واحدة. متابعة؟");
         if (!accepted) return;
         confirmValue = "START_SOL_HYBRID_24H";
+      }
+      if (action === "enable_human_os") {
+        const accepted = window.confirm("تفعيل Human Conversation OS الجديد على الترافيك الحي؟ المسار الجديد يستخدم Durable Turn Journal + Compact Memory + DeepSeek للمحادثة الطبيعية، وSol يبقى OFF. لا يوجد Shadow AI، ويمكن الرجوع فورًا إلى Baseline 10.1 من نفس اللوحة. متابعة؟");
+        if (!accepted) return;
+        confirmValue = "ENABLE_HUMAN_CONVERSATION_OS";
       }
       const response = await fetch("/api/admin/whatsapp-control", {
         method: "POST",
@@ -151,6 +158,33 @@ export default function ControlActions(props: Props) {
           <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-xs font-black text-sky-100">
             التعديلات اليدوية (الجهاز/الموديل/السعة/اللون/البيانات/إعادة الحسبة): صفحة الأمين الرسمية على فيسبوك
           </div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-emerald-300/20 bg-emerald-500/[0.06] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold text-emerald-200">Phase 11 — Human Conversation OS</div>
+            <div className="mt-1 text-xl font-black text-white">AI يقود المحادثة — الكود يحمي الحقيقة والتنفيذ</div>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#cfd5cf]">
+              Durable Turn Journal يمنع إعادة التفكير عند retry، Compact Human Memory تحفظ المعنى بدل transcript ضخم، والرد الطبيعي يمر عبر Truth/Action guards. لا يوجد Shadow AI، وSol يبقى OFF داخل هذا المسار ما لم نضيف تفعيلًا منفصلًا لاحقًا.
+            </p>
+          </div>
+          <div className={`rounded-full px-4 py-2 text-xs font-black ${props.humanOsEnabled ? "bg-emerald-400/20 text-emerald-100" : "bg-white/5 text-[#aeb8b0]"}`}>
+            {props.humanOsEnabled ? "HUMAN OS ON" : "HUMAN OS OFF"}
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {props.humanOsEnabled ? (
+            <button disabled={Boolean(busy)} onClick={() => control("disable_human_os")} className="rounded-2xl border border-amber-300/30 bg-amber-500/20 px-5 py-3 text-sm font-black text-amber-100 disabled:opacity-50">
+              رجوع فوري إلى Baseline 10.1
+            </button>
+          ) : (
+            <button disabled={Boolean(busy)} onClick={() => control("enable_human_os")} className="rounded-2xl bg-emerald-300 px-5 py-3 text-sm font-black text-black disabled:opacity-40">
+              تفعيل Human Conversation OS
+            </button>
+          )}
+          <div className="text-xs font-bold text-[#aeb8b0]">Sol داخل Human OS: {props.humanOsSolEnabled ? "ON" : "OFF"}</div>
         </div>
       </div>
 

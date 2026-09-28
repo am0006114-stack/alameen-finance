@@ -7,7 +7,7 @@ import { startSolHybridPilot, stopSolHybridPilot } from "@/app/api/whatsapp/webh
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Action = "enable_replies" | "enable_real_actions" | "disable_real_actions" | "disable_v3" | "start_sol_hybrid_pilot" | "stop_sol_hybrid_pilot";
+type Action = "enable_replies" | "enable_real_actions" | "disable_real_actions" | "disable_v3" | "start_sol_hybrid_pilot" | "stop_sol_hybrid_pilot" | "enable_human_os" | "disable_human_os";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminLoggedIn())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -35,6 +35,27 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       return NextResponse.json({ error: error instanceof Error ? error.message : "تعذر إيقاف Sol" }, { status: 500 });
     }
+  }
+
+  if (action === "enable_human_os" || action === "disable_human_os") {
+    if (action === "enable_human_os" && String(body?.confirm || "") !== "ENABLE_HUMAN_CONVERSATION_OS") {
+      return NextResponse.json({ error: "التأكيد المطلوب لتفعيل Human Conversation OS غير موجود." }, { status: 400 });
+    }
+    const enabled = action === "enable_human_os";
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_human_os_settings")
+      .update({ enabled, sol_enabled: false, updated_at: new Date().toISOString() })
+      .eq("id", "default")
+      .select("id,enabled,sol_enabled,max_recent_turns,max_prompt_chars,updated_at")
+      .single();
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({
+      ok: true,
+      message: enabled
+        ? "تم تفعيل Human Conversation OS. Sol بقي OFF ولا يوجد Shadow AI. الرجوع متاح فورًا من نفس اللوحة."
+        : "تم إيقاف Human Conversation OS والرجوع الفوري إلى Baseline 10.1 / Conversation OS السابق بدون تغيير Real Actions.",
+      humanOs: data,
+    });
   }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), runtime_version: V3_OS_VERSION };

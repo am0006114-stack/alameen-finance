@@ -6,6 +6,7 @@ import ControlActions from "./ControlActions";
 import { classifyRecoveryCandidate } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationsAutopilot";
 import { V3_OS_VERSION } from "@/app/api/whatsapp/webhook/_lib/v3-os/types";
 import { getSolHybridControl, getSolHybridMetrics } from "@/app/api/whatsapp/webhook/_lib/v3-os/solHybridRuntime";
+import { getHumanOsControl } from "@/app/api/whatsapp/webhook/_lib/v3-os/humanOsControl";
 
 export const dynamic = "force-dynamic";
 
@@ -122,6 +123,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
   const liveEnabled = Boolean(settings?.live_enabled);
   const killSwitch = Boolean(settings?.kill_switch);
   const realActions = Boolean(settings?.real_actions_enabled);
+  const humanOsControl = await getHumanOsControl();
   const solHybridControl = await getSolHybridControl();
   const solHybridMetrics = await getSolHybridMetrics(solHybridControl);
 
@@ -132,7 +134,7 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
           <div>
             <div className="text-sm font-black text-[#d6b56b]">الأمين للأقساط</div>
             <h1 className="mt-1 text-3xl font-black">V3 Control Center</h1>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#aeb8b0]">Phase 10 Hybrid Pilot فوق Baseline 9.1: DeepSeek للمحادثة الطبيعية، Sol فقط للفهم المعقد، Truth/Actions حتمية، وRecovery تشخيص فقط. الإصدار الفعلي: {V3_OS_VERSION}.</p>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#aeb8b0]">Phase 11 Human Conversation OS جاهز للـClean Cutover فوق Durable Ingress: AI يقود المحادثة، Truth/Actions حتمية، Durable Turn Journal يمنع إعادة التفكير، وSol مستقل ويبقى OFF افتراضيًا. الإصدار الأساسي: {V3_OS_VERSION}.</p>
           </div>
           <div className="flex gap-2">
             <Link href="/admin/whatsapp" className="rounded-xl border border-white/10 bg-white/5 px-4 py-2 text-sm font-black">محادثات واتساب</Link>
@@ -169,6 +171,8 @@ export default async function WhatsAppControlPage({ searchParams }: { searchPara
           realActions={realActions}
           pendingCount={pending.length}
           outsideWindowCount={outsideWindow.length}
+          humanOsEnabled={humanOsControl.enabled}
+          humanOsSolEnabled={humanOsControl.solEnabled}
           solHybridConfigured={solHybridControl.configured}
           solHybridEnabled={solHybridControl.enabled}
           solHybridActive={solHybridControl.active}
