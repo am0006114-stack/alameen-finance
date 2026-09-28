@@ -185,6 +185,7 @@ import {
   providerMessageIdFromDeliveredMarker,
 } from "./_lib/v3-os/egressLiveness";
 import { notifyV3Discord } from "./_lib/v3-os/discordNotifier";
+import { buildStatusOnlyWebhookBody, enqueueDurableIngressWebhook, verifyDurableIngressWorkerToken } from "./_lib/v3-os/durableIngress";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -10834,9 +10835,7 @@ async function collectIncomingMessageBurst(input: {
   }
 }
 
-export async function POST(request: Request) {
-  const body = (await request.json()) as WhatsAppWebhookBody;
-
+async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhookBody) {
   for (const entry of body.entry || []) {
     for (const change of entry.changes || []) {
       const value = change.value;
@@ -11803,4 +11802,38 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json({ ok: true });
+}
+
+export async function POST(request: Request) {
+  const body = (await request.json()) as WhatsAppWebhookBody;
+  const workerToken = String(request.headers.get("x-alameen-live-worker-token") || "").trim();
+
+  if (workerToken && await verifyDurableIngressWorkerToken(workerToken)) {
+    return processWhatsAppWebhookBody(request, body);
+  }
+
+  const ingress = await enqueueDurableIngressWebhook(body);
+  if (ingress.accepted) {
+    // Meta delivery/read status callbacks are DB-only bookkeeping and do not invoke
+    // the Conversation OS. Keep them out of the live AI queue to avoid needless
+    // worker invocations while customer messages return 200 after durable enqueue.
+    const statusOnlyBody = buildStatusOnlyWebhookBody(body);
+    if (statusOnlyBody) await processWhatsAppWebhookBody(request, statusOnlyBody);
+
+    return NextResponse.json({
+      ok: true,
+      accepted: true,
+      durableIngress: true,
+      eventCount: ingress.eventCount,
+    });
+  }
+
+  // Emergency compatibility only: if the Phase 10.1 queue schema is not available
+  // or enqueueing fails, preserve customer service by executing the current path.
+  // Once the durable ingress migration is installed this branch should be cold.
+  console.error("V3_DURABLE_INGRESS_FALLBACK_SYNC", {
+    reason: ingress.reason,
+    error: ingress.error || null,
+  });
+  return processWhatsAppWebhookBody(request, body);
 }
