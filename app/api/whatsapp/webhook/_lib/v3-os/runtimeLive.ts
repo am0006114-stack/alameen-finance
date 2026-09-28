@@ -3,7 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { contactPhonesMatch, resolveV3ProductionTruth } from "./productionTruth";
 import { closeAnsweredLoops, emptyState, finalizeStateSemanticMemory, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
-import type { ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
+import type { ActionKey, ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
 import { interpretTurn } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transactionalActionAdapter";
@@ -33,6 +33,7 @@ import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, 
 import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
+import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -45,6 +46,142 @@ const PASS: VerificationReport = {
   hierarchyViolations: [],
   repetitionFlags: [],
 };
+
+const CRITICAL_DETERMINISTIC_ACTIONS = new Set<ActionKey>([
+  "cancel_application",
+  "request_refund",
+  "stop_refund",
+  "reopen_application",
+  "change_device",
+  "change_application_data",
+]);
+
+const CRITICAL_DETERMINISTIC_TOPICS = new Set([
+  "cancellation",
+  "refund",
+  "reopen",
+  "device_change",
+  "application_correction",
+  "human_request",
+  "manager_request",
+]);
+
+function preserveCriticalDeterministicAuthority(modelTurn: InterpretedTurn, anchor: InterpretedTurn): InterpretedTurn {
+  const criticalAnchorActs = anchor.acts.filter((act) =>
+    (act.action !== undefined && CRITICAL_DETERMINISTIC_ACTIONS.has(act.action))
+    || CRITICAL_DETERMINISTIC_TOPICS.has(String(act.topic))
+  );
+  if (!criticalAnchorActs.length && !anchor.explicitRoleRequest) return modelTurn;
+
+  const actKey = (act: InterpretedTurn["acts"][number]) => `${act.type}|${act.topic}|${act.action}|${act.value || ""}`;
+  const existing = new Set(modelTurn.acts.map(actKey));
+  const missing = criticalAnchorActs.filter((act) => !existing.has(actKey(act)));
+  const acts = [...modelTurn.acts, ...missing];
+  const requestedActions = Array.from(new Set([
+    ...modelTurn.requestedActions,
+    ...criticalAnchorActs.map((act) => act.action).filter((action): action is ActionKey => action !== undefined && action !== "none"),
+  ])) as ActionKey[];
+  const topics = Array.from(new Set([
+    ...modelTurn.topics,
+    ...criticalAnchorActs.map((act) => act.topic),
+  ])) as InterpretedTurn["topics"];
+
+  return {
+    ...modelTurn,
+    acts,
+    requestedActions,
+    topics,
+    explicitRoleRequest: modelTurn.explicitRoleRequest || anchor.explicitRoleRequest,
+    warnings: Array.from(new Set([...(modelTurn.warnings || []), ...(missing.length ? ["critical_deterministic_authority_preserved"] : [])])),
+  };
+}
+
+function actionResultFor(actions: ActionResult[] | undefined, action: ActionKey) {
+  return (actions || []).find((result) => result.action === action) || null;
+}
+
+function criticalOperationalFallbackReply(input: {
+  truth: TruthBundle;
+  state: ConversationState;
+  customerText: string;
+  turn?: InterpretedTurn | null;
+  actions?: ActionResult[] | null;
+}): string | null {
+  const turn = input.turn;
+  const app = input.truth.application;
+  if (!turn) return null;
+  const requested = new Set(turn.requestedActions || []);
+  const tracking = app?.trackingId || input.state.activeTrackingId || null;
+  const trackingLine = tracking ? `\nرقم الطلب: ${tracking}` : "";
+
+  const successReply = buildScopedMutationSuccessReply({ truth: input.truth, actions: input.actions || [] });
+  if (successReply) return successReply;
+
+  const cancel = actionResultFor(input.actions || [], "cancel_application");
+  const refund = actionResultFor(input.actions || [], "request_refund");
+  const stopRefund = actionResultFor(input.actions || [], "stop_refund");
+  const reopen = actionResultFor(input.actions || [], "reopen_application");
+
+  if (requested.has("stop_refund")) {
+    if (stopRefund?.outcome === "needs_confirmation") {
+      return `طلبك واضح: بدك توقف الاسترداد وترجع تكمل نفس الطلب${tracking ? ` ${tracking}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
+    }
+    return `طلبك واضح: بدك توقف الاسترداد وترجع تكمل نفس الطلب${tracking ? ` ${tracking}` : ""}. إيقاف الاسترداد مش إجراء بنعتبره منفذ من رسالة واتساب، وما رح أطلب منك تعيد نفس التأكيد كل مرة. الحالة تظل كما هي لحد ما يتم التغيير فعليًا على الطلب.${trackingLine}`;
+  }
+
+  if (requested.has("reopen_application")) {
+    if (reopen?.outcome === "needs_confirmation") {
+      return `طلبك واضح: بدك ترجع تفتح الطلب${tracking ? ` ${tracking}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
+    }
+    return `طلب إعادة فتح الطلب واضح${tracking ? ` على ${tracking}` : ""}. ما رح أعتبره مفتوح من الرسالة وحدها؛ الحالة تتغير فقط بعد تنفيذ الإجراء فعليًا.${trackingLine}`;
+  }
+
+  if (requested.has("cancel_application")) {
+    const alsoRefund = requested.has("request_refund") && hasAuthoritativePaymentConfirmation(app);
+    if (cancel?.outcome === "needs_confirmation" || !cancel) {
+      return alsoRefund
+        ? `طلبك واضح${tracking ? ` للطلب ${tracking}` : ""}: إلغاء الطلب وطلب استرداد الرسوم المدفوعة. للتأكيد النهائي اكتب: نعم، ألغي الطلب الحالي وأطلب استرداد الرسوم. ما رح أعتبر الإلغاء أو الاسترداد منفذ قبل التنفيذ الفعلي.`
+        : `طلب الإلغاء واضح${tracking ? ` للطلب ${tracking}` : ""}. بما إنه إجراء فعلي على الطلب، للتأكيد النهائي اكتب: نعم، ألغي الطلب الحالي. ما رح أعتبر الطلب ملغي قبل التنفيذ الفعلي.`;
+    }
+    if (cancel.outcome === "failed" || cancel.outcome === "blocked") {
+      return `طلب الإلغاء واضح${tracking ? ` للطلب ${tracking}` : ""}، لكن الإلغاء ما تنفذ فعليًا لحد الآن. ما رح أقول إنه تم قبل ما تتغير حالة الطلب فعليًا.${trackingLine}`;
+    }
+  }
+
+  if (requested.has("request_refund")) {
+    if (!hasAuthoritativePaymentConfirmation(app)) {
+      return `طلب الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}، لكن ما في دفع مؤكد إداريًا ظاهر على الطلب حاليًا، لذلك ما بقدر أعتبر في استرداد منفذ أو مستحق من المحادثة وحدها.${trackingLine}`;
+    }
+    if (refund?.outcome === "needs_confirmation" || !refund) {
+      return `طلب الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}. للتأكيد النهائي اكتب: نعم، أطلب استرداد الرسوم على هذا الطلب. ما رح أعتبر الاسترداد مسجل أو منفذ قبل الإجراء الفعلي.`;
+    }
+    if (refund.outcome === "failed" || refund.outcome === "blocked") {
+      return `طلب الاسترداد واضح${tracking ? ` على الطلب ${tracking}` : ""}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أعتبر الاسترداد مسجل أو مكتمل قبل ما تظهر الحقيقة الفعلية على الطلب.${trackingLine}`;
+    }
+  }
+
+  if (requested.has("change_device") || requested.has("change_application_data")
+      || turn.topics.some((topic) => ["device_change", "device_recalculation", "application_correction"].includes(String(topic)))) {
+    return buildApplicationModificationRoutingReply({
+      topics: turn.topics,
+      requestedActions: turn.requestedActions,
+      customerText: input.customerText,
+      hasApplication: Boolean(app),
+      paymentConfirmed: hasAuthoritativePaymentConfirmation(app),
+      trackingId: app?.trackingId || null,
+      registeredPhone: app?.phone || null,
+      cancelExecuted: Boolean(cancel?.executed),
+      cancelNeedsConfirmation: cancel?.outcome === "needs_confirmation",
+    });
+  }
+
+  if (turn.explicitRoleRequest === "staff" || turn.explicitRoleRequest === "manager"
+      || turn.topics.includes("human_request") || turn.topics.includes("manager_request")) {
+    return `التواصل الرسمي مع الأمين على نفس واتساب. ما رح أدّعي إنه صار تحويل لموظف أو مسؤول إذا ما صار فعلًا. اكتب المشكلة نفسها أو الإجراء اللي بدك إياه، وبكمل معك على نفس الطلب${tracking ? ` ${tracking}` : ""} بدون ما أعيد عليك معلومات معروفة.`;
+  }
+
+  return null;
+}
 
 function withContactIdentityEventFact(state: ConversationState, input: { turnId: string; key: string; value: string }) {
   const stamp = new Date().toISOString();
@@ -111,10 +248,18 @@ async function notifyActionProblems(input: {
   }
 }
 
-export function buildV3LastResortReply(input?: { truth: TruthBundle; state: ConversationState; customerText: string }) {
-  if (!input) return "اكتب سؤالك أو رقم التتبع، وبجاوبك فقط من الحقيقة الموثقة عندنا.";
+export function buildV3LastResortReply(input?: { truth: TruthBundle; state: ConversationState; customerText: string; turn?: InterpretedTurn | null; actions?: ActionResult[] | null }) {
+  if (!input) return "أنا معك ورسالتك ما رح تنترك بدون رد. اكتب المطلوب نفسه مباشرة — دفع، إلغاء، استرداد، تعديل أو متابعة — وبكمل معك من نفس المحادثة.";
   const syntheticTurn: InterpretedTurn = { turnId: "last-resort", rawText: input.customerText, normalizedText: input.customerText, acts: [], topics: [], requestedActions: [], sentiment: "calm", urgency: "normal", explicitRoleRequest: null, confidence: 0.5, warnings: [], semantic: null };
-  const authority = buildSingleConversationAuthorityReply({ turn: syntheticTurn, state: input.state, truth: input.truth });
+  const critical = criticalOperationalFallbackReply({
+    truth: input.truth,
+    state: input.state,
+    customerText: input.customerText,
+    turn: input.turn || null,
+    actions: input.actions || [],
+  });
+  if (critical) return critical;
+  const authority = buildSingleConversationAuthorityReply({ turn: input.turn || syntheticTurn, state: input.state, truth: input.truth });
   if (authority) return authority;
   const app = input.truth.application;
   const q = String(input.customerText || "").trim();
@@ -142,9 +287,9 @@ export function buildV3LastResortReply(input?: { truth: TruthBundle; state: Conv
     }
   }
   if (input.state.activeTrackingId) {
-    return "تفاصيل الطلب مش كاملة عندي بهاللحظة، وما بدي أخمّن بحالة أو خطوة مش ظاهرة بشكل موثوق.";
+    return `أنا معك على الطلب ${input.state.activeTrackingId}. آخر رسالة ما قدرت أحدد منها المطلوب بشكل كافي، لكن ما رح أرجعك لنقطة الصفر. إذا قصدك دفع، إلغاء، استرداد، تعديل، أو متابعة الحالة، اكتب المطلوب نفسه بكلمتين وبكمل على نفس الطلب.`;
   }
-  return "إذا عندك طلب سابق ابعث رقم التتبع مرة واحدة؛ وإذا سؤالك عام اكتبه مثل ما هو وبجاوبك مباشرة.";
+  return "أنا معك. اكتب المطلوب نفسه مباشرة — دفع، إلغاء، استرداد، تعديل، متابعة طلب، أو سؤال عام — وبجاوبك على نفس النقطة بدون ما أرجعك لبداية المحادثة.";
 }
 
 function realActionsOffCompletionClaim(reply: string) {
@@ -655,6 +800,8 @@ export async function runV3ProductionLive(input: {
     }
   }
 
+  turn = preserveCriticalDeterministicAuthority(turn, deterministicAnchor);
+
   const rawContinuationIntent = truthBeforeActions.contactAccess !== "safe_preview"
     && !semanticContinuationVeto(turn)
     && !explicitDoNotContinueText(effectiveCustomerText, boundState.lastAssistantText)
@@ -933,7 +1080,14 @@ export async function runV3ProductionLive(input: {
   // business actions, or trigger one bounded regeneration, but they do not replace
   // a valid conversational answer with legacy canned text.
   const protectedFiveJodStep = continuationRevenueReadyAtDecision;
-  let reply: string | null = plan.shouldRespond ? nativeKernelInitial.reply : null;
+  const criticalOperationalReply = criticalOperationalFallbackReply({
+    truth: truthAfterActions,
+    state: conversationState,
+    customerText: effectiveCustomerText,
+    turn,
+    actions,
+  });
+  let reply: string | null = plan.shouldRespond ? (criticalOperationalReply || nativeKernelInitial.reply) : null;
   let verification: VerificationReport = PASS;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
   let replyAttempts = nativeKernelInitial.modelUsed ? 1 : 0;
@@ -964,7 +1118,7 @@ export async function runV3ProductionLive(input: {
     || continuationPersistence.updated
   );
 
-  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure) {
+  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure && !criticalOperationalReply) {
     const refreshed = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1000,7 +1154,7 @@ export async function runV3ProductionLive(input: {
 
   // One bounded repair call only. This is not a judge/shadow path: it runs only
   // when deterministic truth/action validation blocks the one candidate reply.
-  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2) {
+  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !criticalOperationalReply) {
     const repaired = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1073,6 +1227,8 @@ export async function runV3ProductionLive(input: {
       truth: truthAfterActions,
       state: conversationState,
       customerText: effectiveCustomerText,
+      turn,
+      actions,
     });
     fallbackUsed = true;
     nativeValidation = validateNativeConversationReply({

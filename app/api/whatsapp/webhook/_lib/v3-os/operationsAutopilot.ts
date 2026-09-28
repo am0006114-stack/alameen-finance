@@ -25,7 +25,7 @@ export function isPaymentPriorityCustomerText(text: string | null | undefined, i
   // Do not use ASCII \b word boundaries around Arabic words: JavaScript treats
   // Arabic letters as non-\w, which can make genuine phrases such as "وين ادفع"
   // fail matching when no intent label is available.
-  return /(?:بدي\s*(?:ادفع|احول)|حاب\s*(?:ادفع|احول)|جاهز\s*(?:ادفع|للدفع|احول)|كيف\s*(?:بدي\s*)?(?:ادفع|احول)|وين\s*(?:بدي\s*)?(?:ادفع|احول)|ممكن\s*(?:اعرف\s*)?كيف\s*(?:بدي\s*)?(?:ادفع|احول)|رابط\s*الدفع|بيانات\s*(?:الدفع|التحويل)|معلومات\s*(?:الدفع|التحويل)|رقم\s*التحويل|ع\s*اي\s*رقم\s*احول|على\s*اي\s*رقم\s*احول|وين\s*المحفظ|اي\s*بنك|أي\s*بنك)/i.test(n);
+  return /(?:بدي\s*(?:ادفع|احول)|حاب\s*(?:ادفع|احول)|جاهز\s*(?:ادفع|للدفع|احول)|كيف\s*(?:بدي\s*)?(?:ادفع|احول)|وين\s*(?:بدي\s*)?(?:ادفع|احول)|(?:اعطيني|اعطني)\s*(?:وين|كيف)?\s*(?:ادفع|احول)|وين\s*احول\s*(?:كليك|cliq)?|ممكن\s*(?:اعرف\s*)?كيف\s*(?:بدي\s*)?(?:ادفع|احول)|رابط\s*الدفع|بيانات\s*(?:الدفع|التحويل)|معلومات\s*(?:الدفع|التحويل)|رقم\s*التحويل|ع\s*اي\s*رقم\s*احول|على\s*اي\s*رقم\s*احول|وين\s*المحفظ|اي\s*بنك|أي\s*بنك)/i.test(n);
 }
 
 export function isSocialClosureCustomerText(text: string | null | undefined, messageType?: string | null) {
