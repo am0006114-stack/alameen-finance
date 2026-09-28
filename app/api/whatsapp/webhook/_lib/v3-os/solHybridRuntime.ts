@@ -213,10 +213,8 @@ export function createSolHybridProvider(input: {
             ],
             reasoning: { effort: "medium" },
             max_output_tokens: req.maxTokens ?? 1450,
-            temperature: req.temperature ?? 0.3,
             text: { verbosity: "low" },
             prompt_cache_key: "alameen-phase10-sol-hybrid-v1",
-            prompt_cache_options: { mode: "implicit", ttl: "30m" },
             store: false,
           }),
         });

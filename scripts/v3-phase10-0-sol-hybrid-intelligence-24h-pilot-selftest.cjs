@@ -23,7 +23,8 @@ ok('long/multi-intent reasoning can escalate', router.includes('long_customer_st
 ok('Sol uses GPT-5.6 Sol', sol.includes('gpt-5.6-sol'));
 ok('Sol uses Responses API', sol.includes('/v1/responses'));
 ok('Sol uses medium reasoning only on routed complex turns', sol.includes('reasoning: { effort: "medium" }'));
-ok('prompt caching enabled', sol.includes('prompt_cache_key') && sol.includes('ttl: "30m"'));
+ok('prompt caching key enabled with Responses API compatible parameters', sol.includes('prompt_cache_key') && !sol.includes('prompt_cache_options'));
+ok('GPT-5.6 Sol request omits unsupported temperature', !/temperature\s*:/.test(sol));
 ok('pilot is 24h', sol.includes('SOL_HYBRID_DEFAULT_HOURS = 24'));
 ok('pilot default cap is $5', sol.includes('SOL_HYBRID_DEFAULT_BUDGET_USD = 5'));
 ok('hard reserve cap per Sol call', sol.includes('SOL_CALL_RESERVE_USD = 0.05'));
