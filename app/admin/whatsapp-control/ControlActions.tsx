@@ -10,6 +10,16 @@ type Props = {
   realActions: boolean;
   pendingCount: number;
   outsideWindowCount: number;
+  solHybridConfigured: boolean;
+  solHybridEnabled: boolean;
+  solHybridActive: boolean;
+  solHybridExpired: boolean;
+  solHybridEndsAt: string | null;
+  solHybridBudgetUsd: number;
+  solHybridEstimatedCostUsd: number;
+  solHybridCalls: number;
+  solHybridCompleted: number;
+  solHybridFailed: number;
 };
 
 type RecoveryResult = {
@@ -54,6 +64,11 @@ export default function ControlActions(props: Props) {
         const accepted = window.confirm("سيتم تفعيل Real Actions الخمسة المعتمدة فقط: إلغاء الطلب، طلب الاسترداد، إيقاف الاسترداد، إعادة فتح الطلب إذا الحقيقة تسمح، واعتماد رقم واتساب للمتابعة. تعديل الجهاز/الموديل/السعة/اللون/بيانات الطلب وإعادة الحسبة تبقى يدوية عبر صفحة الأمين الرسمية على فيسبوك. متابعة؟");
         if (!accepted) return;
         confirmValue = "ENABLE_AUTONOMOUS_CORE_ACTIONS";
+      }
+      if (action === "start_sol_hybrid_pilot") {
+        const accepted = window.confirm("بدء Pilot لمدة 24 ساعة: DeepSeek يبقى المسار الطبيعي، وGPT-5.6 Sol يدخل فقط للحالات المعقدة/الملتبسة. الدفع وReal Actions الواضحة لا تُرسل إلى Sol. حد الحجز الأقصى 5 دولار، ويمكن الرجوع فورًا بضغطة واحدة. متابعة؟");
+        if (!accepted) return;
+        confirmValue = "START_SOL_HYBRID_24H";
       }
       const response = await fetch("/api/admin/whatsapp-control", {
         method: "POST",
@@ -135,6 +150,43 @@ export default function ControlActions(props: Props) {
           )}
           <div className="rounded-2xl border border-sky-300/20 bg-sky-400/10 px-5 py-3 text-xs font-black text-sky-100">
             التعديلات اليدوية (الجهاز/الموديل/السعة/اللون/البيانات/إعادة الحسبة): صفحة الأمين الرسمية على فيسبوك
+          </div>
+        </div>
+      </div>
+
+      <div className="rounded-3xl border border-violet-300/20 bg-violet-500/[0.07] p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-xs font-bold text-violet-200">Phase 10 Pilot — Hybrid Intelligence</div>
+            <div className="mt-1 text-xl font-black text-white">DeepSeek طبيعي — GPT-5.6 Sol للحالات المعقدة فقط</div>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-[#cfd5cf]">
+              الدفع وReal Actions الواضحة تبقى على المسار الحتمي/الرخيص. Sol يدخل فقط عند غموض فعلي، قصة طويلة، تعدد نوايا، تناقض، أو فشل فهم متكرر. إذا انتهت 24 ساعة أو بلغ حد الحجز، يرجع النظام تلقائيًا لمسار Phase 9.1.
+            </p>
+          </div>
+          <div className={`rounded-full px-4 py-2 text-xs font-black ${props.solHybridActive ? "bg-violet-400/20 text-violet-100" : "bg-white/5 text-[#aeb8b0]"}`}>
+            {props.solHybridActive ? "SOL PILOT ON" : props.solHybridExpired ? "SOL PILOT EXPIRED" : "SOL PILOT OFF"}
+          </div>
+        </div>
+
+        <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-xs text-[#9fa9a1]">Sol calls</div><div className="mt-1 text-xl font-black">{props.solHybridCalls}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-xs text-[#9fa9a1]">Estimated spend</div><div className="mt-1 text-xl font-black">${props.solHybridEstimatedCostUsd.toFixed(4)}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-xs text-[#9fa9a1]">Pilot cap</div><div className="mt-1 text-xl font-black">${props.solHybridBudgetUsd.toFixed(2)}</div></div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3"><div className="text-xs text-[#9fa9a1]">نتائج</div><div className="mt-1 text-sm font-black">{props.solHybridCompleted} completed / {props.solHybridFailed} failed</div></div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {props.solHybridActive ? (
+            <button disabled={Boolean(busy)} onClick={() => control("stop_sol_hybrid_pilot")} className="rounded-2xl border border-red-300/30 bg-red-500/20 px-5 py-3 text-sm font-black text-red-100 disabled:opacity-50">
+              رجوع فوري إلى Phase 9.1 / DeepSeek
+            </button>
+          ) : (
+            <button disabled={Boolean(busy) || !props.solHybridConfigured} onClick={() => control("start_sol_hybrid_pilot")} className="rounded-2xl bg-violet-300 px-5 py-3 text-sm font-black text-black disabled:opacity-40">
+              بدء تجربة Sol لمدة 24 ساعة
+            </button>
+          )}
+          <div className="text-xs font-bold text-[#aeb8b0]">
+            {props.solHybridConfigured ? (props.solHybridEndsAt ? `تنتهي: ${new Date(props.solHybridEndsAt).toLocaleString("ar-JO")}` : "OpenAI API جاهز") : "OPENAI_V3_API_KEY غير موجود — لن يبدأ Pilot"}
           </div>
         </div>
       </div>

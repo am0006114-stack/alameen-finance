@@ -34,6 +34,8 @@ import { buildSingleConversationAuthorityReply } from "./singleConversationAutho
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
 import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
+import { routeSemanticComplexity, type SemanticComplexityDecision } from "./semanticComplexityRouter";
+import { createSolHybridProvider, getSolHybridControl, type SolHybridControl } from "./solHybridRuntime";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -536,7 +538,10 @@ export async function runV3ProductionLive(input: {
   const loadedState = await loadV3ConversationState(input.waId);
   const stateBefore = inferRoleIntroducedFromRecentTurns(loadedState || emptyState(input.waId), safeRecentTurns);
 
-  const kernelProvider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
+  const phase91KernelProvider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
+  let kernelProvider = phase91KernelProvider;
+  let solHybridControl: SolHybridControl | null = null;
+  let hybridDecision: SemanticComplexityDecision = { route: "deepseek", score: 0, reasons: ["hybrid_not_evaluated"], fastPathProtected: false };
   const deterministicAnchor = interpretTurn({ turnId: input.turnId, customerText: effectiveCustomerText });
   let turn = enforceSemanticDecisionAuthority(enforceFreshTurnAuthority({
     turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
@@ -645,6 +650,56 @@ export async function runV3ProductionLive(input: {
 
   const currentWa = canonicalWaId(input.waId);
 
+  // PHASE 10 PILOT — HYBRID INTELLIGENCE:
+  // Phase 9.1 remains the default path. Only genuinely difficult intent
+  // understanding may replace the normal DeepSeek kernel with GPT-5.6 Sol.
+  // Clear payment/actions stay on the cheap deterministic/DeepSeek fast path.
+  if (input.writer === undefined) {
+    try {
+      solHybridControl = await getSolHybridControl();
+      hybridDecision = routeSemanticComplexity({
+        customerText: effectiveCustomerText,
+        turn,
+        state: boundState,
+        truth: truthBeforeActions,
+        recentTurns: scopedRecentTurns,
+      });
+      if (solHybridControl.active && hybridDecision.route === "sol") {
+        const solProvider = createSolHybridProvider({
+          control: solHybridControl,
+          waId: input.waId,
+          trackingId: truthBeforeActions.application?.trackingId || boundState.activeTrackingId || null,
+          escalationReasons: hybridDecision.reasons,
+          complexityScore: hybridDecision.score,
+        });
+        if (solProvider) {
+          kernelProvider = phase91KernelProvider ? {
+            async generate(req) {
+              try {
+                return await solProvider.generate(req);
+              } catch (error) {
+                console.error("V3 Sol call failed; falling back to Phase 9.1 DeepSeek:", error);
+                return phase91KernelProvider.generate(req);
+              }
+            },
+          } : solProvider;
+          console.info("V3_SOL_HYBRID_ROUTE", JSON.stringify({
+            waId: input.waId,
+            trackingId: truthBeforeActions.application?.trackingId || boundState.activeTrackingId || null,
+            route: "sol",
+            score: hybridDecision.score,
+            reasons: hybridDecision.reasons,
+          }));
+        }
+      }
+    } catch (error) {
+      // Fail open to the exact Phase 9.1 provider path. Sol is an intelligence
+      // enhancement, never a new liveness dependency.
+      console.error("V3 Sol hybrid routing failed; using Phase 9.1 provider:", error);
+      hybridDecision = { route: "deepseek", score: 0, reasons: ["hybrid_router_failed"], fastPathProtected: false };
+    }
+  }
+
   // PHASE 8.5 REVENUE PRIORITY: once the commercial disclosure has already been
   // delivered, a direct "how/where do I pay?" turn is itself an informed
   // continuation signal. Payment-ready customers bypass provider latency and get
@@ -679,6 +734,15 @@ export async function runV3ProductionLive(input: {
       recentTurns: scopedRecentTurns,
       profileName: input.profileName,
       deterministicAnchor: turn,
+      operationalContext: {
+        hybridIntelligence: {
+          route: hybridDecision.route,
+          score: hybridDecision.score,
+          reasons: hybridDecision.reasons,
+          fastPathProtected: hybridDecision.fastPathProtected,
+          pilotActive: Boolean(solHybridControl?.active),
+        },
+      },
     });
   }
   if (nativeKernelInitial.modelUsed) {
@@ -1116,6 +1180,13 @@ export async function runV3ProductionLive(input: {
   let fallbackUsed = false;
 
   const operationalContext = {
+    hybridIntelligence: {
+      route: hybridDecision.route,
+      score: hybridDecision.score,
+      reasons: hybridDecision.reasons,
+      fastPathProtected: hybridDecision.fastPathProtected,
+      pilotActive: Boolean(solHybridControl?.active),
+    },
     mutationConfirmationRequired: Boolean(mutationGate.confirmationPrompt),
     mutationConfirmationPromptMeaning: mutationGate.confirmationPrompt || null,
     mutationInformationalMeaning: mutationGate.informationalReply || null,

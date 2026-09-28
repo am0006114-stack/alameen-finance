@@ -2,11 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { V3_OS_VERSION } from "@/app/api/whatsapp/webhook/_lib/v3-os/types";
+import { startSolHybridPilot, stopSolHybridPilot } from "@/app/api/whatsapp/webhook/_lib/v3-os/solHybridRuntime";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-type Action = "enable_replies" | "enable_real_actions" | "disable_real_actions" | "disable_v3";
+type Action = "enable_replies" | "enable_real_actions" | "disable_real_actions" | "disable_v3" | "start_sol_hybrid_pilot" | "stop_sol_hybrid_pilot";
 
 export async function POST(request: NextRequest) {
   if (!(await isAdminLoggedIn())) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -14,6 +15,27 @@ export async function POST(request: NextRequest) {
   const action = String(body?.action || "") as Action;
 
   if (!action) return NextResponse.json({ error: "Missing action" }, { status: 400 });
+
+  if (action === "start_sol_hybrid_pilot") {
+    if (String(body?.confirm || "") !== "START_SOL_HYBRID_24H") {
+      return NextResponse.json({ error: "التأكيد المطلوب لبدء تجربة Sol غير موجود." }, { status: 400 });
+    }
+    try {
+      const pilot = await startSolHybridPilot({ hours: 24, budgetUsd: 5, model: "gpt-5.6-sol" });
+      return NextResponse.json({ ok: true, message: "بدأت تجربة GPT-5.6 Sol لمدة 24 ساعة بحد حجز أقصى 5 دولار. عند الانتهاء أو بلوغ الحد يعود المسار تلقائيًا إلى Phase 9.1 / DeepSeek.", pilot });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "تعذر بدء تجربة Sol" }, { status: 500 });
+    }
+  }
+
+  if (action === "stop_sol_hybrid_pilot") {
+    try {
+      await stopSolHybridPilot();
+      return NextResponse.json({ ok: true, message: "تم إيقاف Sol Hybrid فورًا. رجع Conversation OS إلى مسار Phase 9.1 الحالي بدون تغيير Real Actions أو Payment Truth." });
+    } catch (error) {
+      return NextResponse.json({ error: error instanceof Error ? error.message : "تعذر إيقاف Sol" }, { status: 500 });
+    }
+  }
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString(), runtime_version: V3_OS_VERSION };
   let message = "";
