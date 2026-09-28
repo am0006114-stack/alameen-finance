@@ -138,10 +138,8 @@ export async function POST(request: Request) {
 
   await supabaseAdmin.from("documents").insert({
     application_id: applicationId,
-    document_type: "payment_receipt",
+    type: "payment_receipt",
     file_url: publicUrlData.publicUrl,
-    file_path: filePath,
-    filename: file.name || "payment-receipt",
   });
 
   const nowIso = new Date().toISOString();

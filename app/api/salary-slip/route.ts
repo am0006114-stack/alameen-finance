@@ -106,10 +106,8 @@ export async function POST(request: Request) {
 
   await supabaseAdmin.from("documents").insert({
     application_id: applicationId,
-    document_type: "salary_slip",
+    type: "salary_slip",
     file_url: publicUrlData.publicUrl,
-    file_path: filePath,
-    filename: file.name || "salary-slip",
   });
 
   await supabaseAdmin

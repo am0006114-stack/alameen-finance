@@ -8847,7 +8847,7 @@ async function markOutgoingReplyLockDelivered(input: {
       .from("whatsapp_outgoing_reply_locks")
       .update({ reply_body: marker })
       .eq("lock_key", burstKey || `incoming:${waId}:${incomingMessageId}`)
-      .select("id")
+      .select("lock_key")
       .limit(1);
     if (error) {
       if ((error as any).code !== "42P01") console.error("outgoing delivery marker update failed:", error);
@@ -8986,7 +8986,7 @@ async function claimOutgoingReplyLock(input: {
             .update({ reply_body: cleanReply, created_at: nowIso })
             .eq("lock_key", lock.lock_key);
           if (observedCreatedAt) reclaimQuery = reclaimQuery.eq("created_at", observedCreatedAt);
-          const { data: reclaimed, error: reclaimError } = await reclaimQuery.select("id").limit(1);
+          const { data: reclaimed, error: reclaimError } = await reclaimQuery.select("lock_key").limit(1);
           if (reclaimError) {
             console.error("stale outgoing lock reclaim failed:", reclaimError);
             return { shouldSend: false, reason: "duplicate_outgoing_lock_reclaim_failed" };

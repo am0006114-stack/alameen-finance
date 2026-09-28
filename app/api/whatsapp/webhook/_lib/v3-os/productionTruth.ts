@@ -90,7 +90,7 @@ function documentType(row: DocumentRow) {
 async function loadDocumentTruth(applicationId: string, app: ApplicationRow): Promise<DocumentTruth> {
   const { data, error } = await supabaseAdmin
     .from("documents")
-    .select("document_type,type")
+    .select("type")
     .eq("application_id", applicationId);
 
   if (error) {

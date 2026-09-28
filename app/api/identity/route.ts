@@ -46,10 +46,8 @@ async function insertDocumentRecord(input: {
 }) {
   const primaryPayload = {
     application_id: input.applicationId,
-    document_type: input.documentType,
+    type: input.documentType,
     file_url: input.fileUrl,
-    file_path: input.filePath,
-    filename: input.filename,
   };
 
   const { error } = await supabaseAdmin.from("documents").insert(primaryPayload);

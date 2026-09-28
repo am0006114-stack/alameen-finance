@@ -12,7 +12,7 @@ const live=read(base+'runtimeLive.ts');
 const shadow=read(base+'runtimeShadow.ts');
 const fallback=read(base+'safeFallback.ts');
 function must(ok,msg){if(!ok) throw new Error(msg)}
-must(/from\("documents"\)[\s\S]*select\("document_type,type"\)/.test(prod),'document truth not loaded');
+must(/from\("documents"\)[\s\S]*select\("type"\)/.test(prod),'document truth not loaded');
 must(/trackingFromRecentTurns/.test(prod),'recent tracking resolution missing');
 must(/phoneFromRecentCustomerTurns/.test(prod),'registered-phone evidence resolution missing');
 must(/unique_relevant_phone_match/.test(prod),'multi-application relevant resolution missing');
