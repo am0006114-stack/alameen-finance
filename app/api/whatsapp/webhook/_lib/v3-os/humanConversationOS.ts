@@ -38,7 +38,7 @@ const PASS: VerificationReport = {
 // Phase 11.0.1: authoritative tracking replies bypass the generic native-reply
 // validator, but keep the same minimal safety shape expected below. Do not use
 // VerificationReport here: it has policyViolations, while native validation uses reasons.
-const AUTHORITATIVE_TRACKING_SAFETY = { pass: true, reasons: [] as string[] };
+const AUTHORITATIVE_DETERMINISTIC_SAFETY = { pass: true, reasons: [] as string[] };
 
 export type HumanConversationOsMetadata = {
   enabled: true;
@@ -276,6 +276,36 @@ function explicitTrackingStatusReply(input: { trackingId: string; truth: TruthBu
   return `أكيد، لقيت الطلب ${app.trackingId || input.trackingId}${device}. حالته الحالية: ${status}.${privacy}`;
 }
 
+function explicitAssistantIdentityQuestion(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  if (!raw) return false;
+  const normalized = raw
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /(?:انت|انتي|إنت|مين)\s*(?:شو|ايش|إيش)?\s*(?:ذكاء\s*اصطناعي|بوت|روبوت|رد\s*الي|رد\s*آلي|انسان|إنسان)|(?:ذكاء\s*اصطناعي|بوت|روبوت|رد\s*الي|رد\s*آلي).*(?:ولا|او|أو).*(?:انسان|إنسان|موظف)|(?:شو|ما)\s+اسمك|مين\s+انت|وين\s+(?:المسؤول|المسوول)|مين\s+(?:المسؤول|المسوول)/i.test(normalized);
+}
+
+function explicitAssistantIdentityReply(customerText: string) {
+  const normalized = String(customerText || "")
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const asksResponsible = /(?:المسؤول|المسوول)/.test(normalized);
+  if (asksResponsible) {
+    return "أنا مساعد آلي تابع للأمين للأقساط، وما عندي اسم شخصي حقيقي. المتابعة الرسمية بتتم من خلال نفس واتساب. إذا بدك مسؤول بشري أو إجراء معين، احكيلي المطلوب بوضوح؛ وما رح أدّعي إنه صار تحويل إلا إذا تم فعليًا.";
+  }
+  return "أنا مساعد آلي تابع للأمين للأقساط. بساعدك بالمتابعة والاستفسارات، وبعتمد حالة الطلب والإجراءات الفعلية من نظام الأمين. ما رح أدّعي إني إنسان أو إن إجراءً تم قبل ما يثبت بالنظام.";
+}
+
 function makeDeterministicContinuationTurn(turn: InterpretedTurn): InterpretedTurn {
   const has = turn.requestedActions.includes("continue_application");
   const topics = turn.topics.includes("continuation") ? turn.topics : [...turn.topics, "continuation" as const];
@@ -356,6 +386,7 @@ export async function runHumanConversationOS(input: {
   });
 
   const explicitStatusTracking = explicitTrackingStatusAuthority({ customerText: input.customerText, turn: deterministicAnchor });
+  const explicitIdentityQuestion = explicitAssistantIdentityQuestion(input.customerText);
   if (explicitStatusTracking) deterministicAnchor = makeExplicitTrackingStatusTurn(deterministicAnchor);
 
   let authorityState = stateBefore;
@@ -383,7 +414,7 @@ export async function runHumanConversationOS(input: {
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
   // Explicit tracking + status lookup is already authoritative DB work. Do not
   // pay a model to reinterpret it and do not let a legacy verifier replace it.
-  const modelTier: HumanModelTier = explicitStatusTracking ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
+  const modelTier: HumanModelTier = (explicitStatusTracking || explicitIdentityQuestion) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
   const provider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
 
   let brainMeaning: HumanBrainMeaning | null = null;
@@ -446,7 +477,8 @@ export async function runHumanConversationOS(input: {
   const authoritativeTrackingReply = explicitStatusTracking
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
     : null;
-  let reply = authoritativeTrackingReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
+  const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply(input.customerText) : null;
+  let reply = authoritativeTrackingReply || authoritativeIdentityReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -462,7 +494,9 @@ export async function runHumanConversationOS(input: {
   // manufactured similarity/repetition failures and then nulled otherwise safe text.
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
 
-  const safety = authoritativeTrackingReply ? AUTHORITATIVE_TRACKING_SAFETY : validateNativeConversationReply({
+  const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeGateReply);
+  const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
     state: reduced,
@@ -491,7 +525,9 @@ export async function runHumanConversationOS(input: {
     }
   }
 
-  const finalSafety = authoritativeTrackingReply ? AUTHORITATIVE_TRACKING_SAFETY : validateNativeConversationReply({
+  const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || finalAuthoritativeGateReply);
+  const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
     state: reduced,
