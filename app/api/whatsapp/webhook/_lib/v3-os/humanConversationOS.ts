@@ -23,6 +23,7 @@ import { markContactResolution } from "./contactIdentity";
 import { buildIphone18AuthoritativeReply } from "./businessTruthRegistry";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
+import { resolveAiRole, roleDisplayName } from "./hierarchy";
 
 const PASS: VerificationReport = {
   pass: true,
@@ -290,8 +291,9 @@ function explicitAssistantIdentityQuestion(value: string | null | undefined) {
   return /(?:انت|انتي|إنت|مين)\s*(?:شو|ايش|إيش)?\s*(?:ذكاء\s*اصطناعي|بوت|روبوت|رد\s*الي|رد\s*آلي|انسان|إنسان)|(?:ذكاء\s*اصطناعي|بوت|روبوت|رد\s*الي|رد\s*آلي).*(?:ولا|او|أو).*(?:انسان|إنسان|موظف)|(?:شو|ما)\s+اسمك|مين\s+انت|وين\s+(?:المسؤول|المسوول)|مين\s+(?:المسؤول|المسوول)/i.test(normalized);
 }
 
-function explicitAssistantIdentityReply(customerText: string) {
-  const normalized = String(customerText || "")
+function explicitAssistantIdentityReply(input: { customerText: string; state: ConversationState }) {
+  const name = roleDisplayName(input.state.role.currentRole);
+  const normalized = String(input.customerText || "")
     .toLowerCase()
     .replace(/[إأآٱ]/g, "ا")
     .replace(/ى/g, "ي")
@@ -299,11 +301,23 @@ function explicitAssistantIdentityReply(customerText: string) {
     .replace(/[؟?!.,،؛:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  const asksResponsible = /(?:المسؤول|المسوول)/.test(normalized);
+  const asksResponsible = /(?:المسؤول|المسوول|المدير|الاداره|الإدارة)/.test(normalized);
   if (asksResponsible) {
-    return "أنا مساعد آلي تابع للأمين للأقساط، وما عندي اسم شخصي حقيقي. المتابعة الرسمية بتتم من خلال نفس واتساب. إذا بدك مسؤول بشري أو إجراء معين، احكيلي المطلوب بوضوح؛ وما رح أدّعي إنه صار تحويل إلا إذا تم فعليًا.";
+    return `معك ${name} من الأمين، وأنا بكمل معك بهالموضوع هون. احكيلي شو المطلوب وبمشيه معك حسب حالة الطلب الفعلية.`;
   }
-  return "أنا مساعد آلي تابع للأمين للأقساط. بساعدك بالمتابعة والاستفسارات، وبعتمد حالة الطلب والإجراءات الفعلية من نظام الأمين. ما رح أدّعي إني إنسان أو إن إجراءً تم قبل ما يثبت بالنظام.";
+  return `معك ${name} من الأمين. أنا مكمل معك على نفس المحادثة؛ احكيلي شو بدك وبجاوبك أو بنفذ الإجراء المسموح حسب حالة طلبك.`;
+}
+
+function explicitManagerIdentityQuestion(value: string | null | undefined) {
+  const normalized = String(value || "")
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /(?:وين|مين|بدي|احكي\s+مع).{0,18}(?:المسؤول|المسوول|المدير|الاداره|الإدارة)|(?:عمران)/.test(normalized);
 }
 
 function makeDeterministicContinuationTurn(turn: InterpretedTurn): InterpretedTurn {
@@ -387,7 +401,15 @@ export async function runHumanConversationOS(input: {
 
   const explicitStatusTracking = explicitTrackingStatusAuthority({ customerText: input.customerText, turn: deterministicAnchor });
   const explicitIdentityQuestion = explicitAssistantIdentityQuestion(input.customerText);
+  const explicitManagerQuestion = explicitIdentityQuestion && explicitManagerIdentityQuestion(input.customerText);
   if (explicitStatusTracking) deterministicAnchor = makeExplicitTrackingStatusTurn(deterministicAnchor);
+  if (explicitManagerQuestion) {
+    deterministicAnchor = {
+      ...deterministicAnchor,
+      explicitRoleRequest: "omran",
+      topics: deterministicAnchor.topics.includes("manager_request") ? deterministicAnchor.topics : [...deterministicAnchor.topics, "manager_request"],
+    };
+  }
 
   let authorityState = stateBefore;
   if (explicitStatusTracking && truthBeforeActions.contactAccess === "safe_preview") {
@@ -410,6 +432,11 @@ export async function runHumanConversationOS(input: {
 
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
   if (contextualContinuation) deterministicAnchor = makeDeterministicContinuationTurn(deterministicAnchor);
+
+  // Phase 11.1.2: resolve the AI employee role before the conversational brain runs.
+  // This keeps Fadwa/Tala/Abdullah/Abdulrahman/Omran continuity inside Human OS
+  // instead of flattening every turn into a generic assistant voice.
+  stateWorking = { ...stateWorking, role: resolveAiRole(stateWorking, deterministicAnchor) };
 
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
   // Explicit tracking + status lookup is already authoritative DB work. Do not
@@ -477,7 +504,7 @@ export async function runHumanConversationOS(input: {
   const authoritativeTrackingReply = explicitStatusTracking
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
     : null;
-  const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply(input.customerText) : null;
+  const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply({ customerText: input.customerText, state: stateWorking }) : null;
   let reply = authoritativeTrackingReply || authoritativeIdentityReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
