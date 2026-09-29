@@ -3,6 +3,8 @@ export type ConversationBurstAuthorityRow = {
   message_id?: string | null;
   body?: string | null;
   created_at?: string | null;
+  authority_received_at?: string | null;
+  message_type?: string | null;
   raw_payload?: any;
 };
 
@@ -19,11 +21,27 @@ export function conversationBurstEventTimeMs(row: ConversationBurstAuthorityRow)
   return Number.isFinite(createdAt) ? createdAt : 0;
 }
 
+
+export function conversationBurstAuthorityEligible(row: ConversationBurstAuthorityRow) {
+  const type = String(row?.message_type || row?.raw_payload?.type || "").trim().toLowerCase();
+  if (type === "reaction") return false;
+  const body = String(row?.body || "").trim();
+  if (!body) return false;
+  // A punctuation-only bubble must never steal ownership from a substantive turn.
+  // It can still be logged, but it is not a canonical conversation leader.
+  if (/^[.،,!?؟…ـ\-\s]+$/.test(body)) return false;
+  return true;
+}
+
 export function compareConversationBurstRows(a: ConversationBurstAuthorityRow, b: ConversationBurstAuthorityRow) {
   const timeDiff = conversationBurstEventTimeMs(a) - conversationBurstEventTimeMs(b);
   if (timeDiff !== 0) return timeDiff;
-  // Meta timestamps have second precision. All webhook invocations MUST use the
-  // same stable tie-breaker or every contender can mistakenly suppress itself.
+  // Phase 11.5: Meta timestamps have second precision. When durable ingress
+  // receipt time is available, use it as the authoritative same-second order
+  // before falling back to the stable message-id tie-breaker.
+  const aReceived = Date.parse(String(a?.authority_received_at || a?.created_at || ""));
+  const bReceived = Date.parse(String(b?.authority_received_at || b?.created_at || ""));
+  if (Number.isFinite(aReceived) && Number.isFinite(bReceived) && aReceived !== bReceived) return aReceived - bReceived;
   const aId = String(a?.message_id || a?.id || "");
   const bId = String(b?.message_id || b?.id || "");
   return aId.localeCompare(bId);
@@ -34,7 +52,7 @@ export function selectCanonicalConversationBurst(
   maxGapMs = 18_000,
 ): CanonicalConversationBurst | null {
   const usable = (rows || [])
-    .filter((row) => String(row?.body || "").trim())
+    .filter(conversationBurstAuthorityEligible)
     .slice()
     .sort(compareConversationBurstRows);
   if (!usable.length) return null;

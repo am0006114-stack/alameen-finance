@@ -3,7 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { resolveV3ProductionTruth } from "./productionTruth";
 import { emptyState, reduceState, finalizeStateSemanticMemory, markRoleIntroducedFromReply } from "./state";
 import { loadV3ConversationState } from "./stateStore";
-import { interpretTurn } from "./interpreter";
+import { enforcePaymentReceiptSemantics, interpretTurn, isPaymentRelativeToReceiptText } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { applicationReceiptUrl, applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForModel } from "./linkIntegrity";
@@ -24,6 +24,9 @@ import { buildIphone18AuthoritativeReply } from "./businessTruthRegistry";
 import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
 import { hasPaymentProtection } from "./manualActionPolicy";
 import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
+import { durableIngressTurnFreshness } from "./durableIngress";
+import { manualMutationReceiptReply, recordManualMutationReceipt, type ManualMutationReceipt } from "./manualMutationReceipt";
+import { notifyV3Discord } from "./discordNotifier";
 import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
 import { resolveAiRole, roleDisplayName } from "./hierarchy";
@@ -145,6 +148,23 @@ function deliveryGroundedReply(input: { truth: TruthBundle; customerText: string
   return `ما في توصيل. الاستلام من المكتب بعد صدور الموافقة النهائية وبموعد رسمي مؤكد مرتبط بالطلب. ${input.truth.policy.generalLocation}.`;
 }
 
+function paymentRelativeReceiptGroundedReply(input: { truth: TruthBundle; customerText: string }) {
+  if (!isPaymentRelativeToReceiptText(input.customerText)) return null;
+  const app = input.truth.application;
+  const stage = applicationJourneyStage(app);
+  const firstInstallment = input.truth.policy.firstInstallmentRule;
+  if (app && hasAuthoritativePaymentConfirmation(app)) {
+    return `إذا قصدك رسوم فتح الملف: الدفع مؤكد إداريًا على طلبك أصلًا، فما في داعي تعيدها عند استلام الجهاز. وبالنسبة للقسط الأول: ${firstInstallment}`;
+  }
+  if (app && ["customer_claimed_paid", "pending_payment_confirmation"].includes(String(app.paymentStatus || "").toLowerCase())) {
+    return `إذا قصدك رسوم فتح الملف: وصل الدفع مسجل وبانتظار اعتماد الإدارة، فما بنطلب منك تدفعها مرة ثانية عند الاستلام. وبالنسبة للقسط الأول: ${firstInstallment}`;
+  }
+  if (stage === "preliminary_review") {
+    return `إذا قصدك رسوم فتح الملف: ما في رسوم مطلوبة منك هسا قبل الموافقة المبدئية. إذا تأهل الملف مبدئيًا واخترت تكمل، رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير بتكون قبل تحويل الملف للدراسة النهائية، مش عند استلام الجهاز. وبالنسبة للقسط الأول: ${firstInstallment}`;
+  }
+  return `إذا قصدك رسوم فتح الملف: لا، هاي مش دفعة عند استلام الجهاز. بعد الموافقة المبدئية وإذا اخترت الاستمرار، رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير بتكون قبل الدراسة النهائية. أما القسط الأول: ${firstInstallment}`;
+}
+
 function deterministicFallback(input: { turn: InterpretedTurn; truth: TruthBundle; customerText: string }) {
   const app = input.truth.application;
   const stage = applicationJourneyStage(app);
@@ -210,6 +230,7 @@ const CONTEXT_CONFIRMABLE_MUTATIONS = new Set<ActionKey>([
   "stop_refund",
   "reopen_application",
   "link_whatsapp_alias",
+  "change_application_data",
 ]);
 
 function normalizeActionConfirmationText(value: string | null | undefined) {
@@ -223,7 +244,7 @@ function normalizeActionConfirmationText(value: string | null | undefined) {
     .trim();
 }
 
-function explicitPendingMutationConfirmation(input: { customerText: string; state: ConversationState }): ActionKey | null {
+function explicitPendingMutationConfirmation(input: { customerText: string; state: ConversationState; turn: InterpretedTurn }): ActionKey | null {
   const pending = input.state.pendingAction;
   if (!pending || !CONTEXT_CONFIRMABLE_MUTATIONS.has(pending)) return null;
   const text = normalizeActionConfirmationText(input.customerText);
@@ -244,6 +265,15 @@ function explicitPendingMutationConfirmation(input: { customerText: string; stat
   if (pending === "stop_refund" && directStopRefund) return pending;
   if (pending === "reopen_application" && directReopen) return pending;
   if (pending === "link_whatsapp_alias" && directAlias) return pending;
+  if (pending === "change_application_data" && input.state.pendingActionPayload?._manualMutationConfirmationRequired === true) {
+    const previous = normalizeActionConfirmationText(input.state.lastAssistantText);
+    const previousAskedForChangeConfirmation = /(?:تعديل|تغيير)/.test(previous) && /(?:اكد|تاكيد|بدك|نبدأ|نبدا)/.test(previous);
+    const materialTopics = input.turn.topics.filter((topic) => !["greeting", "thanks", "acknowledgement", "unknown"].includes(topic));
+    const hasQuestion = /[؟?]/.test(String(input.customerText || "")) || Boolean(input.turn.semantic?.currentQuestion);
+    const contextualAcknowledgement = /^(?:اه|نعم|ايوه|موافق|اكيد|تمام|ياريت|ماشي)(?:\s|$)/.test(text);
+    const scopedConfirmation = contextualAcknowledgement && text.length <= 48 && !hasQuestion && !input.turn.requestedActions.length && !materialTopics.length;
+    if (previousAskedForChangeConfirmation && scopedConfirmation) return pending;
+  }
   return null;
 }
 
@@ -423,12 +453,21 @@ async function currentTurnStillOwnsConversation(input: {
 }) {
   const latestState = (await loadV3ConversationState(input.waId)) || input.fallbackState;
   const latestTurnId = latestState.lastTurnId || null;
-  const ownershipLost = Boolean(
+  const stateOwnershipLost = Boolean(
     latestTurnId
     && latestTurnId !== input.turnId
     && latestTurnId !== input.startLastTurnId
   );
-  return { owns: !ownershipLost, latestState };
+  // Phase 11.5: ConversationState is downstream. A newer customer message can
+  // already be durable in the ingress queue before it has a chance to advance
+  // lastTurnId, so mutation/egress ownership must include that upstream truth.
+  const ingressFreshness = await durableIngressTurnFreshness({
+    waId: input.waId,
+    currentMessageId: input.turnId,
+    lookbackSeconds: 180,
+  });
+  const ownershipLost = stateOwnershipLost || !ingressFreshness.fresh;
+  return { owns: !ownershipLost, latestState, ingressFreshness };
 }
 
 async function supersededHumanTurnResult(input: {
@@ -445,7 +484,7 @@ async function supersededHumanTurnResult(input: {
   interpreterError: string | null;
   realActionsEnabled: boolean;
   memory: CompactHumanMemory | null;
-  reason: "ownership_lost_before_actions" | "ownership_lost_before_egress";
+  reason: "ownership_lost_before_actions" | "ownership_lost_before_manual_receipt" | "ownership_lost_before_egress";
 }): Promise<HumanConversationOsResult> {
   const quietPlan: ReplyPlan = {
     ...input.plan,
@@ -653,10 +692,12 @@ export async function runHumanConversationOS(input: {
     const truth = await resolveV3ProductionTruth({ waId: input.waId, customerText: input.customerText, state: stateBefore, recentTurns: input.recentTurns || [], topics: [] });
     const anchor = interpretTurn({ turnId: input.turnId, customerText: input.customerText });
     const stateAfter = (existing.state_after_json as ConversationState | null) || stateBefore;
+    const replayIngressFreshness = await durableIngressTurnFreshness({ waId: input.waId, currentMessageId: input.turnId, lookbackSeconds: 180 });
     const replaySuperseded = Boolean(
-      stateBefore.lastTurnId
+      (stateBefore.lastTurnId
       && stateBefore.lastTurnId !== input.turnId
-      && stateTime(stateBefore.updatedAt) > stateTime(stateAfter.updatedAt)
+      && stateTime(stateBefore.updatedAt) > stateTime(stateAfter.updatedAt))
+      || !replayIngressFreshness.fresh
     );
     return {
       version: V3_OS_VERSION,
@@ -726,7 +767,7 @@ export async function runHumanConversationOS(input: {
 
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
   if (contextualContinuation) deterministicAnchor = makeDeterministicContinuationTurn(deterministicAnchor);
-  const confirmedPendingMutation = explicitPendingMutationConfirmation({ customerText: input.customerText, state: stateWorking });
+  const confirmedPendingMutation = explicitPendingMutationConfirmation({ customerText: input.customerText, state: stateWorking, turn: deterministicAnchor });
   if (confirmedPendingMutation) deterministicAnchor = makeDeterministicPendingMutationTurn(deterministicAnchor, confirmedPendingMutation);
   const suppressAsNoise = punctuationOnlyCustomerTurn(input.customerText) && !confirmedPendingMutation;
   const supersededByNewerCustomerTurn = hasNewerCustomerTurn({ customerText: input.customerText, recentTurns });
@@ -825,6 +866,11 @@ export async function runHumanConversationOS(input: {
   }
 
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
+  // Phase 11.5 semantic obligation guard: payment timing relative to receiving
+  // the device is not automatically a delivery/pickup-mechanics question. Apply
+  // the same deterministic distinction after the model so it cannot reintroduce
+  // the lexical "استلم => delivery" error.
+  turn = enforcePaymentReceiptSemantics(turn, input.customerText);
   const pendingActionWithdrawn = currentTurnWithdrawsPendingAction({ state: stateWorking, turn });
   if (pendingActionWithdrawn) {
     stateWorking = { ...stateWorking, pendingAction: null, pendingActionPayload: null };
@@ -844,6 +890,30 @@ export async function runHumanConversationOS(input: {
   const gate = enforceMutationConfirmationGate({ actions: plan.actions, turn, state: gateState, truth: truthBeforeActions });
   plan = { ...plan, actions: gate.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)), shouldRespond: true };
   reduced = updatePendingState({ state: reduced, gate, turn });
+
+  const manualChangeCandidate = plan.actions.find((action) => action.action === "change_application_data");
+  const manualChangeNeedsConfirmation = Boolean(manualChangeCandidate?.requiresConfirmation && truthBeforeActions.application && truthBeforeActions.contactAccess === "full");
+  const manualChangeConfirmationPrompt = manualChangeNeedsConfirmation
+    ? `فهمت التعديل المطلوب على طلبك${truthBeforeActions.application?.trackingId ? ` ${truthBeforeActions.application.trackingId}` : ""}. قبل ما أسجل طلب التعديل للمراجعة الإدارية، أكدلي إنك بدك نبدأ تسجيله.`
+    : null;
+  const manualChangeScopeBlockedReply = manualChangeCandidate && (!truthBeforeActions.application || truthBeforeActions.contactAccess !== "full")
+    ? "فهمت إنك بدك تعدّل بيانات الطلب، لكن ما عندي ربط كامل وآمن بالطلب من هالمحادثة هسا. ما رح أعتبر أي تعديل بدأ قبل ما يرتبط الطلب الصحيح بشكل موثوق."
+    : null;
+  if (manualChangeNeedsConfirmation && manualChangeCandidate) {
+    reduced = {
+      ...reduced,
+      pendingAction: "change_application_data",
+      pendingActionPayload: {
+        ...(manualChangeCandidate.payload || {}),
+        _manualMutationConfirmationRequired: true,
+        _scopeApplicationId: truthBeforeActions.application?.id || null,
+        _scopeTrackingId: truthBeforeActions.application?.trackingId || null,
+        _scopeWaId: reduced.waId,
+      },
+    };
+  } else if (confirmedPendingMutation === "change_application_data") {
+    reduced = { ...reduced, pendingAction: null, pendingActionPayload: null };
+  }
 
   const ownershipBeforeActions = await currentTurnStillOwnsConversation({
     waId: input.waId,
@@ -877,9 +947,85 @@ export async function runHumanConversationOS(input: {
     adapter: v3TransactionalActionAdapter,
     allowMutation: input.realActionsEnabled,
   });
+  let actionResults = actions;
+
+  let manualMutationReceipt: ManualMutationReceipt | null = null;
+  const confirmedManualChange = plan.actions.find((action) => action.action === "change_application_data" && !action.requiresConfirmation);
+  if (confirmedManualChange) {
+    // Phase 11.5: the action plane does not mutate application data, but recording
+    // the manual request is itself a durable side effect. Re-check ownership at
+    // the exact receipt boundary so a newer customer bubble can revoke it.
+    const ownershipBeforeManualReceipt = await currentTurnStillOwnsConversation({
+      waId: input.waId,
+      turnId: input.turnId,
+      startLastTurnId,
+      fallbackState: stateBefore,
+    });
+    if (!ownershipBeforeManualReceipt.owns) {
+      return supersededHumanTurnResult({
+        turnId: input.turnId,
+        turn,
+        stateBefore,
+        latestState: ownershipBeforeManualReceipt.latestState,
+        truthBeforeActions,
+        truthAfterActions: truthBeforeActions,
+        plan,
+        actions,
+        modelTier,
+        modelCalls,
+        interpreterError,
+        realActionsEnabled: input.realActionsEnabled,
+        memory,
+        reason: "ownership_lost_before_manual_receipt",
+      });
+    }
+
+    manualMutationReceipt = await recordManualMutationReceipt({
+      truth: truthBeforeActions,
+      action: "change_application_data",
+      customerText: input.customerText,
+      waId: input.waId,
+    });
+    const receiptResult: ActionResult = {
+      action: "change_application_data",
+      outcome: manualMutationReceipt.status === "failed" ? "failed" : "dry_run",
+      executed: false,
+      authoritativeSummary: manualMutationReceipt.status === "failed"
+        ? "manual application-data change request was not recorded"
+        : "manual application-data change request durably recorded; customer data not mutated",
+      mutationId: manualMutationReceipt.receiptId,
+      blocker: manualMutationReceipt.status === "failed" ? "manual_mutation_receipt_failed" : "awaiting_admin",
+      ownerRole: "omran",
+      details: { receiptStatus: manualMutationReceipt.status, receiptId: manualMutationReceipt.receiptId },
+    };
+    const existingIndex = actionResults.findIndex((result) => result.action === "change_application_data");
+    actionResults = existingIndex >= 0
+      ? actionResults.map((result, index) => index === existingIndex ? receiptResult : result)
+      : [...actionResults, receiptResult];
+
+    if (["awaiting_admin", "already_pending"].includes(manualMutationReceipt.status)) {
+      try {
+        await notifyV3Discord({
+          event: "manual_action_required",
+          applicationId: truthBeforeActions.application?.id || null,
+          trackingId: truthBeforeActions.application?.trackingId || null,
+          waId: input.waId,
+          actionKey: "change_application_data",
+          details: {
+            action: "change_application_data",
+            status: "pending",
+            requestedChange: input.customerText,
+            receiptId: manualMutationReceipt.receiptId,
+          },
+        });
+      } catch (notificationError) {
+        console.error("manual mutation receipt Discord notification failed", { turnId: input.turnId, error: notificationError });
+      }
+    }
+  }
 
   let truthAfterActions = truthBeforeActions;
-  if (actions.some((result) => ["executed","already_done","failed"].includes(result.outcome))) {
+  if (actionResults.some((result) => ["executed","already_done","failed"].includes(result.outcome))) {
     truthAfterActions = await resolveV3ProductionTruth({
       waId: input.waId,
       customerText: input.customerText,
@@ -900,6 +1046,8 @@ export async function runHumanConversationOS(input: {
   const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply({ customerText: input.customerText, state: stateWorking }) : null;
   const authoritativeSocialReply = simpleSocialClosureReply(turn, input.customerText);
   const authoritativeHumanRequestReply = humanRequestGroundedReply({ turn, state: stateWorking, truth: truthAfterActions });
+  const authoritativePaymentRelativeReply = paymentRelativeReceiptGroundedReply({ truth: truthAfterActions, customerText: input.customerText });
+  const authoritativeManualMutationReply = manualMutationReceiptReply(manualMutationReceipt, truthAfterActions);
   let authoritativeDeviceChangeReply: string | null = null;
   if (secureDeviceChangeRequested) {
     const app = truthAfterActions.application;
@@ -929,7 +1077,7 @@ export async function runHumanConversationOS(input: {
       }
     }
   }
-  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions) || authoritativeHumanRequestReply || authoritativeSocialReply;
+  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativeSocialReply;
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -946,13 +1094,13 @@ export async function runHumanConversationOS(input: {
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
     state: reduced,
     truth: truthAfterActions,
-    actions,
+    actions: actionResults,
     recentTurns,
     customerText: input.customerText,
     disclosureRequiredThisTurn: disclosureRequired,
@@ -977,13 +1125,13 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
     state: reduced,
     truth: truthAfterActions,
-    actions,
+    actions: actionResults,
     recentTurns,
     customerText: input.customerText,
     disclosureRequiredThisTurn: disclosureRequired,
@@ -1013,7 +1161,7 @@ export async function runHumanConversationOS(input: {
       truthBeforeActions,
       truthAfterActions,
       plan,
-      actions,
+      actions: actionResults,
       modelTier,
       modelCalls,
       interpreterError,
@@ -1041,7 +1189,7 @@ export async function runHumanConversationOS(input: {
     modelCalls,
     meaning: brainMeaning ? { ...(brainMeaning as unknown as Record<string, unknown>), safetyReasons: finalSafety.reasons, blockingSafetyReasons: finalBlockingReasons, qualityWarnings } : { deterministic: true, routeReasons: provisionalRoute.reasons, safetyReasons: finalSafety.reasons, blockingSafetyReasons: finalBlockingReasons, qualityWarnings },
     truth: truthAfterActions,
-    actions,
+    actions: actionResults,
     finalReply: reply,
     stateAfter: reduced,
     memoryAfter,
@@ -1058,7 +1206,7 @@ export async function runHumanConversationOS(input: {
     truthBeforeActions,
     truthAfterActions,
     plan,
-    actions,
+    actions: actionResults,
     verification: verificationFromReasons(finalBlockingReasons),
     reply: finalSafetyPass ? reply : null,
     providerUsed: modelCalls > 0,

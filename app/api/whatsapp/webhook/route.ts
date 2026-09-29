@@ -165,6 +165,8 @@ import {
 } from "./_lib/conversationKernel";
 import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
+import { interpretTurn as interpretV3Turn } from "./_lib/v3-os/interpreter";
+import { resolveV3ProductionTruth } from "./_lib/v3-os/productionTruth";
 import { completeHumanTurnDelivery } from "./_lib/v3-os/durableTurnJournal";
 import { saveCompactHumanMemory } from "./_lib/v3-os/compactHumanMemory";
 import { loadV3ConversationState, saveV3ConversationState } from "./_lib/v3-os/stateStore";
@@ -10661,6 +10663,7 @@ type IncomingBurstResult = {
   messageIds: string[];
   leaderMessageId: string;
   burstKey: string;
+  leaderPendingInIngress: boolean;
 };
 
 
@@ -10669,6 +10672,7 @@ type IncomingBurstRow = {
   message_id?: string | null;
   body?: string | null;
   created_at?: string | null;
+  authority_received_at?: string | null;
   message_type?: string | null;
   raw_payload?: any;
 };
@@ -10681,17 +10685,88 @@ async function readCanonicalIncomingBurst(input: {
   const lookbackSeconds = input.lookbackSeconds ?? 90;
   const maxGapMs = input.maxGapMs ?? 18_000;
   const since = new Date(Date.now() - lookbackSeconds * 1000).toISOString();
-  const { data, error } = await supabaseAdmin
-    .from("whatsapp_messages")
-    .select("id,message_id,body,created_at,message_type,raw_payload")
-    .eq("wa_id", input.waId)
-    .eq("direction", "incoming")
-    .gte("created_at", since)
-    .order("created_at", { ascending: true })
-    .limit(50);
 
-  if (error) throw error;
-  return selectCanonicalConversationBurst((data || []) as IncomingBurstRow[], maxGapMs);
+  const [{ data: loggedData, error: loggedError }, { data: ingressData, error: ingressError }] = await Promise.all([
+    supabaseAdmin
+      .from("whatsapp_messages")
+      .select("id,message_id,body,created_at,message_type,raw_payload")
+      .eq("wa_id", input.waId)
+      .eq("direction", "incoming")
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(80),
+    supabaseAdmin
+      .from("whatsapp_live_ingress_jobs")
+      .select("id,incoming_message_id,payload,status,created_at")
+      .eq("wa_id", input.waId)
+      .in("status", ["queued", "processing", "retry_wait"])
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(80),
+  ]);
+
+  if (loggedError) throw loggedError;
+  if (ingressError) {
+    // Compatibility: if the durable queue is temporarily unavailable, processed
+    // message history remains the fallback authority. Do not make this read itself
+    // a reason to drop a customer turn.
+    console.error("durable ingress burst authority read failed:", ingressError);
+  }
+
+  const rowsByMessageId = new Map<string, IncomingBurstRow>();
+  const anonymousRows: IncomingBurstRow[] = [];
+  for (const row of (loggedData || []) as IncomingBurstRow[]) {
+    const id = String(row.message_id || "").trim();
+    if (id) rowsByMessageId.set(id, { ...row });
+    else anonymousRows.push(row);
+  }
+
+  const pendingIngressMessageIds = new Set<string>();
+  for (const job of (ingressError ? [] : (ingressData || [])) as any[]) {
+    const payload = job?.payload as WhatsAppWebhookBody | null;
+    for (const entry of payload?.entry || []) {
+      for (const change of entry.changes || []) {
+        for (const message of change.value?.messages || []) {
+          const id = String(job?.incoming_message_id || message.id || "").trim();
+          if (!id) continue;
+          const extracted = extractIncomingMessageForProcessing(message);
+          const ingressRow: IncomingBurstRow & { authority_received_at?: string | null } = {
+            id: String(job?.id || "") || null,
+            message_id: id,
+            body: extracted.body,
+            created_at: String(job?.created_at || "") || null,
+            authority_received_at: String(job?.created_at || "") || null,
+            message_type: String(message.type || "unknown"),
+            raw_payload: message,
+          };
+          pendingIngressMessageIds.add(id);
+          const existing = rowsByMessageId.get(id) as (IncomingBurstRow & { authority_received_at?: string | null }) | undefined;
+          if (existing) {
+            rowsByMessageId.set(id, {
+              ...existing,
+              // Preserve the logged body, but restore high-resolution durable
+              // receive order for Meta messages sharing the same second.
+              authority_received_at: ingressRow.authority_received_at,
+              raw_payload: existing.raw_payload || message,
+              message_type: existing.message_type || ingressRow.message_type,
+            } as IncomingBurstRow);
+          } else {
+            rowsByMessageId.set(id, ingressRow as IncomingBurstRow);
+          }
+        }
+      }
+    }
+  }
+
+  const burst = selectCanonicalConversationBurst([
+    ...anonymousRows,
+    ...Array.from(rowsByMessageId.values()),
+  ] as any[], maxGapMs);
+
+  return {
+    ...burst,
+    pendingIngressMessageIds: Array.from(pendingIngressMessageIds),
+  };
 }
 
 async function isCanonicalBurstLeader(input: {
@@ -10738,6 +10813,7 @@ async function settleSupersededIncomingOrRetry(input: {
   waId: string;
   currentMessageId?: string | null;
   lookbackSeconds?: number;
+  yieldToDurableIngress?: boolean;
 }) {
   const currentMessageId = String(input.currentMessageId || "").trim();
   const burst = await readCanonicalIncomingBurst({
@@ -10747,6 +10823,15 @@ async function settleSupersededIncomingOrRetry(input: {
   });
   const leaderMessageId = String(burst?.leaderMessageId || "").trim();
   if (!leaderMessageId || leaderMessageId === currentMessageId) return false;
+
+  // Internal durable-worker jobs may yield immediately when the newer canonical
+  // leader is already durably accepted but still queued. Waiting for that leader
+  // to deliver here would deadlock against the per-wa_id oldest-job lease.
+  const leaderPendingInIngress = Boolean(burst?.pendingIngressMessageIds?.includes(leaderMessageId));
+  if (input.yieldToDurableIngress && leaderPendingInIngress) {
+    await markIncomingWhatsAppMessageProcessed(currentMessageId);
+    return true;
+  }
 
   const burstKey = conversationBurstLockKey(input.waId, leaderMessageId);
   const delivered = await waitForDurableBurstDelivery({
@@ -10774,58 +10859,16 @@ async function collectIncomingMessageBurst(input: {
   lookbackSeconds?: number;
   maxGapMs?: number;
 }): Promise<IncomingBurstResult> {
-  // Phase 8.3 Zero-Silence authority: every concurrent invocation uses ONE canonical
-  // ordering (Meta event timestamp + message id). Non-leaders never consume their
-  // dedupe row; the canonical leader completes the whole burst only after delivery.
-  const waitMs = input.waitMs ?? 3500;
+  // Phase 11.5 canonical ingress burst authority: inspect the durable queue before
+  // spending any quiet-window time. If a newer customer bubble is already accepted,
+  // the older job yields immediately. Only the current leader waits briefly for a
+  // trailing bubble and then re-reads the same combined authority surface.
+  const waitMs = input.waitMs ?? 1200;
   const lookbackSeconds = input.lookbackSeconds ?? 90;
   const maxGapMs = input.maxGapMs ?? 18_000;
-
-  await new Promise((resolve) => setTimeout(resolve, waitMs));
-
-  try {
-    const burst = await readCanonicalIncomingBurst({
-      waId: input.waId,
-      lookbackSeconds,
-      maxGapMs,
-    });
-
-    if (!burst?.leaderMessageId) {
-      const currentId = String(input.currentMessageId || "");
-      return {
-        shouldReply: true,
-        combinedText: input.currentText,
-        messageCount: 1,
-        messageIds: currentId ? [currentId] : [],
-        leaderMessageId: currentId,
-        burstKey: conversationBurstLockKey(input.waId, currentId),
-      };
-    }
-
-    const leaderMessageId = String(burst.leaderMessageId);
-    const burstKey = conversationBurstLockKey(input.waId, leaderMessageId);
-    if (input.currentMessageId && leaderMessageId !== String(input.currentMessageId)) {
-      return {
-        shouldReply: false,
-        combinedText: "",
-        messageCount: burst.messageIds.length,
-        messageIds: burst.messageIds,
-        leaderMessageId,
-        burstKey,
-      };
-    }
-
-    return {
-      shouldReply: true,
-      combinedText: burst.combinedText || input.currentText,
-      messageCount: burst.messageIds.length || 1,
-      messageIds: burst.messageIds,
-      leaderMessageId,
-      burstKey,
-    };
-  } catch (error) {
-    console.error("incoming burst collection failed:", error);
-    const currentId = String(input.currentMessageId || "");
+  const currentId = String(input.currentMessageId || "");
+  const currentText = String(input.currentText || "").trim();
+  if (currentText && /^[.،,!?؟…ـ\-\s]+$/.test(currentText)) {
     return {
       shouldReply: true,
       combinedText: input.currentText,
@@ -10833,11 +10876,74 @@ async function collectIncomingMessageBurst(input: {
       messageIds: currentId ? [currentId] : [],
       leaderMessageId: currentId,
       burstKey: conversationBurstLockKey(input.waId, currentId),
+      leaderPendingInIngress: false,
+    };
+  }
+
+  const asResult = (burst: Awaited<ReturnType<typeof readCanonicalIncomingBurst>>): IncomingBurstResult | null => {
+    if (!burst?.leaderMessageId) return null;
+    const leaderMessageId = String(burst.leaderMessageId);
+    const burstKey = conversationBurstLockKey(input.waId, leaderMessageId);
+    const leaderPendingInIngress = Boolean(burst.pendingIngressMessageIds?.includes(leaderMessageId));
+    if (currentId && leaderMessageId !== currentId) {
+      return {
+        shouldReply: false,
+        combinedText: "",
+        messageCount: burst.messageIds?.length || 1,
+        messageIds: burst.messageIds || [],
+        leaderMessageId,
+        burstKey,
+        leaderPendingInIngress,
+      };
+    }
+    return {
+      shouldReply: true,
+      combinedText: burst.combinedText || input.currentText,
+      messageCount: burst.messageIds?.length || 1,
+      messageIds: burst.messageIds || (currentId ? [currentId] : []),
+      leaderMessageId,
+      burstKey,
+      leaderPendingInIngress,
+    };
+  };
+
+  try {
+    const immediate = await readCanonicalIncomingBurst({ waId: input.waId, lookbackSeconds, maxGapMs });
+    const immediateResult = asResult(immediate);
+    if (immediateResult && !immediateResult.shouldReply) return immediateResult;
+
+    if (waitMs > 0) await new Promise((resolve) => setTimeout(resolve, waitMs));
+    const settled = await readCanonicalIncomingBurst({ waId: input.waId, lookbackSeconds, maxGapMs });
+    const settledResult = asResult(settled);
+    if (settledResult) return settledResult;
+
+    return {
+      shouldReply: true,
+      combinedText: input.currentText,
+      messageCount: 1,
+      messageIds: currentId ? [currentId] : [],
+      leaderMessageId: currentId,
+      burstKey: conversationBurstLockKey(input.waId, currentId),
+      leaderPendingInIngress: false,
+    };
+  } catch (error) {
+    console.error("incoming burst collection failed:", error);
+    return {
+      shouldReply: true,
+      combinedText: input.currentText,
+      messageCount: 1,
+      messageIds: currentId ? [currentId] : [],
+      leaderMessageId: currentId,
+      burstKey: conversationBurstLockKey(input.waId, currentId),
+      leaderPendingInIngress: false,
     };
   }
 }
 
+const verifiedDurableWorkerRequests = new WeakSet<Request>();
+
 async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhookBody) {
+  const durableWorkerRequest = verifiedDurableWorkerRequests.has(request);
   for (const entry of body.entry || []) {
     for (const change of entry.changes || []) {
       const value = change.value;
@@ -10984,12 +11090,21 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
           });
 
           if (!burst.shouldReply) {
-            console.log("Incoming message is not the canonical burst leader; requiring durable leader delivery before completion", {
+            console.log("Incoming message is not the canonical burst leader", {
               waId: from,
               messageId: message.id || null,
               leaderMessageId: burst.leaderMessageId || null,
               burstKey: burst.burstKey || null,
+              leaderPendingInIngress: burst.leaderPendingInIngress,
             });
+            // Phase 11.5: when both turns are owned by the durable worker, the old
+            // job must finish so the SQL per-wa_id lease can expose the newer job.
+            // The newer job is already durable, so consuming this superseded turn
+            // cannot lose customer input.
+            if (durableWorkerRequest && burst.leaderPendingInIngress) {
+              await markIncomingWhatsAppMessageProcessed(message.id);
+              return;
+            }
             const leaderDelivered = await waitForDurableBurstDelivery({
               waId: from,
               leaderMessageId: burst.leaderMessageId,
@@ -11105,11 +11220,31 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
             }
             reply = v3Run.reply;
           } catch (v3RuntimeError) {
-            console.error("V3 live runtime failed; Phase 9 degraded Native reply will answer", { waId: from, messageId: message.id || null, error: v3RuntimeError });
-            // Never-silent remains true, but a degraded reply is now stateful and observable
-            // instead of being a stateless transport-only response.
-            reply = buildV3LastResortReply();
+            console.error("V3 live runtime failed; contextual degraded Native reply will answer", { waId: from, messageId: message.id || null, error: v3RuntimeError });
+            // Phase 11.5: the last-resort writer already supports truth/state/current
+            // turn grounding. Feed it that context instead of collapsing a clear
+            // request such as "تتبع طلبي" into the generic "اكتب المطلوب" reply.
             const prior = (await loadV3ConversationState(from)) || emptyState(from);
+            try {
+              const rescueTurn = interpretV3Turn({ turnId: v3TurnId, customerText: replyInputText });
+              const rescueTruth = await resolveV3ProductionTruth({
+                waId: from,
+                customerText: replyInputText,
+                state: prior,
+                recentTurns: v3RecentTurns,
+                topics: rescueTurn.topics,
+              });
+              reply = buildV3LastResortReply({
+                truth: rescueTruth,
+                state: prior,
+                customerText: replyInputText,
+                turn: rescueTurn,
+                actions: [],
+              });
+            } catch (contextualRescueError) {
+              console.error("V3 contextual last-resort grounding failed; using minimal safe reply", { waId: from, messageId: message.id || null, error: contextualRescueError });
+              reply = buildV3LastResortReply();
+            }
             degradedStateAfter = {
               ...prior,
               version: V3_OS_VERSION,
@@ -11136,7 +11271,7 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
               messageId: message.id,
               burstLeaderMessageId,
             });
-            const covered = await settleSupersededIncomingOrRetry({ waId: from, currentMessageId: message.id, lookbackSeconds: 180 });
+            const covered = await settleSupersededIncomingOrRetry({ waId: from, currentMessageId: message.id, lookbackSeconds: 180, yieldToDurableIngress: durableWorkerRequest });
             if (covered) return;
           }
           if (legacyStaleSignal) {
@@ -11196,7 +11331,7 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                 messageId: message.id,
                 burstLeaderMessageId,
               });
-              const covered = await settleSupersededIncomingOrRetry({ waId: from, currentMessageId: message.id, lookbackSeconds: 180 });
+              const covered = await settleSupersededIncomingOrRetry({ waId: from, currentMessageId: message.id, lookbackSeconds: 180, yieldToDurableIngress: durableWorkerRequest });
               if (covered) return;
             }
             if (!legacyFreshSignal) {
@@ -11825,6 +11960,7 @@ export async function POST(request: Request) {
   const workerToken = String(request.headers.get("x-alameen-live-worker-token") || "").trim();
 
   if (workerToken && await verifyDurableIngressWorkerToken(workerToken)) {
+    verifiedDurableWorkerRequests.add(request);
     return processWhatsAppWebhookBody(request, body);
   }
 

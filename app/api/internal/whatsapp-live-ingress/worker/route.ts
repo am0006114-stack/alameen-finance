@@ -160,39 +160,55 @@ async function runWorker(request: NextRequest) {
     console.error("V3 durable ingress stale-job requeue failed", { error: staleError.message });
   }
 
-  const { data, error } = await supabaseAdmin.rpc("claim_whatsapp_live_ingress_jobs", {
-    p_worker_id: workerId,
-    p_limit: 4,
-  });
+  // Phase 11.5: one trigger invocation drains multiple claim waves. The Phase
+  // 10.1 SQL still exposes only the oldest unfinished row per wa_id, preserving
+  // serialization, but we no longer wait for the one-minute backup cron before
+  // the next message from the same customer becomes eligible.
+  const maxClaimPasses = 8;
+  const maxJobsPerInvocation = 24;
+  const results: Array<Record<string, unknown>> = [];
+  let claimPasses = 0;
 
-  if (error) {
-    await heartbeat("worker_last_result", JSON.stringify({ ok: false, at: new Date().toISOString(), error: error.message }));
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  while (claimPasses < maxClaimPasses && results.length < maxJobsPerInvocation) {
+    const remaining = Math.max(1, Math.min(4, maxJobsPerInvocation - results.length));
+    const { data, error } = await supabaseAdmin.rpc("claim_whatsapp_live_ingress_jobs", {
+      p_worker_id: workerId,
+      p_limit: remaining,
+    });
+
+    if (error) {
+      await heartbeat("worker_last_result", JSON.stringify({ ok: false, at: new Date().toISOString(), error: error.message, workerId, claimPasses }));
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const jobs = ((data || []) as LiveIngressJob[])
+      .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    if (!jobs.length) break;
+
+    claimPasses += 1;
+    // Different wa_id values remain parallel. Same-customer rows remain serialized
+    // by the SQL oldest-unfinished invariant and become claimable on the next loop.
+    const passResults = await Promise.all(jobs.map((job) => processJob({
+      job,
+      workerId,
+      workerToken: auth.workerToken,
+      origin,
+    })));
+    results.push(...passResults);
   }
-
-  const jobs = ((data || []) as LiveIngressJob[])
-    .sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
-
-  // The SQL claim function exposes only the oldest unfinished job per wa_id. Jobs
-  // from different customers can run in parallel without racing one conversation.
-  const results = await Promise.all(jobs.map((job) => processJob({
-    job,
-    workerId,
-    workerToken: auth.workerToken,
-    origin,
-  })));
 
   await heartbeat("worker_last_result", JSON.stringify({
     ok: true,
     at: new Date().toISOString(),
     workerId,
-    claimed: jobs.length,
+    claimPasses,
+    claimed: results.length,
     succeeded: results.filter((item) => item.status === "succeeded").length,
     retryWait: results.filter((item) => item.status === "retry_wait").length,
     deadLetter: results.filter((item) => item.status === "dead_letter").length,
   }));
 
-  return NextResponse.json({ ok: true, workerId, claimed: jobs.length, results });
+  return NextResponse.json({ ok: true, workerId, claimPasses, claimed: results.length, results });
 }
 
 export async function GET(request: NextRequest) {

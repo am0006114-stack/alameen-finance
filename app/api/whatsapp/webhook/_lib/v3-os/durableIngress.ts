@@ -1,6 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
-import type { WhatsAppWebhookBody } from "../types";
+import type { WhatsAppMessage, WhatsAppWebhookBody } from "../types";
+import { compareConversationBurstRows, conversationBurstAuthorityEligible, type ConversationBurstAuthorityRow } from "./conversationBurstAuthority";
 
 type DurableIngressJobInsert = {
   event_key: string;
@@ -159,5 +160,116 @@ export async function verifyDurableIngressWorkerToken(supplied: string) {
     return secureEqual(token, String(data.value));
   } catch {
     return false;
+  }
+}
+
+export type DurableIngressTurnFreshness = {
+  fresh: boolean;
+  currentMessageId: string;
+  latestMessageId: string | null;
+  reason: "current_is_latest" | "newer_durable_inbound" | "current_not_found" | "no_pending_rows" | "read_failed";
+};
+
+function firstQueuedMessage(payload: unknown): WhatsAppMessage | null {
+  const root = payload as WhatsAppWebhookBody | null;
+  for (const entry of root?.entry || []) {
+    for (const change of entry.changes || []) {
+      const message = change.value?.messages?.[0];
+      if (message) return message;
+    }
+  }
+  return null;
+}
+
+function durableAuthorityBody(message: WhatsAppMessage) {
+  const type = String(message.type || "unknown").toLowerCase();
+  if (type === "reaction") return "";
+  if (type === "text") return String(message.text?.body || "");
+  if (type === "interactive") {
+    return String(message.interactive?.button_reply?.title || message.interactive?.list_reply?.title || message.interactive?.list_reply?.description || message.interactive?.button_reply?.id || message.interactive?.list_reply?.id || "interactive");
+  }
+  if (type === "button") return String(message.button?.text || message.button?.payload || "button");
+  if (type === "image") return String(message.image?.caption || "image");
+  if (type === "document") return String(message.document?.caption || message.document?.filename || "document");
+  if (type === "video") return String(message.video?.caption || "video");
+  if (["audio", "voice", "location", "contacts", "sticker"].includes(type)) return type;
+  return type || "message";
+}
+
+function ingressAuthorityRow(input: { incoming_message_id?: string | null; created_at?: string | null; payload?: unknown }) : ConversationBurstAuthorityRow | null {
+  const message = firstQueuedMessage(input.payload);
+  if (!message) return null;
+  const messageId = String(input.incoming_message_id || message.id || "").trim();
+  if (!messageId) return null;
+  return {
+    message_id: messageId,
+    body: durableAuthorityBody(message),
+    created_at: input.created_at || null,
+    authority_received_at: input.created_at || null,
+    message_type: String(message.type || "unknown"),
+    raw_payload: message,
+  };
+}
+
+/**
+ * Phase 11.5 durable freshness authority.
+ *
+ * ConversationState is downstream state. A newer customer bubble can already be
+ * durably accepted while still waiting in whatsapp_live_ingress_jobs, so action
+ * execution and final egress must also consult that ingress surface. This is a
+ * read-only check over the existing Phase 10.1 table; no schema change is needed.
+ */
+export async function durableIngressTurnFreshness(input: {
+  waId: string;
+  currentMessageId: string;
+  lookbackSeconds?: number;
+}): Promise<DurableIngressTurnFreshness> {
+  const waId = String(input.waId || "").trim();
+  const currentMessageId = String(input.currentMessageId || "").trim();
+  if (!waId || !currentMessageId) {
+    return { fresh: true, currentMessageId, latestMessageId: null, reason: "current_not_found" };
+  }
+
+  try {
+    const since = new Date(Date.now() - Math.max(30, input.lookbackSeconds ?? 180) * 1000).toISOString();
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_live_ingress_jobs")
+      .select("incoming_message_id,created_at,payload,status")
+      .eq("wa_id", waId)
+      .in("status", ["queued", "processing", "retry_wait"])
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(80);
+
+    if (error) {
+      console.error("durable ingress freshness read failed", { waId, currentMessageId, error: error.message });
+      return { fresh: true, currentMessageId, latestMessageId: null, reason: "read_failed" };
+    }
+
+    const rows: ConversationBurstAuthorityRow[] = (data || [])
+      .map((row: any) => ingressAuthorityRow(row))
+      .filter((row: ConversationBurstAuthorityRow | null): row is ConversationBurstAuthorityRow => Boolean(row) && conversationBurstAuthorityEligible(row as ConversationBurstAuthorityRow))
+      .sort(compareConversationBurstRows);
+
+    if (!rows.length) {
+      return { fresh: true, currentMessageId, latestMessageId: null, reason: "no_pending_rows" };
+    }
+
+    const currentIndex = rows.findIndex((row) => String(row.message_id || "") === currentMessageId);
+    if (currentIndex < 0) {
+      return { fresh: true, currentMessageId, latestMessageId: String(rows[rows.length - 1]?.message_id || "") || null, reason: "current_not_found" };
+    }
+
+    const latestMessageId = String(rows[rows.length - 1]?.message_id || "").trim() || null;
+    const fresh = latestMessageId === currentMessageId;
+    return {
+      fresh,
+      currentMessageId,
+      latestMessageId,
+      reason: fresh ? "current_is_latest" : "newer_durable_inbound",
+    };
+  } catch (error) {
+    console.error("durable ingress freshness exception", { waId, currentMessageId, error });
+    return { fresh: true, currentMessageId, latestMessageId: null, reason: "read_failed" };
   }
 }

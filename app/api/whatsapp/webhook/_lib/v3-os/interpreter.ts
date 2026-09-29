@@ -5,6 +5,49 @@ import { stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 function id(turnId: string, i: number) { return `${turnId}:a${i + 1}`; }
 function unique<T>(a: T[]) { return Array.from(new Set(a)); }
 
+export function isExplicitDeliveryQuestionText(value: string | null | undefined) {
+  const n = normalizeArabic(String(value || ""));
+  if (!n) return false;
+  return /(?:توصيل)/.test(n)
+    || /(?:كيف|وين|متي|من وين).{0,22}(?:استلام|استلم)/.test(n)
+    || /(?:استلام|استلم).{0,22}(?:كيف|وين|متي|من وين)/.test(n);
+}
+
+export function isPaymentRelativeToReceiptText(value: string | null | undefined) {
+  const n = normalizeArabic(String(value || ""));
+  if (!n) return false;
+  const payment = /(?:بدفع|ادفع|دفع|الدفع|احول|التحويل|تحويل|المبلغ|الرسوم)/;
+  const receipt = /(?:استلام|استلم)/;
+  if (!payment.test(n) || !receipt.test(n)) return false;
+
+  // This is a relationship question/condition: when payment happens relative to
+  // receiving the device. It is not, by itself, a pickup/delivery-mechanics ask.
+  const relation = /(?:بدفع|ادفع|دفع|الدفع|احول|التحويل|تحويل|المبلغ|الرسوم).{0,42}(?:بس|لما|عند|وقت|حين|بعد|قبل|يوم).{0,24}(?:استلام|استلم)/
+    .test(n)
+    || /(?:استلام|استلم).{0,32}(?:بس|لما|عند|وقت|حين|بعد|قبل|يوم).{0,28}(?:بدفع|ادفع|دفع|الدفع|احول|التحويل|تحويل|المبلغ|الرسوم)/.test(n);
+  return relation;
+}
+
+export function enforcePaymentReceiptSemantics(turn: InterpretedTurn, customerText: string): InterpretedTurn {
+  if (!isPaymentRelativeToReceiptText(customerText) || isExplicitDeliveryQuestionText(customerText)) return turn;
+  const acts = turn.acts.filter((act) => act.topic !== "delivery");
+  if (!acts.some((act) => act.topic === "payment_timing")) {
+    acts.push({
+      id: `${turn.turnId}:payment-relative-receipt`,
+      type: "ask",
+      topic: "payment_timing",
+      text: turn.rawText,
+      confidence: 0.995,
+      action: "none",
+      value: null,
+      source: "deterministic",
+    });
+  }
+  const topics = unique(acts.map((act) => act.topic));
+  const requestedActions = unique(acts.map((act) => act.action || "none").filter((action) => action !== "none"));
+  return { ...turn, acts, topics, requestedActions, confidence: Math.max(turn.confidence, 0.995) };
+}
+
 export function interpretTurn(input: { turnId: string; customerText: string }): InterpretedTurn {
   const raw = String(input.customerText || "").trim();
   const n = normalizeArabic(raw);
@@ -53,10 +96,12 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   if (hasAny(n,["ضغط المراجعات","ضغط المراجعه","ضغط شديد","ليش متاخر","ليش متأخر","التاخير","التأخير"])) add("ask","operational_pressure",0.88);
   if (hasAny(n,["وين موقعكم","وين المكتب","موقع الاستلام","العنوان"]) || (/(?:موقع|عنوان)/.test(n) && /(?:شركت|المكتب|الاستلام|عندكم)/.test(n))) add("ask","office_location",0.99);
   if (hasAny(n,["موعد","احجز موعد","حجز موعد","اجي عالمكتب","اروح عالمكتب"])) add("ask","appointment",0.96);
-  if (hasAny(n,["توصيل","كيف الاستلام","وين استلم","متى استلم"]) || /(?:استلام|استلم)/.test(n)) add("ask","delivery",0.97);
+  const paymentRelativeToReceipt = isPaymentRelativeToReceiptText(raw);
+  const explicitDeliveryQuestion = isExplicitDeliveryQuestionText(raw);
+  if (explicitDeliveryQuestion || (!paymentRelativeToReceipt && /(?:استلام|استلم)/.test(n))) add("ask","delivery",0.97);
 
   if (hasAny(n,["5 دنانير","٥ دنانير","رسوم فتح الملف","الخمس دنانير"])) add("ask","payment_fee",0.99);
-  if (hasAny(n,["متى ادفع","متى احول","متى الدفع","ادفع هسا","احول هسا"])) add("ask","payment_timing",0.98);
+  if (paymentRelativeToReceipt || hasAny(n,["متى ادفع","متى احول","متى الدفع","ادفع هسا","احول هسا"])) add("ask","payment_timing",0.98);
   if (hasAny(n,["لمين احول","اسم المستفيد","على مين احول","كليك"]) || /(?:وين|لمين|على\s+مين).{0,18}(?:احول|تحويل|كليك)/.test(n)) add("ask","payment_recipient",0.96);
   if (hasAny(n,["كيف ادفع","طريقه الدفع","طريقة الدفع"]) || /(?:كيف|وين).{0,20}(?:بقدر|اقدر|بدي|ممكن)?\s*(?:ادفع|احول)|(?:دفع|ادفع).{0,24}(?:رسوم|فتح\s*الملف|الخمس|5|٥)/.test(n)) add("ask","payment_method",0.985);
   if (hasAny(n,["وصل الدفع","اثبات الدفع","إثبات الدفع","رفع الوصل","رابط الوصل","كيف ارفع الوصل"])) add("ask","receipt_upload",0.99,"generate_receipt_link");
