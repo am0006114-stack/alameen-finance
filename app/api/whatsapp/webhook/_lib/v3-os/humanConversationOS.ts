@@ -24,7 +24,7 @@ import { buildIphone18AuthoritativeReply } from "./businessTruthRegistry";
 import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
 import { hasPaymentProtection } from "./manualActionPolicy";
 import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
-import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
+import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
 import { resolveAiRole, roleDisplayName } from "./hierarchy";
 
@@ -192,7 +192,7 @@ function repairReplyForSafety(input: {
   if (reasons.some((reason) => reason === "missed_known_office_location" || reason.startsWith("office_location_missing_"))) return officeGroundedReply(input.truth);
   if (reasons.some((reason) => reason.startsWith("delivery_") || reason === "grounding:iphone18_pickup_rule_missing")) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
   if (reasons.some((reason) => reason === "grounding:iphone18_region_missing")) return buildIphone18AuthoritativeReply(input.customerText) || deterministicFallback({ turn: input.turn, truth: input.truth, customerText: input.customerText });
-  if (reasons.includes("unsupported_future_admin_or_contact_claim")) {
+  if (reasons.includes("unsupported_future_admin_or_contact_claim") || reasons.includes("unsupported_future_operational_promise")) {
     return "ما رح أوعدك بمكالمة أو تواصل من موظف إذا ما في إجراء فعلي مثبت. نقدر نكمل المتابعة هون على نفس واتساب، وإذا في إجراء حقيقي بصير بنحكي عنه بعد ما يثبت بالنظام.";
   }
   const sanitized = sanitizeCustomerFacingStatusTokens(deterministicFallback({ turn: input.turn, truth: input.truth, customerText: input.customerText }));
@@ -201,6 +201,158 @@ function repairReplyForSafety(input: {
 
 function verificationFromReasons(reasons: string[]): VerificationReport {
   return reasons.length ? { ...PASS, pass: false, policyViolations: reasons } : PASS;
+}
+
+
+const CONTEXT_CONFIRMABLE_MUTATIONS = new Set<ActionKey>([
+  "cancel_application",
+  "request_refund",
+  "stop_refund",
+  "reopen_application",
+  "link_whatsapp_alias",
+]);
+
+function normalizeActionConfirmationText(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function explicitPendingMutationConfirmation(input: { customerText: string; state: ConversationState }): ActionKey | null {
+  const pending = input.state.pendingAction;
+  if (!pending || !CONTEXT_CONFIRMABLE_MUTATIONS.has(pending)) return null;
+  const text = normalizeActionConfirmationText(input.customerText);
+  if (!text) return null;
+
+  const rejected = /(?:لا\s+(?:تلغي|الغوا|الغوه|ترجع|ترجعوا|توقف|توقفوا|تعتمد|تعتمدوا)|بطلت|تراجعت|استنى|استني|لا\s+استنى|مش\s+بدي)/.test(text);
+  if (rejected) return null;
+
+  const affirmative = /^(?:اه|نعم|ايوه|موافق|اكيد|تمام)(?:\s|$)/.test(text);
+  const directCancel = /(?:الغوه|الغوا|الغي|الغا|إلغاء|الغاء).{0,22}(?:الطلب|المعامله|المعاملة)?/.test(text);
+  const directRefund = /(?:رجعولي|رجعوا|استرداد|استرجاع|رجع\s+المصاري|رجع\s+المبلغ)/.test(text);
+  const directStopRefund = /(?:وقف|اوقف|ايقاف).{0,28}(?:الاسترداد|الاسترجاع)/.test(text);
+  const directReopen = /(?:ارجع|رجع|اعاده|اعادة).{0,22}(?:افتح|فتح|فعل|تفعيل).{0,22}(?:الطلب|المعامله|المعاملة)?/.test(text);
+  const directAlias = /(?:اعتمد|اربط).{0,30}(?:الرقم|واتساب)/.test(text);
+
+  if (pending === "cancel_application" && (directCancel || (affirmative && /(?:الغاء|الغي|الغوه|الغوا)/.test(text)))) return pending;
+  if (pending === "request_refund" && (directRefund || (affirmative && /(?:استرداد|استرجاع|رجع)/.test(text)))) return pending;
+  if (pending === "stop_refund" && directStopRefund) return pending;
+  if (pending === "reopen_application" && directReopen) return pending;
+  if (pending === "link_whatsapp_alias" && directAlias) return pending;
+  return null;
+}
+
+function makeDeterministicPendingMutationTurn(turn: InterpretedTurn, action: ActionKey): InterpretedTurn {
+  const topic: TopicKey = action === "cancel_application" ? "cancellation"
+    : action === "request_refund" || action === "stop_refund" ? "refund"
+    : action === "reopen_application" ? "reopen"
+    : "application_correction";
+  const alreadyHasAction = turn.requestedActions.includes(action);
+  const alreadyHasAct = turn.acts.some((act) => act.action === action && act.type === "request_action");
+  const act: DialogueAct[] = alreadyHasAct ? [] : [{
+    id: `${turn.turnId}:pending-confirmation`,
+    type: "request_action" as const,
+    topic,
+    text: turn.rawText,
+    action,
+    value: null,
+    confidence: 1,
+    source: "resolved" as const,
+  }];
+  return {
+    ...turn,
+    acts: [...turn.acts, ...act],
+    topics: Array.from(new Set([...turn.topics, topic])),
+    requestedActions: alreadyHasAction ? turn.requestedActions : [...turn.requestedActions, action],
+    confidence: Math.max(turn.confidence, 0.99),
+    semantic: turn.semantic ? {
+      ...turn.semantic,
+      currentQuestion: null,
+      answerMode: "direct",
+      confidence: Math.max(turn.semantic.confidence || 0, 0.99),
+      decision: {
+        ...turn.semantic.decision,
+        cancellation: action === "cancel_application" ? "requested" : turn.semantic.decision.cancellation,
+        refund: action === "request_refund" ? "requested" : turn.semantic.decision.refund,
+      },
+    } : turn.semantic,
+  };
+}
+
+function forceConfirmedPendingMutation(plan: ReplyPlan, input: { action: ActionKey | null; state: ConversationState; turn: InterpretedTurn }): ReplyPlan {
+  if (!input.action) return plan;
+  const existing = plan.actions.find((item) => item.action === input.action);
+  const forced: PlannedAction = {
+    action: input.action,
+    sourceActId: existing?.sourceActId || `${input.turn.turnId}:pending-confirmation`,
+    requiresConfirmation: false,
+    authority: "deterministic",
+    requiredRole: "omran",
+    payload: existing?.payload || input.state.pendingActionPayload || null,
+  };
+  return {
+    ...plan,
+    actions: [forced, ...plan.actions.filter((item) => item.action !== input.action)],
+    shouldRespond: true,
+  };
+}
+
+function punctuationOnlyCustomerTurn(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  return Boolean(raw) && /^[.،,!?؟…ـ\-\s]+$/.test(raw);
+}
+
+function normalizeRecentTurnBody(value: string) {
+  return normalizeActionConfirmationText(value).replace(/\s+/g, " ").trim();
+}
+
+function parseRecentCustomerTurn(value: string) {
+  const raw = String(value || "").trim();
+  const bracket = raw.match(/^\s*\[[^\]]*(?:customer|user|incoming|العميل)[^\]]*\]\s*(.*)$/i);
+  if (bracket) return bracket[1].trim();
+  const labeled = raw.match(/^\s*(?:customer|user|incoming|العميل)\s*[:：|\-]\s*(.*)$/i);
+  return labeled ? labeled[1].trim() : null;
+}
+
+function hasNewerCustomerTurn(input: { customerText: string; recentTurns: string[] }) {
+  const current = normalizeRecentTurnBody(input.customerText);
+  if (!current) return false;
+  const parsed = input.recentTurns.map((line) => parseRecentCustomerTurn(line));
+  let currentIndex = -1;
+  for (let i = 0; i < parsed.length; i += 1) {
+    const body = parsed[i];
+    if (!body) continue;
+    const normalized = normalizeRecentTurnBody(body);
+    if (normalized === current || normalized.endsWith(current) || current.endsWith(normalized)) currentIndex = i;
+  }
+  if (currentIndex < 0) return false;
+  return parsed.slice(currentIndex + 1).some((body) => body && !punctuationOnlyCustomerTurn(body) && normalizeRecentTurnBody(body) !== current);
+}
+
+function simpleSocialClosureReply(turn: InterpretedTurn, customerText: string) {
+  if (turn.requestedActions.length) return null;
+  const materialTopics = turn.topics.filter((topic) => !["thanks", "acknowledgement", "greeting", "unknown"].includes(topic));
+  if (materialTopics.length) return null;
+  const n = normalizeActionConfirmationText(customerText);
+  if (/(?:شكرا|شكراً|يعطيك\s+العافيه|يعطيك\s+العافية|يسلمو|مشكور)/.test(n)) return "الله يعافيك، بأي وقت.";
+  if (/^(?:تمام|اوكي|اوك|ماشي|خلص|تمام\s+شكرا)$/.test(n)) return "تمام.";
+  return null;
+}
+
+function humanRequestGroundedReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {
+  if (input.turn.requestedActions.length) return null;
+  const humanRequested = input.turn.topics.some((topic) => ["human_request", "manager_request", "call_request"].includes(topic));
+  if (!humanRequested) return null;
+  const name = roleDisplayName(input.state.role.currentRole);
+  const status = input.truth.application && input.turn.topics.includes("application_status")
+    ? ` حالة طلبك الحالية: ${customerFacingStatusLabel(input.truth.application)}.`
+    : "";
+  return `معك ${name} من الأمين، وبكمل معك هون على نفس المحادثة.${status} ما عندي تحويل تلقائي لمكالمة أو لموظف منفصل من داخل واتساب، فاحكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية.`;
 }
 
 function updatePendingState(input: { state: ConversationState; gate: ReturnType<typeof enforceMutationConfirmationGate>; turn: InterpretedTurn }) {
@@ -435,6 +587,10 @@ export async function runHumanConversationOS(input: {
 
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
   if (contextualContinuation) deterministicAnchor = makeDeterministicContinuationTurn(deterministicAnchor);
+  const confirmedPendingMutation = explicitPendingMutationConfirmation({ customerText: input.customerText, state: stateWorking });
+  if (confirmedPendingMutation) deterministicAnchor = makeDeterministicPendingMutationTurn(deterministicAnchor, confirmedPendingMutation);
+  const suppressAsNoise = punctuationOnlyCustomerTurn(input.customerText) && !confirmedPendingMutation;
+  const supersededByNewerCustomerTurn = hasNewerCustomerTurn({ customerText: input.customerText, recentTurns });
 
   // Phase 11.2: device/model/storage/color changes are handled through a
   // deterministic secure-link authority, not as a free-form WhatsApp mutation.
@@ -450,6 +606,54 @@ export async function runHumanConversationOS(input: {
   // This keeps Fadwa/Tala/Abdullah/Abdulrahman/Omran continuity inside Human OS
   // instead of flattening every turn into a generic assistant voice.
   stateWorking = { ...stateWorking, role: resolveAiRole(stateWorking, deterministicAnchor) };
+
+  if (suppressAsNoise || supersededByNewerCustomerTurn) {
+    const quietPlan: ReplyPlan = {
+      objective: supersededByNewerCustomerTurn ? "suppress stale turn because a newer customer message already exists" : "ignore punctuation-only customer noise",
+      role: stateWorking.role.currentRole,
+      answerItems: [],
+      actions: [],
+      requiredFacts: [],
+      forbiddenClaims: [],
+      tone: "brief",
+      shouldRespond: false,
+    };
+    await checkpointHumanTurn({
+      turnId: input.turnId,
+      status: "reply_ready",
+      modelTier: "deterministic",
+      modelCalls: 0,
+      meaning: { deterministic: true, suppressed: true, reason: supersededByNewerCustomerTurn ? "newer_customer_turn" : "punctuation_only" },
+      truth: truthBeforeActions,
+      actions: [],
+      finalReply: null,
+      stateAfter: stateWorking,
+      memoryAfter: memory,
+      errorCode: null,
+      errorMessage: null,
+    });
+    return {
+      version: V3_OS_VERSION,
+      turn: deterministicAnchor,
+      stateBefore,
+      stateAfter: stateWorking,
+      truth: truthBeforeActions,
+      truthBeforeActions,
+      truthAfterActions: truthBeforeActions,
+      plan: quietPlan,
+      actions: [],
+      verification: PASS,
+      reply: null,
+      providerUsed: false,
+      interpreterUsed: false,
+      interpreterError: null,
+      replyAttempts: 0,
+      finalSafetyPass: true,
+      fallbackUsed: false,
+      realActionsEnabled: input.realActionsEnabled,
+      humanOs: { enabled: true, journalTurnId: input.turnId, modelTier: "deterministic", modelCalls: 0, reusedDecision: false, needsHumanReview: false, humanReviewReason: null, memoryAfter: memory },
+    };
+  }
 
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
   // Explicit tracking + status lookup is already authoritative DB work. Do not
@@ -484,6 +688,7 @@ export async function runHumanConversationOS(input: {
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
   let reduced = reduceState({ state: stateWorking, turn });
   let plan = buildReplyPlan({ turn, state: reduced, truth: truthBeforeActions });
+  plan = forceConfirmedPendingMutation(plan, { action: confirmedPendingMutation, state: stateWorking, turn });
   if (secureDeviceChangeRequested) {
     plan = { ...plan, actions: plan.actions.filter((action) => action.action !== "change_device") };
   }
@@ -521,6 +726,8 @@ export async function runHumanConversationOS(input: {
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
     : null;
   const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply({ customerText: input.customerText, state: stateWorking }) : null;
+  const authoritativeSocialReply = simpleSocialClosureReply(turn, input.customerText);
+  const authoritativeHumanRequestReply = humanRequestGroundedReply({ turn, state: stateWorking, truth: truthAfterActions });
   let authoritativeDeviceChangeReply: string | null = null;
   if (secureDeviceChangeRequested) {
     const app = truthAfterActions.application;
@@ -550,7 +757,7 @@ export async function runHumanConversationOS(input: {
       }
     }
   }
-  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
+  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions) || authoritativeHumanRequestReply || authoritativeSocialReply;
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -567,7 +774,7 @@ export async function runHumanConversationOS(input: {
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || authoritativeGateReply);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -598,7 +805,7 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || finalAuthoritativeGateReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,

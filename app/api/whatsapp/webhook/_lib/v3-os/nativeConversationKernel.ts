@@ -596,6 +596,19 @@ function unsupportedApplicationChangePromise(reply: string, turn: InterpretedTur
     || /(?:تعديل|تغيير).{0,35}(?:مباشره|مباشرة).{0,35}(?:ما\s+بتحتاج|ما\s+بحتاج|بدون\s+اجراء|بدون\s+إجراء)/.test(text);
 }
 
+const CRITICAL_PROMISE_TRUTH_TOPICS = new Set([
+  "products", "product_price", "device_change", "device_recalculation",
+  "payment_fee", "payment_method", "payment_timing", "payment_recipient", "payment_status", "payment_confirmation", "receipt_upload",
+  "refund", "cancellation", "continuation", "reopen", "application_status", "application_correction",
+]);
+const CRITICAL_PROMISE_TRUTH_ACTIONS = new Set([
+  "cancel_application", "request_refund", "stop_refund", "reopen_application", "change_device", "change_application_data", "continue_application",
+]);
+function criticalPromiseTruthContext(turn: InterpretedTurn) {
+  return turn.topics.some((topic) => CRITICAL_PROMISE_TRUTH_TOPICS.has(topic))
+    || turn.requestedActions.some((action) => CRITICAL_PROMISE_TRUTH_ACTIONS.has(action));
+}
+
 function unsafeLinkViolations(reply: string, turn: InterpretedTurn, truth: TruthBundle, allowProtectedPaymentReceipt = false) {
   return detectReplyLinkViolations({ reply, turn, truth, allowProtectedPaymentReceipt }).filter((reason) =>
     !reason.startsWith("required_") && reason !== "receipt_link_requires_application_resolution"
@@ -686,11 +699,17 @@ export function validateNativeConversationReply(input: {
   });
   if (modificationRoutingIssue) reasons.push(`application_modification_routing:${modificationRoutingIssue}`);
 
-  if (/(?:أنا|انا)\s+(?:انسان|إنسان|موظف\s+بشري|الموظف\s+(?:المسؤول|المسوول))|(?:أنا|انا).{0,30}(?:المسؤول|المسوول)\s+عن\s+طلبك|(?:أنا|انا).{0,20}(?:اللي|الي)\s+متابع\s+طلبك(?:\s+مباشره|\s+مباشرة)?|حولتك\s+(?:لموظف|لشخص)|تم\s+تحويلك\s+(?:لموظف|لشخص)|شخص\s+حقيقي|(?:مش|مو|ما\s+في)\s+(?:رد\s+الي|رد\s+آلي|بوت)/.test(n)) reasons.push("false_literal_human_handoff_claim");
+  if (/(?:أنا|انا)\s+(?:انسان|إنسان|موظف\s+بشري|الموظف\s+(?:المسؤول|المسوول))|(?:أنا|انا).{0,30}(?:المسؤول|المسوول)\s+عن\s+طلبك|(?:أنا|انا).{0,20}(?:(?:اللي|الي)\s+)?متابع\s+طلبك(?:\s+مباشره|\s+مباشرة)?|حولتك\s+(?:لموظف|لشخص)|تم\s+تحويلك\s+(?:لموظف|لشخص)|شخص\s+حقيقي|(?:مش|مو|ما\s+في)\s+(?:رد\s+الي|رد\s+آلي|بوت)/.test(n)) reasons.push("false_literal_human_handoff_claim");
+  if (/(?:الفريق\s+كله).{0,35}(?:موجود|بيرد|برد|متابع)|(?:أنا|انا)\s+متابع\s+طلبك\s+(?:مباشره|مباشرة)/.test(n)) reasons.push("false_team_presence_or_live_human_followup_claim");
   if (/(?:اذا|إذا).{0,20}(?:حاب|بدك).{0,25}(?:ارتب|أرتب|نرتب|احجز|أحجز|نحجز).{0,20}موعد/.test(n)) reasons.push("unsupported_appointment_offer");
   if (/(?:في|عندنا)\s+عملاء.{0,80}(?:استلموا|اشتروا|جربوا|قدموا).{0,40}(?:جهاز|اجهزه|أجهزة|الأمين)/.test(n)) reasons.push("unsupported_social_proof");
   if (/(?:من\s+السبت\s+للخميس|السبت.{0,20}(?:دوام|مفتوح)|الجمعة\s+عطله(?!.*السبت)|الجمعة\s+عطلة(?!.*السبت))/.test(n)) reasons.push("unsupported_office_hours_or_saturday_open_claim");
-  if (/(?:تم\s+التصعيد|تم\s+تصعيد|رح|راح|بنبعث|بنرسل|سنتصل|رح\s+نتصل).{0,55}(?:الاداره|الإدارة|موظف|نتواصل|نتصل|نخبرك|نبلغك|بخبرك|ببلغك)/.test(n)) reasons.push("unsupported_future_admin_or_contact_claim");
+  const criticalPromiseTruth = criticalPromiseTruthContext(input.turn);
+  const futureAdminOrContactClaim = /(?:تم\s+التصعيد|تم\s+تصعيد|رح|راح|بنبعث|بنرسل|سنتصل|رح\s+نتصل).{0,55}(?:الاداره|الإدارة|موظف|نتواصل|نتصل|نخبرك|نبلغك|بخبرك|ببلغك)/.test(n);
+  const explicitHumanContactPromise = /(?:سنتصل|رح\s+نتصل|موظف.{0,20}(?:رح|راح|سوف)?\s*(?:يتواصل|يتصل)|(?:نتواصل|نتصل)\s+معك)/.test(n);
+  if (futureAdminOrContactClaim && (criticalPromiseTruth || explicitHumanContactPromise)) reasons.push("unsupported_future_admin_or_contact_claim");
+  const unsupportedFutureOperationalPromise = /(?:خليني|دعني).{0,25}(?:اتاكد|اتأكد|أتأكد|اراجع|أراجع).{0,55}(?:و?(?:ب)?رجعلك|و?(?:ب)?رجع\s+لك|و?ارجعلك|وأرجعلك|و?بخبرك|و?ببلغك|و?برد\s+عليك)|(?:لسا|ما\s+زلت).{0,25}(?:بانتظار|ناطر).{0,55}(?:الجهه\s+المختصه|الجهة\s+المختصة|الاداره|الإدارة|التاكيد|التأكيد|الرد)|(?:اول\s+ما|أول\s+ما).{0,65}(?:يوصلني|يجيني|يطلع|يصدر).{0,45}(?:الجواب|الرد|التاكيد|التأكيد|التحديث)?.{0,35}(?:و?برجعلك|و?بخبرك|و?ببلغك|و?برد\s+عليك)|(?:برجعلك|بخبرك|ببلغك).{0,45}(?:بالجواب|بالرد|بالتاكيد|بالتأكيد)|(?:براجع|رح\s+اراجع|رح\s+أراجع).{0,35}(?:مع\s+الاداره|مع\s+الإدارة|الجهه\s+المختصه|الجهة\s+المختصة)/.test(n);
+  if (criticalPromiseTruth && unsupportedFutureOperationalPromise) reasons.push("unsupported_future_operational_promise");
 
   const feeMentioned = /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s+فتح\s+الملف/.test(n);
   const feeAllowed = feeRelevantByContext({ turn: input.turn, truth: input.truth, customerText: input.customerText }) || input.disclosureRequiredThisTurn || input.protectedFiveJodStep;

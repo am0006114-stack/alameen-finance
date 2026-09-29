@@ -295,6 +295,19 @@ function asksKnownTrackingAgain(reply: string) {
   return /(?:ابعث|ابعت|ارسل|أرسل|هات|اعطيني|أعطيني)[^\n]{0,45}(?:رقم\s*(?:التتبع|الطلب)|التتبع)/.test(n);
 }
 
+const CRITICAL_PROMISE_TRUTH_TOPICS = new Set([
+  "products", "product_price", "device_change", "device_recalculation",
+  "payment_fee", "payment_method", "payment_timing", "payment_recipient", "payment_status", "payment_confirmation", "receipt_upload",
+  "refund", "cancellation", "continuation", "reopen", "application_status", "application_correction",
+]);
+const CRITICAL_PROMISE_TRUTH_ACTIONS = new Set([
+  "cancel_application", "request_refund", "stop_refund", "reopen_application", "change_device", "change_application_data", "continue_application",
+]);
+function criticalPromiseTruthContext(turn: InterpretedTurn) {
+  return turn.topics.some((topic) => CRITICAL_PROMISE_TRUTH_TOPICS.has(topic))
+    || turn.requestedActions.some((action) => CRITICAL_PROMISE_TRUTH_ACTIONS.has(action));
+}
+
 export function verifyReply(input: { reply: string; turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; plan: ReplyPlan; actions: ActionResult[]; recentTurns?: string[]; profileName?: string | null }): VerificationReport {
   const reply = String(input.reply || "").trim();
   const t = normalizeArabic(reply);
@@ -513,7 +526,10 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
   if (claimExecuted(reply,["تم تعديل البيانات","عدلت البيانات"]) && !actionOk(input.actions,["change_application_data"])) actionClaimViolations.push("unverified_application_change_claim");
   if (claimExecuted(reply,["تم تحديد موعد","حجزتلك","حجزنا موعد"])) actionClaimViolations.push("unverified_appointment_claim");
   if (claimExecuted(reply,["رح نتصل","سنتصل","موظف رح يتواصل","سيتواصل معك موظف"])) actionClaimViolations.push("future_human_contact_claim");
-  if (/(?:رح|راح)\s+(?:ا?راجع|أتأكد|اتأكد).{0,35}(?:الاداره|الإدارة|الموضوع)|(?:براجع|سأراجع|ساراجع|سأتحقق).{0,35}(?:الاداره|الإدارة|الموضوع)|(?:بمجرد|اول\s+ما|أول\s+ما).{0,35}(?:يطلع|يصدر|يجيني).{0,25}(?:القرار|الرد).{0,25}(?:بخبرك|ببلغك|برجعلك)/i.test(reply)) actionClaimViolations.push("unsupported_future_admin_followup_claim");
+  const criticalPromiseTruth = criticalPromiseTruthContext(input.turn);
+  if (criticalPromiseTruth && /(?:رح|راح)\s+(?:ا?راجع|أتأكد|اتأكد).{0,35}(?:الاداره|الإدارة|الموضوع)|(?:براجع|سأراجع|ساراجع|سأتحقق).{0,35}(?:الاداره|الإدارة|الموضوع)|(?:بمجرد|اول\s+ما|أول\s+ما).{0,35}(?:يطلع|يصدر|يجيني).{0,25}(?:القرار|الرد).{0,25}(?:بخبرك|ببلغك|برجعلك)/i.test(reply)) actionClaimViolations.push("unsupported_future_admin_followup_claim");
+  if (criticalPromiseTruth && /(?:خليني|دعني).{0,25}(?:أتأكد|اتأكد|أراجع|اراجع).{0,55}(?:و?برجعلك|و?بخبرك|و?ببلغك|و?برد\s+عليك)|(?:لسا|ما\s+زلت).{0,25}(?:بانتظار|ناطر).{0,55}(?:الجهة\s+المختصة|الجهه\s+المختصه|الإدارة|الاداره|التأكيد|التاكيد|الرد)|(?:أول\s+ما|اول\s+ما).{0,65}(?:يوصلني|يجيني|يطلع|يصدر).{0,45}(?:الجواب|الرد|التأكيد|التاكيد|التحديث)?.{0,35}(?:و?برجعلك|و?بخبرك|و?ببلغك|و?برد\s+عليك)/i.test(reply)) actionClaimViolations.push("unsupported_future_operational_promise");
+  if (/(?:الفريق\s+كله).{0,35}(?:موجود|بيرد|برد|متابع)|(?:أنا|انا)\s+متابع\s+طلبك\s+(?:مباشرة|مباشره)/i.test(reply)) actionClaimViolations.push("false_team_presence_or_live_human_followup_claim");
   if (/(?:رح|راح|بنبعث|رح\s+نبعث|بنرسل|رح\s+نرسل).{0,45}(?:على|ع)\s*(?:هاض|هاد|هذا)\s+الرقم/i.test(reply) && !actionOk(input.actions,["change_application_data"])) actionClaimViolations.push("unverified_contact_number_change_claim");
   if (continuationNow && /(?:بمجرد|لما).{0,35}(?:تنفذ|تنفّذ|تعمل).{0,35}(?:الاداره|الإدارة).{0,35}(?:فتح\s+الملف|خطوه\s+فتح|خطوة\s+فتح)/i.test(reply)) policyViolations.push("invented_admin_gate_before_5_jod");
 
