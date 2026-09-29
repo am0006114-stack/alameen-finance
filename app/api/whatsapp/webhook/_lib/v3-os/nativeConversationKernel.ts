@@ -647,8 +647,11 @@ export function validateNativeConversationReply(input: {
   if (!eventHasRealMedia(input.customerText) && /(?:وصلتني|وصلت)\s+(?:الصوره|الصورة|المرفق|الرساله\s+الصوتيه|الرسالة\s+الصوتية)/.test(n)) reasons.push("false_media_received_claim");
   if (!hasAuthoritativePaymentConfirmation(input.truth.application) && /(?:دفعك|الدفع)\s+(?:موكد|مؤكد|مثبت\s+اداريا|مثبت\s+إداريا)/.test(n)) reasons.push("false_payment_confirmation_claim");
 
-  if (!actionSucceeded(input.actions, "cancel_application") && /(?:تم\s+(?:الغاء|إلغاء)\s+(?:طلبك|الطلب)|(?:طلبك|الطلب).{0,15}(?:صار\s+)?(?:ملغي|ملغى))/.test(n)) reasons.push("false_cancel_completion_claim");
-  if (!actionSucceeded(input.actions, "request_refund") && /(?:تم\s+(?:تسجيل|تنفيذ)\s+(?:طلب\s+)?(?:الاسترداد|استرداد)|(?:الاسترداد|الاسترجاع).{0,15}(?:تم|اكتمل))/.test(n) && input.turn.requestedActions.includes("request_refund")) reasons.push("false_refund_completion_claim");
+  const authoritativeStage = applicationJourneyStage(input.truth.application);
+  const truthAlreadyCancelled = ["cancelled", "refund_requested", "refund_completed"].includes(authoritativeStage);
+  const truthAlreadyRefundedOrRequested = ["refund_requested", "refund_completed"].includes(authoritativeStage);
+  if (!actionSucceeded(input.actions, "cancel_application") && !truthAlreadyCancelled && /(?:تم\s+(?:الغاء|إلغاء)\s+(?:طلبك|الطلب)|(?:طلبك|الطلب).{0,15}(?:صار\s+)?(?:ملغي|ملغى))/.test(n)) reasons.push("false_cancel_completion_claim");
+  if (!actionSucceeded(input.actions, "request_refund") && !truthAlreadyRefundedOrRequested && /(?:تم\s+(?:تسجيل|تنفيذ)\s+(?:طلب\s+)?(?:الاسترداد|استرداد)|(?:الاسترداد|الاسترجاع).{0,15}(?:تم|اكتمل))/.test(n) && input.turn.requestedActions.includes("request_refund")) reasons.push("false_refund_completion_claim");
   if (!actionSucceeded(input.actions, "change_device") && /(?:تم\s+(?:تغيير|تعديل)\s+(?:الجهاز|الموديل)|(?:الجهاز|الموديل).{0,18}(?:تم\s+تغييره|صار\s+معدل))/.test(n)) reasons.push("false_device_change_completion_claim");
   if (!actionSucceeded(input.actions, "change_application_data") && /تم\s+(?:تعديل|تحديث)\s+(?:بياناتك|البيانات|الطلب)/.test(n)) reasons.push("false_application_data_change_completion_claim");
   if (!actionSucceeded(input.actions, "reopen_application") && /تم\s+(?:اعاده|إعادة)\s+(?:فتح|تفعيل)\s+(?:طلبك|الطلب)/.test(n)) reasons.push("false_reopen_completion_claim");

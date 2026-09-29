@@ -240,6 +240,16 @@ export function enforceMutationConfirmationGate(input: {
       ]
     : input.actions;
 
+  // Phase 11.1: one customer turn may express both “cancel” and “refund”. The
+  // audited cancel RPC already opens refund_requested automatically when payment
+  // is authoritatively confirmed, so staging request_refund beside cancellation
+  // creates two competing confirmation prompts for one turn. Keep cancellation
+  // as the single mutation authority for that combined request.
+  const hasCancellation = candidateActions.some((action) => action.action === "cancel_application");
+  const normalizedCandidateActions = hasCancellation
+    ? candidateActions.filter((action) => action.action !== "request_refund")
+    : candidateActions;
+
   const alreadyCancelled = ["cancelled", "refund_requested", "refund_completed"].includes(authoritativeStage);
   const cancellationInfoQuestion = /^(?:وين|متى|امتى|ليش|ليه|شو|كيف|قديش|كم|هل)\b/.test(currentQ)
     || /(?:مصاري|المبلغ|الاسترداد|استرداد).{0,28}(?:وين|متى|امتى)|(?:وين|متى|امتى).{0,28}(?:مصاري|المبلغ|الاسترداد|استرداد)/.test(currentQ);
@@ -250,7 +260,7 @@ export function enforceMutationConfirmationGate(input: {
         ? "طلبك ملغي بالفعل، والاسترداد مكتمل حسب الحالة الحالية. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية."
         : "طلبك ملغي بالفعل. ما في داعي تعيد طلب الإلغاء أو تأكيده مرة ثانية.";
     return {
-      actions: candidateActions.filter((action) => action.action !== "cancel_application"),
+      actions: normalizedCandidateActions.filter((action) => action.action !== "cancel_application"),
       confirmationPrompt: null,
       informationalReply: info,
       clearPendingConfirmation: true,
@@ -321,11 +331,15 @@ export function enforceMutationConfirmationGate(input: {
   }
 
   const output: PlannedAction[] = [];
-  for (const action of candidateActions) {
+  for (const action of normalizedCandidateActions) {
     if (!REAL_MUTATIONS.has(action.action)) {
       output.push(action);
       continue;
     }
+
+    // Only one mutation confirmation may be open per customer turn. This keeps
+    // the prompt, pendingAction and needs_confirmation result aligned.
+    if (prompt) continue;
 
     if (mutationDecline(action.action, input.turn.rawText)) {
       clearPendingConfirmation = true;

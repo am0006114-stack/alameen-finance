@@ -2,6 +2,11 @@ import type { V3TextProvider } from "./provider";
 import type { CompactHumanMemory } from "./compactHumanMemory";
 import type { ActionKey, ConversationState, InterpretedTurn, SemanticTurnFrame, TopicKey, TruthBundle } from "./types";
 import { normalizeArabic } from "./text";
+import { canonicalBusinessTruthForPrompt } from "./canonicalTruthManifest";
+import { buildOfficialLinkContext } from "./linkIntegrity";
+import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
+import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { resolveApplicationModificationRoute } from "./applicationModificationRouting";
 
 const TOPICS: TopicKey[] = [
   "greeting","thanks","acknowledgement","unknown","application_status","application_correction","requirements","guarantor",
@@ -71,41 +76,67 @@ function enumValue<T extends string>(value: unknown, allowed: readonly T[], fall
   return allowed.includes(String(value) as T) ? String(value) as T : fallback;
 }
 
-function compactTruth(truth: TruthBundle) {
+function compactTruth(input: { truth: TruthBundle; state: ConversationState; anchor: InterpretedTurn; customerText: string }) {
+  const { truth, state, anchor } = input;
   const app = truth.application;
+  const safePreview = truth.contactAccess === "safe_preview";
+  const links = buildOfficialLinkContext(anchor, truth);
+  const paymentConfirmed = hasAuthoritativePaymentConfirmation(app);
+  const stage = applicationJourneyStage(app);
+  const application = app ? (safePreview ? {
+    trackingId: app.trackingId,
+    deviceName: app.deviceName,
+    customerFacingStatus: customerFacingStatusLabel(app),
+  } : {
+    id: app.id,
+    trackingId: app.trackingId,
+    fullName: app.fullName,
+    customerFacingStatus: customerFacingStatusLabel(app),
+    paymentConfirmed,
+    deviceName: app.deviceName,
+    devicePrice: app.devicePrice,
+    installmentMonths: app.installmentMonths,
+    downPayment: app.downPayment,
+    monthlyPayment: app.monthlyPayment,
+    deliveryDelayUntil: app.deliveryDelayUntil,
+    documents: app.documents,
+  }) : null;
+
   return {
     confidence: truth.confidence,
     contactAccess: truth.contactAccess || "none",
-    application: app ? {
-      id: app.id,
-      trackingId: app.trackingId,
-      fullName: app.fullName,
-      status: app.status,
-      paymentStatus: app.paymentStatus,
-      paymentConfirmedAt: app.paymentConfirmedAt,
-      deviceName: app.deviceName,
-      devicePrice: app.devicePrice,
-      installmentMonths: app.installmentMonths,
-      downPayment: app.downPayment,
-      monthlyPayment: app.monthlyPayment,
-      deliveryDelayUntil: app.deliveryDelayUntil,
-      documents: app.documents,
-    } : null,
-    policy: {
-      businessName: truth.policy.businessName,
-      generalLocation: truth.policy.generalLocation,
-      fileOpeningFeeJod: truth.policy.fileOpeningFeeJod,
-      fileOpeningFeeTiming: truth.policy.fileOpeningFeeTiming,
-      fileOpeningFeePurposeRule: truth.policy.fileOpeningFeePurposeRule,
-      fileOpeningFeeRefundRule: truth.policy.fileOpeningFeeRefundRule,
-      firstInstallmentRule: truth.policy.firstInstallmentRule,
-      pickupRule: truth.policy.pickupRule,
-      paymentBeneficiaryName: truth.policy.paymentBeneficiaryName,
-      paymentMethodRule: truth.policy.paymentMethodRule,
-      paymentConfirmationRule: truth.policy.paymentConfirmationRule,
-      normalReviewWindow: truth.policy.normalReviewWindow,
-      secureDocumentsRule: truth.policy.secureDocumentsRule,
-      independenceStatement: truth.policy.independenceStatement,
+    application,
+    journey: {
+      stage,
+      customerFacingStatus: customerFacingStatusLabel(app),
+      paymentConfirmed,
+    },
+    business: canonicalBusinessTruthForPrompt(),
+    officialLinks: safePreview ? {
+      relevant: { website: links.baseUrl, products: `${links.baseUrl}/products` },
+      products: `${links.baseUrl}/products`,
+      tracking: null,
+      receipt: null,
+      refund: null,
+    } : {
+      relevant: links.relevant,
+      products: links.relevant.products || `${links.baseUrl}/products`,
+      tracking: links.relevant.tracking || null,
+      receipt: links.relevant.receipt || null,
+      refund: links.relevant.refund || null,
+    },
+    modificationRouting: resolveApplicationModificationRoute({
+      topics: anchor.topics,
+      requestedActions: anchor.requestedActions,
+      customerText: input.customerText,
+      hasApplication: Boolean(app),
+      paymentConfirmed,
+      trackingId: app?.trackingId || null,
+      registeredPhone: safePreview ? null : (app?.phone || null),
+    }),
+    stateContext: {
+      pendingAction: state.pendingAction,
+      activeTrackingId: state.activeTrackingId,
     },
     degraded: Boolean(truth.degraded),
   };
@@ -230,7 +261,7 @@ function brainPrompt(input: {
     customerMessage: input.customerText,
     recentConversation: input.recentTurns,
     memory: input.memory,
-    truth: compactTruth(input.truth),
+    truth: compactTruth({ truth: input.truth, state: input.state, anchor: input.anchor, customerText: input.customerText }),
     context: {
       pendingAction: input.state.pendingAction,
       lastCustomerText: input.state.lastCustomerText,

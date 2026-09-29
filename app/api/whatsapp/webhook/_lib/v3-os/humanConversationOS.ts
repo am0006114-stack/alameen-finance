@@ -6,7 +6,7 @@ import { loadV3ConversationState } from "./stateStore";
 import { interpretTurn } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
-import { applicationReceiptUrl, applicationRefundUrl, sanitizeRecentTurnsForModel } from "./linkIntegrity";
+import { applicationReceiptUrl, applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForModel } from "./linkIntegrity";
 import { scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampActionScope } from "./applicationScopeLock";
 import { enforceMutationConfirmationGate } from "./mutationConfirmationGate";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
@@ -20,6 +20,7 @@ import { humanDecisionPlane } from "./humanDecisionPlane";
 import { routeHumanModel, type HumanModelTier } from "./modelCostLadder";
 import { obviousContextualContinuation, runHumanConversationBrain, type HumanBrainMeaning } from "./humanConversationBrain";
 import { markContactResolution } from "./contactIdentity";
+import { buildIphone18AuthoritativeReply } from "./businessTruthRegistry";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
 
@@ -106,14 +107,92 @@ function actionFailureReply(truth: TruthBundle, actions: ActionResult[]) {
   return `طلب ${label}${tracking} واضح، لكن التنفيذ الفعلي ما اكتمل بهاللحظة. ما رح أقول إنه تم قبل ما تثبت النتيجة بالنظام، وما في داعي تعيد نفس التأكيد الآن.`;
 }
 
+const CUSTOMER_STATUS_REPLACEMENTS: Array<[RegExp, string]> = [
+  [/\bpreliminary_application\b/gi, "قيد المراجعة المبدئية"],
+  [/\bpreliminary_qualified\b/gi, "موافقة مبدئية"],
+  [/\bcustomer_confirmed_continue\b/gi, "تم تسجيل رغبتك بالاستمرار"],
+  [/\bpending_payment\b|\bpayment_info_sent\b/gi, "بانتظار دفع رسوم فتح الملف"],
+  [/\bcustomer_claimed_paid\b|\bpending_payment_confirmation\b/gi, "إثبات الدفع بانتظار مراجعة الإدارة"],
+  [/\bunder_review\b/gi, "قيد الدراسة النهائية"],
+  [/\brefund_requested\b/gi, "الاسترداد قيد المعالجة"],
+  [/\brefund_completed\b/gi, "تم الاسترداد"],
+];
+
+function sanitizeCustomerFacingStatusTokens(value: string | null | undefined) {
+  let out = String(value || "").trim();
+  for (const [pattern, label] of CUSTOMER_STATUS_REPLACEMENTS) out = out.replace(pattern, label);
+  return out;
+}
+
+function paymentQuestionAfterDisclosure(turn: InterpretedTurn, truth: TruthBundle) {
+  if (applicationJourneyStage(truth.application) !== "continuation_confirmed_fee_due") return false;
+  if (turn.topics.some((topic) => ["payment_fee","payment_method","payment_timing","payment_recipient","receipt_upload"].includes(topic))) return true;
+  const text = String(turn.rawText || "");
+  return /(?:دفع|ادفع|أدفع|احول|أحول|تحويل|وين\s+احول|كيف\s+ادفع|بيانات\s+الدفع)/i.test(text);
+}
+
+function officeGroundedReply(truth: TruthBundle) {
+  return `${truth.policy.generalLocation}. الحضور للمكتب بموعد رسمي مؤكد فقط، لأن المكتب مش نقطة استقبال مفتوحة ولازم يكون الجهاز والملف والعقد وإجراءات الاستلام جاهزة قبل حضورك حتى ما تيجي بدون تنسيق.`;
+}
+
+function deliveryGroundedReply(input: { truth: TruthBundle; customerText: string }) {
+  const iphone18 = buildIphone18AuthoritativeReply(input.customerText);
+  if (iphone18) return iphone18;
+  return `ما في توصيل. الاستلام من المكتب بعد صدور الموافقة النهائية وبموعد رسمي مؤكد مرتبط بالطلب. ${input.truth.policy.generalLocation}.`;
+}
+
 function deterministicFallback(input: { turn: InterpretedTurn; truth: TruthBundle; customerText: string }) {
   const app = input.truth.application;
   const stage = applicationJourneyStage(app);
-  if (input.turn.topics.includes("application_status") && app) return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} موجود وحالته الحالية ${app.status || "قيد المتابعة"}.`;
-  if (input.turn.topics.includes("payment_status") && app) return hasAuthoritativePaymentConfirmation(app) ? "الدفع مؤكد إداريًا على طلبك، وما في داعي تعيد الدفع أو ترفع وصل جديد." : "الدفع مش مؤكد إداريًا على الطلب لحد الآن، لذلك ما رح أعتبره مكتمل قبل اعتماد الإدارة.";
-  if (input.turn.topics.includes("payment_fee")) return `رسوم فتح الملف هي ${input.truth.policy.fileOpeningFeeJod} دنانير بعد الموافقة المبدئية واختيار الاستمرار، وهي منفصلة عن ثمن الجهاز والقسط الأول، ولها مسار استرداد حسب سياسة الطلب.`;
-  if (stage === "preliminary_approved_waiting_decision" && input.turn.topics.includes("continuation")) return buildInformedCommercialDisclosureReply(input.truth);
-  return "وصلتني رسالتك. بدي أعتمد فقط على الحالة الفعلية لطلبك، وإذا في نقطة محددة بدك جوابها احكيلي إياها بنفس طريقتك وبكمل معك من نفس السياق.";
+  const topics = new Set(input.turn.topics);
+  if (topics.has("application_status") && app) return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} موجود وحالته الحالية: ${customerFacingStatusLabel(app)}.`;
+  if (topics.has("review_timing") && app) return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الحالية: ${customerFacingStatusLabel(app)}. ${input.truth.policy.normalReviewWindow}، وما بقدر أثبت موعد نهائي غير موجود بالنظام.`;
+  if (topics.has("payment_status") && app) return hasAuthoritativePaymentConfirmation(app) ? "الدفع مؤكد إداريًا على طلبك، وما في داعي تعيد الدفع أو ترفع وصل جديد." : "الدفع مش مؤكد إداريًا على الطلب لحد الآن، لذلك ما رح أعتبره مكتمل قبل اعتماد الإدارة.";
+  if (topics.has("payment_fee")) return `رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير وبتدخل بعد الموافقة المبدئية إذا اخترت تكمل للدراسة النهائية. هي منفصلة عن ثمن الجهاز والقسط الأول، وما بتضمن الموافقة؛ هدفها تنظيم مرحلة الدراسة النهائية وقياس جدية الاستمرار، ولها مسار استرداد حسب سياسة الطلب.`;
+  if (stage === "preliminary_approved_waiting_decision" && topics.has("continuation")) return buildInformedCommercialDisclosureReply(input.truth);
+  if (topics.has("office_location")) return officeGroundedReply(input.truth);
+  if (topics.has("delivery")) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
+  if (topics.has("requirements")) return `${input.truth.policy.requirementsGuidanceRule} ${input.truth.policy.secureDocumentsRule}`;
+  if (topics.has("call_request") || topics.has("human_request") || topics.has("manager_request")) return "التواصل الرسمي والمتابعة متاحين هون على نفس واتساب. ما رح أوعدك بمكالمة أو تحويل لموظف إذا ما في تنفيذ فعلي مثبت، لكن احكيلي المطلوب وبكمل معك من نفس السياق.";
+  if (topics.has("thanks")) return "العفو، بأي وقت.";
+  if (topics.has("greeting")) return "أهلين، احكيلي كيف بقدر أساعدك.";
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  if (topics.has("products")) return `الموديلات المتاحة للتقديم بتلاقيها بصفحة المنتجات الرسمية: ${links.relevant.products || `${links.baseUrl}/products`}`;
+  return app
+    ? `أنا معك على الطلب${app.trackingId ? ` ${app.trackingId}` : ""}. حالته الحالية: ${customerFacingStatusLabel(app)}. احكيلي النقطة اللي بدك جوابها وبجاوبك عليها مباشرة.`
+    : "أنا معك. احكيلي النقطة اللي بدك جوابها وبجاوبك عليها مباشرة.";
+}
+
+function blockingSafetyReasons(reasons: string[]) {
+  // Human/style quality must never null-out an otherwise truthful reply.
+  return reasons.filter((reason) => !reason.startsWith("humanity:"));
+}
+
+function repairReplyForSafety(input: {
+  reasons: string[];
+  turn: InterpretedTurn;
+  truth: TruthBundle;
+  customerText: string;
+  gateConfirmationPrompt: string | null;
+  disclosureRequired: boolean;
+  paymentExecutionRequired: boolean;
+}) {
+  const reasons = input.reasons;
+  if (reasons.some((reason) => reason.startsWith("missing_action_specific_confirmation:")) && input.gateConfirmationPrompt) return input.gateConfirmationPrompt;
+  if (input.disclosureRequired || reasons.some((reason) => ["missing_informed_fee_amount","missing_fee_rationale","missing_fee_non_guarantee_context","payment_details_before_informed_confirmation"].includes(reason))) {
+    return buildInformedCommercialDisclosureReply(input.truth);
+  }
+  if (input.paymentExecutionRequired || reasons.includes("missing_current_payment_destinations") || reasons.includes("missing_receipt_link_after_informed_confirmation")) {
+    return buildPostDisclosurePaymentReply(input.truth, applicationReceiptUrl(input.truth));
+  }
+  if (reasons.some((reason) => reason === "missed_known_office_location" || reason.startsWith("office_location_missing_"))) return officeGroundedReply(input.truth);
+  if (reasons.some((reason) => reason.startsWith("delivery_") || reason === "grounding:iphone18_pickup_rule_missing")) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
+  if (reasons.some((reason) => reason === "grounding:iphone18_region_missing")) return buildIphone18AuthoritativeReply(input.customerText) || deterministicFallback({ turn: input.turn, truth: input.truth, customerText: input.customerText });
+  if (reasons.includes("unsupported_future_admin_or_contact_claim")) {
+    return "ما رح أوعدك بمكالمة أو تواصل من موظف إذا ما في إجراء فعلي مثبت. نقدر نكمل المتابعة هون على نفس واتساب، وإذا في إجراء حقيقي بصير بنحكي عنه بعد ما يثبت بالنظام.";
+  }
+  const sanitized = sanitizeCustomerFacingStatusTokens(deterministicFallback({ turn: input.turn, truth: input.truth, customerText: input.customerText }));
+  return sanitized || null;
 }
 
 function verificationFromReasons(reasons: string[]): VerificationReport {
@@ -362,6 +441,7 @@ export async function runHumanConversationOS(input: {
   const continuationIntent = contextualContinuation || explicitContinuationText(input.customerText) || turn.semantic?.decision.continuation === "confirmed" || informedCommercialContinuationConfirmed({ state: reduced, truth: truthAfterActions, turn, customerText: input.customerText });
   const disclosureRequired = shouldExplainCommercialStep({ state: reduced, truth: truthAfterActions, turn, explicitContinuationIntent: Boolean(continuationIntent) });
   const alreadyDisclosed = commercialDisclosureDelivered(reduced, truthAfterActions);
+  const paymentExecutionRequired = !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
 
   const authoritativeTrackingReply = explicitStatusTracking
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
@@ -370,17 +450,18 @@ export async function runHumanConversationOS(input: {
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
-  } else if (!reply && alreadyDisclosed && continuationIntent) {
+  } else if (!reply && paymentExecutionRequired) {
     reply = buildPostDisclosurePaymentReply(truthAfterActions, applicationReceiptUrl(truthAfterActions));
     reduced = markCommercialDisclosureAcknowledged(reduced, truthAfterActions, turn.turnId);
   }
   if (!reply) reply = brainReply || deterministicFallback({ turn, truth: truthAfterActions, customerText: input.customerText });
+  reply = sanitizeCustomerFacingStatusTokens(reply);
 
+  // Keep lastAssistantText on the previous delivered assistant turn while validating
+  // this candidate. Phase 11.0 validated against its own just-written reply, which
+  // manufactured similarity/repetition failures and then nulled otherwise safe text.
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
-  reduced = finalizeStateSemanticMemory({ state: reduced, turn, reply, answered: Boolean(reply) });
-  reduced = markRoleIntroducedFromReply({ ...reduced, lastAssistantText: reply, updatedAt: new Date().toISOString() }, reply);
 
-  const protectedFiveJodStep = disclosureRequired || (alreadyDisclosed && Boolean(continuationIntent));
   const safety = authoritativeTrackingReply ? AUTHORITATIVE_TRACKING_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -390,12 +471,24 @@ export async function runHumanConversationOS(input: {
     recentTurns,
     customerText: input.customerText,
     disclosureRequiredThisTurn: disclosureRequired,
-    protectedFiveJodStep,
+    protectedFiveJodStep: paymentExecutionRequired,
   });
+
   let fallbackUsed = false;
-  if (!safety.pass) {
-    reply = authoritativeTrackingReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions) || deterministicFallback({ turn, truth: truthAfterActions, customerText: input.customerText });
-    fallbackUsed = true;
+  if (!safety.pass && blockingSafetyReasons(safety.reasons).length) {
+    const repaired = repairReplyForSafety({
+      reasons: safety.reasons,
+      turn,
+      truth: truthAfterActions,
+      customerText: input.customerText,
+      gateConfirmationPrompt: gate.confirmationPrompt,
+      disclosureRequired,
+      paymentExecutionRequired,
+    });
+    if (repaired) {
+      reply = sanitizeCustomerFacingStatusTokens(repaired);
+      fallbackUsed = true;
+    }
   }
 
   const finalSafety = authoritativeTrackingReply ? AUTHORITATIVE_TRACKING_SAFETY : validateNativeConversationReply({
@@ -407,8 +500,20 @@ export async function runHumanConversationOS(input: {
     recentTurns,
     customerText: input.customerText,
     disclosureRequiredThisTurn: disclosureRequired,
-    protectedFiveJodStep,
+    protectedFiveJodStep: paymentExecutionRequired,
   });
+  const finalBlockingReasons = blockingSafetyReasons(finalSafety.reasons);
+  const finalSafetyPass = finalBlockingReasons.length === 0;
+  const qualityWarnings = finalSafety.reasons.filter((reason) => !finalBlockingReasons.includes(reason));
+
+  // Only the actually deliverable reply enters conversation memory. Quality-only
+  // style warnings are observable in the journal but can no longer hand control
+  // back to the legacy generic rescue path.
+  if (finalSafetyPass) {
+    reduced = finalizeStateSemanticMemory({ state: reduced, turn, reply, answered: Boolean(reply) });
+    reduced = markRoleIntroducedFromReply({ ...reduced, lastAssistantText: reply, updatedAt: new Date().toISOString() }, reply);
+  }
+
   const decision = humanDecisionPlane({ turn, truth: truthAfterActions, brainRequestedHuman: brainMeaning?.requiresHumanReview, brainReason: brainMeaning?.humanReviewReason });
   const memoryAfter = nextCompactHumanMemory({ before: memory, stateAfter: reduced, turn, truth: truthAfterActions });
 
@@ -417,14 +522,14 @@ export async function runHumanConversationOS(input: {
     status: "reply_ready",
     modelTier,
     modelCalls,
-    meaning: brainMeaning ? brainMeaning as unknown as Record<string, unknown> : { deterministic: true, routeReasons: provisionalRoute.reasons },
+    meaning: brainMeaning ? { ...(brainMeaning as unknown as Record<string, unknown>), safetyReasons: finalSafety.reasons, blockingSafetyReasons: finalBlockingReasons, qualityWarnings } : { deterministic: true, routeReasons: provisionalRoute.reasons, safetyReasons: finalSafety.reasons, blockingSafetyReasons: finalBlockingReasons, qualityWarnings },
     truth: truthAfterActions,
     actions,
     finalReply: reply,
     stateAfter: reduced,
     memoryAfter,
-    errorCode: finalSafety.pass ? null : "human_os_final_safety_failed",
-    errorMessage: finalSafety.pass ? null : finalSafety.reasons.join(","),
+    errorCode: finalSafetyPass ? (qualityWarnings.length ? "human_os_quality_warning" : null) : "human_os_final_safety_failed",
+    errorMessage: finalSafety.reasons.length ? finalSafety.reasons.join(",") : null,
   });
 
   return {
@@ -437,13 +542,13 @@ export async function runHumanConversationOS(input: {
     truthAfterActions,
     plan,
     actions,
-    verification: verificationFromReasons(finalSafety.reasons),
-    reply: finalSafety.pass ? reply : null,
+    verification: verificationFromReasons(finalBlockingReasons),
+    reply: finalSafetyPass ? reply : null,
     providerUsed: modelCalls > 0,
     interpreterUsed: modelCalls > 0,
     interpreterError,
     replyAttempts: 1,
-    finalSafetyPass: finalSafety.pass,
+    finalSafetyPass,
     fallbackUsed,
     realActionsEnabled: input.realActionsEnabled,
     humanOs: {
