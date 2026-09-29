@@ -367,6 +367,139 @@ function updatePendingState(input: { state: ConversationState; gate: ReturnType<
   return { ...state, lastTurnId: input.turn.turnId, lastCustomerText: input.turn.rawText, updatedAt: new Date().toISOString() };
 }
 
+// Phase 11.4: pending actions may remain durable, but they do not own every later
+// customer turn. The current turn may explicitly withdraw the action, or may ask
+// an unrelated material question that must be answered without replaying the old
+// confirmation prompt. This is semantic/state authority, not phrase accumulation.
+const PENDING_ACTION_TOPICS: Partial<Record<ActionKey, TopicKey[]>> = {
+  cancel_application: ["cancellation"],
+  request_refund: ["refund"],
+  stop_refund: ["refund", "continuation", "reopen"],
+  reopen_application: ["reopen", "continuation"],
+  link_whatsapp_alias: ["application_correction"],
+  continue_application: ["continuation"],
+  change_device: ["device_change", "device_recalculation"],
+  change_application_data: ["application_correction"],
+};
+
+const NON_MATERIAL_TURN_TOPICS = new Set<TopicKey>(["greeting", "thanks", "acknowledgement", "unknown"]);
+
+function currentTurnWithdrawsPendingAction(input: { state: ConversationState; turn: InterpretedTurn }) {
+  const pending = input.state.pendingAction;
+  if (!pending) return false;
+  const decision = input.turn.semantic?.decision;
+  if (pending === "cancel_application" && decision?.cancellation === "declined") return true;
+  if (pending === "continue_application" && decision?.continuation === "declined") return true;
+  if (pending === "link_whatsapp_alias" && decision?.aliasConfirmation === "declined") return true;
+  const relatedTopics = PENDING_ACTION_TOPICS[pending] || [];
+  return input.turn.acts.some((act) => act.type === "deny" && (act.action === pending || relatedTopics.includes(act.topic)));
+}
+
+function currentTurnShouldIgnorePendingAction(input: {
+  state: ConversationState;
+  turn: InterpretedTurn;
+  confirmedPendingMutation: ActionKey | null;
+}) {
+  const pending = input.state.pendingAction;
+  if (!pending || input.confirmedPendingMutation === pending) return false;
+  if (input.turn.requestedActions.includes(pending)) return false;
+  const relatedTopics = PENDING_ACTION_TOPICS[pending] || [];
+  if (input.turn.topics.some((topic) => relatedTopics.includes(topic))) return false;
+  const materialTopics = input.turn.topics.filter((topic) => !NON_MATERIAL_TURN_TOPICS.has(topic));
+  const hasCurrentQuestion = Boolean(input.turn.semantic?.currentQuestion || input.turn.semantic?.answerObligations?.length);
+  return materialTopics.length > 0 || hasCurrentQuestion;
+}
+
+function stateTime(value: string | null | undefined) {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+async function currentTurnStillOwnsConversation(input: {
+  waId: string;
+  turnId: string;
+  startLastTurnId: string | null;
+  fallbackState: ConversationState;
+}) {
+  const latestState = (await loadV3ConversationState(input.waId)) || input.fallbackState;
+  const latestTurnId = latestState.lastTurnId || null;
+  const ownershipLost = Boolean(
+    latestTurnId
+    && latestTurnId !== input.turnId
+    && latestTurnId !== input.startLastTurnId
+  );
+  return { owns: !ownershipLost, latestState };
+}
+
+async function supersededHumanTurnResult(input: {
+  turnId: string;
+  turn: InterpretedTurn;
+  stateBefore: ConversationState;
+  latestState: ConversationState;
+  truthBeforeActions: TruthBundle;
+  truthAfterActions: TruthBundle;
+  plan: ReplyPlan;
+  actions: ActionResult[];
+  modelTier: HumanModelTier;
+  modelCalls: number;
+  interpreterError: string | null;
+  realActionsEnabled: boolean;
+  memory: CompactHumanMemory | null;
+  reason: "ownership_lost_before_actions" | "ownership_lost_before_egress";
+}): Promise<HumanConversationOsResult> {
+  const quietPlan: ReplyPlan = {
+    ...input.plan,
+    objective: "suppress superseded turn because a newer durable customer turn owns the conversation",
+    role: input.latestState.role.currentRole,
+    actions: [],
+    shouldRespond: false,
+  };
+  await checkpointHumanTurn({
+    turnId: input.turnId,
+    status: "reply_ready",
+    modelTier: input.modelTier,
+    modelCalls: input.modelCalls,
+    meaning: { deterministic: true, suppressed: true, reason: input.reason },
+    truth: input.truthAfterActions,
+    actions: input.actions,
+    finalReply: null,
+    stateAfter: input.latestState,
+    memoryAfter: input.memory,
+    errorCode: "human_os_superseded_by_newer_turn",
+    errorMessage: input.reason,
+  });
+  return {
+    version: V3_OS_VERSION,
+    turn: input.turn,
+    stateBefore: input.stateBefore,
+    stateAfter: input.latestState,
+    truth: input.truthAfterActions,
+    truthBeforeActions: input.truthBeforeActions,
+    truthAfterActions: input.truthAfterActions,
+    plan: quietPlan,
+    actions: input.actions,
+    verification: PASS,
+    reply: null,
+    providerUsed: input.modelCalls > 0,
+    interpreterUsed: input.modelCalls > 0,
+    interpreterError: input.interpreterError,
+    replyAttempts: input.modelCalls > 0 ? 1 : 0,
+    finalSafetyPass: true,
+    fallbackUsed: false,
+    realActionsEnabled: input.realActionsEnabled,
+    humanOs: {
+      enabled: true,
+      journalTurnId: input.turnId,
+      modelTier: input.modelTier,
+      modelCalls: input.modelCalls,
+      reusedDecision: false,
+      needsHumanReview: false,
+      humanReviewReason: null,
+      memoryAfter: input.memory,
+    },
+  };
+}
+
 function explicitTrackingFromText(value: string | null | undefined) {
   const matches = String(value || "").match(/AM-\d{8,}/gi) || [];
   return matches.length ? matches[matches.length - 1].toUpperCase() : null;
@@ -512,6 +645,7 @@ export async function runHumanConversationOS(input: {
 }): Promise<HumanConversationOsResult> {
   const loadedState = (await loadV3ConversationState(input.waId)) || emptyState(input.waId);
   const stateBefore = loadedState;
+  const startLastTurnId = stateBefore.lastTurnId || null;
   const existing = await loadHumanTurnJournal(input.turnId);
   const recentTurns = sanitizeRecentTurnsForModel(input.recentTurns || []).slice(-input.maxRecentTurns);
 
@@ -519,6 +653,11 @@ export async function runHumanConversationOS(input: {
     const truth = await resolveV3ProductionTruth({ waId: input.waId, customerText: input.customerText, state: stateBefore, recentTurns: input.recentTurns || [], topics: [] });
     const anchor = interpretTurn({ turnId: input.turnId, customerText: input.customerText });
     const stateAfter = (existing.state_after_json as ConversationState | null) || stateBefore;
+    const replaySuperseded = Boolean(
+      stateBefore.lastTurnId
+      && stateBefore.lastTurnId !== input.turnId
+      && stateTime(stateBefore.updatedAt) > stateTime(stateAfter.updatedAt)
+    );
     return {
       version: V3_OS_VERSION,
       turn: anchor,
@@ -527,10 +666,10 @@ export async function runHumanConversationOS(input: {
       truth,
       truthBeforeActions: truth,
       truthAfterActions: truth,
-      plan: { objective: "replay durable decided turn", role: stateAfter.role.currentRole, answerItems: [], actions: [], requiredFacts: [], forbiddenClaims: [], tone: "brief", shouldRespond: true },
+      plan: { objective: replaySuperseded ? "suppress replay because a newer durable turn owns the conversation" : "replay durable decided turn", role: stateAfter.role.currentRole, answerItems: [], actions: [], requiredFacts: [], forbiddenClaims: [], tone: "brief", shouldRespond: !replaySuperseded },
       actions: (existing.actions_json || []) as ActionResult[],
       verification: PASS,
-      reply: existing.final_reply,
+      reply: replaySuperseded ? null : existing.final_reply,
       providerUsed: false,
       interpreterUsed: false,
       interpreterError: null,
@@ -686,6 +825,10 @@ export async function runHumanConversationOS(input: {
   }
 
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
+  const pendingActionWithdrawn = currentTurnWithdrawsPendingAction({ state: stateWorking, turn });
+  if (pendingActionWithdrawn) {
+    stateWorking = { ...stateWorking, pendingAction: null, pendingActionPayload: null };
+  }
   let reduced = reduceState({ state: stateWorking, turn });
   let plan = buildReplyPlan({ turn, state: reduced, truth: truthBeforeActions });
   plan = forceConfirmedPendingMutation(plan, { action: confirmedPendingMutation, state: stateWorking, turn });
@@ -694,9 +837,38 @@ export async function runHumanConversationOS(input: {
   }
   plan = { ...plan, actions: plan.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)), shouldRespond: true };
 
-  const gate = enforceMutationConfirmationGate({ actions: plan.actions, turn, state: reduced, truth: truthBeforeActions });
+  const ignorePendingForCurrentTurn = currentTurnShouldIgnorePendingAction({ state: reduced, turn, confirmedPendingMutation });
+  const gateState = ignorePendingForCurrentTurn
+    ? { ...reduced, pendingAction: null, pendingActionPayload: null }
+    : reduced;
+  const gate = enforceMutationConfirmationGate({ actions: plan.actions, turn, state: gateState, truth: truthBeforeActions });
   plan = { ...plan, actions: gate.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)), shouldRespond: true };
   reduced = updatePendingState({ state: reduced, gate, turn });
+
+  const ownershipBeforeActions = await currentTurnStillOwnsConversation({
+    waId: input.waId,
+    turnId: input.turnId,
+    startLastTurnId,
+    fallbackState: stateBefore,
+  });
+  if (!ownershipBeforeActions.owns) {
+    return supersededHumanTurnResult({
+      turnId: input.turnId,
+      turn,
+      stateBefore,
+      latestState: ownershipBeforeActions.latestState,
+      truthBeforeActions,
+      truthAfterActions: truthBeforeActions,
+      plan,
+      actions: [],
+      modelTier,
+      modelCalls,
+      interpreterError,
+      realActionsEnabled: input.realActionsEnabled,
+      memory,
+      reason: "ownership_lost_before_actions",
+    });
+  }
 
   const actions = await executeActions({
     actions: plan.actions,
@@ -820,6 +992,36 @@ export async function runHumanConversationOS(input: {
   const finalBlockingReasons = blockingSafetyReasons(finalSafety.reasons);
   const finalSafetyPass = finalBlockingReasons.length === 0;
   const qualityWarnings = finalSafety.reasons.filter((reason) => !finalBlockingReasons.includes(reason));
+
+  // Phase 11.4 final egress ownership. A reply may have been valid when work
+  // started but become stale while AI/truth/action work was running. Re-read the
+  // durable conversation state immediately before committing reply/state. If any
+  // other customer turn advanced ownership since this turn started, this turn is
+  // completed silently and may not overwrite the newer state or send a ghost reply.
+  const ownershipBeforeEgress = await currentTurnStillOwnsConversation({
+    waId: input.waId,
+    turnId: input.turnId,
+    startLastTurnId,
+    fallbackState: stateBefore,
+  });
+  if (!ownershipBeforeEgress.owns) {
+    return supersededHumanTurnResult({
+      turnId: input.turnId,
+      turn,
+      stateBefore,
+      latestState: ownershipBeforeEgress.latestState,
+      truthBeforeActions,
+      truthAfterActions,
+      plan,
+      actions,
+      modelTier,
+      modelCalls,
+      interpreterError,
+      realActionsEnabled: input.realActionsEnabled,
+      memory,
+      reason: "ownership_lost_before_egress",
+    });
+  }
 
   // Only the actually deliverable reply enters conversation memory. Quality-only
   // style warnings are observable in the journal but can no longer hand control
