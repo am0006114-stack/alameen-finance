@@ -4,7 +4,6 @@ import { normalizeArabic } from "./text";
 import type { ActionKey, ActionPayload, ActionResult, ConversationState, PlannedAction, ReplyPlan, TruthBundle } from "./types";
 
 export const MANUAL_MUTATION_ACTIONS = new Set<ActionKey>([
-  "change_device",
   "change_application_data",
 ]);
 
@@ -168,8 +167,8 @@ export function buildManualActionCustomerReply(input: {
 }
 
 export function manualStatePayload(disposition: ManualActionDisposition): ActionPayload | null {
-  // Phase 9.1: purely manual modifications are handed off to the official Facebook
-  // channel; WhatsApp does not keep a fake awaiting-admin mutation state for them.
+  // Phase 11.2: only non-device application-data corrections remain on the
+  // manual route. Device changes moved to the secure tokenized executor.
   if (!disposition.action || disposition.kind !== "external_facebook") return null;
   return null;
 }

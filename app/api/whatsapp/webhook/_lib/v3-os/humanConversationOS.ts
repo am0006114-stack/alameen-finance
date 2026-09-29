@@ -21,6 +21,9 @@ import { routeHumanModel, type HumanModelTier } from "./modelCostLadder";
 import { obviousContextualContinuation, runHumanConversationBrain, type HumanBrainMeaning } from "./humanConversationBrain";
 import { markContactResolution } from "./contactIdentity";
 import { buildIphone18AuthoritativeReply } from "./businessTruthRegistry";
+import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
+import { hasPaymentProtection } from "./manualActionPolicy";
+import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
 import type { ActionResult, ConversationState, InterpretedTurn, ReplyPlan, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
 import { resolveAiRole, roleDisplayName } from "./hierarchy";
@@ -433,6 +436,16 @@ export async function runHumanConversationOS(input: {
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
   if (contextualContinuation) deterministicAnchor = makeDeterministicContinuationTurn(deterministicAnchor);
 
+  // Phase 11.2: device/model/storage/color changes are handled through a
+  // deterministic secure-link authority, not as a free-form WhatsApp mutation.
+  const secureDeviceChangeRequested = Boolean(
+    truthBeforeActions.application && (
+      deterministicAnchor.topics.includes("device_change")
+      || deterministicAnchor.topics.includes("device_recalculation")
+      || deterministicAnchor.requestedActions.includes("change_device")
+    )
+  );
+
   // Phase 11.1.2: resolve the AI employee role before the conversational brain runs.
   // This keeps Fadwa/Tala/Abdullah/Abdulrahman/Omran continuity inside Human OS
   // instead of flattening every turn into a generic assistant voice.
@@ -441,7 +454,7 @@ export async function runHumanConversationOS(input: {
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
   // Explicit tracking + status lookup is already authoritative DB work. Do not
   // pay a model to reinterpret it and do not let a legacy verifier replace it.
-  const modelTier: HumanModelTier = (explicitStatusTracking || explicitIdentityQuestion) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
+  const modelTier: HumanModelTier = (explicitStatusTracking || explicitIdentityQuestion || secureDeviceChangeRequested) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
   const provider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
 
   let brainMeaning: HumanBrainMeaning | null = null;
@@ -471,6 +484,9 @@ export async function runHumanConversationOS(input: {
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
   let reduced = reduceState({ state: stateWorking, turn });
   let plan = buildReplyPlan({ turn, state: reduced, truth: truthBeforeActions });
+  if (secureDeviceChangeRequested) {
+    plan = { ...plan, actions: plan.actions.filter((action) => action.action !== "change_device") };
+  }
   plan = { ...plan, actions: plan.actions.map((action) => stampActionScope(action, truthBeforeActions, turn.turnId)), shouldRespond: true };
 
   const gate = enforceMutationConfirmationGate({ actions: plan.actions, turn, state: reduced, truth: truthBeforeActions });
@@ -505,7 +521,36 @@ export async function runHumanConversationOS(input: {
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
     : null;
   const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply({ customerText: input.customerText, state: stateWorking }) : null;
-  let reply = authoritativeTrackingReply || authoritativeIdentityReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
+  let authoritativeDeviceChangeReply: string | null = null;
+  if (secureDeviceChangeRequested) {
+    const app = truthAfterActions.application;
+    if (!app || truthAfterActions.contactAccess !== "full") {
+      authoritativeDeviceChangeReply = "لأمان الطلب، رابط تغيير الجهاز بنطلعه فقط لما تكون المحادثة مرتبطة بشكل كامل بالطلب من رقم واتساب المعتمد. ابعت رقم التتبع من نفس الرقم المرتبط بالطلب وبكمل معك مباشرة.";
+    } else {
+      try {
+        const paymentConfirmed = hasAuthoritativePaymentConfirmation(app);
+        const paymentProtected = hasPaymentProtection(truthAfterActions);
+        const links = buildOfficialLinkContext(turn, truthAfterActions);
+        const secureDeviceLink = paymentConfirmed
+          ? buildSecureDeviceChangeUrl({ baseUrl: links.baseUrl, application: app, waId: input.waId })
+          : null;
+        authoritativeDeviceChangeReply = buildApplicationModificationRoutingReply({
+          topics: turn.topics,
+          requestedActions: ["change_device"],
+          customerText: input.customerText,
+          hasApplication: true,
+          paymentConfirmed,
+          paymentProtected,
+          trackingId: app.trackingId,
+          registeredPhone: app.phone,
+          secureDeviceLink,
+        });
+      } catch {
+        authoritativeDeviceChangeReply = "فهمت إنك بدك تغيّر الجهاز على نفس الطلب. تعذر توليد رابط التغيير الآمن بهاللحظة، وما رح أعتبر أي تعديل منفذ من الرسالة نفسها. جرّب معي بعد شوي وبطلعلك الرابط من نفس المحادثة.";
+      }
+    }
+  }
+  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actions) || actionFailureReply(truthAfterActions, actions);
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -522,7 +567,7 @@ export async function runHumanConversationOS(input: {
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeGateReply);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || authoritativeGateReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -553,7 +598,7 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || finalAuthoritativeGateReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || finalAuthoritativeGateReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,

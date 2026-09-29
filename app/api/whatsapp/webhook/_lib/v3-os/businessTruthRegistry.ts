@@ -40,11 +40,11 @@ export type CatalogTruthProduct = {
   brand: string;
   name: string;
   capacity: string;
-  priceJod: number;
+  priceJod: number | null;
   originalPriceJod: number | null;
   warranty: string;
   discountApplied: boolean;
-  source: "website_catalog" | "iphone18_authoritative";
+  source: "website_catalog_unpriced" | "iphone18_authoritative";
 };
 
 function compact(value: string) {
@@ -61,25 +61,28 @@ function catalogKey(name: string, capacity: string) {
 
 /**
  * Current customer-facing product catalog truth.
- * The website catalog is the authoritative general catalog; the iPhone 18
- * commercial truth is overlaid explicitly because those prices/discount rules
- * are protected and must not regress if an older catalog snapshot is loaded.
+ * The website catalog is used only for product names/availability. Phase 11.2
+ * deliberately strips its historical prices from WhatsApp truth. The explicit
+ * iPhone 18 table is the only customer-facing price authority until another
+ * price source is intentionally promoted to authoritative truth.
  */
 export function currentProductCatalogForPrompt(): CatalogTruthProduct[] {
   const byKey = new Map<string, CatalogTruthProduct>();
 
   for (const product of websiteProducts || []) {
-    const original = typeof product.originalPrice === "number" ? product.originalPrice : null;
     byKey.set(catalogKey(product.name, product.model), {
       id: product.id,
       brand: product.brand,
       name: product.name,
       capacity: product.model,
-      priceJod: Number(product.price),
-      originalPriceJod: original,
+      // Phase 11.2 price-truth lock: the general website catalog is useful for
+      // names/availability only. Its historical prices are NOT WhatsApp price
+      // authority. Only the explicit iPhone 18 truth below may expose a price.
+      priceJod: null,
+      originalPriceJod: null,
       warranty: product.warranty,
-      discountApplied: original !== null && Number(original) !== Number(product.price),
-      source: "website_catalog",
+      discountApplied: false,
+      source: "website_catalog_unpriced",
     });
   }
 
@@ -204,7 +207,7 @@ export function businessTruthForPrompt() {
     firstInstallment: ALAMEEN_FIRST_INSTALLMENT_RULE,
     installmentPaymentChannels: ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE,
     contractAndReceiptDate: ALAMEEN_CONTRACT_RECEIPT_DATE_RULE,
-    productCatalogRule: "وجود الجهاز في currentCatalog يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. إذا لم يظهر جهاز في currentCatalog، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا من عندك.",
+    productCatalogRule: "وجود الجهاز في currentCatalog يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. priceJod=null يعني أن السعر غير معتمد للمحادثة وممنوع ذكر رقم سعري له. أسعار iPhone 18 فقط هي السعر الموثق حاليًا. إذا لم يظهر جهاز في currentCatalog، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا من عندك.",
     currentCatalog: currentProductCatalogForPrompt(),
     iphone18: {
       products: IPHONE18_PRODUCTS,

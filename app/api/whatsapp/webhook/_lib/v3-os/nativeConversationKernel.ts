@@ -16,6 +16,7 @@ import { commercialDisclosureDelivered, currentCommercialDisclosure } from "./in
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { replySimilarity } from "./humanVoice";
 import { applicationModificationRoutingViolation, buildApplicationModificationRoutingReply, resolveApplicationModificationRoute } from "./applicationModificationRouting";
+import { hasPaymentProtection } from "./manualActionPolicy";
 
 const TOPICS: TopicKey[] = [
   "greeting","thanks","acknowledgement","unknown","application_status","application_correction","requirements","guarantor",
@@ -246,6 +247,7 @@ function companyTruthSnapshot(input: { turn: InterpretedTurn; state: Conversatio
       customerText: input.turn.acts.map((act) => act.text).filter(Boolean).join("\n"),
       hasApplication: Boolean(input.truth.application),
       paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
+      paymentProtected: hasPaymentProtection(input.truth),
       trackingId: input.truth.application?.trackingId || null,
       registeredPhone: input.truth.application?.phone || null,
     }),
@@ -328,7 +330,7 @@ CORE_OS:
 - لا تضمن أن نوع كفيل معيّن (عسكري/حكومي/خاص...) «مقبول» كحقيقة نهائية؛ اشرح أن الدراسة هي التي تحدد.
 
 TRUTH_INTEGRITY_FREEZE:
-- PRODUCT SOURCE OF TRUTH: اقرأ TRUTH.business.products.currentCatalog فقط كمرجع المنتجات العام الحالي. وجود جهاز فيه يعني أنه معروض للتقديم حاليًا، وليس وعدًا بمخزون فوري. إذا لم يظهر جهاز فيه، قل فقط إنه غير ظاهر في الكتالوج الحالي ولا تستنتج سببًا أو مخزونًا.
+- PRODUCT SOURCE OF TRUTH: اقرأ TRUTH.business.products.currentCatalog كمرجع أسماء/توفر عام فقط. إذا priceJod=null فالسعر غير معتمد للمحادثة وممنوع ذكر أي رقم سعري لهذا الجهاز. أسعار iPhone 18 فقط داخل TRUTH.business.products.iphone18 هي الأسعار الموثقة حاليًا. وجود جهاز في الكتالوج لا يعني مخزونًا فوريًا.
 - iPhone 18 له حقيقة تجارية خاصة داخل TRUTH.business.products.iphone18 وتتقدم على أي تعارض أقدم في الكتالوج العام.
 - PAYMENT CHANNELS: استخدم TRUTH.business.payment.destination حرفيًا كمصدر قنوات الاستلام. لا تعيد تصنيف القنوات ولا تخترع توافق بنك/محفظة غير موجود في الحقيقة. عند عرض الدفع اتبع TRUTH.business.payment.presentationRule.
 - CANONICAL PUBLIC LINKS موجودة في canonicalPublicLinks. إذا عرضت على العميل «أرسل لك رابط التقديم» ثم قال نعم/ابعثه، أرسل رابط products نفسه؛ لا تستبدله برابط التتبع. رابط tracking للمتابعة فقط، ورابط products للتقديم/اختيار جهاز.
@@ -336,7 +338,7 @@ TRUTH_INTEGRITY_FREEZE:
 
 ACTION_AND_CALCULATION_GROUNDING:
 - تغيير اللون/الجهاز/السعة/بيانات الطلب لا تعتبره منفذًا أو مضمون التنفيذ من المحادثة. لا تقل «بعمله عمران» أو «بنعدله مباشرة» أو ما شابه إلا إذا ACTION_RESULTS يقول executed/already_done. إذا لا يوجد تنفيذ موثق، فرّق بوضوح بين طلب العميل وبين الحالة الفعلية للطلب.
-- APPLICATION MODIFICATION ROUTING حقيقة تشغيلية حتمية: تعديل الجهاز/الموديل/السعة/اللون/بيانات الطلب/إعادة الحسبة هو تعديل يدوي بحت ولا ينفذ من واتساب. إذا TRUTH.modificationRouting.route="facebook_manual" وجّه العميل إلى «صفحة الأمين الرسمية على فيسبوك» واطلب رقم الطلب + رقم الهاتف المسجل + التعديل المطلوب. ممنوع اقتراح إلغاء الطلب وإعادة التقديم لمجرد التعديل، وممنوع ادعاء أن واتساب نفذ التعديل.
+- APPLICATION MODIFICATION ROUTING حقيقة تشغيلية حتمية ومربوطة بالدفع: route="secure_device_link" مسموح فقط إذا paymentConfirmed=true من Payment Truth الإداري؛ عندها فقط أعطِ رابط تغيير الجهاز الرسمي. إذا route="payment_confirmation_pending" لا تعطِ الرابط ولا تطلب طلبًا جديدًا؛ انتظر اعتماد الدفع على نفس الملف. إذا route="unpaid_cancel_reapply" فلا رابط تغيير جهاز؛ اشرح أن الطلب غير المدفوع يحتاج إلغاءً بتأكيد منفصل ثم طلبًا جديدًا بالمواصفات الصحيحة. تعديلات البيانات غير المتعلقة بالجهاز فقط قد تبقى route="facebook_manual".
 - لا تحسب قسطًا شهريًا من سعر الجهاز أو نسبة مرابحة من عندك. الرقم الشهري يجوز ذكره فقط إذا TRUTH.application.monthlyPayment موجود ومرتبط بنفس مدة TRUTH.application.installmentMonths الحالية. إذا العميل يسأل عن مدة مختلفة مثل 12/24 شهر، اطلب/اشرح أن الحسبة الرسمية لازم تتحدث أولًا ولا تعطِ رقمًا مشتقًا يدويًا.
 - لا تستنتج نسبة مرابحة أو total من السعر وحده. أي رقم مالي خاص بالحسبة يجب أن يكون موجودًا في TRUTH أو ناتج إجراء/حاسبة رسمية موثقة.
 
@@ -428,6 +430,7 @@ export async function runNativeConversationKernel(input: {
       customerText: input.customerText,
       hasApplication: Boolean(input.truth.application),
       paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
+      paymentProtected: hasPaymentProtection(input.truth),
       trackingId: input.truth.application?.trackingId || null,
       registeredPhone: input.truth.application?.phone || null,
       cancelExecuted: Boolean(cancelResult && (cancelResult.executed || cancelResult.outcome === "executed" || cancelResult.outcome === "already_done")),
@@ -677,6 +680,7 @@ export function validateNativeConversationReply(input: {
     customerText: input.customerText,
     hasApplication: Boolean(input.truth.application),
     paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
+    paymentProtected: hasPaymentProtection(input.truth),
     trackingId: input.truth.application?.trackingId || null,
     registeredPhone: input.truth.application?.phone || null,
   });

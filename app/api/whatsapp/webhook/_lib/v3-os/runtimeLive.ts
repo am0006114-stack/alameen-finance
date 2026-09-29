@@ -10,7 +10,7 @@ import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transacti
 import { notifyV3Discord } from "./discordNotifier";
 import { continuationCommercialState } from "./commercialProgression";
 import { applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForModel } from "./linkIntegrity";
-import { buildManualActionCustomerReply, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
+import { buildManualActionCustomerReply, hasPaymentProtection, manualStatePayload, resolveManualActionDisposition } from "./manualActionPolicy";
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { buildMandatoryFiveJodContinuationReply, explicitContactNumberChangeRequest, explicitContinuationText, explicitDoNotContinueText, hardenTurnForConversationRecovery, isNewApplicationFlow } from "./conversationRecovery";
@@ -34,6 +34,7 @@ import { buildSingleConversationAuthorityReply } from "./singleConversationAutho
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
 import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
+import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
 import { routeSemanticComplexity, type SemanticComplexityDecision } from "./semanticComplexityRouter";
 import { createSolHybridProvider, getSolHybridControl, type SolHybridControl } from "./solHybridRuntime";
 import { getHumanOsControl } from "./humanOsControl";
@@ -168,16 +169,30 @@ function criticalOperationalFallbackReply(input: {
 
   if (requested.has("change_device") || requested.has("change_application_data")
       || turn.topics.some((topic) => ["device_change", "device_recalculation", "application_correction"].includes(String(topic)))) {
+    let secureDeviceLink: string | null = null;
+    const isDeviceChange = requested.has("change_device") || turn.topics.some((topic) => ["device_change", "device_recalculation"].includes(String(topic)));
+    const paymentConfirmed = hasAuthoritativePaymentConfirmation(app);
+    const paymentProtected = hasPaymentProtection(input.truth);
+    if (isDeviceChange && paymentConfirmed && app && input.truth.contactAccess === "full") {
+      try {
+        const links = buildOfficialLinkContext(turn, input.truth);
+        secureDeviceLink = buildSecureDeviceChangeUrl({ baseUrl: links.baseUrl, application: app, waId: input.state.waId });
+      } catch {
+        secureDeviceLink = null;
+      }
+    }
     return buildApplicationModificationRoutingReply({
       topics: turn.topics,
       requestedActions: turn.requestedActions,
       customerText: input.customerText,
       hasApplication: Boolean(app),
-      paymentConfirmed: hasAuthoritativePaymentConfirmation(app),
+      paymentConfirmed,
+      paymentProtected,
       trackingId: app?.trackingId || null,
       registeredPhone: app?.phone || null,
       cancelExecuted: Boolean(cancel?.executed),
       cancelNeedsConfirmation: cancel?.outcome === "needs_confirmation",
+      secureDeviceLink,
     });
   }
 
@@ -360,7 +375,6 @@ function buildRepeatDeltaReply(input: { turn: InterpretedTurn; truth: TruthBundl
 }
 
 const MANUAL_ACTIONS = new Set([
-  "change_device",
   "change_application_data",
 ]);
 

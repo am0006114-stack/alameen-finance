@@ -18,6 +18,14 @@ function actualMediaEvent(turn: InterpretedTurn) {
   return /تم استلام (?:صورة|فيديو|مستند|ملف|رسالة صوتية) من العميل|صورة مرفقة مع تعليق|فيديو مرفق|رسالة صوتية من العميل/i.test(text);
 }
 
+
+function nonIphone18PriceViolation(turn: InterpretedTurn, reply: string) {
+  if (isIphone18Question(turn.rawText)) return null;
+  if (!turn.topics.includes("product_price")) return null;
+  const money = /(?:^|\s)([1-9]\d{1,4})(?:\.\d+)?\s*(?:د\.?\s*أ|دينار|jod)(?=\s|[.,،؛:!?؟]|$)/i.test(reply);
+  return money ? "non_iphone18_price_not_authoritative" : null;
+}
+
 function iphone18GroundingViolation(question: string, reply: string) {
   const q = n(question);
   const r = n(reply);
@@ -79,6 +87,15 @@ export function enforceGroundedBusinessEgress(input: { reply: string; turn: Inte
       reason: iphone18Violation,
       replacement: buildIphone18AuthoritativeReply(input.turn.rawText)
         || "أجهزة iPhone 18 Pro وPro Max موجودة ضمن الأجهزة المعروضة للتقديم، والاستلام بعد شهر من الموافقة النهائية وبموعد مؤكد من المكتب.",
+    };
+  }
+
+  const generalPriceViolation = nonIphone18PriceViolation(input.turn, reply);
+  if (generalPriceViolation) {
+    return {
+      pass: false,
+      reason: generalPriceViolation,
+      replacement: "السعر الحالي لهذا الموديل مش مثبت عندي كحقيقة سعرية معتمدة، لذلك ما رح أعطيك رقم من طلب قديم أو من كتالوج قديم. أسعار iPhone 18 Pro وiPhone 18 Pro Max هي الأسعار الموثقة عندي حاليًا.",
     };
   }
 

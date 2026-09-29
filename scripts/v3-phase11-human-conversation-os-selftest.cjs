@@ -15,13 +15,18 @@ const ladder = read('app/api/whatsapp/webhook/_lib/v3-os/modelCostLadder.ts');
 const control = read('app/api/whatsapp/webhook/_lib/v3-os/humanOsControl.ts');
 const migration = read('supabase/migrations/20260929013000_v3_phase11_human_conversation_os.sql');
 
+// Phase 11.2 may add new deterministic authorities (for example secure device-change links).
+// These regressions protect tracking authority semantically instead of freezing the exact OR-chain shape.
+
 pass('single cutover switch defaults safe/off', /enabled:\s*false/.test(control) && /solEnabled:\s*false/.test(control));
 pass('runtime has one Human OS branch and legacy fallback only when switch off', /if \(humanOs\.enabled\)/.test(runtime) && /runHumanConversationOS/.test(runtime) && /runLegacyV3ProductionLive/.test(runtime));
 pass('Human OS has durable turn replay before model work', /existing\?\.final_reply/.test(os) && /reusedDecision:\s*true/.test(os));
-pass('explicit tracking status becomes deterministic authoritative read', /explicitTrackingStatusAuthority/.test(os) && /\(explicitStatusTracking \|\| explicitIdentityQuestion\) \? "deterministic"/.test(os));
+const modelTierDeclaration = (os.match(/const modelTier:[^\n]+/) || [""])[0];
+pass('explicit tracking status becomes deterministic authoritative read', /explicitTrackingStatusAuthority/.test(os) && /explicitStatusTracking/.test(modelTierDeclaration) && /\? \"deterministic\"/.test(modelTierDeclaration));
 pass('explicit tracking status reply uses customer-facing DB status', /explicitTrackingStatusReply/.test(os) && /customerFacingStatusLabel/.test(os));
 pass('safe preview persists mismatch context without binding full application id', /contactAccess !== "safe_preview"/.test(os) && /markContactResolution/.test(os) && /blocked_mismatch/.test(os));
-pass('authoritative tracking reply survives safety fallback', /reply = authoritativeTrackingReply \|\| authoritativeIdentityReply \|\| gate\.confirmationPrompt/.test(os));
+const initialReplyDeclaration = (os.match(/let reply = [^\n]+/) || [""])[0];
+pass('authoritative tracking reply survives safety fallback', /authoritativeTrackingReply/.test(initialReplyDeclaration) && /gate\.confirmationPrompt/.test(initialReplyDeclaration));
 pass('authoritative tracking reply bypasses generic model verifier with native safety shape', /AUTHORITATIVE_DETERMINISTIC_SAFETY/.test(os) && /authoritativeDeterministicReply = Boolean\(authoritativeTrackingReply/.test(os) && /const safety = authoritativeDeterministicReply \? AUTHORITATIVE_DETERMINISTIC_SAFETY/.test(os) && /finalAuthoritativeDeterministicReply = Boolean\(authoritativeTrackingReply/.test(os) && /const finalSafety = finalAuthoritativeDeterministicReply \? AUTHORITATIVE_DETERMINISTIC_SAFETY/.test(os));
 pass('turn journal persists final reply before delivery', /status:\s*"reply_ready"/.test(os) && /finalReply:\s*reply/.test(os));
 pass('route finalizes journal only after provider message id exists', /completeHumanTurnDelivery/.test(route) && /providerMessageId:\s*outgoingMessageId/.test(route));

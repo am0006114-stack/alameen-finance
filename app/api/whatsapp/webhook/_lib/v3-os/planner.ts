@@ -1,6 +1,7 @@
 import { actionRequiresOmran } from "./hierarchy";
 import { mutationAuthorization } from "./actionAuthority";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { hasPaymentProtection } from "./manualActionPolicy";
 import { continuationCommercialState } from "./commercialProgression";
 import { applicationJourneyStage, customerFacingStatusLabel, customerOrderSnapshot, explicitContinuation } from "./applicationJourney";
 import type { ActionKey, ConversationState, InterpretedTurn, PlannedAction, PlannedAnswer, ReplyPlan, TruthBundle } from "./types";
@@ -42,6 +43,18 @@ function paymentStatusInstruction(truth: TruthBundle) {
   const ps = String(app.paymentStatus || "").toLowerCase();
   if (["customer_claimed_paid","pending_payment_confirmation"].includes(ps)) return "وصل الدفع/ادعاء الدفع مسجل لكنه بانتظار اعتماد الإدارة. لا تقل إن الدفع مؤكد ولا تطلب دفعًا جديدًا.";
   return `حالة الدفع المسجلة هي ${app.paymentStatus || "غير محددة"}. اشرحها دون تحويلها إلى تأكيد أو نفي غير موجود.`;
+}
+
+function deviceChangeInstruction(truth: TruthBundle, recalculation = false) {
+  const app = truth.application;
+  if (!app) return "لا يوجد طلب موثوق مربوط الآن؛ لا تعطِ رابط تغيير جهاز ولا تنفذ تعديلًا.";
+  if (hasAuthoritativePaymentConfirmation(app)) {
+    return recalculation
+      ? "الدفع مؤكد إداريًا: إعادة الحسبة المرتبطة بتغيير الجهاز تتم داخل رابط التغيير الرسمي وبالحاسبة الرسمية. لا تحسب من رأسك، وبعد التنفيذ اعرض فقط الحسبة الموجودة في Truth."
+      : "الدفع مؤكد إداريًا: تغيير الجهاز/الموديل/السعة/اللون يتم من رابط التغيير الرسمي الآمن المرتبط بنفس الطلب. لا ترسل العميل إلى فيسبوك لهذا الإجراء، ولا تدّعِ أن التغيير تم قبل نجاح الرابط وظهور Truth الجديدة فعليًا.";
+  }
+  if (hasPaymentProtection(truth)) return "يوجد إثبات/حالة دفع بانتظار الاعتماد لكن الدفع غير مؤكد إداريًا؛ لا تعطِ رابط تغيير الجهاز ولا تنصح بطلب جديد. حافظ على نفس الطلب لحد اعتماد الدفع.";
+  return "لا يوجد دفع مؤكد أو إثبات دفع مرتبط بالطلب؛ لا تعطِ رابط تغيير الجهاز. إذا أراد العميل جهازًا مختلفًا فالمسار هو إلغاء الطلب الحالي بعد تأكيد منفصل ثم تقديم طلب جديد بالمواصفات الصحيحة، بدون إلغاء تلقائي.";
 }
 
 function applicationStatusInstruction(truth: TruthBundle, turn: InterpretedTurn) {
@@ -136,8 +149,8 @@ function instructionFor(topic: string, truth: TruthBundle, turn: InterpretedTurn
     })(),
     reopen: "التراجع عن الإلغاء/إعادة الفتح من صلاحية عمران. إذا الاسترداد لم يكتمل يمكن إيقاف المسار وإعادة تفعيل الطلب ضمن الحقيقة؛ إذا اكتمل الاسترداد لا تعِد بإعادة نفس الملف تلقائيًا.",
     application_correction: "تعديل بيانات الطلب إجراء يدوي بحت لا ينفذ من واتساب. وجّه العميل إلى صفحة الأمين الرسمية على فيسبوك مع رقم الطلب ورقم الهاتف المسجل والتعديل المطلوب، ولا تدّعِ أن التعديل تم قبل تغير Truth فعليًا.",
-    device_change: "تغيير الجهاز/الموديل/السعة/اللون إجراء يدوي بحت لا ينفذ من واتساب. وجّه العميل إلى صفحة الأمين الرسمية على فيسبوك مع رقم الطلب ورقم الهاتف المسجل والتعديل المطلوب. لا تدّعِ التنفيذ أو إعادة الحسبة قبل تحديث Truth فعليًا.",
-    device_recalculation: "إعادة الحسبة لتعديل يدوي على الطلب لا تنفذ من واتساب. وجّه العميل إلى صفحة الأمين الرسمية على فيسبوك، وبعد تحديث الطلب فعليًا اعرض فقط الحسبة الموجودة في Truth؛ لا تحسب من رأسك.",
+    device_change: deviceChangeInstruction(truth),
+    device_recalculation: deviceChangeInstruction(truth, true),
     complaint: "تعامل مع الاتهام أو الغضب بثبات واحترام: لا تدخل بجدال ولا تعترف بنصب. وضّح المخرج العملي: إذا لا يريد الطلب يمكن إلغاؤه، وإذا يوجد دفع مؤكد يمشي الاسترداد. حق العميل لا يضيع، لكن لا تعطي موعد استرداد غير موثق.",
     legal: "رد رسمي ثابت وهادئ. لا تتوتر من التهديد القانوني ولا تهدد مقابله تلقائيًا. اعرض حل الحالة فعليًا، واحفظ كل ادعاء ضمن الحقيقة الموثقة.",
     social_threat: `${p.disputeResolutionRule}`,
