@@ -46,6 +46,7 @@ export type ResponseObligation =
   | "answer_bundle"
   | "human_semantic_care"
   | "refund_timing"
+  | "refund_process_problem"
   | "fee_question"
   | "product_availability"
   | "pickup_delivery"
@@ -165,8 +166,18 @@ function noUpdateDeflection(reply: string | null | undefined) {
   return /ما\s+في\s+تحديث\s+جديد\s+عن\s+اخر\s+رد.{0,80}(?:نقطه\s+جديده|سوال\s+مختلف)/.test(q);
 }
 
+function genericCurrentQuestionDeflection(reply: string | null | undefined) {
+  const q = n(reply);
+  return /(?:اخر\s+رساله|الرساله\s+الاخيره).{0,45}(?:ما\s+قدرت|مش\s+قادر|ما\s+قدرتش).{0,45}(?:احدد|تحديد|المطلوب)/.test(q)
+    || /(?:اكتب|احكيلي).{0,28}(?:المطلوب\s+نفسه|النقطه\s+اللي\s+بدك\s+جوابها|شو\s+بدك\s+بالزبط)/.test(q);
+}
+
 export function responseHasKnownBadFallbackSignature(reply: string | null | undefined) {
-  return staleContinuationReply(reply) || missingDetailsReply(reply) || repeatedKnownTrackingReply(reply) || noUpdateDeflection(reply);
+  return staleContinuationReply(reply)
+    || missingDetailsReply(reply)
+    || repeatedKnownTrackingReply(reply)
+    || noUpdateDeflection(reply)
+    || genericCurrentQuestionDeflection(reply);
 }
 
 function asksTrackingLink(value: string | null | undefined) {
@@ -195,7 +206,7 @@ function asksReviewTiming(value: string | null | undefined, turn: InterpretedTur
   const q = n(value);
   if (explicitExpediteRequestTextForArbiter(value)) return true;
   if (turn.topics.includes("review_timing") || turn.topics.includes("operational_pressure")) return true;
-  return /(?:متى|امتى|قديش|كم).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
+  return /(?:متى|امتى|قديش|كم|تاريخ).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
 }
 
 function asksRefundMeaning(value: string | null | undefined) {
@@ -214,6 +225,23 @@ function asksRefundTiming(value: string | null | undefined, truth: TruthBundle) 
   if (explicit) return true;
   if (stage === "refund_requested" && /^(?:كم|قديش).{0,24}(?:تحتاج|بدها|بدو|بياخد|ياخد|وقت|مده|مدة)|^(?:متى|امتى|لحد\s+متى|الى\s+متى|إلى\s+متى)$/.test(q)) return true;
   return stage === "refund_requested" && /^(?:وينها|وينهم|شو\s+هسا|شو\s+صار|[؟?]+)$/.test(q);
+}
+
+function asksRefundProcessProblem(value: string | null | undefined, truth: TruthBundle) {
+  const stage = applicationJourneyStage(truth.application);
+  if (stage !== "refund_requested" && stage !== "refund_completed" && stage !== "cancelled") return false;
+  const q = n(value);
+  const refundContext = /(?:استرداد|استرجاع|الرسوم|الخمس|5|٥)/.test(q);
+  const linkOrForm = /(?:الرابط|الصفحه|الصفحة|خانات|خانة|حقل|حقول|بيانات)/.test(q);
+  const broken = /(?:ما\s+في|ما\s+فيه|مش\s+موجود|ما\s+بطلع|ما\s+بيطلع|ما\s+بدخل|ما\s+بيدخل|ما\s+بفتح|ما\s+بيفتح|فاضي|فاضية|خطا|خطأ)/.test(q);
+  return (refundContext && linkOrForm && broken) || (linkOrForm && broken && /(?:ادخل|أدخل|اضيف|أضيف|اثبت|أثبت)/.test(q));
+}
+
+function refundProcessProblemReply(truth: TruthBundle) {
+  const stage = applicationJourneyStage(truth.application);
+  if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية، فما في داعي تدخل بيانات استرداد جديدة.";
+  if (stage === "refund_requested") return "طلب الاسترداد مسجل فعلًا، ومشكلة الرابط ما تعني إنك تعيد طلب الاسترداد أو الإلغاء. لا تبعث بيانات الاسترداد الحساسة على واتساب. حدّث صفحة الاسترداد مرة واحدة؛ وإذا ظل الرابط يفتح بدون حقول أو ظهر خطأ، اكتبلي نص الخطأ أو احكيلي إذا الصفحة فاضية بالكامل وبنكمل على نفس طلب الاسترداد.";
+  return "الطلب ملغي حسب الحالة الحالية. إذا رابط الاسترداد ما بعرض حقول تثبيت البيانات، لا تعيد الإلغاء ولا تبعث بيانات مالية على واتساب؛ احكيلي شو ظاهر بالصفحة وبنكمل من نفس المسار.";
 }
 
 function asksFeeQuestion(value: string | null | undefined) {
@@ -366,6 +394,7 @@ export function resolveResponseObligation(input: {
   if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
   if (asksApplicationExists(turn.rawText)) return "application_exists";
   if (asksApprovalStatus(turn.rawText)) return "approval_status";
+  if (asksRefundProcessProblem(turn.rawText, input.truth)) return "refund_process_problem";
   if (asksRefundTiming(turn.rawText, input.truth)) return "refund_timing";
   if (asksReviewTiming(turn.rawText, turn)) return "review_timing";
   if (asksRefundMeaning(turn.rawText)) return "refund_meaning";
@@ -613,6 +642,7 @@ function directRepair(input: {
     case "answer_bundle": return buildAnswerBundleReply({ bundle: resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth }), turn: input.turn, state: input.state, truth: input.truth });
     case "human_semantic_care": return buildHumanSemanticCareReply({ turn: input.turn, state: input.state, truth: input.truth });
     case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
+    case "refund_process_problem": return refundProcessProblemReply(input.truth);
     case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
     case "refund_meaning": return refundMeaningReply(input.truth);
     case "fee_question": return feeQuestionReply({ turn, truth: input.truth });
@@ -667,6 +697,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "current_human_turn": return currentHumanTurnCandidateAligned({ authority: resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth }), candidate: raw });
     case "answer_bundle": return false;
     case "human_semantic_care": return humanSemanticCareCandidateAligned({ candidate: raw, turn: input.turn, state: input.state, truth: input.truth });
+    case "refund_process_problem": return false;
     case "approval_status": {
       if (stage === "approved") return /موافق|انقبل/.test(q);
       if (stage === "preliminary_review") return /مراجعه\s+مبدئيه|ما\s+صدرت/.test(q);

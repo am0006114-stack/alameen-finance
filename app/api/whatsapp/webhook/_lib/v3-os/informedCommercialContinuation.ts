@@ -1,6 +1,7 @@
 import { applicationJourneyStage } from "./applicationJourney";
 import { normalizeArabic } from "./text";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
+import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import type { ApplicationTruth, CommercialDisclosureState, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export const COMMERCIAL_DISCLOSURE_VERSION = "2026-09-informed-fee-v2-full-rationale" as const;
@@ -162,5 +163,5 @@ export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: 
   const upload = receiptUrl
     ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receiptUrl}`
     : "\nرابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن، لذلك ما رح أعطيك رابطًا عامًا بدل الصحيح.";
-  return `تمام، هيك ثبتنا إنك حاب تكمل بعد ما وضحنا الخطوة. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وهاي بيانات الدفع الرسمية:\n${p.paymentMethodRule}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.`;
+  return `تمام، هيك ثبتنا إنك حاب تكمل بعد ما وضحنا الخطوة. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وهاي بيانات الدفع الرسمية:\n${currentFileOpeningPaymentRule({ includeApology: false })}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.`;
 }

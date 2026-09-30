@@ -33,13 +33,14 @@ export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: 
   const explicitPay = /(?:بدي|اريد|أريد|حاب|جاهز).{0,22}(?:ادفع|أدفع|احول|أحول).{0,24}(?:الرسوم|الخمس|الخمسه|5|٥)?/.test(q);
   const directTransferWhere = /(?:وين|اين|أين|لوين|كيف|على\s+شو|عشو).{0,24}(?:بنقدر|نقدر|بقدر)?\s*(?:نحول|احول|أحول|نحوّل|أحوّل)(?:ها|هم)?|(?:نحول|احول|أحول).{0,18}(?:وين|لوين|كيف|على\s+شو|عشو)/.test(q);
   const destinationConfirmation = /(?:ابعت|ابعث|احول|أحول|بحول|حول|حوّل).{0,28}(?:اورنج|أورنج|orange|0788500337|payameeen|ameen1st|am500337|cliq)|(?:اورنج|أورنج|orange|0788500337|payameeen|ameen1st|am500337|cliq).{0,28}(?:صح|هيك|احول|أحول|ابعت|ابعث)/i.test(q);
+  const sourceCompatibility = /(?:بزبط|بقدر|اقدر|أقدر|ممكن|بنفع|بصير|ينفع).{0,28}(?:احول|أحول|ادفع|أدفع|تحويل).{0,34}(?:من).{0,22}(?:بنك|محفظه|محفظة)|(?:احول|أحول|ادفع|أدفع).{0,28}(?:من).{0,22}(?:بنك|محفظه|محفظة)/.test(q);
   const asksPaymentData = /(?:هات|اعطيني|أعطيني|ابعث|ابعت|ارسل|أرسل).{0,28}(?:بيانات|بينات|معلومات|تفاصيل).{0,18}(?:الدفع|التحويل)|(?:بيانات|بينات|معلومات|تفاصيل)\s+(?:الدفع|التحويل)|(?:رقم|معرف).{0,16}(?:الدفع|التحويل)/.test(q);
   const stage = truth ? applicationJourneyStage(truth.application) : null;
   const feeDueNextStep = stage === "continuation_confirmed_fee_due" && (
     /^(?:طيب\s+)?(?:شو|ايش|اش)\s+(?:اعمل|أعمل|المطلوب\s+مني|الخطوه\s+الجايه|الخطوة\s+الجاية|الخطوه\s+التاليه|الخطوة\s+التالية)(?:\s+هسا|\s+الان|\s+الآن)?$/.test(q)
     || /(?:ساعدني|ساعدوني|مساعده|مساعدة).{0,30}(?:الخطوات|شو\s+اعمل|إيش\s+اعمل|ايش\s+اعمل)|(?:مش|مو)\s+فاهم.{0,35}(?:الخطوات|شو\s+اعمل|ايش\s+اعمل|المطلوب)/.test(q)
   );
-  return asksPaymentData || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
+  return asksPaymentData || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
 }
 
 export function officeLocationQuestion(turn: InterpretedTurn) {
@@ -98,6 +99,11 @@ function fileOpeningPaymentMethodReply(input: { turn: InterpretedTurn; truth: Tr
   if (stage === "continuation_confirmed_fee_due") {
     const links = buildOfficialLinkContext(input.turn, input.truth);
     const receipt = links.relevant.receipt;
+    const q = n(input.turn.rawText);
+    const sourceCompatibility = /(?:بزبط|بقدر|اقدر|أقدر|ممكن|بنفع|بصير|ينفع).{0,28}(?:احول|أحول|ادفع|أدفع|تحويل).{0,34}(?:من).{0,22}(?:بنك|محفظه|محفظة)|(?:احول|أحول|ادفع|أدفع).{0,28}(?:من).{0,22}(?:بنك|محفظه|محفظة)/.test(q);
+    if (sourceCompatibility) {
+      return `المعتمد عندنا هو قنوات الاستلام الرسمية نفسها، مش اسم البنك اللي بتحول منه. إذا تطبيق البنك/المحفظة عندك بيدعم CliQ، استخدم أحد معرفات CliQ الرسمية وتأكد قبل التأكيد إن اسم المستفيد مطابق. ما عندي توثيق يخليني أضمن توافق بنك بعينه، لذلك لا تكمل إذا التطبيق ما أظهر المستفيد الصحيح.\n\n${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `\n\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}`;
+    }
     return `أكيد، هاي الخطوة المطلوبة هسا. رسوم فتح الملف ${fee} دنانير فقط، وهي منفصلة عن ثمن الجهاز والقسط الأول.\n\n${currentFileOpeningPaymentRule()}${receipt ? `\n\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}\n\nتأكيد الدفع النهائي يتم بعد مراجعة الوصل إداريًا، والقسط الأول مش مطلوب الآن.`;
   }
   if (["refund_requested", "refund_completed", "cancelled"].includes(stage)) {

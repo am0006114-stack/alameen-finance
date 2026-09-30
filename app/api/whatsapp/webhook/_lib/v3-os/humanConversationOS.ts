@@ -27,6 +27,7 @@ import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
 import { durableIngressTurnFreshness } from "./durableIngress";
 import { manualMutationReceiptReply, recordManualMutationReceipt, type ManualMutationReceipt } from "./manualMutationReceipt";
 import { notifyV3Discord } from "./discordNotifier";
+import { arbitrateProductionReply } from "./responseArbiter";
 import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
 import { resolveAiRole, roleDisplayName } from "./hierarchy";
@@ -156,6 +157,29 @@ function syntheticMediaGroundedReply(customerText: string) {
   if (kind === "video") return "وصلني الفيديو، لكن ما بقدر أحدد المطلوب منه لحاله. اكتبلي النقطة اللي بدك أساعِدك فيها وبكمل معك من نفس السياق.";
   if (kind === "document") return "وصلني الملف. إذا بدك أتأكد من خطوة معينة مرتبطة فيه، اكتبلي شو المطلوب. والمستندات الحساسة ما بنعتمدها عبر واتساب؛ لازم تترفع من الرابط الرسمي الآمن المخصص للطلب.";
   return "وصلني المرفق. اكتبلي شو بدك أتأكد منه وبكمل معك من نفس السياق.";
+}
+
+// Phase 11.6.1: a high-confidence deterministic current question is an egress
+// obligation, not a suggestion the conversational model may erase. Preserve only
+// deterministic ASK acts that do not themselves request a mutation. The Human
+// Brain can enrich context, but it cannot delete the literal question the customer
+// just asked.
+function preserveDeterministicCurrentQuestionAuthority(anchor: InterpretedTurn, candidate: InterpretedTurn): InterpretedTurn {
+  const authoritativeActs = anchor.acts.filter((act) =>
+    act.source === "deterministic"
+    && act.type === "ask"
+    && (act.action || "none") === "none"
+    && act.confidence >= 0.95
+    && !["greeting", "thanks", "acknowledgement", "unknown"].includes(act.topic)
+  );
+  if (!authoritativeActs.length) return candidate;
+
+  const acts = [...candidate.acts];
+  for (const act of authoritativeActs) {
+    if (!acts.some((existing) => existing.topic === act.topic && existing.type === "ask")) acts.push(act);
+  }
+  const topics = Array.from(new Set([...candidate.topics, ...authoritativeActs.map((act) => act.topic)]));
+  return { ...candidate, acts, topics, confidence: Math.max(candidate.confidence, ...authoritativeActs.map((act) => act.confidence)) };
 }
 
 function paymentRelativeReceiptGroundedReply(input: { truth: TruthBundle; customerText: string }) {
@@ -898,6 +922,7 @@ export async function runHumanConversationOS(input: {
   }
 
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
+  turn = preserveDeterministicCurrentQuestionAuthority(deterministicAnchor, turn);
   // Phase 11.5 semantic obligation guard: payment timing relative to receiving
   // the device is not automatically a delivery/pickup-mechanics question. Apply
   // the same deterministic distinction after the model so it cannot reintroduce
@@ -1120,7 +1145,22 @@ export async function runHumanConversationOS(input: {
     reduced = markCommercialDisclosureAcknowledged(reduced, truthAfterActions, turn.turnId);
   }
   if (!reply) reply = brainReply || deterministicFallback({ turn, truth: truthAfterActions, customerText: input.customerText });
-  reply = sanitizeCustomerFacingStatusTokens(reply);
+
+  // Phase 11.6.1 final response authority. The arbiter contains deterministic
+  // contracts for review timing, refund care, payment-channel questions and
+  // current-turn repair. Human OS now uses it as the final semantic veto.
+  const arbitration = arbitrateProductionReply({
+    candidate: reply,
+    turn,
+    state: reduced,
+    truth: truthAfterActions,
+    actions: actionResults,
+  });
+  reply = arbitration.reply;
+  if (gate.confirmationPrompt && arbitration.obligation !== "mutation_truth" && reply !== gate.confirmationPrompt) {
+    reduced = { ...reduced, pendingAction: null, pendingActionPayload: null };
+  }
+  reply = reply ? sanitizeCustomerFacingStatusTokens(reply) : null;
 
   // Keep lastAssistantText on the previous delivered assistant turn while validating
   // this candidate. Phase 11.0 validated against its own just-written reply, which
@@ -1128,7 +1168,8 @@ export async function runHumanConversationOS(input: {
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply);
+  const authoritativeArbiterReply = Boolean(arbitration.repaired || arbitration.suppressed);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply || authoritativeArbiterReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -1159,7 +1200,7 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply || authoritativeArbiterReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,

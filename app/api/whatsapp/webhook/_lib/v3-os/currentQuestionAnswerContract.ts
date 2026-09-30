@@ -46,6 +46,12 @@ export function postContinuationProgressQuestion(turn: InterpretedTurn) {
   return /(?:كده|هيك|هسا|يعني|طيب).{0,22}(?:الطلب|الملف|الخطوه|الخطوة).{0,24}(?:كمل|كامل|خلص|تم|فتح|مفتوح|ولا|شو\s+ناقص)|(?:الطلب|الملف).{0,24}(?:كمل|خلص|صار\s+كامل|تم\s+فتحه|انفتح).{0,18}(?:ولا|او\s+لا|صح)?|(?:شو|ايش|إيش).{0,16}(?:ضل|ناقص|الخطوه\s+هسا|الخطوة\s+هسا|بعد\s+هيك)|(?:خلصت|تمت).{0,18}(?:خطوه\s+فتح\s+الملف|خطوة\s+فتح\s+الملف)/.test(q);
 }
 
+export function directNextStepQuestion(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (!q || hasSensitiveMutation(turn)) return false;
+  return /^(?:شو\s+|ايش\s+|إيش\s+)?(?:الخطوه|الخطوة)\s+(?:التاليه|التالية)(?:\s+هسا|\s+الان|\s+الآن)?$/.test(q);
+}
+
 export function conciseStatusQuestion(turn: InterpretedTurn) {
   const q = n(turn.rawText);
   if (!q || hasSensitiveMutation(turn)) return false;
@@ -180,6 +186,7 @@ export function buildCurrentQuestionAnswerContractReply(input: {
   if (media) return media;
   if (directPaymentExecutionQuestion(input.turn)) return paymentNowReply(input.turn, input.truth);
   if (postContinuationProgressQuestion(input.turn)) return progressReply(input.turn, input.truth);
+  if (directNextStepQuestion(input.turn)) return progressReply(input.turn, input.truth);
   if (conciseStatusQuestion(input.turn)) return statusReply(input.turn, input.truth);
   return null;
 }
@@ -200,6 +207,7 @@ export function replyViolatesCurrentQuestionAnswerContract(input: {
     if (stage === "continuation_confirmed_fee_due" && !/(?:5|٥|رسوم\s+فتح\s+الملف|الدفع\s+مؤكد|وصل\s+الدفع)/.test(reply)) return true;
   }
   if (postContinuationProgressQuestion(input.turn) && (continuationBoilerplate || missingDetails)) return true;
+  if (directNextStepQuestion(input.turn) && (continuationBoilerplate || missingDetails)) return true;
   if (conciseStatusQuestion(input.turn) && (continuationBoilerplate || missingDetails)) return true;
   const media = mediaEnvelopeTurn(input.turn);
   if ((media.image || media.voice) && missingDetails) return true;

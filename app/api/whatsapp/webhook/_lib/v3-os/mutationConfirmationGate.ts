@@ -203,6 +203,12 @@ function informationalReply(action: ActionKey, truth: TruthBundle) {
   return "نعم، بنقدر نعتمد رقم واتسابك الحالي كرقم متابعة تابع لنفس الطلب بدون تغيير رقم الهاتف الأساسي. سؤالك لحاله ما نفّذ أي ربط؛ لما تطلب الاعتماد بطلب منك تأكيد منفصل وواضح قبل التنفيذ.";
 }
 
+function mutationAlreadySatisfied(action: ActionKey, stage: ReturnType<typeof applicationJourneyStage>) {
+  if (action === "request_refund") return stage === "refund_requested" || stage === "refund_completed";
+  if (action === "cancel_application") return stage === "cancelled" || stage === "refund_requested" || stage === "refund_completed";
+  return false;
+}
+
 export type MutationConfirmationGateResult = {
   actions: PlannedAction[];
   confirmationPrompt: string | null;
@@ -268,12 +274,15 @@ export function enforceMutationConfirmationGate(input: {
       blockedQuestionAction: "cancel_application",
     };
   }
+  const satisfiedPending = input.state.pendingAction && REAL_MUTATIONS.has(input.state.pendingAction)
+    && mutationAlreadySatisfied(input.state.pendingAction, authoritativeStage);
   const pending = input.state.pendingAction && REAL_MUTATIONS.has(input.state.pendingAction)
     && input.state.pendingActionPayload?._mutationConfirmationRequired === true
+    && !satisfiedPending
     ? input.state.pendingAction
     : null;
 
-  let clearPendingConfirmation = false;
+  let clearPendingConfirmation = Boolean(satisfiedPending);
   let confirmedAction: ActionKey | null = null;
   let blockedQuestionAction: ActionKey | null = null;
   let prompt: string | null = null;
@@ -334,6 +343,10 @@ export function enforceMutationConfirmationGate(input: {
   for (const action of normalizedCandidateActions) {
     if (!REAL_MUTATIONS.has(action.action)) {
       output.push(action);
+      continue;
+    }
+    if (mutationAlreadySatisfied(action.action, authoritativeStage)) {
+      clearPendingConfirmation = true;
       continue;
     }
 
@@ -414,6 +427,7 @@ export function enforceMutationConfirmationGate(input: {
 
   for (const action of REAL_MUTATIONS) {
     if (prompt || confirmedAction || blockedQuestionAction || info) break;
+    if (mutationAlreadySatisfied(action, authoritativeStage)) continue;
     if (!input.truth.application && (explicitMutationRequest(action, input.turn.rawText) || semanticMutationRequest(action, input.turn) || explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state }))) {
       clearPendingConfirmation = true;
       info = missingApplicationMutationReply(action, input.state);
