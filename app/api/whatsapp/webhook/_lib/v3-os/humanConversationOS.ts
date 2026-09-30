@@ -3,7 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { resolveV3ProductionTruth } from "./productionTruth";
 import { emptyState, reduceState, finalizeStateSemanticMemory, markRoleIntroducedFromReply } from "./state";
 import { loadV3ConversationState } from "./stateStore";
-import { enforcePaymentReceiptSemantics, interpretTurn, isPaymentRelativeToReceiptText } from "./interpreter";
+import { enforcePaymentReceiptSemantics, interpretTurn, isPaymentRelativeToReceiptText, syntheticMediaNoticeKind, syntheticMediaSemanticText } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
 import { applicationReceiptUrl, applicationRefundUrl, buildOfficialLinkContext, sanitizeRecentTurnsForModel } from "./linkIntegrity";
@@ -146,6 +146,16 @@ function deliveryGroundedReply(input: { truth: TruthBundle; customerText: string
   const iphone18 = buildIphone18AuthoritativeReply(input.customerText);
   if (iphone18) return iphone18;
   return `ما في توصيل. الاستلام من المكتب بعد صدور الموافقة النهائية وبموعد رسمي مؤكد مرتبط بالطلب. ${input.truth.policy.generalLocation}.`;
+}
+
+function syntheticMediaGroundedReply(customerText: string) {
+  const kind = syntheticMediaNoticeKind(customerText);
+  if (!kind || syntheticMediaSemanticText(customerText)) return null;
+  if (kind === "voice") return "وصلتني الرسالة الصوتية، لكن ما عندي تفريغ نصي لمحتواها. اكتبلي النقطة الأساسية بنص وبجاوبك مباشرة من نفس السياق.";
+  if (kind === "image") return "وصلتني الصورة، لكن ما بقدر أحدد المطلوب منها لحالها. اكتبلي شو بدك أتأكد منه فيها وبكمل معك من نفس السياق.";
+  if (kind === "video") return "وصلني الفيديو، لكن ما بقدر أحدد المطلوب منه لحاله. اكتبلي النقطة اللي بدك أساعِدك فيها وبكمل معك من نفس السياق.";
+  if (kind === "document") return "وصلني الملف. إذا بدك أتأكد من خطوة معينة مرتبطة فيه، اكتبلي شو المطلوب. والمستندات الحساسة ما بنعتمدها عبر واتساب؛ لازم تترفع من الرابط الرسمي الآمن المخصص للطلب.";
+  return "وصلني المرفق. اكتبلي شو بدك أتأكد منه وبكمل معك من نفس السياق.";
 }
 
 function paymentRelativeReceiptGroundedReply(input: { truth: TruthBundle; customerText: string }) {
@@ -383,6 +393,26 @@ function humanRequestGroundedReply(input: { turn: InterpretedTurn; state: Conver
     ? ` حالة طلبك الحالية: ${customerFacingStatusLabel(input.truth.application)}.`
     : "";
   return `معك ${name} من الأمين، وبكمل معك هون على نفس المحادثة.${status} ما عندي تحويل تلقائي لمكالمة أو لموظف منفصل من داخل واتساب، فاحكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية.`;
+}
+
+function reconcilePendingMutationWithAuthoritativeTruth(state: ConversationState, truth: TruthBundle) {
+  if (!state.pendingAction || !truth.application) return state;
+  const stage = applicationJourneyStage(truth.application);
+  const resolved = (state.pendingAction === "request_refund" && ["refund_requested", "refund_completed"].includes(stage))
+    || (state.pendingAction === "cancel_application" && ["cancelled", "refund_requested", "refund_completed"].includes(stage));
+  return resolved ? { ...state, pendingAction: null, pendingActionPayload: null } : state;
+}
+
+function closePendingMutationAfterReceipt(input: { state: ConversationState; actions: ActionResult[]; manualReceipt: ManualMutationReceipt | null }) {
+  const pending = input.state.pendingAction;
+  if (!pending) return input.state;
+  const durableResult = input.actions.find((result) => result.action === pending && ["executed", "already_done"].includes(result.outcome));
+  const manualRecorded = pending === "change_application_data"
+    && input.manualReceipt
+    && ["awaiting_admin", "already_pending"].includes(input.manualReceipt.status);
+  return durableResult || manualRecorded
+    ? { ...input.state, pendingAction: null, pendingActionPayload: null }
+    : input.state;
 }
 
 function updatePendingState(input: { state: ConversationState; gate: ReturnType<typeof enforceMutationConfirmationGate>; turn: InterpretedTurn }) {
@@ -763,6 +793,7 @@ export async function runHumanConversationOS(input: {
     activeApplicationId: canBindFullApplication ? (truthBeforeActions.application?.id || scopedBefore.state.activeApplicationId) : scopedBefore.state.activeApplicationId,
     activeTrackingId: truthBeforeActions.application?.trackingId || scopedBefore.state.activeTrackingId,
   };
+  stateWorking = reconcilePendingMutationWithAuthoritativeTruth(stateWorking, truthBeforeActions);
   deterministicAnchor = scopeTurnToCurrentApplication({ turn: deterministicAnchor, applicationChanged: scopedBefore.applicationChanged });
 
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
@@ -835,10 +866,11 @@ export async function runHumanConversationOS(input: {
     };
   }
 
+  const authoritativeSyntheticMediaReply = syntheticMediaGroundedReply(input.customerText);
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
-  // Explicit tracking + status lookup is already authoritative DB work. Do not
-  // pay a model to reinterpret it and do not let a legacy verifier replace it.
-  const modelTier: HumanModelTier = (explicitStatusTracking || explicitIdentityQuestion || secureDeviceChangeRequested) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
+  // Explicit tracking/status and textless media are deterministic work. Do not
+  // spend a model call to reinterpret a transport notice such as "تم استلام صورة".
+  const modelTier: HumanModelTier = (explicitStatusTracking || explicitIdentityQuestion || secureDeviceChangeRequested || authoritativeSyntheticMediaReply) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
   const provider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
 
   let brainMeaning: HumanBrainMeaning | null = null;
@@ -1024,6 +1056,8 @@ export async function runHumanConversationOS(input: {
     }
   }
 
+  reduced = closePendingMutationAfterReceipt({ state: reduced, actions: actionResults, manualReceipt: manualMutationReceipt });
+
   let truthAfterActions = truthBeforeActions;
   if (actionResults.some((result) => ["executed","already_done","failed"].includes(result.outcome))) {
     truthAfterActions = await resolveV3ProductionTruth({
@@ -1077,7 +1111,7 @@ export async function runHumanConversationOS(input: {
       }
     }
   }
-  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativeSocialReply;
+  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativeSocialReply;
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -1094,7 +1128,7 @@ export async function runHumanConversationOS(input: {
   reduced = { ...reduced, activeApplicationId: truthAfterActions.application?.id || reduced.activeApplicationId, activeTrackingId: truthAfterActions.application?.trackingId || reduced.activeTrackingId };
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -1125,7 +1159,7 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,

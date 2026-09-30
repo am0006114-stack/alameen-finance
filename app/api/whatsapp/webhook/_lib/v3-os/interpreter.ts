@@ -5,8 +5,41 @@ import { stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
 function id(turnId: string, i: number) { return `${turnId}:a${i + 1}`; }
 function unique<T>(a: T[]) { return Array.from(new Set(a)); }
 
+export type SyntheticMediaNoticeKind = "image" | "video" | "voice" | "document" | "sticker";
+
+export function syntheticMediaNoticeKind(value: string | null | undefined): SyntheticMediaNoticeKind | null {
+  const raw = String(value || "").trim();
+  if (!raw) return null;
+  if (/^تم استلام رسالة صوتية من العميل\./.test(raw)) return "voice";
+  if (/^(?:تم استلام صورة من العميل|صورة مرفقة مع تعليق:)/.test(raw)) return "image";
+  if (/^تم استلام فيديو من العميل/.test(raw)) return "video";
+  if (/^تم استلام ملف من العميل\./.test(raw)) return "document";
+  if (/^تم استلام ملصق من العميل/.test(raw)) return "sticker";
+  return null;
+}
+
+export function syntheticMediaSemanticText(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const kind = syntheticMediaNoticeKind(raw);
+  if (!kind) return raw;
+  if (kind === "image") {
+    const match = raw.match(/^صورة مرفقة مع تعليق:\s*([\s\S]+)$/);
+    return match?.[1]?.trim() || "";
+  }
+  if (kind === "video") {
+    const match = raw.match(/^تم استلام فيديو من العميل مع تعليق:\s*([\s\S]+)$/);
+    return match?.[1]?.trim() || "";
+  }
+  if (kind === "document") {
+    const match = raw.match(/(?:^|\n)تعليق الملف:\s*([^\n]+)/);
+    return match?.[1]?.trim() || "";
+  }
+  return "";
+}
+
 export function isExplicitDeliveryQuestionText(value: string | null | undefined) {
-  const n = normalizeArabic(String(value || ""));
+  const semanticValue = syntheticMediaNoticeKind(value) ? syntheticMediaSemanticText(value) : String(value || "");
+  const n = normalizeArabic(semanticValue);
   if (!n) return false;
   return /(?:توصيل)/.test(n)
     || /(?:كيف|وين|متي|من وين).{0,22}(?:استلام|استلم)/.test(n)
@@ -14,7 +47,8 @@ export function isExplicitDeliveryQuestionText(value: string | null | undefined)
 }
 
 export function isPaymentRelativeToReceiptText(value: string | null | undefined) {
-  const n = normalizeArabic(String(value || ""));
+  const semanticValue = syntheticMediaNoticeKind(value) ? syntheticMediaSemanticText(value) : String(value || "");
+  const n = normalizeArabic(semanticValue);
   if (!n) return false;
   const payment = /(?:بدفع|ادفع|دفع|الدفع|احول|التحويل|تحويل|المبلغ|الرسوم)/;
   const receipt = /(?:استلام|استلم)/;
@@ -50,17 +84,20 @@ export function enforcePaymentReceiptSemantics(turn: InterpretedTurn, customerTe
 
 export function interpretTurn(input: { turnId: string; customerText: string }): InterpretedTurn {
   const raw = String(input.customerText || "").trim();
-  const n = normalizeArabic(raw);
+  const mediaKind = syntheticMediaNoticeKind(raw);
+  const semanticRaw = syntheticMediaSemanticText(raw);
+  const n = normalizeArabic(semanticRaw);
   const pending: Array<Omit<DialogueAct,"id">> = [];
   const add = (type: DialogueAct["type"], topic: TopicKey, confidence: number, action: ActionKey = "none", value: string | null = null) => {
     pending.push({ type, topic, text: raw, confidence, action, value, source: "deterministic" });
   };
 
   if (!raw) add("unknown","unknown",0.2);
-  const bareTracking = /^AM-\d{8,}$/i.test(raw);
-  const bareJordanPhone = /^(?:(?:\+?962|00962|0)?7[789]\d{7})$/.test(raw.replace(/[\s-]/g, ""));
-  if (bareTracking) add("provide_fact","application_status",0.995,"none",raw.toUpperCase());
-  else if (bareJordanPhone) add("provide_fact","application_status",0.99,"none",raw);
+  if (mediaKind && !semanticRaw) add("acknowledge","unknown",0.995);
+  const bareTracking = /^AM-\d{8,}$/i.test(semanticRaw);
+  const bareJordanPhone = /^(?:(?:\+?962|00962|0)?7[789]\d{7})$/.test(semanticRaw.replace(/[\s-]/g, ""));
+  if (bareTracking) add("provide_fact","application_status",0.995,"none",semanticRaw.toUpperCase());
+  else if (bareJordanPhone) add("provide_fact","application_status",0.99,"none",semanticRaw);
   if (hasAny(n,["مرحبا","السلام عليكم","هلا","اهلا"])) add("greet","greeting",0.98);
   if (hasAny(n,["شكرا","يسلمو","يعطيك العافيه"])) add("thank","thanks",0.98);
   if (hasAny(n,["ما فهمت","مش فاهم","كيف يعني","وضح","وضحي"])) add("repair_request","repair",0.99);
@@ -92,7 +129,9 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   }
 
   if (hasAny(n,["حاله الطلب","حالة الطلب","شو صار بالطلب","وين طلبي","طلبي شو صار","معلومات الطلب","معلومات طلبي","شو معلومات الطلب","شو معلومات طلبي","تفاصيل الطلب","تفاصيل طلبي","شو تفاصيل الطلب","شو تفاصيل طلبي","بيانات الطلب","بيانات طلبي"])) add("ask","application_status",0.98);
-  if (hasAny(n,["متى الموافقه","متى الموافقة","قديش بتقعد","كم بتقعد","متى بردولي خبر","مدة الدراسه","مدة الدراسة","قديش المراجعه","قديش المراجعة","كم يوم بعد المده","كم يوم بعد المدة","بعد المده المحدده","بعد المدة المحددة","كم يوم زياده","كم يوم زيادة","قديش زياده","قديش زيادة","لايمتا","لامتى"])) add("ask","review_timing",0.98);
+  const reviewTimingConcept = /(?:وقت|مده|مدة|متي|متى|كم|قديش|لايمتا|لامتى)/.test(n)
+    && /(?:مراجعه|مراجعة|دراسه|دراسة|موافقه|موافقة|قرار|نتيجه|نتيجة)/.test(n);
+  if (reviewTimingConcept || hasAny(n,["متى الموافقه","متى الموافقة","قديش بتقعد","كم بتقعد","متى بردولي خبر","مدة الدراسه","مدة الدراسة","قديش المراجعه","قديش المراجعة","كم يوم بعد المده","كم يوم بعد المدة","بعد المده المحدده","بعد المدة المحددة","كم يوم زياده","كم يوم زيادة","قديش زياده","قديش زيادة","لايمتا","لامتى"])) add("ask","review_timing",0.98);
   if (hasAny(n,["ضغط المراجعات","ضغط المراجعه","ضغط شديد","ليش متاخر","ليش متأخر","التاخير","التأخير"])) add("ask","operational_pressure",0.88);
   if (hasAny(n,["وين موقعكم","وين المكتب","موقع الاستلام","العنوان"]) || (/(?:موقع|عنوان)/.test(n) && /(?:شركت|المكتب|الاستلام|عندكم)/.test(n))) add("ask","office_location",0.99);
   if (hasAny(n,["موعد","احجز موعد","حجز موعد","اجي عالمكتب","اروح عالمكتب"])) add("ask","appointment",0.96);
