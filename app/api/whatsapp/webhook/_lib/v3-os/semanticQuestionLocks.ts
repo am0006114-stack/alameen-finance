@@ -46,7 +46,6 @@ export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: 
 export function officeLocationQuestion(turn: InterpretedTurn) {
   const q = n(turn.rawText);
   if (!q) return false;
-  if (turn.topics.includes("office_location")) return true;
   const office = /(?:المكتب|مكتبكم|موقعكم|عنوانكم|الموقع|العنوان)/.test(q);
   const ask = /(?:وين|اين|أين|بدي|اعطيني|أعطيني|ارسل|أرسل|ابعث|ابعت|موقع|عنوان)/.test(q);
   const appointmentContext = /(?:موعد|رنيتوا|اتصلتوا|تواصلتوا|موعد\s+رسمي|مؤكد)/.test(q);

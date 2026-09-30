@@ -48,6 +48,9 @@ export type ResponseObligation =
   | "refund_timing"
   | "refund_process_problem"
   | "fee_question"
+  | "conditional_future_mutation"
+  | "requirements_question"
+  | "contract_terms_question"
   | "product_availability"
   | "pickup_delivery"
   | "post_payment_next_step"
@@ -121,13 +124,18 @@ function hasAuthoritativeMutationResult(actions: ActionResult[]) {
     && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome)));
 }
 
+function conditionalFutureMutationText(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  return /(?:لو|اذا|ادا).{0,70}(?:تاخر|تأخر|طول|طوّل|ما\s+طلع|ما\s+صدر|ما\s+خلص|ما\s+تم).{0,70}(?:بدي|راح|رح|ممكن).{0,24}(?:الغي|الغاء|استرد|استرجع)/.test(q);
+}
+
 function hasCurrentSensitiveMutation(turn: InterpretedTurn) {
   // Never trust a model/planner action label by itself here. Production showed that
-  // informational phrases such as "وين مصاري الإلغاء" can be mislabelled as a
-  // mutation. Only explicit imperative customer language is allowed to become a
-  // mutation obligation; actual executed/confirmation truth is handled separately.
+  // informational and conditional phrases can be mislabelled as a mutation. Only
+  // an unconditional current imperative may own the destructive-action obligation.
   const q = n(turn.rawText);
-  if (!q) return false;
+  if (!q || conditionalFutureMutationText(turn.rawText)) return false;
   const interrogative = /^(?:وين|متى|امتى|ليش|ليه|شو|ايش|كيف|قديش|كم|هل|ممكن|بقدر|اقدر)\b/.test(q);
   if (interrogative) return false;
   const explicitCancel = /^(?:الغي|الغاء|الغوا)\s*(?:الطلب|طلبي|المعامله)?(?:\s+بشكل\s+صريح)?$|^(?:الغاء|إلغاء)\s+بشكل\s+صريح$|(?:بدي|اريد|أريد|حاب).{0,18}(?:الغي|الغاء).{0,22}(?:الطلب|طلبي)/.test(q);
@@ -172,6 +180,24 @@ function genericCurrentQuestionDeflection(reply: string | null | undefined) {
     || /(?:اكتب|احكيلي).{0,28}(?:المطلوب\s+نفسه|النقطه\s+اللي\s+بدك\s+جوابها|شو\s+بدك\s+بالزبط)/.test(q);
 }
 
+function staleMediaCandidateOnTextTurn(turn: InterpretedTurn, reply: string | null | undefined) {
+  if (isMediaEnvelope(turn)) return false;
+  const q = n(reply);
+  if (!q) return false;
+  return /(?:وصلني|وصلتني|وصلت).{0,28}(?:المرفق|الصوره|الصورة|الرساله\s+الصوتيه|الرسالة\s+الصوتية)|(?:المرفق).{0,35}(?:اكتبلي|وضح)/.test(q);
+}
+
+function staleMediaTextTurnRepair(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {
+  const contract = buildCurrentQuestionAnswerContractReply(input);
+  if (contract) return contract;
+  const q = n(input.turn.rawText);
+  if (/(?:ياريت|لو\s+سمحت).{0,28}(?:تبعت|ابعث|ابعت|ترسل|تبعتولي|تبعثولي)/.test(q)) {
+    return "أكيد. إذا ظهر تحديث فعلي وموثّق على طلبك بنبلغك من نفس مسار المتابعة؛ ما رح أعتبر رسالتك مرفق جديد.";
+  }
+  if (pureSocialClosureTurnForArbiter(input.turn)) return buildSocialClosureReplyForArbiter(input.turn);
+  return statusReply({ turn: input.turn, truth: input.truth, state: input.state });
+}
+
 export function responseHasKnownBadFallbackSignature(reply: string | null | undefined) {
   return staleContinuationReply(reply)
     || missingDetailsReply(reply)
@@ -206,7 +232,7 @@ function asksReviewTiming(value: string | null | undefined, turn: InterpretedTur
   const q = n(value);
   if (explicitExpediteRequestTextForArbiter(value)) return true;
   if (turn.topics.includes("review_timing") || turn.topics.includes("operational_pressure")) return true;
-  return /(?:متى|امتى|قديش|كم|تاريخ).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
+  return /(?:متى|امتى|قديش|كم|تاريخ).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:ممكن|بزبط|هل).{0,22}(?:تصدر|تطلع|يطلع).{0,24}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار).{0,24}(?:بنفس|نفس)\s+اليوم|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
 }
 
 function asksRefundMeaning(value: string | null | undefined) {
@@ -217,11 +243,11 @@ function asksRefundMeaning(value: string | null | undefined) {
 function asksRefundTiming(value: string | null | undefined, truth: TruthBundle) {
   const q = n(value);
   const stage = applicationJourneyStage(truth.application);
-  const timingWord = /(?:^|\s)(?:وين|متى|امتى|اميت|قديش|كم)(?:\s|$)/.test(q);
-  const moneyWord = /(?:مصاري|المصاري|المبلغ|الاسترداد|استرداد|الخمس|الخمسه|5|٥)/.test(q);
+  const timingWord = /(?:^|\s)(?:وين|متى|متي|امتى|امتي|اميت|قديش|كم)(?:\s|$)/.test(q);
+  const moneyWord = /(?:مصاري|المصاري|المبلغ|الرسوم|رسوم|الاسترداد|استرداد|الخمس|الخمسه|5|٥)/.test(q);
   const explicit = (timingWord && moneyWord)
-    || /(?:بترجع|برجع|بيرجع|يرجع).{0,30}(?:متى|امتى|اميت|قديش|كم)(?:\s|$)/.test(q)
-    || /^(?:وينهم|اميت|متى|امتى)$/.test(q);
+    || /(?:بترجع|برجع|بيرجع|يرجع).{0,30}(?:متى|متي|امتى|امتي|اميت|قديش|كم)(?:\s|$)/.test(q)
+    || /^(?:وينهم|اميت|متى|متي|امتى|امتي)$/.test(q);
   if (explicit) return true;
   if (stage === "refund_requested" && /^(?:كم|قديش).{0,24}(?:تحتاج|بدها|بدو|بياخد|ياخد|وقت|مده|مدة)|^(?:متى|امتى|لحد\s+متى|الى\s+متى|إلى\s+متى)$/.test(q)) return true;
   return stage === "refund_requested" && /^(?:وينها|وينهم|شو\s+هسا|شو\s+صار|[؟?]+)$/.test(q);
@@ -293,8 +319,10 @@ function asksApplicationStart(value: string | null | undefined) {
 
 function isMediaEnvelope(turn: InterpretedTurn) {
   const q = n(turn.rawText);
-  return turn.topics.includes("receipt_upload")
-    || /تم\s+استلام\s+(?:صوره|صورة|رساله\s+صوتيه|رسالة\s+صوتية|ملف)\s+من\s+العميل/.test(q);
+  // Phase 11.7: media authority belongs only to a literal current-turn transport
+  // envelope. A stale/model topic such as receipt_upload can never make a later
+  // text question look like a new attachment.
+  return /تم\s+استلام\s+(?:صوره|صورة|رساله\s+صوتيه|رسالة\s+صوتية|فيديو|ملف)\s+من\s+العميل/.test(q);
 }
 
 function asksApplicationStatus(turn: InterpretedTurn) {
@@ -345,6 +373,28 @@ function contactIdentityMismatchReply(input: { truth: TruthBundle; state: Conver
   return "إذا عندك رقم التتبع ابعثه مرة واحدة. براجع الطلب وبعطيك معلومات تشغيلية آمنة عنه، وإذا رقم واتسابك مختلف عن رقم الهاتف الأساسي بقدر أعرض عليك اعتماده على نفس الطلب بتأكيد واحد واضح.";
 }
 
+function asksRequirementsQuestion(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (!q) return false;
+  if (/(?:شروط|بنود)\s+العقد/.test(q)) return false;
+  const asks = /(?:شو|ايش|إيش|ما|هل|ايه|إيه).{0,24}(?:شروط|الشروط|المتطلبات|الاوراق|الأوراق)|(?:شو\s+لازم|شو\s+مطلوب).{0,24}(?:للتقديم|للطلب|مني)|(?:هل|بدي|محتاج).{0,24}(?:كفيل|ضامن)|(?:كفيل|الكفيل).{0,24}(?:لازم|مطلوب|ضروري|هل)/.test(q);
+  return asks || (turn.topics.includes("requirements") && /(?:شروط|متطلبات|اوراق|أوراق|كفيل|ضامن|مطلوب|لازم)/.test(q));
+}
+
+function asksContractTermsQuestion(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (!q) return false;
+  return /(?:شو|ايش|إيش|ما).{0,22}(?:شروط\s+العقد|بنود\s+العقد)|(?:شروط\s+العقد|بنود\s+العقد).{0,22}(?:شو|ايش|إيش|ما|كيف)/.test(q);
+}
+
+function requirementsQuestionReply(truth: TruthBundle) {
+  return `${truth.policy.requirementsGuidanceRule} ${truth.policy.secureDocumentsRule}`.replace(/\s+/g, " ").trim();
+}
+
+function contractTermsQuestionReply(truth: TruthBundle) {
+  return `${truth.policy.commercialStructureRule} ${truth.policy.additionalFeesRule} ${truth.policy.firstInstallmentRule} ${truth.policy.requirementsGuidanceRule}`.replace(/\s+/g, " ").trim();
+}
+
 function pastedForeignContent(value: string | null | undefined) {
   const raw = String(value || "");
   if (raw.length < 80) return false;
@@ -361,34 +411,27 @@ export function resolveResponseObligation(input: {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+
   if (currentHumanTurn.kind === "contact_isolation_continuation") return "current_human_turn";
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
-  if (meaningLock.kind !== "none") return meaningLock.kind;
   if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
-  // 7.5.2: exact structured tracking/status messages have absolute semantic priority.
-  // They must never fall into product/payment/continuation branches because of stale context.
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
-  // 7.5.8: the literal human turn can hard-veto legacy state loops. This sits
-  // before generic semantic locks so contextual Arabic such as "مسجل ضمان" is
-  // understood as social-security/income context instead of a trust guarantee.
+
+  // Phase 11.7 precedence: the literal current customer question owns the answer
+  // before journey-stage, media, delivery, or stale commercial context.
   if (currentHumanTurn.kind !== "none") return "current_human_turn";
-  // 7.5.3: direct current-turn semantic questions veto stale domain context.
-  if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
-  // 7.5.5: material questions are obligations first. Emotion may shape the answer,
-  // but it may never replace an answer or erase a second question in the same turn.
   const answerBundle = resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth });
   if (answerBundle.kind !== "none") return "answer_bundle";
-  // Once refund is already open, frustration/timing/solution/repeated refund language is
-  // a customer-care question, not a new mutation request. Execution truth still outranks this above.
+  if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
   if (refundHumanCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "refund_human_care";
+  if (conditionalFutureMutationText(input.turn.rawText)) return "conditional_future_mutation";
   if (hasCurrentSensitiveMutation(input.turn)) return "mutation_truth";
-  // Handle direct acceptance of our immediately previous document-upload explanation offer
-  // before repairContextTurn can merge it with an older customer turn.
+  if (meaningLock.kind !== "none") return meaningLock.kind;
+
   if (asksDocumentUploadGuidance(input.turn, input.state)) return "document_upload_guidance";
   if (asksInstallmentServiceOverview(input.turn.rawText)) return "installment_service_overview";
-  // 7.7.2: a pure current-turn acknowledgement closes socially. Previous
-  // review/payment state may remain in memory but cannot re-author the answer.
   if (pureSocialClosureTurnForArbiter(input.turn)) return "social_closure";
+
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
   if (asksContactChannel(turn.rawText, turn)) return "contact_channel";
@@ -398,6 +441,8 @@ export function resolveResponseObligation(input: {
   if (asksRefundTiming(turn.rawText, input.truth)) return "refund_timing";
   if (asksReviewTiming(turn.rawText, turn)) return "review_timing";
   if (asksRefundMeaning(turn.rawText)) return "refund_meaning";
+  if (asksRequirementsQuestion(turn)) return "requirements_question";
+  if (asksContractTermsQuestion(turn)) return "contract_terms_question";
   if (asksFeeQuestion(turn.rawText)) return "fee_question";
   if (asksProductAvailability(turn.rawText)) return "product_availability";
   if (asksPickupDelivery(turn.rawText)) return "pickup_delivery";
@@ -408,10 +453,8 @@ export function resolveResponseObligation(input: {
   if (buildCurrentQuestionAnswerContractReply({ turn, state: input.state, truth: input.truth })) return "current_question_contract";
   if (aiIdentityQuestionText(turn.rawText)) return "identity";
   if (isMediaEnvelope(turn)) return "media";
-  if (asksApplicationStart(turn.rawText)) return "application_start";
   if (asksApplicationStatus(turn)) return "application_status";
   if (pastedForeignContent(turn.rawText)) return "foreign_content_clarification";
-  // Emotion is a composition layer only after all material current-question obligations.
   if (humanSemanticCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "human_semantic_care";
   return "none";
 }
@@ -601,6 +644,15 @@ function statusReply(input: { turn: InterpretedTurn; truth: TruthBundle; state?:
   return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن: ${customerFacingStatusLabel(app)}.${link ? `\nللمتابعة: ${link}` : ""}`;
 }
 
+function conditionalFutureMutationReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const app = input.truth.application;
+  const status = app ? ` طلبك${app.trackingId ? ` ${app.trackingId}` : ""} يظل على حالته الحالية: ${customerFacingStatusLabel(app)}.` : "";
+  if (/(?:الغي|الغاء|إلغاء)/.test(q)) return `فهمت قصدك: هذا شرط للمستقبل إذا استمر التأخير، مش طلب إلغاء حالي.${status} ما رح أسجل إلغاء من هالرسالة. وإذا قررت الإلغاء فعلًا لاحقًا، احكيها كقرار مباشر وبطلب منك تأكيد مستقل قبل التنفيذ.`;
+  if (/(?:استرد|استرجع|استرداد|استرجاع)/.test(q)) return `فهمت قصدك: هذا شرط للمستقبل، مش طلب استرداد حالي.${status} ما رح أسجل استرداد من هالرسالة. وإذا قررت الاسترداد فعلًا لاحقًا، احكيه كقرار مباشر وبطلب منك تأكيد مستقل قبل التنفيذ.`;
+  return `فهمت إنك بتحكي عن إجراء محتمل بالمستقبل، مش طلب تنفيذ حالي.${status} ما رح أنفذ تغيير من كلام شرطي.`;
+}
+
 function directRepair(input: {
   obligation: ResponseObligation;
   turn: InterpretedTurn;
@@ -646,6 +698,9 @@ function directRepair(input: {
     case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
     case "refund_meaning": return refundMeaningReply(input.truth);
     case "fee_question": return feeQuestionReply({ turn, truth: input.truth });
+    case "conditional_future_mutation": return conditionalFutureMutationReply({ turn, truth: input.truth });
+    case "requirements_question": return requirementsQuestionReply(input.truth);
+    case "contract_terms_question": return contractTermsQuestionReply(input.truth);
     case "product_availability": return productAvailabilityReply({ turn, truth: input.truth });
     case "pickup_delivery": return pickupDeliveryReply({ turn, truth: input.truth });
     case "post_payment_next_step": return postPaymentNextStepReply({ turn, truth: input.truth });
@@ -708,6 +763,9 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "review_timing": return /(?:يومين|3\s+ايام|3\s+أيام|ضغط\s+مراجعات|موعد\s+مؤكد|ما\s+بقدر\s+اعطيك\s+موعد|ما\s+عندي\s+موعد)/.test(q);
     case "refund_meaning": return /(?:ارجاع|إرجاع|يرجع|مبلغ\s+مدفوع|معنى\s+الاسترداد|الاسترداد\s+يعني)/.test(q);
     case "fee_question": return false;
+    case "conditional_future_mutation": return false;
+    case "requirements_question": return false;
+    case "contract_terms_question": return false;
     case "product_availability": return false;
     case "pickup_delivery": return /(?:ما\s+في\s+توصيل|الاستلام\s+من\s+المكتب)/.test(q);
     case "post_payment_next_step": return false;
@@ -716,7 +774,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "application_start": return /products|صفحه\s+المنتجات|صفحة\s+المنتجات|الموقع\s+الرسمي/.test(q);
     case "installment_service_overview": return /(?:التقديم|الموقع\s+الرسمي).{0,90}(?:الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل)|(?:رسوم\s+فتح\s+الملف).{0,60}(?:5|٥)/.test(q);
     case "document_upload_guidance": return /(?:الرابط\s+الرسمي|المسار\s+الرسمي).{0,70}(?:الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل|المستندات)/.test(q) && !staleContinuationReply(raw);
-    case "current_question_contract": return !staleContinuationReply(raw) && !missingDetailsReply(raw);
+    case "current_question_contract": return false;
     case "identity": return /(?:فريق\s+الامين|فريق\s+الأمين|معك\s+\S+)/.test(q) && !missingDetailsReply(raw);
     case "media": return /(?:وصلت|وصلني|المرفق|الصوره|الصورة|الصوتيه|الصوتية)/.test(q) && !missingDetailsReply(raw);
     case "application_status": return /(?:حاله|حالة|قيد|موافقه|موافقة|ملغي|استرداد|مراجعه|مراجعة)/.test(q) && !staleContinuationReply(raw);
@@ -771,7 +829,11 @@ export function arbitrateProductionReply(input: {
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: "authoritative payment/receipt truth lock" };
   }
 
-  if (meaningLock.kind !== "none" && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
+  const currentQuestionFirst = new Set<ResponseObligation>([
+    "current_human_turn", "answer_bundle", "refund_human_care", "refund_timing", "refund_process_problem",
+    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",
+  ]);
+  if (meaningLock.kind !== "none" && !currentQuestionFirst.has(obligation) && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
     const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `current meaning lock repaired cross-domain candidate: ${meaningLock.reason}` };
   }
@@ -815,6 +877,10 @@ export function arbitrateProductionReply(input: {
     }
     const closure = buildSocialClosureReplyForArbiter(input.turn);
     return { reply: sanitizeUnifiedEgressReply(closure), obligation, repaired: closure !== candidate, reason: "fresh-turn social closure vetoed stale previous-topic answer" };
+  }
+  if (staleMediaCandidateOnTextTurn(input.turn, candidate)) {
+    const repair = staleMediaTextTurnRepair({ turn: input.turn, state: input.state, truth: input.truth });
+    return { reply: sanitizeUnifiedEgressReply(repair), obligation, repaired: repair !== candidate, reason: "stale media authority removed from non-media current turn" };
   }
   if (obligation === "none") {
     return { reply: candidate, obligation, repaired: false, reason: "no higher-priority current-answer obligation detected" };

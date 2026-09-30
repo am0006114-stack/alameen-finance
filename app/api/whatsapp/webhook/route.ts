@@ -10686,7 +10686,11 @@ async function readCanonicalIncomingBurst(input: {
   const maxGapMs = input.maxGapMs ?? 18_000;
   const since = new Date(Date.now() - lookbackSeconds * 1000).toISOString();
 
-  const [{ data: loggedData, error: loggedError }, { data: ingressData, error: ingressError }] = await Promise.all([
+  const [
+    { data: loggedData, error: loggedError },
+    { data: ingressData, error: ingressError },
+    { data: outgoingData, error: outgoingError },
+  ] = await Promise.all([
     supabaseAdmin
       .from("whatsapp_messages")
       .select("id,message_id,body,created_at,message_type,raw_payload")
@@ -10703,6 +10707,14 @@ async function readCanonicalIncomingBurst(input: {
       .gte("created_at", since)
       .order("created_at", { ascending: true })
       .limit(80),
+    supabaseAdmin
+      .from("whatsapp_messages")
+      .select("raw_payload,created_at")
+      .eq("wa_id", input.waId)
+      .eq("direction", "outgoing")
+      .gte("created_at", since)
+      .order("created_at", { ascending: true })
+      .limit(80),
   ]);
 
   if (loggedError) throw loggedError;
@@ -10713,10 +10725,33 @@ async function readCanonicalIncomingBurst(input: {
     console.error("durable ingress burst authority read failed:", ingressError);
   }
 
+  if (outgoingError) {
+    console.error("canonical burst outgoing ownership read failed:", outgoingError);
+  }
+
+  // Phase 11.7 canonical turn closure: an inbound bubble is considered answered
+  // only when a delivered outgoing row explicitly links back to that inbound/burst.
+  // This removes the arbitrary 18-second split for still-unanswered customer
+  // bubbles while preventing a previous answered burst from contaminating the next.
+  const answeredIncomingMessageIds = new Set<string>();
+  if (!outgoingError) {
+    for (const row of (outgoingData || []) as any[]) {
+      const raw = row?.raw_payload || {};
+      const one = String(raw?.source_incoming_message_id || "").trim();
+      if (one) answeredIncomingMessageIds.add(one);
+      const many = Array.isArray(raw?.source_burst_message_ids) ? raw.source_burst_message_ids : [];
+      for (const id of many) {
+        const clean = String(id || "").trim();
+        if (clean) answeredIncomingMessageIds.add(clean);
+      }
+    }
+  }
+
   const rowsByMessageId = new Map<string, IncomingBurstRow>();
   const anonymousRows: IncomingBurstRow[] = [];
   for (const row of (loggedData || []) as IncomingBurstRow[]) {
     const id = String(row.message_id || "").trim();
+    if (id && answeredIncomingMessageIds.has(id)) continue;
     if (id) rowsByMessageId.set(id, { ...row });
     else anonymousRows.push(row);
   }
@@ -10728,7 +10763,7 @@ async function readCanonicalIncomingBurst(input: {
       for (const change of entry.changes || []) {
         for (const message of change.value?.messages || []) {
           const id = String(job?.incoming_message_id || message.id || "").trim();
-          if (!id) continue;
+          if (!id || answeredIncomingMessageIds.has(id)) continue;
           const extracted = extractIncomingMessageForProcessing(message);
           const ingressRow: IncomingBurstRow & { authority_received_at?: string | null } = {
             id: String(job?.id || "") || null,
@@ -10758,10 +10793,11 @@ async function readCanonicalIncomingBurst(input: {
     }
   }
 
+  const unansweredTurnGapMs = outgoingError ? maxGapMs : Math.max(maxGapMs, lookbackSeconds * 1000);
   const burst = selectCanonicalConversationBurst([
     ...anonymousRows,
     ...Array.from(rowsByMessageId.values()),
-  ] as any[], maxGapMs);
+  ] as any[], unansweredTurnGapMs);
 
   return {
     ...burst,

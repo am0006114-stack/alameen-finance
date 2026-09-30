@@ -1,5 +1,6 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
+import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { normalizeArabic } from "./text";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
@@ -14,21 +15,22 @@ function n(value: string | null | undefined) {
 
 function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const q = n(turn.rawText);
-  const requirements = /(?:الاوراق|الأوراق|المستندات|الوثائق|الشروط|المتطلبات|اثبات\s+الدخل|إثبات\s+الدخل)/.test(q);
+  const requirements = /(?:الاوراق|الأوراق|المستندات|الوثائق|شروط|الشروط|المتطلبات|اثبات\s+الدخل|إثبات\s+الدخل)/.test(q);
   const guarantor = /(?:كفيل|الكفيل)/.test(q);
   const multipleDevices = /(?:تلفونين|هاتفين|جهازين|2\s*جهاز|٢\s*جهاز|اخد\s*2|اخد\s*٢|آخذ\s*2|آخذ\s*٢)/.test(q);
   const interest = /(?:الفائده|الفائدة|فايده|فائدة|مرابحه|مرابحة|نسبه\s+الربح|نسبة\s+الربح)/.test(q);
   const downPayment = /(?:دفعه|دفعة).{0,12}(?:اولي|اولى|أولى)|(?:بدون|في|هل).{0,18}(?:دفعه|دفعة).{0,10}(?:اولي|اولى|أولى)/.test(q);
-  const officeLocation = turn.topics.includes("office_location") || /(?:وين|اين|أين).{0,24}(?:موقعكم|المكتب|المحل|العنوان)|(?:موقعكم|المكتب|المحل).{0,18}(?:وين|بالزبط|بالضبط)/.test(q);
+  const feePaymentMethod = /(?:كيف|وين|اين|أين).{0,26}(?:تستلمو|تستلموا|استلام|ادفع|أدفع|احول|أحول|تحويل).{0,26}(?:الرسوم|5|٥|الخمس|الخمسه)?|(?:الرسوم|5|٥|الخمس|الخمسه).{0,26}(?:كيف|وين|احول|أحول|ادفع|أدفع)/.test(q);
+  const officeLocation = /(?:وين|اين|أين).{0,24}(?:موقعكم|المكتب|المحل|العنوان|الشركه|الشركة)|(?:موقعكم|المكتب|المحل|الشركه|الشركة).{0,18}(?:وين|بالزبط|بالضبط)/.test(q);
   const monthlyTarget = /(?:ادفع|أدفع|قسط|القسط).{0,24}(?:كل\s+شهر|شهري|بالشهر).{0,18}(?:\d+|[٠-٩]+)\s*(?:دينار)?|(?:\d+|[٠-٩]+)\s*(?:دينار)?\s*(?:كل\s+شهر|بالشهر|شهريا|شهريًا)/.test(q);
   const installmentDuration = turn.topics.includes("installment_duration") || /(?:على|خلال|مده|مدة).{0,15}(?:ست|6|٦|سبع|7|٧|اثنا\s+عشر|12|١٢|\d+|[٠-٩]+)\s*(?:اشهر|أشهر|شهر)|(?:ست|6|٦)\s*(?:اشهر|أشهر).{0,16}(?:او\s+اقل|أو\s+أقل)/.test(q);
   const priceChange = turn.topics.includes("product_price") || /(?:سعر\s+الجهاز|السعر).{0,28}(?:يختلف|يتغير|بتغير|بختلف|نفسه)|(?:يختلف|يتغير|بتغير|بختلف).{0,28}(?:سعر\s+الجهاز|السعر)/.test(q);
   const applicationStatus = Boolean(truth.application) && (turn.topics.includes("application_status") || /(?:شو|ايش|اش).{0,18}(?:صار|وضع|حاله|حالة).{0,18}(?:طلبي|الطلب)|(?:حاله|حالة)\s+(?:الطلب|طلبي)/.test(q));
-  const reviewTiming = /(?:متى|امتى|قديش|كم|اليوم|بكرا|السبت).{0,32}(?:قرار|موافقه|الموافقة|يخلص|جاهز|وقت)|(?:تاخرتو|تأخرتوا|طولتوا|صارلي|صارله|مر\s+\d+\s+ايام|[٤4]\s+ايام)/.test(q);
+  const reviewTiming = /(?:متى|امتى|قديش|كم|اليوم|بكرا|السبت).{0,32}(?:قرار|موافقه|الموافقة|يخلص|جاهز|وقت)|(?:ممكن|بزبط|هل).{0,22}(?:تصدر|تطلع|يطلع).{0,24}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار).{0,24}(?:بنفس|نفس)\s+اليوم|(?:تاخرتو|تأخرتوا|طولتوا|صارلي|صارله|مر\s+\d+\s+ايام|[٤4]\s+ايام)/.test(q);
   const applicationStart = /(?:كيف|وين|من\s+وين).{0,28}(?:اقدم|أقدم|ارفع\s+طلبي|أرفع\s+طلبي|اعمل\s+طلب|أعمل\s+طلب)|(?:ما\s+قدمت|لسا\s+ما\s+قدمت).{0,30}(?:كيف|وين|التقديم)|(?:رابط).{0,18}(?:التقديم|قدم\s+طلب)/.test(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, officeLocation, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, applicationStart, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, officeLocation, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, applicationStart, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -90,6 +92,26 @@ function downPaymentPart(truth: TruthBundle) {
   return `ما في دفعة أولى على الجهاز. ${truth.policy.firstInstallmentRule} ورسوم فتح الملف ${truth.policy.fileOpeningFeeJod || 5} دنانير خطوة منفصلة بعد الموافقة المبدئية واختيار الاستمرار، ومش دفعة أولى.`;
 }
 
+function feePaymentMethodPart(turn: InterpretedTurn, truth: TruthBundle) {
+  const stage = applicationJourneyStage(truth.application);
+  const fee = truth.policy.fileOpeningFeeJod || 5;
+  if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) {
+    return "خطوة دفع رسوم فتح الملف موجودة أصلًا على طلبك، فما تدفعها مرة ثانية. إذا الوصل بانتظار الإدارة انتظر الاعتماد، وإذا الدفع مؤكد فما في عليك خطوة مالية جديدة الآن.";
+  }
+  if (stage === "preliminary_approved_waiting_decision") {
+    return `رسوم فتح الملف ${fee} دنانير، وبيانات التحويل الرسمية بنعطيك إياها بعد ما تختار الاستمرار بشكل واضح؛ ما بنطلب تحويل قبلها.`;
+  }
+  if (stage === "continuation_confirmed_fee_due") {
+    const links = buildOfficialLinkContext({ ...turn, topics: Array.from(new Set([...turn.topics, "payment_fee", "payment_method", "receipt_upload"])) as InterpretedTurn["topics"] }, truth);
+    const receipt = links.relevant.receipt;
+    return `رسوم فتح الملف ${fee} دنانير، واستلامها فقط عبر قنوات الدفع الرسمية التالية:
+${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `
+بعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:
+${receipt}` : ""}`;
+  }
+  return `رسوم فتح الملف ${fee} دنانير بتصير فقط بعد الموافقة المبدئية واختيار الاستمرار، ووقتها بنعطيك قنوات الدفع الرسمية من نفس المحادثة.`;
+}
+
 function officeLocationPart(truth: TruthBundle) {
   return `${truth.policy.generalLocation}. الحضور للمكتب بموعد رسمي مؤكد فقط، مش زيارة مفتوحة.`;
 }
@@ -138,6 +160,7 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.multipleDevices) parts.push(multipleDevicesPart());
   if (f.interest) parts.push(interestPart(input.truth));
   if (f.downPayment) parts.push(downPaymentPart(input.truth));
+  if (f.feePaymentMethod) parts.push(feePaymentMethodPart(input.turn, input.truth));
   if (f.monthlyTarget) parts.push(monthlyTargetPart(input.truth));
   if (f.installmentDuration) parts.push(installmentDurationPart(input.truth));
   if (f.priceChange) parts.push(priceChangePart());

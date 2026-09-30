@@ -143,6 +143,14 @@ function officeGroundedReply(truth: TruthBundle) {
   return `${truth.policy.generalLocation}. الحضور للمكتب بموعد رسمي مؤكد فقط، لأن المكتب مش نقطة استقبال مفتوحة ولازم يكون الجهاز والملف والعقد وإجراءات الاستلام جاهزة قبل حضورك حتى ما تيجي بدون تنسيق.`;
 }
 
+function explicitDeliveryOrPickupQuestionText(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q) return false;
+  if (/(?:توصيل|دليفري|باب\s+البيت)/.test(q)) return true;
+  if (/(?:كيف|وين|اين|أين).{0,22}(?:التسليم|الاستلام|استلم|استلام)|(?:التسليم|الاستلام).{0,22}(?:كيف|وين|مكتب|البيت)/.test(q)) return true;
+  return false;
+}
+
 function deliveryGroundedReply(input: { truth: TruthBundle; customerText: string }) {
   const iphone18 = buildIphone18AuthoritativeReply(input.customerText);
   if (iphone18) return iphone18;
@@ -209,7 +217,7 @@ function deterministicFallback(input: { turn: InterpretedTurn; truth: TruthBundl
   if (topics.has("payment_fee")) return `رسوم فتح الملف ${input.truth.policy.fileOpeningFeeJod} دنانير وبتدخل بعد الموافقة المبدئية إذا اخترت تكمل للدراسة النهائية. هي منفصلة عن ثمن الجهاز والقسط الأول، وما بتضمن الموافقة؛ هدفها تنظيم مرحلة الدراسة النهائية وقياس جدية الاستمرار، ولها مسار استرداد حسب سياسة الطلب.`;
   if (stage === "preliminary_approved_waiting_decision" && topics.has("continuation")) return buildInformedCommercialDisclosureReply(input.truth);
   if (topics.has("office_location")) return officeGroundedReply(input.truth);
-  if (topics.has("delivery")) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
+  if (topics.has("delivery") && explicitDeliveryOrPickupQuestionText(input.customerText)) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
   if (topics.has("requirements")) return `${input.truth.policy.requirementsGuidanceRule} ${input.truth.policy.secureDocumentsRule}`;
   if (topics.has("call_request") || topics.has("human_request") || topics.has("manager_request")) return "التواصل الرسمي والمتابعة متاحين هون على نفس واتساب. ما رح أوعدك بمكالمة أو تحويل لموظف إذا ما في تنفيذ فعلي مثبت، لكن احكيلي المطلوب وبكمل معك من نفس السياق.";
   if (topics.has("thanks")) return "العفو، بأي وقت.";
@@ -244,7 +252,7 @@ function repairReplyForSafety(input: {
     return buildPostDisclosurePaymentReply(input.truth, applicationReceiptUrl(input.truth));
   }
   if (reasons.some((reason) => reason === "missed_known_office_location" || reason.startsWith("office_location_missing_"))) return officeGroundedReply(input.truth);
-  if (reasons.some((reason) => reason.startsWith("delivery_") || reason === "grounding:iphone18_pickup_rule_missing")) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
+  if (reasons.some((reason) => reason.startsWith("delivery_") || reason === "grounding:iphone18_pickup_rule_missing") && explicitDeliveryOrPickupQuestionText(input.customerText)) return deliveryGroundedReply({ truth: input.truth, customerText: input.customerText });
   if (reasons.some((reason) => reason === "grounding:iphone18_region_missing")) return buildIphone18AuthoritativeReply(input.customerText) || deterministicFallback({ turn: input.turn, truth: input.truth, customerText: input.customerText });
   if (reasons.includes("unsupported_future_admin_or_contact_claim") || reasons.includes("unsupported_future_operational_promise")) {
     return "ما رح أوعدك بمكالمة أو تواصل من موظف إذا ما في إجراء فعلي مثبت. نقدر نكمل المتابعة هون على نفس واتساب، وإذا في إجراء حقيقي بصير بنحكي عنه بعد ما يثبت بالنظام.";

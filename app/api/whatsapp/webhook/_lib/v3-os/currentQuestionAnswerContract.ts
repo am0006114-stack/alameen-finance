@@ -60,6 +60,15 @@ export function conciseStatusQuestion(turn: InterpretedTurn) {
   return false;
 }
 
+export function receiptFollowupQuestion(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (!q || hasSensitiveMutation(turn)) return false;
+  if (/رفعت.{0,30}(?:وصل|اثبات\s+الدفع|إثبات\s+الدفع)|(?:دفعت|حولت|حوّلت).{0,35}(?:بعثت|ارسلت|أرسلت|رفعت).{0,35}(?:وصل|رساله|رسالة|اثبات|إثبات)/.test(q)) return true;
+  if (/^(?:هسا|هلا|هلأ|الان|الآن)?\s*(?:استنى|انتظر)\s*(?:بس|هسا|الان|الآن)?$/.test(q)) return true;
+  if (/^(?:شو|ايش|إيش)\s+(?:اعمل|أعمل)\s+(?:هسا|الان|الآن)(?:\s+كمان)?$/.test(q)) return true;
+  return turn.topics.includes("receipt_upload") && /(?:هسا|الان|الآن|بعد|استنى|انتظر|شو\s+اعمل|دفعت|رفعت)/.test(q);
+}
+
 export function mediaEnvelopeTurn(turn: InterpretedTurn) {
   const raw = String(turn.rawText || "");
   const q = n(raw);
@@ -184,6 +193,7 @@ export function buildCurrentQuestionAnswerContractReply(input: {
   if (hasSensitiveMutation(input.turn)) return null;
   const media = mediaReply(input.turn, input.truth);
   if (media) return media;
+  if (receiptFollowupQuestion(input.turn)) return progressReply(input.turn, input.truth);
   if (directPaymentExecutionQuestion(input.turn)) return paymentNowReply(input.turn, input.truth);
   if (postContinuationProgressQuestion(input.turn)) return progressReply(input.turn, input.truth);
   if (directNextStepQuestion(input.turn)) return progressReply(input.turn, input.truth);
@@ -206,6 +216,7 @@ export function replyViolatesCurrentQuestionAnswerContract(input: {
     if (continuationBoilerplate || missingDetails) return true;
     if (stage === "continuation_confirmed_fee_due" && !/(?:5|٥|رسوم\s+فتح\s+الملف|الدفع\s+مؤكد|وصل\s+الدفع)/.test(reply)) return true;
   }
+  if (receiptFollowupQuestion(input.turn) && (continuationBoilerplate || missingDetails || /وصلني\s+المرفق/.test(reply))) return true;
   if (postContinuationProgressQuestion(input.turn) && (continuationBoilerplate || missingDetails)) return true;
   if (directNextStepQuestion(input.turn) && (continuationBoilerplate || missingDetails)) return true;
   if (conciseStatusQuestion(input.turn) && (continuationBoilerplate || missingDetails)) return true;
