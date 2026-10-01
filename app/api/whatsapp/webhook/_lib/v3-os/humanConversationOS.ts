@@ -11,7 +11,7 @@ import { scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampAct
 import { enforceMutationConfirmationGate } from "./mutationConfirmationGate";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
-import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, resemblesFullCommercialDisclosure, resemblesPostDisclosurePaymentReply, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { explicitContinuationText } from "./conversationRecovery";
 import { validateNativeConversationReply } from "./nativeConversationKernel";
 import { loadCompactHumanMemory, nextCompactHumanMemory, type CompactHumanMemory } from "./compactHumanMemory";
@@ -1165,6 +1165,17 @@ export async function runHumanConversationOS(input: {
     actions: actionResults,
   });
   reply = arbitration.reply;
+
+  // Phase 11.7.1: commercial consent state follows the reply that actually wins
+  // final egress arbitration. A correct payment/disclosure repair must persist its
+  // state even when an earlier brain/journey candidate was stale or cross-domain.
+  if (reply && resemblesFullCommercialDisclosure(reply) && !commercialDisclosureDelivered(reduced, truthAfterActions)) {
+    reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
+  }
+  if (reply && resemblesPostDisclosurePaymentReply(reply)) {
+    reduced = markCommercialDisclosureAcknowledged(reduced, truthAfterActions, turn.turnId);
+  }
+
   if (gate.confirmationPrompt && arbitration.obligation !== "mutation_truth" && reply !== gate.confirmationPrompt) {
     reduced = { ...reduced, pendingAction: null, pendingActionPayload: null };
   }

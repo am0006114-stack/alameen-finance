@@ -10,6 +10,7 @@ export type CurrentHumanTurnKind =
   | "verified_contact_alias_linked"
   | "verified_contact_alias_conflict"
   | "direct_call_request"
+  | "whatsapp_link_routing_issue"
   | "long_delay_anomaly"
   | "social_security_income"
   | "website_upload_error"
@@ -104,7 +105,12 @@ function fiveJodConcern(q: string, currentStage: string) {
 }
 
 function openHumanPrompt(q: string) {
-  return /^(?:عارف|بتعرف)\s+شو\s+(?:نفسي|بدي)(?:\s+اعمل|\s+أعمل)?$|^(?:بسالك|بسألك)\s+جاوبني$/.test(q);
+  return /^(?:عارف|بتعرف)\s+شو\s+(?:نفسي|بدي)(?:\s+اعمل|\s+أعمل)?$|^(?:بسالك|بسألك)\s+جاوبني$|^(?:ممكن|بدي|عندي)\s+(?:سؤال|سوال)(?:\s+لو\s+سمحت)?$|^(?:سؤال|سوال)\s+(?:لو\s+سمحت|بس)$/.test(q);
+}
+
+function whatsappLinkRoutingIssue(q: string) {
+  return /(?:رابط\s+الواتس|رابط\s+الواتساب|الواتس\s+بضل|الواتساب\s+بضل).{0,70}(?:الرقم\s+الثاني|رقم\s+ثاني|هاد\s+الرقم|هذا\s+الرقم|يحولني|بحولني)/.test(q)
+    || /(?:بضغط|اضغط|أضغط).{0,24}(?:رابط).{0,24}(?:واتس|واتساب).{0,60}(?:يحولني|بحولني|الرقم\s+الثاني)/.test(q);
 }
 
 function meetingRequest(q: string) {
@@ -132,6 +138,7 @@ export function resolveCurrentHumanTurnAuthority(input: { turn: InterpretedTurn;
   if (contactEvent?.key === "verified_alternate_contact_linked") return { kind: "verified_contact_alias_linked", hard: true, reason: "registered application sender explicitly verified an alternate WhatsApp identity; acknowledge the real identity-state change without claiming application data changed" };
   if (contactEvent?.key === "verified_alternate_contact_conflict") return { kind: "verified_contact_alias_conflict", hard: true, reason: "requested alternate WhatsApp identity conflicts with an existing verified binding; do not overwrite automatically" };
   if (contactIsolationContinuation(q, input.state)) return { kind: "contact_isolation_continuation", hard: true, reason: "customer is explaining a legitimate phone/channel mismatch after contact-isolation guard; continue the conversation without disclosing the foreign application" };
+  if (whatsappLinkRoutingIssue(q)) return { kind: "whatsapp_link_routing_issue", hard: true, reason: "customer is reporting that a WhatsApp link opens the wrong number; this is a routing/link question, not a request for a human call" };
   if (directCallRequest(input.turn)) return { kind: "direct_call_request", hard: true, reason: "explicit current-turn call/contact request outranks refund/delay state" };
   if (websiteUploadError(q)) return { kind: "website_upload_error", hard: true, reason: "customer supplied a concrete website/upload error" };
   if (socialSecurityIncome(q)) return { kind: "social_security_income", hard: true, reason: "income + social-security context; ضمان means social security, not trust guarantee" };
@@ -178,6 +185,8 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
     }
     case "direct_call_request":
       return `فاهم إنك بدك نحكي باتصال عشان توضح الصورة. المتابعة الرسمية للطلبات من نفس واتساب، وما عندي مكالمة فعلية أرتبها من هون. احكيلي النقطة اللي بدك تفهمها وأنا معك فيها مباشرة.`;
+    case "whatsapp_link_routing_issue":
+      return `فهمت المشكلة: رابط واتساب عم يفتح لك الرقم الثاني بدل الرقم اللي بدك تستخدمه. ما رح أعتبر هذا طلب تغيير لبيانات المعاملة ولا طلب موظف. كمل معي من رقم واتساب الحالي، وإذا بدك تعتمد هذا الرقم كرقم متابعة تابع لنفس الطلب بنعملها فقط بعد ربط موثوق وتأكيد واضح منك.`;
     case "website_upload_error":
       return `واضح من الرسالة إن الملف أكبر من الحجم اللي الموقع قدر يعالجه. لا تبعث الهوية أو كشف الحساب على واتساب؛ صغّر حجم الملف أو حوّله لملف/صورة أخف، وبعدها ارفعه من الرابط الرسمي الآمن نفسه. إذا ظل الخطأ بعد تصغيره، اكتبلي نوع الملف وحجمه وبمشي معك بالحل.`;
     case "social_security_income":
@@ -198,8 +207,11 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
       if (currentStage === "refund_completed") return `الخمس دنانير كانت رسوم فتح الملف، وحسب الحالة الحالية الاسترداد مكتمل بالنظام.`;
       return `لا، الخمس دنانير مش «راحت عليك». هي رسوم فتح الملف بعد الموافقة المبدئية واختيار الاستمرار، وهي منفصلة عن ثمن الجهاز والقسط الأول. إذا قررت تلغي بعد دفع مؤكد، إلها مسار استرداد رسمي؛ وحالة طلبك الحالية هي اللي بتحدد الخطوة التالية.`;
     }
-    case "open_human_prompt":
+    case "open_human_prompt": {
+      const q = n(input.turn.rawText);
+      if (/(?:سؤال|سوال)/.test(q)) return `أكيد، تفضل شو سؤالك؟`;
       return `احكيلي 😄 شو نفسك تعمل؟`;
+    }
     case "meeting_request":
       return `هههه وصلت 😄 خلينا نحكي هون أحسن؛ احكيلي شو بدك مني وأنا معك.`;
     case "personal_question":
@@ -225,12 +237,13 @@ export function currentHumanTurnCandidateAligned(input: { authority: CurrentHuma
     case "verified_contact_alias_conflict": return /(?:تعارض|مراجعه\s+اداريه|مراجعة\s+إدارية)/.test(q) && /(?:ما\s+رح|لم\s+يتم|ما\s+عملت).{0,30}(?:ربط|تغيير)/.test(q);
     case "contact_isolation_continuation": return /(?:لقيت\s+الطلب|رقم\s+واتساب|الواتساب\s+الحالي|اعتماد|الإدارة|الاداره)/.test(q) && !/(?:تم\s+تغيير\s+رقم\s+الهاتف|تم\s+اعتماد).{0,20}(?:بدون|تلقائ)/.test(q);
     case "direct_call_request": return /(?:اتصال|مكالمه|مكالمة|واتساب).{0,80}(?:ما\s+عندي|المتابعه|المتابعة|احكيلي)/.test(q);
+    case "whatsapp_link_routing_issue": return /(?:رابط|واتساب|الرقم).{0,120}(?:رقم\s+المتابعه|رقم\s+المتابعة|نفس\s+الطلب|الرقم\s+الحالي|ما\s+رح\s+اعتبر)/.test(q) && !/(?:موظف|مكالمة|اتصال)/.test(q);
     case "website_upload_error": return /(?:حجم|كبير).{0,70}(?:الملف|صغر|صغ ر|ارفع|الرابط\s+الرسمي)/.test(q) && !/شارع\s+المدينه|شارع\s+المدينة/.test(q);
     case "social_security_income": return /(?:راتب|البنك|الضمان).{0,120}(?:الدراسه|الدراسة|الدخل|الموافقه|الموافقة)/.test(q) && !/(?:الضمان\s+العملي|ثق\s+بكلام)/.test(q);
     case "long_delay_anomaly": return /(?:المده|المدة).{0,100}(?:متجاوز|تجاوز)|(?:متجاوز|تجاوز).{0,100}(?:المعدل|المراجعه|المراجعة)|(?:مش\s+رح\s+اتعامل|مش\s+رح\s+أتعامل).{0,90}(?:انتظار\s+عادي|يومين|3\s+ايام|3\s+أيام)/.test(q);
     case "explicit_no_repeat": return /(?:ما\s+رح\s+اعيد|ما\s+رح\s+أعيد|بدون\s+تكرار|مش\s+رح\s+اكرر|مش\s+رح\s+أكرر)/.test(q);
     case "five_jod_concern": return /(?:5|٥|الخمس|الخمسه|خمسه|خمسة).{0,100}(?:مش\s+ضايعه|مش\s+ضايعة|رسوم\s+فتح\s+الملف|استرداد)/.test(q);
-    case "open_human_prompt": return /(?:احكيلي|قول|شو\s+نفسك)/.test(q) && !/(?:طلبك\s+ملغي|الاسترداد\s+مسجل)/.test(q);
+    case "open_human_prompt": return /(?:احكيلي|قول|شو\s+نفسك|تفضل\s+شو\s+(?:سؤالك|سوالك))/.test(q) && !/(?:طلبك\s+ملغي|الاسترداد\s+مسجل)/.test(q);
     case "meeting_request": return /(?:خلينا\s+نحكي\s+هون|احكيلي\s+هون|أنا\s+معك|انا\s+معك)/.test(q) && !/(?:طلبك\s+ملغي|الاسترداد\s+مسجل)/.test(q);
     case "personal_question": return /(?:دخلنا\s+بالشخصي|خلينا\s+عليك|شو\s+حاب)/.test(q) && !/(?:طلبك\s+ملغي|الاسترداد\s+مسجل)/.test(q);
     default: return true;

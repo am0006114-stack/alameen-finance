@@ -30,7 +30,7 @@ function stopRefundWords(q: string) {
 }
 
 function reopenWords(q: string) {
-  return /(?:اعاده|اعيد|ارجع|رجع|استينف|استانف|افتح|فك).{0,34}(?:الطلب|الملف|الالغاء)|(?:الغاء|الغي).{0,18}(?:طلب\s+)?(?:الالغاء)|(?:بطلت|تراجعت).{0,22}(?:الغي|الالغاء)|(?:بدي|حاب).{0,24}(?:ارجع\s+)?(?:اكمل|استمر).{0,24}(?:الطلب|الجهاز)/.test(q);
+  return /(?:اعاده|اعيد|ارجع|رجع|استينف|استانف|افتح|فك|تفعيل|فعّل|فعل).{0,34}(?:الطلب|الملف|الالغاء)|(?:اعاده|اعيد).{0,18}(?:تفعيل|فتح).{0,24}(?:الطلب|المعامله|المعاملة)?|(?:تفعيل).{0,24}(?:الطلب|المعامله|المعاملة)|(?:الغاء|الغي).{0,18}(?:طلب\s+)?(?:الالغاء)|(?:بطلت|تراجعت).{0,22}(?:الغي|الالغاء)|(?:بدي|حاب).{0,24}(?:ارجع\s+)?(?:اكمل|استمر).{0,24}(?:الطلب|الجهاز)/.test(q);
 }
 
 function actionWords(action: ActionKey, q: string) {
@@ -115,6 +115,18 @@ function bareAffirmative(value: string | null | undefined) {
   return /^(?:نعم|اه|أه|ايوه|أيوه|اكيد|أكيد|موافق)$/.test(q);
 }
 
+
+function contextualReopenOpenLoopConfirmation(input: { value: string | null | undefined; state: ConversationState; truth: TruthBundle }) {
+  if (!bareAffirmative(input.value)) return false;
+  if (!input.truth.application) return false;
+  if (input.state.pendingAction !== "reopen_application") return false;
+  if (!lastAssistantAskedForConfirmation(input.state, "reopen_application")) return false;
+  const payload = input.state.pendingActionPayload || {};
+  if (payload._scopeApplicationId && payload._scopeApplicationId !== input.truth.application.id) return false;
+  if (payload._scopeTrackingId && payload._scopeTrackingId !== input.truth.application.trackingId) return false;
+  if (payload._scopeWaId && payload._scopeWaId !== input.state.waId) return false;
+  return true;
+}
 function contextualAliasOpenLoopConfirmation(input: { value: string | null | undefined; state: ConversationState; truth: TruthBundle }) {
   if (!bareAffirmative(input.value)) return false;
   if (!input.truth.application) return false;
@@ -290,12 +302,15 @@ export function enforceMutationConfirmationGate(input: {
 
   const q = normalized(input.turn.rawText);
   const aliasOpenLoopConfirmation = contextualAliasOpenLoopConfirmation({ value: input.turn.rawText, state: input.state, truth: input.truth });
+  const reopenOpenLoopConfirmation = contextualReopenOpenLoopConfirmation({ value: input.turn.rawText, state: input.state, truth: input.truth });
   const explicitConfirmationFromLastPrompt = aliasOpenLoopConfirmation
     ? "link_whatsapp_alias" as ActionKey
-    : Array.from(REAL_MUTATIONS).find((action) =>
-        lastAssistantAskedForConfirmation(input.state, action)
-        && explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state })
-      ) || null;
+    : reopenOpenLoopConfirmation
+      ? "reopen_application" as ActionKey
+      : Array.from(REAL_MUTATIONS).find((action) =>
+          lastAssistantAskedForConfirmation(input.state, action)
+          && explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state })
+        ) || null;
 
   // If the runtime/state reducer failed to persist the pending confirmation token but
   // the immediately previous assistant message asked for this exact confirmation, the
@@ -330,7 +345,8 @@ export function enforceMutationConfirmationGate(input: {
 
   if (pending && !clearPendingConfirmation && pendingScopeMatchesTruth(input.state, input.truth)
       && (explicitMutationConfirmation({ action: pending, value: input.turn.rawText, state: input.state })
-        || (pending === "link_whatsapp_alias" && aliasOpenLoopConfirmation))) {
+        || (pending === "link_whatsapp_alias" && aliasOpenLoopConfirmation)
+        || (pending === "reopen_application" && reopenOpenLoopConfirmation))) {
     confirmedAction = pending;
   } else if (recoverableConfirmation) {
     confirmedAction = recoverableConfirmation;

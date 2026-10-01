@@ -141,9 +141,18 @@ export function resemblesFullCommercialDisclosure(value: string | null | undefin
   const q = normalizeArabic(String(value || ""));
   return /رسوم\s+فتح\s+ملف/.test(q)
     && /(?:مش|ليست).{0,20}(?:دفعه\s+اولي|دفعة\s+أولى|ثمن\s+الجهاز)/.test(q)
-    && /(?:ما|لا).{0,24}(?:تعني|تضمن).{0,24}(?:موافقه\s+نهائيه|الموافقة\s+النهائية)/.test(q)
+    && /(?:ما|لا).{0,24}(?:يعني|تعني|تضمن).{0,24}(?:موافقه|الموافقه).{0,12}(?:نهاي|نهائ)/.test(q)
     && /مسترد/.test(q)
     && /(?:حاب|بدك|تقرر).{0,30}(?:تكمل|الاستمرار)/.test(q);
+}
+
+export function resemblesPostDisclosurePaymentReply(value: string | null | undefined) {
+  const q = normalizeArabic(String(value || ""));
+  return /رسوم\s+فتح\s+الملف/.test(q)
+    && /(?:orange\s+money|اورنج\s+موني|أورنج\s+موني)/i.test(q)
+    && /(?:cliq|كليك)/i.test(q)
+    && /(?:payameeen|ameen1st|am500337)/i.test(q)
+    && /(?:رفع\s+الوصل|ارفع\s+الوصل|رابط\s+رفع)/.test(q);
 }
 
 export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {

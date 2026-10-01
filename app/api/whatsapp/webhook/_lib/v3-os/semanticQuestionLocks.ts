@@ -2,7 +2,7 @@ import { applicationJourneyStage } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { normalizeArabic } from "./text";
-import type { InterpretedTurn, TruthBundle } from "./types";
+import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type SemanticQuestionLockKind =
   | "file_opening_payment_method"
@@ -17,6 +17,38 @@ export type SemanticQuestionLock = {
   hard: boolean;
   reason: string;
 };
+
+const COMMERCIAL_DISCLOSURE_VERSION_LOCAL = "2026-09-informed-fee-v2-full-rationale";
+
+function sameCommercialApplication(state: ConversationState, truth: TruthBundle) {
+  const disclosure = state.commercialDisclosure;
+  const app = truth.application;
+  if (!disclosure || !app) return false;
+  if (disclosure.applicationId && disclosure.applicationId === app.id) return true;
+  if (disclosure.trackingId && app.trackingId && disclosure.trackingId === app.trackingId) return true;
+  return false;
+}
+
+function commercialDisclosureDeliveredLocal(state: ConversationState, truth: TruthBundle) {
+  const disclosure = state.commercialDisclosure;
+  if (!disclosure || !sameCommercialApplication(state, truth)) return false;
+  if (disclosure.version !== COMMERCIAL_DISCLOSURE_VERSION_LOCAL) return false;
+  return disclosure.status === "delivered" || disclosure.status === "acknowledged";
+}
+
+function resemblesFullCommercialDisclosureLocal(value: string | null | undefined) {
+  const q = normalizeArabic(String(value || ""));
+  return /رسوم\s+فتح\s+ملف/.test(q)
+    && /(?:مش|ليست).{0,20}(?:دفعه\s+اولي|دفعة\s+أولى|ثمن\s+الجهاز)/.test(q)
+    && /(?:ما|لا).{0,24}(?:يعني|تعني|تضمن).{0,24}(?:موافقه|الموافقه).{0,12}(?:نهاي|نهائ)/.test(q)
+    && /مسترد/.test(q)
+    && /(?:حاب|بدك|تقرر).{0,30}(?:تكمل|الاستمرار)/.test(q);
+}
+
+function commercialDisclosureVisibleLocal(state: ConversationState | undefined, truth: TruthBundle) {
+  if (!state) return false;
+  return commercialDisclosureDeliveredLocal(state, truth) || resemblesFullCommercialDisclosureLocal(state.lastAssistantText);
+}
 
 function n(value: string | null | undefined) {
   return normalizeArabic(String(value || ""))
@@ -35,18 +67,19 @@ export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: 
   const destinationConfirmation = /(?:ابعت|ابعث|احول|أحول|بحول|حول|حوّل).{0,28}(?:اورنج|أورنج|orange|0788500337|payameeen|ameen1st|am500337|cliq)|(?:اورنج|أورنج|orange|0788500337|payameeen|ameen1st|am500337|cliq).{0,28}(?:صح|هيك|احول|أحول|ابعت|ابعث)/i.test(q);
   const sourceCompatibility = /(?:بزبط|بقدر|اقدر|أقدر|ممكن|بنفع|بصير|ينفع).{0,28}(?:احول|أحول|ادفع|أدفع|تحويل).{0,34}(?:من).{0,22}(?:بنك|محفظه|محفظة)|(?:احول|أحول|ادفع|أدفع).{0,28}(?:من).{0,22}(?:بنك|محفظه|محفظة)/.test(q);
   const asksPaymentData = /(?:هات|اعطيني|أعطيني|ابعث|ابعت|ارسل|أرسل).{0,28}(?:بيانات|بينات|معلومات|تفاصيل).{0,18}(?:الدفع|التحويل)|(?:بيانات|بينات|معلومات|تفاصيل)\s+(?:الدفع|التحويل)|(?:رقم|معرف).{0,16}(?:الدفع|التحويل)/.test(q);
+  const feeCommitment = /(?:الرسوم|الخمس|الخمسه|5|٥).{0,18}(?:بدفعها|بدفع|بادفع|رح\s+ادفع|راح\s+ادفع)/.test(q);
   const stage = truth ? applicationJourneyStage(truth.application) : null;
   const feeDueNextStep = stage === "continuation_confirmed_fee_due" && (
     /^(?:طيب\s+)?(?:شو|ايش|اش)\s+(?:اعمل|أعمل|المطلوب\s+مني|الخطوه\s+الجايه|الخطوة\s+الجاية|الخطوه\s+التاليه|الخطوة\s+التالية)(?:\s+هسا|\s+الان|\s+الآن)?$/.test(q)
     || /(?:ساعدني|ساعدوني|مساعده|مساعدة).{0,30}(?:الخطوات|شو\s+اعمل|إيش\s+اعمل|ايش\s+اعمل)|(?:مش|مو)\s+فاهم.{0,35}(?:الخطوات|شو\s+اعمل|ايش\s+اعمل|المطلوب)/.test(q)
   );
-  return asksPaymentData || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
+  return asksPaymentData || feeCommitment || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
 }
 
 export function officeLocationQuestion(turn: InterpretedTurn) {
   const q = n(turn.rawText);
   if (!q) return false;
-  const office = /(?:المكتب|مكتبكم|موقعكم|عنوانكم|الموقع|العنوان)/.test(q);
+  const office = /(?:المكتب|مكتبكم|موقعكم|عنوانكم|الموقع|العنوان|المحل|الفرع|فرع|فروعكم|افرعكم|أفرعكم)/.test(q);
   const ask = /(?:وين|اين|أين|بدي|اعطيني|أعطيني|ارسل|أرسل|ابعث|ابعت|موقع|عنوان)/.test(q);
   const appointmentContext = /(?:موعد|رنيتوا|اتصلتوا|تواصلتوا|موعد\s+رسمي|مؤكد)/.test(q);
   return office && (ask || appointmentContext);
@@ -86,13 +119,24 @@ export function resolveSemanticQuestionLock(input: { turn: InterpretedTurn; trut
   return { kind: "none", hard: false, reason: "no semantic question lock" };
 }
 
-function fileOpeningPaymentMethodReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+function fileOpeningPaymentMethodReply(input: { turn: InterpretedTurn; truth: TruthBundle; state?: ConversationState }) {
   const fee = input.truth.policy.fileOpeningFeeJod || 5;
   const stage = applicationJourneyStage(input.truth.application);
   if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) {
     return "ما تدفع الرسوم مرة ثانية. حسب الحالة الحالية، خطوة الدفع موجودة أصلًا على الملف؛ إذا الوصل بانتظار المراجعة انتظر الاعتماد، وإذا الدفع مؤكد فما في عليك خطوة مالية جديدة الآن.";
   }
   if (stage === "preliminary_approved_waiting_decision") {
+    const disclosed = commercialDisclosureVisibleLocal(input.state, input.truth);
+    if (disclosed) {
+      const links = buildOfficialLinkContext(input.turn, input.truth);
+      const receipt = links.relevant.receipt;
+      return `رسوم فتح الملف ${fee} دنانير، وهاي قنوات الدفع الرسمية لأن خطوة فتح الملف اتشرحت إلك بالفعل:
+
+${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `
+
+بعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:
+${receipt}` : ""}`;
+    }
     return `أكيد. رسوم فتح الملف ${fee} دنانير، بس بيانات التحويل ما بنفتحها قبل ما تختار الاستمرار رسميًا. إذا قرارك تكمل اكتب: أود الاستمرار، وبعدها بعطيك بيانات الدفع الرسمية ورابط رفع الوصل.`;
   }
   if (stage === "continuation_confirmed_fee_due") {
@@ -156,9 +200,9 @@ function totalPayableReply(input: { truth: TruthBundle }) {
   return `${parts ? `${parts}. ` : ""}أما إجمالي المبلغ النهائي على كامل المدة فما عندي رقم موثق له على الطلب هسا، وما رح أضرب الأقساط وأعطيك الناتج على إنه مبلغ نهائي. المرجع النهائي هو الحسبة وجدول العقد بعد اعتماد الطلب.`;
 }
 
-export function buildSemanticQuestionLockReply(input: { lock: SemanticQuestionLock; turn: InterpretedTurn; truth: TruthBundle }) {
+export function buildSemanticQuestionLockReply(input: { lock: SemanticQuestionLock; turn: InterpretedTurn; truth: TruthBundle; state?: ConversationState }) {
   switch (input.lock.kind) {
-    case "file_opening_payment_method": return fileOpeningPaymentMethodReply({ turn: input.turn, truth: input.truth });
+    case "file_opening_payment_method": return fileOpeningPaymentMethodReply({ turn: input.turn, truth: input.truth, state: input.state });
     case "office_location": return officeLocationReply({ turn: input.turn, truth: input.truth });
     case "product_region_spec": return productRegionSpecReply();
     case "trust_assurance": return trustAssuranceReply({ truth: input.truth });
@@ -167,7 +211,7 @@ export function buildSemanticQuestionLockReply(input: { lock: SemanticQuestionLo
   }
 }
 
-export function semanticQuestionCandidateAligned(input: { lock: SemanticQuestionLock; candidate: string | null | undefined; truth: TruthBundle }) {
+export function semanticQuestionCandidateAligned(input: { lock: SemanticQuestionLock; candidate: string | null | undefined; truth: TruthBundle; state?: ConversationState }) {
   if (input.lock.kind === "none") return true;
   const q = n(input.candidate);
   if (!q) return false;
@@ -175,7 +219,11 @@ export function semanticQuestionCandidateAligned(input: { lock: SemanticQuestion
   switch (input.lock.kind) {
     case "file_opening_payment_method": {
       if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) return /(?:ما\s+تدفع|لا\s+تدفع|خطوه\s+الدفع|خطوة\s+الدفع|الدفع\s+مؤكد|الوصل).{0,55}(?:مره\s+ثانيه|مرة\s+ثانية|موجود|بانتظار|مؤكد)/.test(q) && !/استرداد/.test(q);
-      if (stage === "preliminary_approved_waiting_decision") return /(?:اختار|اختر|أود\s+الاستمرار|الاستمرار).{0,45}(?:بيانات\s+الدفع|التحويل|الرسوم)/.test(q) && !/استرداد/.test(q);
+      if (stage === "preliminary_approved_waiting_decision") {
+        const disclosed = commercialDisclosureVisibleLocal(input.state, input.truth);
+        if (disclosed) return /payameeen/i.test(q) && /0788500337/.test(q) && /(?:cliq|كليك)/i.test(q) && !/استرداد/.test(q);
+        return /(?:اختار|اختر|أود\s+الاستمرار|الاستمرار).{0,45}(?:بيانات\s+الدفع|التحويل|الرسوم)/.test(q) && !/استرداد/.test(q);
+      }
       if (stage === "continuation_confirmed_fee_due") return /payameeen/i.test(q) && /ameen1st/i.test(q) && /am500337/i.test(q) && /0788500337/.test(q) && /orange\s+money/i.test(q) && /abdul\s+rahman\s+alharahsheh/i.test(q) && /(?:cliq|كليك)/i.test(q) && !/(?:متى|وين).{0,20}(?:الاسترداد|يرجع)/.test(q);
       return /(?:رسوم\s+فتح\s+الملف|5|٥).{0,50}(?:الموافقه\s+المبدئيه|الموافقة\s+المبدئية|اختيار\s+الاستمرار|بيانات\s+الدفع)/.test(q) && !/استرداد/.test(q);
     }

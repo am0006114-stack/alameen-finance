@@ -64,6 +64,7 @@ export type ResponseObligation =
   | "media"
   | "application_status"
   | "foreign_content_clarification"
+  | "social_greeting"
   | "social_closure"
   | "none";
 
@@ -96,6 +97,10 @@ function pureSocialClosureTurnForArbiter(turn: InterpretedTurn) {
   const q = n(turn.rawText);
   if (!raw && !q) return false;
   if (turn.requestedActions.length) return false;
+  // Phase 11.7.1: literal short closures own the current turn even if a model
+  // accidentally copied the previous topic into acts/topics.
+  if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|شكرا|شكرًا|شكراً|يسلمو|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله|تمام\s+ان\s+شاء\s+الله|تمام\s+إن\s+شاء\s+الله|العفو)$/.test(q)) return true;
+  if (/^(?:👍|👍🏻|❤️|❤|🌹|🙏|🙏🏻|👌|✅|☑️|😁|🙂|😊|✔️)+$/u.test(raw)) return true;
   const materialAct = turn.acts.some((act) => {
     if (["greet", "thank", "acknowledge"].includes(act.type)) return false;
     if (act.topic === "unknown" && act.type === "unknown") return false;
@@ -105,11 +110,24 @@ function pureSocialClosureTurnForArbiter(turn: InterpretedTurn) {
   if (materialAct) return false;
   const materialText = /(?:\?|؟|بدي|اريد|أريد|متى|امتى|ايمتى|قديش|كم|كيف|وين|ليش|شو|هل|الغي|إلغاء|استرداد|دفع|ادفع|أدفع|تحويل|كليك|cliq|استعجال|سرعه|سرعة|حاله\s+استثنائيه|حالة\s+استثنائية)/i.test(raw);
   if (materialText) return false;
-  if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|شكرا|شكرًا|شكراً|يسلمو|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله|تمام\s+ان\s+شاء\s+الله|تمام\s+إن\s+شاء\s+الله|العفو)$/.test(q)) return true;
-  if (/^(?:👍|👍🏻|❤️|❤|🌹|🙏|🙏🏻|👌|✅|☑️|😁|🙂|😊)+$/u.test(raw)) return true;
   const hasThanks = /(?:شكرا|شكرًا|شكراً|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية)/.test(q);
   const hasWish = /(?:ان\s+شاء\s+الله|إن\s+شاء\s+الله|يارب|يا\s+رب)/.test(q);
   return (hasThanks || hasWish) && q.length <= 120;
+}
+
+function pureGreetingTurnForArbiter(turn: InterpretedTurn) {
+  if (turn.requestedActions.length) return false;
+  const q = n(turn.rawText);
+  return /^(?:مرحبا|مرحبًا|هلا|اهلا|أهلا|السلام\s+عليكم|صباح\s+الخير|مساء\s+الخير|كيفك|كيف\s+حالكم)$/.test(q);
+}
+
+function buildGreetingReplyForArbiter(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (/السلام\s+عليكم/.test(q)) return "وعليكم السلام ورحمة الله وبركاته. تفضل، شو بتحب تسأل؟";
+  if (/صباح\s+الخير/.test(q)) return "صباح النور. تفضل، شو بتحب تسأل؟";
+  if (/مساء\s+الخير/.test(q)) return "مساء النور. تفضل، شو بتحب تسأل؟";
+  if (/كيفك|كيف\s+حالكم/.test(q)) return "الحمدلله بخير، تفضل شو بتحب تسأل؟";
+  return "أهلين وسهلين. تفضل، شو بتحب تسأل؟";
 }
 
 function buildSocialClosureReplyForArbiter(turn: InterpretedTurn) {
@@ -260,7 +278,7 @@ function asksRefundProcessProblem(value: string | null | undefined, truth: Truth
   const refundContext = /(?:استرداد|استرجاع|الرسوم|الخمس|5|٥)/.test(q);
   const linkOrForm = /(?:الرابط|الصفحه|الصفحة|خانات|خانة|حقل|حقول|بيانات)/.test(q);
   const broken = /(?:ما\s+في|ما\s+فيه|مش\s+موجود|ما\s+بطلع|ما\s+بيطلع|ما\s+بدخل|ما\s+بيدخل|ما\s+بفتح|ما\s+بيفتح|فاضي|فاضية|خطا|خطأ)/.test(q);
-  return (refundContext && linkOrForm && broken) || (linkOrForm && broken && /(?:ادخل|أدخل|اضيف|أضيف|اثبت|أثبت)/.test(q));
+  return (refundContext && linkOrForm && broken) || (linkOrForm && broken && /(?:ادخل|أدخل|اضيف|أضيف|اثبت|أثبت|اعبي|أعبي|عبي|عبّي|املأ|املا)/.test(q));
 }
 
 function refundProcessProblemReply(truth: TruthBundle) {
@@ -416,6 +434,8 @@ export function resolveResponseObligation(input: {
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
   if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
+  if (pureGreetingTurnForArbiter(input.turn)) return "social_greeting";
+  if (pureSocialClosureTurnForArbiter(input.turn)) return "social_closure";
 
   // Phase 11.7 precedence: the literal current customer question owns the answer
   // before journey-stage, media, delivery, or stale commercial context.
@@ -430,7 +450,6 @@ export function resolveResponseObligation(input: {
 
   if (asksDocumentUploadGuidance(input.turn, input.state)) return "document_upload_guidance";
   if (asksInstallmentServiceOverview(input.turn.rawText)) return "installment_service_overview";
-  if (pureSocialClosureTurnForArbiter(input.turn)) return "social_closure";
 
   const turn = repairContextTurn(input.turn, input.state);
   if (asksTrackingLink(turn.rawText)) return "tracking_link";
@@ -682,7 +701,7 @@ function directRepair(input: {
     case "product_region_spec":
     case "trust_assurance":
     case "total_payable":
-      return buildSemanticQuestionLockReply({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), turn: input.turn, truth: input.truth });
+      return buildSemanticQuestionLockReply({ lock: resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth }), turn: input.turn, truth: input.truth, state: input.state });
     case "mutation_request": return mutationRequestReply({ turn: input.turn, truth: input.truth });
     case "tracking_link": return trackingReply({ turn, truth: input.truth });
     case "contact_identity_mismatch": return contactIdentityMismatchReply({ truth: input.truth, state: input.state });
@@ -714,6 +733,7 @@ function directRepair(input: {
     case "media": return currentQuestion || humanAuthority || "وصلني المرفق. إذا هو لتوضيح مشكلة أو سؤال، اكتبلي باختصار شو بدك أتأكد منه منه وبمشي معك من نفس السياق.";
     case "application_status": return currentQuestion || statusReply({ turn, truth: input.truth, state: input.state });
     case "foreign_content_clarification": return "وصلني النص اللي بعثته. احكيلي شو بدك أعمل فيه بالضبط—أشرحه، ألخصه، أو أساعدك ترد عليه—وبجاوبك على نفس الموضوع.";
+    case "social_greeting": return buildGreetingReplyForArbiter(turn);
     case "social_closure": return buildSocialClosureReplyForArbiter(turn);
     default: return null;
   }
@@ -779,6 +799,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
     case "media": return /(?:وصلت|وصلني|المرفق|الصوره|الصورة|الصوتيه|الصوتية)/.test(q) && !missingDetailsReply(raw);
     case "application_status": return /(?:حاله|حالة|قيد|موافقه|موافقة|ملغي|استرداد|مراجعه|مراجعة)/.test(q) && !staleContinuationReply(raw);
     case "foreign_content_clarification": return !missingDetailsReply(raw) && /(?:النص|الرساله|الرسالة|ايميل|إيميل|اشرح|الخص|ألخص|رد)/.test(q);
+    case "social_greeting": return /(?:اهلين|أهلين|وعليكم\s+السلام|صباح\s+النور|مساء\s+النور|الحمدلله)/.test(q) && !/(?:قيد\s+الدراسه|قيد\s+الدراسة|رسوم\s+فتح\s+الملف)/.test(q);
     case "social_closure": return /(?:العفو|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله)/.test(q)
       && !/(?:يومين|3\s+ايام|3\s+أيام|قيد\s+الدراسه|قيد\s+الدراسة|رسوم\s+فتح\s+الملف|الدفع\s+مؤكد|الاسترداد)/.test(q);
     default: return true;
@@ -798,12 +819,16 @@ export function arbitrateProductionReply(input: {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+  const currentQuestionFirst = new Set<ResponseObligation>([
+    "current_human_turn", "answer_bundle", "refund_human_care", "refund_timing", "refund_process_problem",
+    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",
+  ]);
 
   // Phase 7.6.0: literal human meaning can veto a bad classifier before any
   // legacy payment/status meaning lock owns the egress. These are bounded,
   // deterministic repairs for production-proven cross-domain failures.
   const companyOverride = resolveHumanCompanyOverride({ turn: input.turn, state: input.state, truth: input.truth });
-  if (companyOverride !== "none") {
+  if (companyOverride !== "none" && !currentQuestionFirst.has(obligation)) {
     const repair = buildHumanCompanyOverrideReply({ kind: companyOverride, state: input.state, truth: input.truth });
     if (repair) return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_human_turn", repaired: repair !== candidate, reason: `human company runtime current-turn override: ${companyOverride}` };
   }
@@ -829,10 +854,6 @@ export function arbitrateProductionReply(input: {
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: "authoritative payment/receipt truth lock" };
   }
 
-  const currentQuestionFirst = new Set<ResponseObligation>([
-    "current_human_turn", "answer_bundle", "refund_human_care", "refund_timing", "refund_process_problem",
-    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",
-  ]);
   if (meaningLock.kind !== "none" && !currentQuestionFirst.has(obligation) && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
     const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `current meaning lock repaired cross-domain candidate: ${meaningLock.reason}` };
@@ -851,7 +872,10 @@ export function arbitrateProductionReply(input: {
     if (humanTurnReply) return { reply: sanitizeUnifiedEgressReply(humanTurnReply), obligation: "current_human_turn", repaired: humanTurnReply !== candidate, reason: `final current human turn authority repaired legacy state loop: ${currentHumanTurn.reason}` };
   }
 
-  if (semanticQuestionLock.kind !== "none" && !semanticQuestionCandidateAligned({ lock: semanticQuestionLock, candidate, truth: input.truth })) {
+  // Phase 11.7.1: a semantic/stage lock is contextual support only. Once the
+  // current turn has a deterministic explicit-question obligation, an older
+  // payment/location/human stage lock cannot replace that answer.
+  if (semanticQuestionLock.kind !== "none" && !currentQuestionFirst.has(obligation) && !semanticQuestionCandidateAligned({ lock: semanticQuestionLock, candidate, truth: input.truth, state: input.state })) {
     const lockedReply = buildSemanticQuestionLockReply({ lock: semanticQuestionLock, turn: input.turn, truth: input.truth });
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `semantic question veto repaired cross-domain candidate: ${semanticQuestionLock.reason}` };
   }
@@ -867,6 +891,13 @@ export function arbitrateProductionReply(input: {
     if (alreadyGood) return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
     const repair = mutationRequestReply({ turn: input.turn, truth: input.truth });
     return { reply: repair, obligation, repaired: repair !== candidate, reason: "explicit mutation request repaired to confirmation contract" };
+  }
+  if (obligation === "social_greeting") {
+    if (!input.forceRepair && candidateLooksResponsive({ obligation, candidate, truth: input.truth, turn: input.turn, state: input.state })) {
+      return { reply: candidate, obligation: "none", repaired: false, reason: "literal greeting already answered naturally" };
+    }
+    const greeting = buildGreetingReplyForArbiter(input.turn);
+    return { reply: sanitizeUnifiedEgressReply(greeting), obligation, repaired: greeting !== candidate, reason: "fresh-turn greeting vetoed stale previous-topic answer" };
   }
   if (obligation === "social_closure") {
     // Backward-compatible no-op when the writer already produced a clean social
