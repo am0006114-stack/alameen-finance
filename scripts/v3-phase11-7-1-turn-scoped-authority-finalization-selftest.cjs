@@ -74,7 +74,7 @@ let firstReply=obligations.buildAnswerBundleReply({bundle:firstBundle,turn:first
 ok(Boolean(firstReply)&&commercial.resemblesFullCommercialDisclosure(firstReply),'first continuation after preliminary approval delivers the full five-JOD disclosure');
 let deliveredState=commercial.markCommercialDisclosureDelivered(baseState,prelimTruth,'cont-first');
 ok(commercial.commercialDisclosureDelivered(deliveredState,prelimTruth)===true,'commercial disclosure is durable for the exact application');
-for(const text of ['أود الاستمرار','موافق','كيف احولك خمسه','لا الرسوم بدفعها']){
+for(const text of ['أود الاستمرار','اود الاستمرار','اريد الاستمرار','بدي اكمل','تمام بدي اكمل','حابب اكمل','نكمل','موافق اكمل','موافق','كيف احولك خمسه','لا الرسوم بدفعها']){
   const rr=arb(text,'اكتب: أود الاستمرار.',deliveredState,baseApp,`pay-${text}`);
   ok(rr.obligation==='answer_bundle',`post-disclosure ${text}: current commercial intent owns the turn`);
   ok(/(?:Orange Money|CliQ|PAYAMEEEN)/.test(rr.reply||''),`post-disclosure ${text}: official payment data opens without another consent loop`);
@@ -91,6 +91,19 @@ r=arb('انا حاط بطلب الجهاز بدون دفعه اولى','الطل
 ok(r.obligation==='answer_bundle','device down-payment question has current-turn authority');
 ok(/دفعة أولى.*(?:اختيارية|0)/.test(r.reply||''),'device down payment is correctly separate and optional');
 ok(/رسوم فتح الملف/.test(r.reply||''),'reply explicitly distinguishes file-opening fee from device down payment');
+
+for(const text of ['لا اريد الاستمرار','ما بدي اكمل','بديش اكمل','مش حابب اكمل']){
+  ok(commercial.informedCommercialContinuationConfirmed({state:deliveredState,truth:prelimTruth,turn:turn(text,`decline-${text}`),customerText:text})===false,`negative commercial decision is never treated as continuation: ${text}`);
+}
+r=arb('هل تعملون يوم السبت ام اجازة؟','موقعنا عمّان شارع المدينة المنورة.',baseState,baseApp,'office-hours');
+ok(r.obligation==='answer_bundle','office schedule question has current-turn authority');
+ok(/الجمعة والسبت.*عطلة/.test(r.reply||''),'office schedule answers Friday/Saturday truth');
+r=arb('كلشي عن طريق الواتساب ولا لازم امر للمكتب؟','الهوية وإثبات الدخل من الأساسيات.',baseState,baseApp,'remote-process');
+ok(r.obligation==='answer_bundle','remote-vs-office process question has current-turn authority');
+ok(/(?:التقديم والمتابعة).*(?:رقمي|واتساب).*(?:الاستلام|توقيع العقد)/s.test(r.reply||''),'remote-vs-office answer distinguishes digital flow from physical signing/pickup');
+r=arb('هل انتم وكيل ابل معتمد ومن وين بتجيبوا الاجهزة؟','الأجهزة من وكلاء معتمدين وكفالتها iSYSTEMS.',baseState,baseApp,'supplier-truth');
+ok(r.obligation==='answer_bundle','supplier/Apple authorization question has current-turn authority');
+ok(/ما عندي حقيقة موثقة.*(?:وكيل Apple|موزع Apple)/.test(r.reply||''),'supplier answer refuses unsupported Apple authorization/source claims');
 
 // E. Interest decimal storage is rendered as a human percentage, not 100x too small.
 const rateApp={...reviewApp,interestRate:0.15};
@@ -142,6 +155,14 @@ ok(/single_question/.test(src.obligations),'single explicit questions are first-
 // K. Changed sources parse clean and no cross-project contamination was introduced.
 for(const file of Object.values(rel))transpile(file);
 ok(!/orangmoney\.com/i.test(Object.values(src).join('\n')),'cross-project literals are absent');
+
+// L. Phase 11.8 structural invariants around liveness, leakage and template ownership.
+const routeSrc=read('app/api/whatsapp/webhook/route.ts');
+ok(/supersededMessageIds[\s\S]{0,750}markIncomingWhatsAppMessagesProcessed\(supersededMessageIds\)/.test(routeSrc),'durable ingress collapses all superseded burst jobs in one scheduler cycle');
+const unifiedSrc=read('app/api/whatsapp/webhook/_lib/v3-os/unifiedConversationDecisionPlane.ts');
+ok(/highConfidenceInstructionLeakLine/.test(unifiedSrc)&&/الحقيقه\\s\+التجاريه/.test(unifiedSrc),'internal Arabic instruction leakage has a deterministic egress filter');
+const cronSrc=read('app/api/cron/preliminary-approval/route.ts');
+ok(/Tracking ownership collision/.test(cronSrc)&&/tracking_id:\s*app\.tracking_id/.test(cronSrc)&&/application_id:\s*app\.id/.test(cronSrc),'preliminary template send is ownership-guarded and canonically attributed');
 
 console.log(`\nV3 PHASE 11.7.1 SELFTEST: assertions=${passed+failed}; passed=${passed}; failed=${failed}`);
 if(failed)process.exit(1);

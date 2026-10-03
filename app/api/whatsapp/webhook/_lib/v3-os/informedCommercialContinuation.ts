@@ -67,9 +67,18 @@ export function informedCommercialContinuationConfirmed(input: {
     .replace(/[؟?!.,،؛:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (/^(?:نعم|اه|أه|ايوه|أيوه|yes|موافق|موافقة|اوافق|أوافق|اكيد|أكيد)$/.test(q)) return true;
-  const affirmativeLead = /^(?:نعم|اه|أه|ايوه|أيوه|yes)(?:\s|$)/.test(q);
-  return affirmativeLead && /(?:اوافق|أوافق|موافق|موافقة|الشروط)/.test(q);
+  const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
+  if (declines) return false;
+
+  // After the full disclosure has been delivered for this exact application,
+  // accept the customer's natural decision instead of requiring a literal phrase.
+  // normalizeArabic folds أ/إ/آ -> ا, so hamza spelling never changes the result.
+  const naturalContinuation = /(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q);
+  if (naturalContinuation) return true;
+  if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)/.test(q)) return true;
+  if (/^(?:نعم|اه|ايوه|yes|موافق|موافقه|اوافق|اكيد)$/.test(q)) return true;
+  const affirmativeLead = /^(?:نعم|اه|ايوه|yes)(?:\s|$)/.test(q);
+  return affirmativeLead && /(?:اوافق|موافق|موافقه|الشروط|اكمل|كمل|استمر)/.test(q);
 }
 
 export function preliminaryApprovalNeedsInformedDisclosure(state: ConversationState, truth: TruthBundle) {
