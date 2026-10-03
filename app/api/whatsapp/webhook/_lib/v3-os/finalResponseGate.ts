@@ -226,7 +226,7 @@ function commercialPauseTurn(turn: InterpretedTurn, state: ConversationState) {
 
 function unsafeOrderChangeExecutionClaim(reply: string, actions: ActionResult[]) {
   const n = normalized(reply);
-  const risky = /(?:اكيد|أكيد).{0,12}(?:بزبط|بصير).{0,42}(?:اعدل|أعدل|اغير|أغير|اللون|الجهاز)|(?:بسجل|باسجل|رح\s+اسجل|راح\s+اسجل|باكده|بأكده).{0,35}(?:التعديل|اللون|الجهاز|المواصفات)|(?:تم|صار).{0,22}(?:تعديل|تغيير).{0,25}(?:اللون|الجهاز|الموديل|السعه|السعة)|(?:غيرنا|غيّرنا|عدلنا|عدّلنا|ثبتنا|اعتمدنا).{0,25}(?:اللون|الجهاز|الموديل|المواصفات|السعه|السعة)|(?:اللون|الجهاز|الموديل|المواصفات).{0,18}(?:صار|اصبح|أصبح).{0,20}(?:ازرق|أزرق|اسود|أسود|ابيض|أبيض|فضي|سيلفر|برتقالي|حسب\s+المتوفر)?/.test(n);
+  const risky = /(?:اكيد|أكيد).{0,12}(?:بزبط|بصير).{0,42}(?:اعدل|أعدل|اغير|أغير|اللون|الجهاز)|(?:بسجل|باسجل|رح\s+اسجل|راح\s+اسجل|باكده|بأكده).{0,35}(?:التعديل|اللون|الجهاز|المواصفات)|(?:بتابع|بنتابع|رح\s+اتابع|راح\s+اتابع).{0,32}(?:تغيير|تعديل).{0,24}(?:الجهاز|الموديل|اللون|السعه|السعة)|(?:تم|صار).{0,22}(?:تعديل|تغيير).{0,25}(?:اللون|الجهاز|الموديل|السعه|السعة)|(?:غيرنا|غيّرنا|عدلنا|عدّلنا|ثبتنا|اعتمدنا).{0,25}(?:اللون|الجهاز|الموديل|المواصفات|السعه|السعة)|(?:اللون|الجهاز|الموديل|المواصفات).{0,18}(?:صار|اصبح|أصبح).{0,20}(?:ازرق|أزرق|اسود|أسود|ابيض|أبيض|فضي|سيلفر|برتقالي|حسب\s+المتوفر)?/.test(n);
   if (!risky) return false;
   return !actions.some((x) => x.executed && ["change_device","change_application_data"].includes(x.action) && ["executed","already_done"].includes(x.outcome));
 }
@@ -331,7 +331,7 @@ function mutationExecutionPromiseWithoutReceipt(reply: string, actions: ActionRe
 function actionClaimWithoutAuthoritativeReceipt(reply: string, actions: ActionResult[]) {
   const q = normalized(reply);
   const executed = (keys: string[]) => actions.some((x) => x.executed && keys.includes(x.action) && ["executed","already_done"].includes(x.outcome));
-  const deviceOrDataClaim = /(?:سجلت|سجلنا|تم\s+تسجيل|رفعت|رفعنا|تم\s+رفع|نفذت|نفذنا|تم\s+تنفيذ|غيرنا|عدلنا).{0,38}(?:طلب\s+)?(?:تغيير|تعديل|الجهاز|الموديل|اللون|السعه|البيانات)|(?:طلب\s+)?(?:التغيير|التعديل).{0,28}(?:مسجل|تم\s+تسجيله|انرفع|تم\s+رفعه)/.test(q);
+  const deviceOrDataClaim = /(?:سجلت|سجلنا|تم\s+تسجيل|رفعت|رفعنا|تم\s+رفع|نفذت|نفذنا|تم\s+تنفيذ|غيرنا|عدلنا|بتابع|بنتابع).{0,38}(?:طلب\s+)?(?:تغيير|تعديل|الجهاز|الموديل|اللون|السعه|البيانات)|(?:طلب\s+)?(?:التغيير|التعديل).{0,28}(?:مسجل|تم\s+تسجيله|انرفع|تم\s+رفعه)/.test(q);
   if (deviceOrDataClaim && !executed(["change_device","change_application_data"])) return "change_request";
   const cancelClaim = /(?:سجلت|سجلنا|تم\s+تسجيل|نفذت|نفذنا|تم\s+تنفيذ|الغينا|تم\s+الغاء).{0,34}(?:طلب\s+)?(?:الالغاء|الغاء|الطلب)/.test(q);
   if (cancelClaim && !executed(["cancel_application"])) return "cancel_application";
