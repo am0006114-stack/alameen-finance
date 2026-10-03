@@ -34,7 +34,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const guarantor = /(?:كفيل|الكفيل|ضامن)/.test(q);
   const multipleDevices = /(?:تلفونين|هاتفين|جهازين|2\s*جهاز|٢\s*جهاز|اخد\s*2|اخد\s*٢|آخذ\s*2|آخذ\s*٢)/.test(q);
   const interest = /(?:الفائده|الفائدة|فايده|فائدة|مرابحه|مرابحة|نسبه\s+الربح|نسبة\s+الربح|نسب\s+الفايده|نسب\s+الفائدة)/.test(q);
-  const downPayment = /(?:دفعه|دفعة).{0,12}(?:اولي|اولى|أولى)|(?:بدون|ما\s+في|مفيش|هل).{0,18}(?:دفعه|دفعة).{0,10}(?:اولي|اولى|أولى)/.test(q);
+  const downPayment = /(?:دفعه|دفعة).{0,12}(?:اولي|اولى|اولا)|(?:بدون|ما\s+في|مفيش|هل).{0,18}(?:دفعه|دفعة).{0,10}(?:اولي|اولى|اولا)/.test(q);
   const feePaymentMethod = /(?:كيف|وين|اين|أين).{0,26}(?:تستلمو|تستلموا|استلام|ادفع|أدفع|احول|أحول|تحويل).{0,26}(?:الرسوم|5|٥|الخمس|الخمسه)?|(?:الرسوم|5|٥|الخمس|الخمسه).{0,26}(?:كيف|وين|احول|أحول|ادفع|أدفع)|(?:الرسوم|الخمس|الخمسه|5|٥).{0,18}(?:بدفعها|بدفع|بادفع|رح\s+ادفع|راح\s+ادفع)/.test(q);
   const feeDueNow = /(?:بدك|بدكم|مطلوب|لازم).{0,24}(?:مني\s*)?(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,18}(?:هسا|هسه|الان|الآن)?|(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,24}(?:هسا|هسه|الان|الآن).{0,18}(?:مطلوب|ادفع|أدفع)?/.test(q);
   const feeRefundability = /(?:هاض|هاد|هذا|المبلغ|الرسوم|5|٥|الخمس|الخمسه).{0,32}(?:مسترد|مسترده|مستردة|بترجع|برجع|بترجعو|برجعو)|(?:مسترد|مسترده|مستردة|بترجع).{0,30}(?:الرسوم|المبلغ|5|٥)/.test(q);
@@ -49,7 +49,15 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const installmentDuration = /(?:على|خلال|مده|مدة).{0,15}(?:ست|6|٦|سبع|7|٧|اثنا\s+عشر|12|١٢|\d+|[٠-٩]+)\s*(?:اشهر|أشهر|شهر)|(?:ست|6|٦)\s*(?:اشهر|أشهر).{0,16}(?:او\s+اقل|أو\s+أقل)/.test(q);
   const priceChange = /(?:سعر\s+الجهاز|السعر).{0,28}(?:يختلف|يتغير|بتغير|بختلف|يزيد)|(?:يختلف|يتغير|بتغير|بختلف|يزيد).{0,28}(?:سعر\s+الجهاز|السعر)|(?:كم\s+يزيد).{0,24}(?:سعره|السعر)?/.test(q);
   const applicationStatus = Boolean(truth.application) && /(?:شو|ايش|اش).{0,18}(?:صار|وضع|حاله|حالة).{0,18}(?:طلبي|الطلب)|(?:حاله|حالة)\s+(?:الطلب|طلبي)|(?:متابعه|متابعة)\s+(?:الحاله|الحالة|الطلب|طلبي)/.test(q);
-  const reviewTiming = !["refund_requested", "refund_completed"].includes(stage) && /(?:متى|متي|امتى|امتي|قديش|كم|اليوم|بكرا|السبت).{0,32}(?:قرار|موافقه|الموافقة|يخلص|جاهز|وقت)|(?:ممكن|بزبط|هل).{0,22}(?:تصدر|تطلع|يطلع).{0,24}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار).{0,24}(?:بنفس|نفس)\s+اليوم|(?:تاخرتو|تأخرتوا|طولتوا|صارلي|صارله|مر\s+\d+\s+ايام|[٤4]\s+ايام)/.test(q);
+  const reviewTiming = !["refund_requested", "refund_completed"].includes(stage) && (
+    /(?:متى|متي|امتى|امتي|قديش|كم|اليوم|بكرا|السبت).{0,32}(?:قرار|موافقه|الموافقة|يخلص|جاهز|وقت)|(?:ممكن|بزبط|هل).{0,22}(?:تصدر|تطلع|يطلع).{0,24}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار).{0,24}(?:بنفس|نفس)\s+اليوم|(?:تاخرتو|تأخرتوا|طولتوا|صارلي|صارله|مر\s+\d+\s+ايام|[٤4]\s+ايام)/.test(q)
+    || /(?:كم|قديش).{0,18}(?:بدها|بده|بتاخد|بتاخذ|تحتاج).{0,24}(?:لتبين|ليبين|ليطلع|تطلع|يطلع).{0,20}(?:اه|نعم|لا|قبول|رفض|القرار|النتيجه)/.test(q)
+  );
+  const acceptanceProbability = /(?:نسبه|نسبة).{0,20}(?:القبول|الموافقه|الموافقة)|(?:كم|شو|ما).{0,20}(?:احتمال|نسبه|نسبة).{0,20}(?:قبولي|القبول|الموافقه|الموافقة)|(?:برايك|برأيك).{0,24}(?:بنقبل|ينقبل|بوافقوا|الموافقه|الموافقة)/.test(q);
+  const accessoriesQuestion = /(?:معاه|معه|بيجي|يجي|يشمل|شامل).{0,28}(?:كفر|جراب|شاشه\s+حمايه|شاشة\s+حماية|اكسسوارات|اكسسوار)|(?:كفر|جراب|شاشه\s+حمايه|شاشة\s+حماية|اكسسوارات|اكسسوار).{0,32}(?:معاه|معه|بيجي|يجي|يشمل|مجاني|بس\s+الجهاز|ولا\s+بس)/.test(q);
+  const supportComplaint = /(?:بدي|اريد|أريد).{0,20}(?:اقدم|أقدم|اعمل|أعمل|ارفع|أرفع).{0,20}(?:شكو|شكوى|شكوه).{0,35}(?:الدعم|الموظف|الخدمه|الخدمة)|(?:شكو|شكوى|شكوه).{0,25}(?:عن|على).{0,25}(?:الدعم|الموظف|الخدمه|الخدمة)/.test(q);
+  const escalationRequest = /(?:تصعيد|صعد|صعّد|صعدوا).{0,30}(?:طلبي|الطلب|الملف).{0,45}(?:مشرف|الاداره|الإدارة|الائتمان)?|(?:مشرف|اداره|إدارة|الائتمان).{0,35}(?:صعد|تصعيد).{0,25}(?:طلبي|الطلب|الملف)/.test(q);
+  const contactPhone = /^(?:رقم\s+(?:الشركه|الشركة)|رقمكم)(?:\s+لو\s+سمحت)?$|(?:في|فيه|عندكم|اعطيني|أعطيني|شو).{0,20}(?:رقم).{0,20}(?:الشركه|الشركة|تواصل|اتصال|هاتف)/.test(q);
   const applicationStart = /(?:كيف|وين|من\s+وين).{0,28}(?:اقدم|أقدم|ارفع\s+طلبي|أرفع\s+طلبي|اعمل\s+طلب|أعمل\s+طلب)|(?:ما\s+قدمت|لسا\s+ما\s+قدمت).{0,30}(?:كيف|وين|التقديم)|(?:رابط).{0,18}(?:التقديم|قدم\s+طلب)/.test(q);
   const businessIdentity = /(?:الاسم\s+القانوني|اسم\s+الشركه\s+القانوني|اسم\s+الشركة\s+القانوني|رقم\s+(?:التسجيل|الترخيص|السجل)|السجل\s+التجاري|ترخيص\s+الشركه|ترخيص\s+الشركة)/.test(q);
   const reopenCancelled = ["cancelled", "refund_requested"].includes(stage) && /(?:اعاده|إعادة|اعيد|أعيد|ارجع|أرجع|تفعيل|افعل|أفعل).{0,35}(?:الطلب|المعامله|المعاملة|الملغي|تفعيله)|(?:اقدم|أقدم).{0,25}(?:طلب\s+جديد).{0,30}(?:ولا|ام|أم).{0,30}(?:اعيد|أعيد|ارجع|أرجع|تفعيل)|(?:هل).{0,28}(?:استطيع|بقدر).{0,24}(?:اعاده|إعادة|تفعيل).{0,24}(?:الطلب|تفعيله)/.test(q);
@@ -57,7 +65,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const continuationDecision = !["cancelled", "refund_requested", "refund_completed"].includes(stage) && explicitContinuation(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -90,6 +98,37 @@ function timingPart(truth: TruthBundle) {
   const window = truth.policy.normalReviewWindow || "من يومين لـ3 أيام عمل";
   const pressure = truth.policy.severePressureRule || "حاليًا في ضغط مراجعات شديد وقد تتأخر بعض الملفات أكثر من المعدل الطبيعي.";
   return `${window}، لكن ${pressure} وما بقدر أضمن يوم محدد قبل ما يصدر القرار فعليًا.`;
+}
+
+function acceptanceProbabilityPart() {
+  return "ما عندي نسبة قبول موثقة أو صلاحية أتوقع قرار الملف من المحادثة. القبول أو الرفض بيتحدد من الدراسة الفعلية للطلب؛ أي رقم أو نسبة أعطيك إياها قبل القرار بتكون تخمين، لذلك ما رح أخمّن.";
+}
+
+function accessoriesPart() {
+  return "ما عندي ملحقات مجانية موثقة على الطلب أقدر أضمنها، لذلك ما رح أقول إن الجهاز معه كفر أو حماية شاشة. اعتمد فقط أي ملحق يكون مذكور رسميًا ضمن بيانات المنتج أو الطلب وقت الاستلام.";
+}
+
+function supportComplaintPart() {
+  return "إذا بدك تقدم شكوى عن الدعم الفني، اكتب تفاصيل الشكوى هون بوضوح. ما عندي قناة شكوى منفصلة موثقة أقدر أحولك إلها، وما رح أقول إن الشكوى تصعّدت أو تسجلت إداريًا قبل ما يكون في تنفيذ فعلي.";
+}
+
+function escalationPart(truth: TruthBundle) {
+  const app = truth.application;
+  const status = app ? ` حالة طلبك الحالية: ${customerFacingStatusLabel(app)}.` : "";
+  const docs = app?.documents;
+  let documents = " تفاصيل النواقص الدقيقة غير متاحة عندي بشكل موثّق هسا.";
+  if (docs?.loaded) {
+    const missing: string[] = [];
+    if (docs.identityComplete === false) missing.push("الهوية");
+    if (docs.salarySlipUploaded === false) missing.push("إثبات الدخل");
+    if (docs.guarantorDataComplete === false) missing.push("بيانات الكفيل");
+    documents = missing.length ? ` النواقص الظاهرة على الملف: ${missing.join("، ")}.` : " ما في نقص ظاهر عندي بالمستندات المحمّلة حاليًا.";
+  }
+  return `طلب التصعيد واضح، لكن ما رح أقول إنه تم تصعيد الملف لمشرف أو إدارة قبل ما يظهر تنفيذ فعلي وموثق.${status}${documents}`;
+}
+
+function contactPhonePart() {
+  return "المتابعة الرسمية للطلبات من نفس واتساب الحالي. ما عندي رقم هاتف إضافي رسمي موثق أقدر أعطيك إياه، لذلك ما رح أختلق رقم أو أقول إن ما في رقم للشركة بشكل عام.";
 }
 
 function applicationStartPart(turn: InterpretedTurn, truth: TruthBundle) {
@@ -276,7 +315,12 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.reopenCancelled) parts.push(reopenCancelledPart(input.truth));
   if (f.statusConflict) parts.push(statusConflictPart(input.truth));
   if (f.applicationStatus) { const x = statusPart(input.truth); if (x) parts.push(x); }
+  if (f.escalationRequest) parts.push(escalationPart(input.truth));
   if (f.reviewTiming) { const x = timingPart(input.truth); if (x) parts.push(x); }
+  if (f.acceptanceProbability) parts.push(acceptanceProbabilityPart());
+  if (f.accessoriesQuestion) parts.push(accessoriesPart());
+  if (f.supportComplaint) parts.push(supportComplaintPart());
+  if (f.contactPhone) parts.push(contactPhonePart());
   if (f.requirements) parts.push(requirementsPart(input.truth));
   if (f.guarantor) parts.push(guarantorPart());
   if (f.multipleDevices) parts.push(multipleDevicesPart());
