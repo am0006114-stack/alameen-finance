@@ -120,6 +120,50 @@ async function verifyTemplateApplicationOwnership(app: ApplicationRecord) {
   return { ok: true as const };
 }
 
+async function reconcilePreviouslyDeliveredTemplate(app: ApplicationRecord) {
+  const { data, error } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("created_at,message_id")
+    .eq("direction", "outgoing")
+    .eq("message_type", "template_event")
+    .eq("application_id", app.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !data) return false;
+
+  const deliveredAt = String((data as any).created_at || "").trim() || new Date().toISOString();
+  await supabaseAdmin
+    .from("applications")
+    .update({
+      preliminary_whatsapp_sent_at: deliveredAt,
+      preliminary_whatsapp_status: "sent",
+      preliminary_whatsapp_error: null,
+    })
+    .eq("id", app.id)
+    .is("preliminary_whatsapp_sent_at", null);
+
+  return true;
+}
+
+async function claimPreliminaryTemplateSend(appId: string) {
+  const { data, error } = await supabaseAdmin
+    .from("applications")
+    .update({
+      preliminary_whatsapp_status: "sending",
+      preliminary_whatsapp_error: null,
+    })
+    .eq("id", appId)
+    .is("preliminary_whatsapp_sent_at", null)
+    .or("preliminary_whatsapp_status.is.null,preliminary_whatsapp_status.eq.failed")
+    .select("id")
+    .maybeSingle();
+
+  if (error) return { claimed: false as const, error: error.message };
+  return { claimed: Boolean(data), error: null as string | null };
+}
+
 async function sendPreliminaryApprovalTemplate(app: ApplicationRecord): Promise<SendResult> {
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
@@ -236,6 +280,7 @@ export async function GET(request: Request) {
     )
     .eq("status", "preliminary_qualified")
     .is("preliminary_whatsapp_sent_at", null)
+    .or("preliminary_whatsapp_status.is.null,preliminary_whatsapp_status.eq.failed")
     .order("preliminary_qualified_at", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: true })
     .limit(safeLimit);
@@ -258,6 +303,8 @@ export async function GET(request: Request) {
     tracking_id?: string | null;
     phone?: string | null;
     sent: boolean;
+    skipped?: boolean;
+    recovered?: boolean;
     error?: string;
   }> = [];
 
@@ -283,6 +330,39 @@ export async function GET(request: Request) {
         error: errorMessage,
       });
 
+      continue;
+    }
+
+    if (await reconcilePreviouslyDeliveredTemplate(app)) {
+      results.push({
+        id: app.id,
+        tracking_id: app.tracking_id,
+        phone: cleanTo,
+        sent: true,
+        recovered: true,
+      });
+      continue;
+    }
+
+    const claim = await claimPreliminaryTemplateSend(app.id);
+    if (!claim.claimed) {
+      if (claim.error) {
+        results.push({
+          id: app.id,
+          tracking_id: app.tracking_id,
+          phone: cleanTo,
+          sent: false,
+          error: safeErrorText(claim.error),
+        });
+      } else {
+        results.push({
+          id: app.id,
+          tracking_id: app.tracking_id,
+          phone: cleanTo,
+          sent: false,
+          skipped: true,
+        });
+      }
       continue;
     }
 
@@ -349,7 +429,9 @@ export async function GET(request: Request) {
     ok: true,
     checked: rows.length,
     sent: results.filter((item) => item.sent).length,
-    failed: results.filter((item) => !item.sent).length,
+    failed: results.filter((item) => !item.sent && !item.skipped).length,
+    skipped: results.filter((item) => item.skipped).length,
+    recovered: results.filter((item) => item.recovered).length,
     results,
   });
 }

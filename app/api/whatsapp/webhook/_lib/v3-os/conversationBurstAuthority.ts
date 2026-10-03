@@ -33,6 +33,20 @@ export function conversationBurstAuthorityEligible(row: ConversationBurstAuthori
   return true;
 }
 
+function pureSocialClosureBody(value: string | null | undefined) {
+  const raw = String(value || "").trim();
+  const q = raw
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (/^(?:تمام|تم|اوك|اوكي|شكرا|شكرا الك|يسلمو|تسلم|يعطيك العافيه|الله يعطيك العافيه|ان شاء الله|العفو)$/.test(q)) return true;
+  return /^(?:👍|👍🏻|❤️|❤|🌹|🙏|🙏🏻|👌|✅|☑️|😁|🙂|😊)+$/u.test(raw);
+}
+
 export function compareConversationBurstRows(a: ConversationBurstAuthorityRow, b: ConversationBurstAuthorityRow) {
   const timeDiff = conversationBurstEventTimeMs(a) - conversationBurstEventTimeMs(b);
   if (timeDiff !== 0) return timeDiff;
@@ -59,10 +73,15 @@ export function selectCanonicalConversationBurst(
 
   const latest = usable[usable.length - 1];
   const tail = [latest];
+  // A short social close after an assistant reply must not resurrect an older
+  // unanswered-looking question simply because the canonical lookback is wide.
+  // Keep the wide window for substantive multi-bubble turns, but restore the
+  // original tight boundary when the newest bubble is only a closure.
+  const effectiveGapMs = pureSocialClosureBody(latest.body) ? Math.min(maxGapMs, 18_000) : maxGapMs;
   for (let index = usable.length - 2; index >= 0; index -= 1) {
     const newerTime = conversationBurstEventTimeMs(tail[0]);
     const olderTime = conversationBurstEventTimeMs(usable[index]);
-    if (!Number.isFinite(newerTime) || !Number.isFinite(olderTime) || newerTime - olderTime > maxGapMs) break;
+    if (!Number.isFinite(newerTime) || !Number.isFinite(olderTime) || newerTime - olderTime > effectiveGapMs) break;
     tail.unshift(usable[index]);
   }
 

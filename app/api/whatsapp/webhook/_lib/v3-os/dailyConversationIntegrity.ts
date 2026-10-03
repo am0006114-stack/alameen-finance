@@ -33,7 +33,7 @@ export function politeClosureText(value: string | null | undefined) {
 export function staffIdentityQuestionText(value: string | null | undefined, context?: string | null) {
   const q = n(value);
   const ctx = n(context);
-  if (/(?:مع\s+مين\s+بحكي|مين\s+معي|انت\s+مين|إنت\s+مين|شو\s+اسمك|اسمك\s+شو|مين\s+حضرتك|موظف\s+ولا|ذكاء\s+اصطناعي|ذكاء\s+اصطناعي|ai\b)/i.test(q)) return true;
+  if (/(?:مع\s+مين\s+بحكي|مين\s+معي|انت\s+مين|إنت\s+مين|شو\s+اسمك|اسمك\s+شو|مين\s+حضرتك|موظف\s+ولا|(?:انت|إنت|انتا).{0,10}(?:شخص|انسان|إنسان|موظف)|ذكاء\s+اصطناعي|ذكاء\s+اصطناعي|ai\b)/i.test(q)) return true;
   return /^(?:انت|إنت|انت\?|إنت\?)$/.test(q) && /(?:مين|ذكاء\s+اصطناعي|ai|اسمك)/i.test(ctx);
 }
 

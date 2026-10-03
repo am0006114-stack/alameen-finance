@@ -14,11 +14,15 @@ const rel={
   semantic:'app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts',
   humanTurn:'app/api/whatsapp/webhook/_lib/v3-os/currentHumanTurnAuthority.ts',
   gate:'app/api/whatsapp/webhook/_lib/v3-os/mutationConfirmationGate.ts',
+  daily:'app/api/whatsapp/webhook/_lib/v3-os/dailyConversationIntegrity.ts',
+  burst:'app/api/whatsapp/webhook/_lib/v3-os/conversationBurstAuthority.ts',
+  final:'app/api/whatsapp/webhook/_lib/v3-os/finalResponseGate.ts',
+  cron:'app/api/cron/preliminary-approval/route.ts',
 };
 for(const [name,file] of Object.entries(rel))ok(fs.existsSync(path.join(root,file)),`${name} source exists`);
 const src={};for(const [k,v] of Object.entries(rel))src[k]=read(v);
 const L=file=>loadTs(path.join(root,'app/api/whatsapp/webhook/_lib/v3-os',file));
-const interpreter=L('interpreter.ts'),arbiter=L('responseArbiter.ts'),obligations=L('answerObligations.ts'),commercial=L('informedCommercialContinuation.ts'),humanTurn=L('currentHumanTurnAuthority.ts'),gate=L('mutationConfirmationGate.ts'),policy=L('policy.ts'),stateMod=L('state.ts');
+const interpreter=L('interpreter.ts'),arbiter=L('responseArbiter.ts'),obligations=L('answerObligations.ts'),commercial=L('informedCommercialContinuation.ts'),humanTurn=L('currentHumanTurnAuthority.ts'),gate=L('mutationConfirmationGate.ts'),daily=L('dailyConversationIntegrity.ts'),burst=L('conversationBurstAuthority.ts'),policy=L('policy.ts'),stateMod=L('state.ts');
 const policyTruth=policy.getV3Policy();
 const baseApp={id:'app-1171',trackingId:'AM-1790774373025',status:'preliminary_qualified',paymentStatus:null,paymentConfirmedAt:null,phone:'0776328429',deviceName:'iPhone 15'};
 const feeApp={...baseApp,status:'customer_confirmed_continue',paymentStatus:'pending_payment'};
@@ -105,6 +109,36 @@ r=arb('هل انتم وكيل ابل معتمد ومن وين بتجيبوا ا�
 ok(r.obligation==='answer_bundle','supplier/Apple authorization question has current-turn authority');
 ok(/ما عندي حقيقة موثقة.*(?:وكيل Apple|موزع Apple)/.test(r.reply||''),'supplier answer refuses unsupported Apple authorization/source claims');
 
+// D2. Post-11.8 production conflict cases are owned by the current customer turn.
+for(const [text,label,must,forbid] of [
+  ['في دفعه اولا ولا لا','down payment colloquial spelling',/(?:دفعة أولى).*(?:اختيارية|0)/,/الكفيل/],
+  ['كم بدها لتبين اه او لا','decision timing',/(?:يومين|3 أيام|ضغط مراجعات)/,/حالة طلبك الآن فقط/],
+  ['ما نسبة القبول برأيك','acceptance probability',/(?:ما عندي نسبة قبول|ما رح أخمّن)/,/يومين إلى 3 أيام/],
+  ['هل معاه كفر او شاشه حمايه','accessories',/(?:ملحقات مجانية|كفر|حماية شاشة)/,/الاستلام يكون من المكتب/],
+  ['رقم الشركة','company phone',/(?:نفس واتساب|رقم هاتف إضافي رسمي موثق)/,/بيانات التسجيل/],
+  ['بدي اقدم شكو عن الدعم الفني','support complaint',/(?:تفاصيل الشكوى|قناة شكوى منفصلة)/,/الاسترداد قيد المعالجة/],
+]){
+  const rr=arb(text,'المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل.',baseState,reviewApp,`conflict-${label}`);
+  ok(rr.obligation==='answer_bundle',`${label}: current question owns the turn`);
+  ok(Boolean(rr.reply)&&must.test(rr.reply),`${label}: direct grounded answer is returned`);
+  ok(!forbid.test(rr.reply||''),`${label}: stale cross-domain answer is rejected`);
+}
+r=arb('يرجى تصعيد طلبي إلى مشرف القسم، وإذا في مستندات ناقصة خبروني','المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل.',baseState,reviewApp,'escalation');
+ok(r.obligation==='answer_bundle','escalation request has deterministic current-turn authority');
+ok(/ما رح أقول إنه تم تصعيد/.test(r.reply||''),'escalation request never claims an unexecuted escalation');
+ok(daily.staffIdentityQuestionText('انت شخص؟')===true,'plain "are you a person" question is recognized as an identity question');
+
+const socialFence=burst.selectCanonicalConversationBurst([
+  {message_id:'old-q',body:'كم بدها لتبين اه او لا',created_at:'2026-10-03T16:00:00Z'},
+  {message_id:'close',body:'تمام',created_at:'2026-10-03T16:00:25Z'},
+],90_000);
+ok(socialFence?.combinedText==='تمام','social closure uses a tight burst fence and cannot resurrect a 25-second-old question');
+const substantiveBurst=burst.selectCanonicalConversationBurst([
+  {message_id:'d1',body:'في دفعه اولا',created_at:'2026-10-03T16:00:00Z'},
+  {message_id:'d2',body:'ولا لا',created_at:'2026-10-03T16:00:05Z'},
+],90_000);
+ok(/في دفعه اولا[\s\S]*ولا لا/.test(substantiveBurst?.combinedText||''),'substantive multi-bubble question still combines normally');
+
 // E. Interest decimal storage is rendered as a human percentage, not 100x too small.
 const rateApp={...reviewApp,interestRate:0.15};
 r=arb('كم نسب الفائده على ايفون','نسبة الربح 0.15%.',baseState,rateApp,'rate');
@@ -163,6 +197,11 @@ const unifiedSrc=read('app/api/whatsapp/webhook/_lib/v3-os/unifiedConversationDe
 ok(/highConfidenceInstructionLeakLine/.test(unifiedSrc)&&/الحقيقه\\s\+التجاريه/.test(unifiedSrc),'internal Arabic instruction leakage has a deterministic egress filter');
 const cronSrc=read('app/api/cron/preliminary-approval/route.ts');
 ok(/Tracking ownership collision/.test(cronSrc)&&/tracking_id:\s*app\.tracking_id/.test(cronSrc)&&/application_id:\s*app\.id/.test(cronSrc),'preliminary template send is ownership-guarded and canonically attributed');
+ok(/reconcilePreviouslyDeliveredTemplate/.test(cronSrc)&&/claimPreliminaryTemplateSend/.test(cronSrc)&&/preliminary_whatsapp_status:\s*"sending"/.test(cronSrc),'preliminary template has delivered reconciliation plus a pre-send claim');
+const finalSrc=read('app/api/whatsapp/webhook/_lib/v3-os/finalResponseGate.ts');
+ok(/بتابع\|بنتابع/.test(finalSrc)&&/unsupported_action_claim_without_receipt/.test(finalSrc),'device/data change follow-up wording cannot imply execution without an authoritative receipt');
+const burstSrc=read('app/api/whatsapp/webhook/_lib/v3-os/conversationBurstAuthority.ts');
+ok(/pureSocialClosureBody/.test(burstSrc)&&/effectiveGapMs/.test(burstSrc),'social closure has a dedicated burst boundary');
 
 console.log(`\nV3 PHASE 11.7.1 SELFTEST: assertions=${passed+failed}; passed=${passed}; failed=${failed}`);
 if(failed)process.exit(1);
