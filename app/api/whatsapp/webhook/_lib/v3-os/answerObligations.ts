@@ -21,7 +21,9 @@ function currentCommercialDisclosureVisible(state: ConversationState, truth: Tru
 }
 
 function explicitContinuation(q: string) {
-  return /^(?:اود|أود|ارغب|أرغب|حاب|حابب|بدي)\s+(?:الاستمرار|اكمل|أكمل|استمر)|^(?:استمرار|موافق|موافقه|موافقة|اوافق|أوافق|تمام\s+حاب\s+اكمل|تمام\s+حاب\s+أكمل)$/.test(q);
+  if (!q || /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q)) return false;
+  if (/^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا|موافق|موافقه|اوافق)$/.test(q)) return true;
+  return /(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)/.test(q);
 }
 
 function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
@@ -37,6 +39,9 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const feeDueNow = /(?:بدك|بدكم|مطلوب|لازم).{0,24}(?:مني\s*)?(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,18}(?:هسا|هسه|الان|الآن)?|(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,24}(?:هسا|هسه|الان|الآن).{0,18}(?:مطلوب|ادفع|أدفع)?/.test(q);
   const feeRefundability = /(?:هاض|هاد|هذا|المبلغ|الرسوم|5|٥|الخمس|الخمسه).{0,32}(?:مسترد|مسترده|مستردة|بترجع|برجع|بترجعو|برجعو)|(?:مسترد|مسترده|مستردة|بترجع).{0,30}(?:الرسوم|المبلغ|5|٥)/.test(q);
   const officeLocation = /(?:وين|اين|أين).{0,24}(?:موقعكم|المكتب|المحل|العنوان|الشركه|الشركة|الفرع|فرع|فروعكم|افرعكم|أفرعكم)|(?:موقعكم|المكتب|المحل|الشركه|الشركة|الفرع|فرع|فروعكم|افرعكم|أفرعكم).{0,22}(?:وين|بالزبط|بالضبط)|^(?:اين|أين|وين)\s+(?:افرعكم|أفرعكم|فروعكم)$|^بدي\s+فرع$/.test(q);
+  const officeHours = /(?:اوقات|ساعات|ايام).{0,20}(?:الدوام|العمل)|(?:الدوام).{0,20}(?:متى|متي|كيف|ايام)|(?:تعملون|بتداوموا|فاتحين).{0,20}(?:السبت|الجمعه)|(?:السبت|الجمعه).{0,20}(?:دوام|فاتحين|تعملون|عطله)/.test(q);
+  const remoteProcess = /(?:كل|كامل).{0,18}(?:الاجراءات|المعامله).{0,24}(?:واتساب|اونلاين)|(?:لازم|ضروري|بدي).{0,22}(?:اجي|امر|احضر).{0,22}(?:المكتب|الفرع)|(?:بدون).{0,18}(?:حضور|المكتب|الفرع)/.test(q);
+  const supplierAuthorization = /(?:وكيل|موزع).{0,24}(?:ابل|apple|معتمد)|(?:من\s+وين|من\s+اي).{0,28}(?:بتجيبوا|تجيبوا|مصدر|وكلاء).{0,28}(?:الاجهزه|الايفون|iphone)|(?:اي\s+وكيل|الوكيل).{0,24}(?:الاجهزه|الايفون|iphone|apple)/i.test(q);
   const bankInstallmentChannel = /(?:عن\s+طريق|من\s+خلال).{0,30}(?:بنك\s+العربي\s+الاسلامي|البنك\s+العربي\s+الاسلامي|بنك\s+الاتحاد|بنك\s+اسلامي|بنك\s+إسلامي).{0,30}(?:اقساط|أقساط|تقسيط)?|(?:اقساط|أقساط|تقسيط).{0,30}(?:بنك\s+العربي\s+الاسلامي|البنك\s+العربي\s+الاسلامي|بنك\s+الاتحاد|بنك\s+اسلامي|بنك\s+إسلامي)/.test(q);
   const deliveryTiming = /(?:متى|متي|امتى|امتي|موعد|وقت).{0,24}(?:التسليم|تسليم|الاستلام|استلام)|(?:التسليم|الاستلام).{0,24}(?:متى|متي|امتى|امتي|موعد|وقت)/.test(q);
   const installmentQuote = /(?:كم|قديش).{0,28}(?:بطلع|بيطلع|يطلع).{0,24}(?:اقساط|أقساط|قسط)|(?:سعره|سعر|الجهاز).{0,22}(?:بالاقساط|بالأقساط)|(?:كم|قديش).{0,18}(?:القسط|قسطه|قسطها)/.test(q);
@@ -52,7 +57,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const continuationDecision = !["cancelled", "refund_requested", "refund_completed"].includes(stage) && explicitContinuation(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeDueNow, feeRefundability, officeLocation, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -162,6 +167,21 @@ function officeLocationPart(truth: TruthBundle) {
   return `الموقع العام الموثق عندي: ${truth.policy.generalLocation}. ما عندي قائمة فروع إضافية موثقة أقدر أخمّنها. الحضور للمكتب بموعد رسمي مؤكد فقط.`;
 }
 
+function officeHoursPart() {
+  return "الجمعة والسبت عطلة تشغيلية للمكتب، بينما استقبال الطلبات والمتابعة الرقمية مستمران. ما عندي ساعات يومية موثقة لباقي الأيام أذكرها بدون تخمين، والحضور للمكتب بيكون فقط بموعد رسمي مؤكد.";
+}
+
+function remoteProcessPart() {
+  return "التقديم والمتابعة ممكنين رقميًا عبر الموقع وواتساب، لكن الاستلام وتوقيع العقد مش واتساب فقط: إذا وصل الطلب للموافقة النهائية، الحضور للمكتب بيكون بموعد رسمي مؤكد مرتبط بالطلب. ما في زيارة مفتوحة من غير موعد.";
+}
+
+function supplierAuthorizationPart(truth: TruthBundle) {
+  const device = String(truth.application?.deviceName || "");
+  const iphone18 = /iphone\s*18|ايفون\s*18|آيفون\s*18/i.test(device);
+  const documentedWarranty = iphone18 ? " الموثق عندي لهذا الموديل أن كفالته iSYSTEMS الأردن، وهذا بحد ذاته لا يعني إن الأمين وكيل Apple أو موزع Apple معتمد." : "";
+  return `ما عندي حقيقة موثقة تسمحلي أقول إن الأمين وكيل Apple أو موزع Apple معتمد، وما رح أنسب مصدر التوريد لوكيل معيّن بدون حقيقة موثقة على نفس المنتج.${documentedWarranty}`;
+}
+
 function bankInstallmentChannelPart() {
   return "التقسيط عند الأمين للأقساط نفسه، وما عندي شراكة أو برنامج تقسيط موثق أقدر أنسبه للبنك العربي الإسلامي أو بنك معيّن. إذا قصدك فقط تحويل الرسوم أو الأقساط من حسابك البنكي، بنعتمد قنوات السداد الرسمية المتاحة وقتها وما بنضمن توافق بنك بعينه إلا إذا ظهر لك المستفيد الصحيح قبل التأكيد.";
 }
@@ -172,8 +192,8 @@ function deliveryTimingPart(turn: InterpretedTurn, truth: TruthBundle) {
     return "إذا الجهاز iPhone 18 Pro أو Pro Max، الاستلام يكون بعد شهر من الموافقة النهائية، ومن المكتب وبموعد رسمي مؤكد فقط؛ ما في توصيل.";
   }
   const stage = applicationJourneyStage(truth.application);
-  if (stage === "approved") return `مرحلة الموافقة انتهت، وموعد الاستلام نفسه لازم يكون موعدًا رسميًا مؤكدًا مرتبطًا بالطلب. ${truth.policy.generalLocation}.`;
-  return `موعد التسليم ما بينحدد قبل صدور الموافقة النهائية. الاستلام يكون من المكتب وبموعد رسمي مؤكد مرتبط بالطلب؛ ما في توصيل. ${truth.policy.generalLocation}.`;
+  if (stage === "approved") return `الموافقة النهائية صادرة، لكن ما عندي قاعدة موثقة إن الاستلام يكون بنفس يوم الموافقة. موعد الاستلام نفسه لازم يكون موعدًا رسميًا مؤكدًا مرتبطًا بالطلب. ${truth.policy.generalLocation}.`;
+  return `موعد التسليم ما بينحدد قبل صدور الموافقة النهائية، وما بقدر أوعد باستلام بنفس يوم صدورها. الاستلام يكون من المكتب وبموعد رسمي مؤكد مرتبط بالطلب؛ ما في توصيل. ${truth.policy.generalLocation}.`;
 }
 
 function installmentQuotePart(truth: TruthBundle) {
@@ -273,6 +293,9 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.priceChange) parts.push(priceChangePart());
   if (f.contractTerms) parts.push(contractTermsPart(input.truth));
   if (f.businessIdentity) parts.push(businessIdentityPart(input.truth));
+  if (f.supplierAuthorization) parts.push(supplierAuthorizationPart(input.truth));
+  if (f.officeHours) parts.push(officeHoursPart());
+  if (f.remoteProcess) parts.push(remoteProcessPart());
   if (f.officeLocation) parts.push(officeLocationPart(input.truth));
   if (f.applicationStart) parts.push(applicationStartPart(input.turn, input.truth));
   return Array.from(new Set(parts.filter(Boolean))).join("\n\n") || null;

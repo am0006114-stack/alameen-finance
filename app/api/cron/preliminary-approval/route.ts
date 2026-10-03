@@ -78,19 +78,46 @@ function buildPreviewText(app: ApplicationRecord) {
   return `PRELIMINARY_APPROVAL_TEMPLATE_SENT | name=${firstTwoNames(app.full_name)} | device=${app.device_name || "الجهاز المطلوب"} | tracking=${app.tracking_id || app.id}`;
 }
 
-async function logOutgoingWhatsApp(app: ApplicationRecord, to: string, body: string) {
+async function logOutgoingWhatsApp(app: ApplicationRecord, to: string, body: string, providerMessageId?: string | null) {
   try {
     await supabaseAdmin.from("whatsapp_messages").insert({
       wa_id: to,
       direction: "outgoing",
       customer_name: app.full_name || null,
-      message_id: null,
+      message_id: providerMessageId || null,
       message_type: "template_event",
       body,
+      tracking_id: app.tracking_id || null,
+      application_id: app.id,
+      raw_payload: {
+        source: "preliminary_approval_cron",
+        application_id: app.id,
+        tracking_id: app.tracking_id || null,
+        destination_wa_id: to,
+      },
     });
   } catch {
     // لا نوقف الكرون إذا جدول whatsapp_messages غير موجود أو فيه اختلاف أعمدة.
   }
+}
+
+async function verifyTemplateApplicationOwnership(app: ApplicationRecord) {
+  if (!app.tracking_id) return { ok: true as const };
+  const { data, error } = await supabaseAdmin
+    .from("applications")
+    .select("id, tracking_id, phone")
+    .eq("tracking_id", app.tracking_id)
+    .limit(2);
+
+  if (error) return { ok: false as const, error: `Ownership verification failed: ${error.message}` };
+  const rows = (data || []) as Array<{ id: string; tracking_id?: string | null; phone?: string | null }>;
+  if (rows.length !== 1 || rows[0]?.id !== app.id) {
+    return { ok: false as const, error: `Tracking ownership collision for ${app.tracking_id}` };
+  }
+  if (normalizeWhatsAppToSend(rows[0]?.phone) !== normalizeWhatsAppToSend(app.phone)) {
+    return { ok: false as const, error: `Tracking recipient mismatch for ${app.tracking_id}` };
+  }
+  return { ok: true as const };
 }
 
 async function sendPreliminaryApprovalTemplate(app: ApplicationRecord): Promise<SendResult> {
@@ -162,9 +189,16 @@ async function sendPreliminaryApprovalTemplate(app: ApplicationRecord): Promise<
   );
 
   const responseText = await response.text();
+  let providerMessageId: string | null = null;
+  try {
+    const parsed = JSON.parse(responseText);
+    providerMessageId = String(parsed?.messages?.[0]?.id || "").trim() || null;
+  } catch {
+    providerMessageId = null;
+  }
 
   if (response.ok) {
-    await logOutgoingWhatsApp(app, cleanTo, buildPreviewText(app));
+    await logOutgoingWhatsApp(app, cleanTo, buildPreviewText(app), providerMessageId);
   }
 
   return {
@@ -249,6 +283,26 @@ export async function GET(request: Request) {
         error: errorMessage,
       });
 
+      continue;
+    }
+
+    const ownership = await verifyTemplateApplicationOwnership(app);
+    if (!ownership.ok) {
+      const errorMessage = safeErrorText(ownership.error);
+      await supabaseAdmin
+        .from("applications")
+        .update({
+          preliminary_whatsapp_status: "failed",
+          preliminary_whatsapp_error: errorMessage,
+        })
+        .eq("id", app.id);
+      results.push({
+        id: app.id,
+        tracking_id: app.tracking_id,
+        phone: cleanTo,
+        sent: false,
+        error: errorMessage,
+      });
       continue;
     }
 

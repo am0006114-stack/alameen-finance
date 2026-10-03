@@ -10865,7 +10865,16 @@ async function settleSupersededIncomingOrRetry(input: {
   // to deliver here would deadlock against the per-wa_id oldest-job lease.
   const leaderPendingInIngress = Boolean(burst?.pendingIngressMessageIds?.includes(leaderMessageId));
   if (input.yieldToDurableIngress && leaderPendingInIngress) {
-    await markIncomingWhatsAppMessageProcessed(currentMessageId);
+    // Collapse the whole superseded prefix in one durable-worker cycle. Every
+    // bubble remains in whatsapp_messages and is re-read by the canonical leader,
+    // but its older ingress job must not consume another scheduler cycle. This
+    // prevents repeated "اود الاستمرار / بدي اكمل" bursts from queue-amplifying
+    // into many minutes of delay while preserving exactly one leader reply.
+    const supersededMessageIds = Array.from(new Set([
+      ...(burst?.messageIds || []).filter((id) => String(id || "").trim() !== leaderMessageId),
+      currentMessageId,
+    ].map((id) => String(id || "").trim()).filter(Boolean)));
+    await markIncomingWhatsAppMessagesProcessed(supersededMessageIds);
     return true;
   }
 

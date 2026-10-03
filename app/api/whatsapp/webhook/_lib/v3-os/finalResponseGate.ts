@@ -13,7 +13,7 @@ import { explicitContactRequestText, explicitOrderStatusRequestText, replyMisali
 import { aiIdentityQuestionText, buildHumanFirstConversationAuthorityReply, falseLiteralHumanIdentityClaim, replyMisalignedWithHumanFirstAuthority } from "./humanFirstConversationAuthority";
 import { buildCurrentQuestionAnswerContractReply, replyViolatesCurrentQuestionAnswerContract } from "./currentQuestionAnswerContract";
 import { arbitrateProductionReply, responseHasKnownBadFallbackSignature } from "./responseArbiter";
-import { candidateAlignedWithLockedMeaning, downPaymentQuestion, officePaymentQuestion, protectedBusinessRegistrationRequest, resolveUnifiedMeaningLock, stopRefundKeepRequest } from "./unifiedConversationDecisionPlane";
+import { candidateAlignedWithLockedMeaning, downPaymentQuestion, officePaymentQuestion, protectedBusinessRegistrationRequest, resolveUnifiedMeaningLock, stopRefundKeepRequest, unifiedInstructionLeakPresent } from "./unifiedConversationDecisionPlane";
 import { deviceModelReferenceQuestionText, incomeEvidenceSourceQuestionText, installmentAdjustmentQuestionText } from "./contextualTurnResolver";
 import { buildGroundedPersonalFactRepair, buildMediaEvidenceRepair, mediaEvidenceViolation, unsupportedPersonalFactClaim } from "./humanRelationshipRuntime";
 
@@ -326,6 +326,26 @@ function mutationExecutionPromiseWithoutReceipt(reply: string, actions: ActionRe
   const promisesMutation = /(?:رح|راح|هسا|الان|الآن).{0,30}(?:ارفع|اسجل|ابلش|ابدا|ابدأ|انفذ|اعمل).{0,50}(?:الالغاء|الإلغاء|الاسترداد|الاسترجاع|طلب\s+الالغاء|طلب\s+الإلغاء|طلب\s+الاسترداد)|(?:طلب\s+الالغاء|طلب\s+الإلغاء|طلب\s+الاسترداد).{0,55}(?:رح|راح).{0,20}(?:ارفع|اسجل|ابلش|ابدا|ابدأ|انفذ)|(?:رح|راح).{0,15}(?:ابلش|ابدا|ابدأ).{0,15}(?:فيه|بالاجراء|بالإجراء)/.test(n);
   if (!promisesMutation) return false;
   return !actions.some((x) => x.executed && ["cancel_application","request_refund"].includes(x.action) && ["executed","already_done"].includes(x.outcome));
+}
+
+function actionClaimWithoutAuthoritativeReceipt(reply: string, actions: ActionResult[]) {
+  const q = normalized(reply);
+  const executed = (keys: string[]) => actions.some((x) => x.executed && keys.includes(x.action) && ["executed","already_done"].includes(x.outcome));
+  const deviceOrDataClaim = /(?:سجلت|سجلنا|تم\s+تسجيل|رفعت|رفعنا|تم\s+رفع|نفذت|نفذنا|تم\s+تنفيذ|غيرنا|عدلنا).{0,38}(?:طلب\s+)?(?:تغيير|تعديل|الجهاز|الموديل|اللون|السعه|البيانات)|(?:طلب\s+)?(?:التغيير|التعديل).{0,28}(?:مسجل|تم\s+تسجيله|انرفع|تم\s+رفعه)/.test(q);
+  if (deviceOrDataClaim && !executed(["change_device","change_application_data"])) return "change_request";
+  const cancelClaim = /(?:سجلت|سجلنا|تم\s+تسجيل|نفذت|نفذنا|تم\s+تنفيذ|الغينا|تم\s+الغاء).{0,34}(?:طلب\s+)?(?:الالغاء|الغاء|الطلب)/.test(q);
+  if (cancelClaim && !executed(["cancel_application"])) return "cancel_application";
+  const refundClaim = /(?:سجلت|سجلنا|تم\s+تسجيل|رفعت|رفعنا|تم\s+رفع|نفذت|نفذنا|تم\s+تنفيذ).{0,34}(?:طلب\s+)?(?:الاسترداد|الاسترجاع)/.test(q);
+  if (refundClaim && !executed(["request_refund"])) return "request_refund";
+  const deletionClaim = /(?:حذفت|حذفنا|تم\s+حذف|سجلت|سجلنا|تم\s+تسجيل).{0,35}(?:حذف\s+)?(?:البيانات|الهويه|الصوره|المعلومات)/.test(q);
+  if (deletionClaim) return "data_deletion";
+  return null;
+}
+
+function staleMediaReplyOnTextTurn(turn: InterpretedTurn, reply: string) {
+  if (whatsappImageMessageText(turn.rawText)) return false;
+  const q = normalized(reply);
+  return /(?:وصلني|وصلتني|وصلت).{0,28}(?:المرفق|الصوره|الرساله\s+الصوتيه)|(?:المرفق).{0,35}(?:اكتبلي|وضح)/.test(q);
 }
 
 function unsupportedRefundEtaClaim(reply: string, turn: InterpretedTurn) {
@@ -823,6 +843,7 @@ ${links.baseUrl}/products
   if (input.unsupportedEligibility) return buildSafeEligibilityReply();
   if (input.unsupportedRefundEta || (input.repeatedMutationPrompt && refundTimingQuestion(input.turn))) return buildSafeRefundTimingReply();
   if ((input.unsupportedOperationalPromise || input.repeatedMutationPrompt) && delayComplaint(input.turn)) return buildDelayComplaintReply({ truth: input.truth });
+  if (input.unsupportedOperationalPromise) return "طلبك واضح، لكن ما رح أقول إن إجراء تسجّل أو تنفّذ قبل ما يكون عندي نتيجة تنفيذ فعلية وموثقة. إذا الإجراء يحتاج تنفيذ إداري، بضل مذكور كطلب فقط إلى أن تظهر نتيجة التنفيذ.";
   if (input.repeatedEmpathy) return withoutRepeatedEmpathyOpener(input.reply);
   if (input.paymentViolation) {
     if (decision.alreadyPaid) return "الدفع مؤكد إداريًا على طلبك، فما في داعي لأي دفعة أو وصل جديد. الملف مكمل بالمرحلة المسجلة عليه.";
@@ -892,7 +913,7 @@ export function enforceFinalResponseGate(input: {
     violations.push("internal_placeholder_or_official_links_token_leaked");
     severity = "p0";
   }
-  if (/(?:يشرح|يُشرح)\s+ذلك\s+بصراحه|(?:من\s+دون|بدون)\s+اعطاء\s+موعد\s+مؤكد\s+او\s+وعد\s+بالتنفيذ|CURRENT QUESTION|SINGLE RESPONSE|customer journey|truth gate/i.test(reply)) {
+  if (unifiedInstructionLeakPresent(reply) || /(?:يشرح|يُشرح)\s+ذلك\s+بصراحه|(?:من\s+دون|بدون)\s+اعطاء\s+موعد\s+مؤكد\s+او\s+وعد\s+بالتنفيذ|CURRENT QUESTION|SINGLE RESPONSE|customer journey|truth gate/i.test(reply)) {
     violations.push("internal_policy_instruction_leaked_to_customer");
     severity = "p0";
   }
@@ -1100,8 +1121,16 @@ export function enforceFinalResponseGate(input: {
     severity = "p0";
   }
 
-  const unsupportedOperationalPromise = unsupportedExpeditePromise(reply) || mutationExecutionPromiseWithoutReceipt(reply, input.actions);
-  if (unsupportedOperationalPromise) violations.push("unsupported_operational_promise_without_execution");
+  const unsupportedActionClaim = actionClaimWithoutAuthoritativeReceipt(reply, input.actions);
+  const unsupportedOperationalPromise = unsupportedExpeditePromise(reply) || mutationExecutionPromiseWithoutReceipt(reply, input.actions) || Boolean(unsupportedActionClaim);
+  if (unsupportedOperationalPromise) {
+    violations.push(unsupportedActionClaim ? `unsupported_action_claim_without_receipt:${unsupportedActionClaim}` : "unsupported_operational_promise_without_execution");
+    severity = "p0";
+  }
+  if (staleMediaReplyOnTextTurn(input.turn, reply)) {
+    violations.push("stale_media_authority_on_text_turn");
+    severity = "p0";
+  }
   if (explicitExpediteRequestText(input.turn.rawText) && /(?:بدفع|بقدم|بقدّم|بسرع|بسرّع).{0,28}(?:الملف|الطلب)|(?:متابع).{0,20}(?:طلبك|ملفك).{0,12}(?:شخصيا|شخصيًا)/.test(normalized(reply))) {
     violations.push("expedite_request_must_not_claim_unexecuted_priority_change");
   }

@@ -241,7 +241,12 @@ export function candidateAlignedWithLockedMeaning(input: { meaning: LockedMeanin
 
 function instructionLeak(value: string) {
   const q = n(value);
-  return /(?:يشرح\s+ذلك|يتم\s+شرح\s+ذلك|دون\s+اعطاء\s+موعد|دون\s+إعطاء\s+موعد|يجب\s+عدم|قاعده\s+تشغيليه|قاعدة\s+تشغيلية)/.test(q);
+  return /(?:يشرح\s+ذلك|يتم\s+شرح\s+ذلك|دون\s+اعطاء\s+موعد|يجب\s+عدم|قاعده\s+تشغيليه|لا\s+تخترع.{0,45}(?:سعر|لون|قسط|توفر)|الحقيقه\s+التجاريه\s+المعتمده|تعليمات\s+داخليه|ممنوع\s+على\s+المساعد|current\s+question|single\s+response|truth\s+gate|customer\s+journey)/i.test(q);
+}
+
+function highConfidenceInstructionLeakLine(value: string) {
+  const q = n(value);
+  return /(?:قاعده\s+تشغيليه|لا\s+تخترع.{0,45}(?:سعر|لون|قسط|توفر)|الحقيقه\s+التجاريه\s+المعتمده|تعليمات\s+داخليه|ممنوع\s+على\s+المساعد|current\s+question|single\s+response|truth\s+gate|customer\s+journey)/i.test(q);
 }
 
 function empathyOnlyParagraph(value: string) {
@@ -272,6 +277,7 @@ export function sanitizeUnifiedEgressReply(value: string | null | undefined) {
   reply = reply.replace(/(?:،?\s*)?دون إعطاء موعد مؤكد أو وعد بالتنفيذ[^.\n]*(?:[.\n]|$)/g, " ");
   reply = reply.replace(/أنا\s+معك،?\s*مش\s+(?:بوت|روبوت|رد\s+آلي)[^.\n]*(?:[.\n]|$)/g, "معك فريق الأمين من نفس المحادثة. ");
   reply = reply.replace(/مش\s+رد\s+آلي/g, "متابع معك من نفس المحادثة");
+  reply = reply.split("\n").filter((line) => !highConfidenceInstructionLeakLine(line)).join("\n");
   reply = reply.replace(/[ \t]{2,}/g, " ").replace(/\n{3,}/g, "\n\n").trim();
   reply = collapseAdjacentEmpathyParagraphs(reply);
   return reply;

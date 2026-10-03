@@ -228,17 +228,24 @@ function hasExplicitTracking(value: string | null | undefined) {
 export function explicitDoNotContinueText(value: string | null | undefined, context?: string | null) {
   const q = normalized(value);
   const ctx = normalized(context);
-  const explicit = /(?:لا\s+ارغب|لا\s+أرغب|لا\s+اريد|لا\s+أريد|مش\s+حاب|مش\s+حابه|مش\s+حابة|ما\s+بدي|مش\s+بدي|ما\s+ارغب|ما\s+أرغب).{0,35}(?:الاستمرار|استمر|اكمل|أكمل|تكمل|المتابعه|المتابعة)|(?:لا\s+ارغب|لا\s+أرغب).{0,25}(?:حاليا|حاليًا|مستقبلا|مستقبلًا)/.test(q);
-  const contextualDecline = /^(?:لا\s*يسلمو|لا\s*شكرا|لا\s*شكرًا|يسلمو\s+لا|بلاش|خلص\s+لا)$/.test(q)
-    && /(?:اود\s+الاستمرار|أود\s+الاستمرار|هل\s+(?:تود|تريد|بدك).{0,25}(?:الاستمرار|تكمل)|رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار))/.test(ctx);
+  const explicit = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابه|حابب|راغب|مكمل)|ما\s+(?:بدي|ارغب|اريد)|مش\s+بدي|بديش).{0,35}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر|المتابعه|فتح\s+الملف|الدراسه\s+النهائيه)|(?:لا\s+(?:ارغب|اريد)).{0,25}(?:حاليا|مستقبلا)/.test(q);
+  const contextualDecline = /^(?:لا\s*يسلمو|لا\s*شكرا|يسلمو\s+لا|بلاش|خلص\s+لا)$/.test(q)
+    && /(?:اود\s+الاستمرار|اريد\s+الاستمرار|هل\s+(?:تود|تريد|بدك).{0,25}(?:الاستمرار|تكمل)|رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار))/.test(ctx);
   return explicit || contextualDecline;
 }
 
 export function explicitContinuationText(value: string | null | undefined) {
   const q = normalized(value);
-  if (explicitDoNotContinueText(value)) return false;
-  if (/^(?:استمرار|اكمل|أكمل|كمل|نكمل|نستمر|استمر)$/.test(q)) return true;
-  return /(?:اود|أود|ارغب|أرغب)\s+(?:ب)?الاستمرار|(?:اخترت|اختارت)\s+الاستمرار|(?:انا|أنا)\s+(?:اخترت|موافق|موافقه|موافقة)\s+(?:على\s+)?الاستمرار|(?:بدي|حاب|حابه|حابة)\s+(?:اكمل|أكمل|استمر)|(?:بدي|حاب|حابه|حابة)\s+(?:افتح|أفتح|فتح)\s+(?:ال)?ملف|(?:افتح|أفتح)\s+(?:لي\s+)?(?:ال)?ملف|(?:حول|حوّل|بدي\s+احول|بدي\s+أحول)\s+(?:الطلب\s+)?(?:للدراسه|للدراسة|الى\s+الدراسه|إلى\s+الدراسة)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
+  if (!q || explicitDoNotContinueText(value)) return false;
+
+  // Intent-level commercial continuation, not one magic phrase. normalizeArabic
+  // folds hamza/alef variants, so "أود" and "اود" are identical here.
+  if (/^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا|موافق|موافقه|اوافق)$/.test(q)) return true;
+  const continuationTarget = /(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر|المتابعه)/;
+  const positiveLead = /(?:اود|ارغب|اريد|بدي|حاب|حابه|حابب|موافق|اوافق|خلينا|يلا)/;
+  if (positiveLead.test(q) && continuationTarget.test(q)) return true;
+  if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)/.test(q)) return true;
+  return /(?:اخترت|اختارت).{0,12}الاستمرار|(?:انا\s+)?(?:موافق|اوافق).{0,12}(?:على\s+)?الاستمرار|(?:بدي|حاب|حابب).{0,16}(?:افتح|فتح)\s+(?:لي\s+)?(?:ال)?ملف|(?:افتح|فتح)\s+(?:لي\s+)?(?:ال)?ملف|(?:حول|بدي\s+احول)\s+(?:الطلب\s+)?(?:للدراسه|الى\s+الدراسه)\s+النهائيه|استكمال\s+فتح\s+الملف/.test(q);
 }
 
 function contextualContinuationYes(turn: InterpretedTurn, state: ConversationState, recentTurns?: string[]) {
