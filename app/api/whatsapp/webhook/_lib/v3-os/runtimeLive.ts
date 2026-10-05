@@ -29,7 +29,7 @@ import { applyConversationConstraintsToReply, updateConversationConstraints } fr
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto } from "./semanticAuthority";
 import type { SemanticReplyCheck } from "./semanticReplyVerifier";
-import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, resemblesFullCommercialDisclosure, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, numericContinuationShortcutText, resemblesFullCommercialDisclosure, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
@@ -907,6 +907,8 @@ async function runLegacyV3ProductionLive(input: {
 
   turn = preserveCriticalDeterministicAuthority(turn, deterministicAnchor);
 
+  const numericContinuationShortcut = applicationJourneyStage(truthBeforeActions.application) === "preliminary_approved_waiting_decision"
+    && numericContinuationShortcutText(effectiveCustomerText);
   const rawContinuationIntent = truthBeforeActions.contactAccess !== "safe_preview"
     && !semanticContinuationVeto(turn)
     && !explicitDoNotContinueText(effectiveCustomerText, boundState.lastAssistantText)
@@ -915,6 +917,7 @@ async function runLegacyV3ProductionLive(input: {
       || explicitContinuationText(effectiveCustomerText)
       || directPaymentContinuationIntent
       || paymentPriorityAfterDisclosure
+      || numericContinuationShortcut
       || turn.requestedActions.includes("continue_application"));
   const disclosureRequiredThisTurn = shouldExplainCommercialStep({
     state: boundState,
@@ -1127,6 +1130,7 @@ async function runLegacyV3ProductionLive(input: {
       || informedCommercialContinuationConfirmed({ state: executionState, truth: truthAfterActions, turn, customerText: effectiveCustomerText })
       || explicitContinuationText(effectiveCustomerText)
       || paymentPriorityAfterDisclosure
+      || numericContinuationShortcut
       || turn.requestedActions.includes("continue_application")
       || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
     );
@@ -1147,6 +1151,33 @@ async function runLegacyV3ProductionLive(input: {
       topics: turn.topics,
     });
     truthAfterActions = stabilizeTruthSnapshot({ truth: truthAfterActions, state: executionState, previousTruth: truthAtContinuationDecision });
+    const discordApp = truthAfterActions.application || truthAtContinuationDecision.application;
+    if (discordApp) {
+      try {
+        const notification = await notifyV3Discord({
+          event: "customer_continue_payment_ready",
+          applicationId: discordApp.id,
+          trackingId: discordApp.trackingId,
+          waId: input.waId,
+          title: "✅ العميل اختار الاستمرار — بانتظار رسوم فتح الملف",
+          description: "تم تثبيت قرار الاستمرار على الطلب وحفظه كسجل تشغيلي مستقل. خطوة رسوم فتح الملف أصبحت جاهزة للعميل.",
+          details: {
+            الاسم: discordApp.fullName || "—",
+            الجهاز: discordApp.deviceName || "—",
+            "حالة الطلب": discordApp.status || "—",
+            "حالة الدفع": discordApp.paymentStatus || "—",
+            الرسوم: `${truthAfterActions.policy.fileOpeningFeeJod} دنانير`,
+            "مصدر القرار": numericContinuationShortcut ? "واتساب — الرقم 1" : "واتساب — تأكيد صريح",
+            turnId: input.turnId,
+          },
+        });
+        if (!notification.sent && !notification.suppressed) {
+          console.error("V3 continuation Discord delivery failed:", notification.reason);
+        }
+      } catch (error) {
+        console.error("V3 continuation Discord notification failed", error);
+      }
+    }
   } else if (continuationPersistence.attempted && continuationPersistence.blocker) {
     try {
       await notifyV3Discord({
@@ -1378,35 +1409,6 @@ async function runLegacyV3ProductionLive(input: {
       reasons: failOpenReasons,
       paymentPriorityAfterDisclosure,
     });
-  }
-
-  if (finalSafetyPass && reply && (truthAfterActions.application || truthAtContinuationDecision.application)) {
-    const explicitContinue = continuationDecisionThisTurn;
-    if (explicitContinue && protectedFiveJodStep) {
-      const discordApp = truthAfterActions.application || truthAtContinuationDecision.application!;
-      try {
-        const notification = await notifyV3Discord({
-          event: "customer_continue_payment_ready",
-          applicationId: discordApp.id,
-          trackingId: discordApp.trackingId,
-          waId: input.waId,
-          title: "✅ العميل وافق على الاستمرار — أرسلت له خطوة 5 دنانير",
-          description: "تم تثبيت اختيار العميل على الطلب وإرسال تعليمات رسوم فتح الملف ورابط رفع الوصل الرسمي.",
-          details: {
-            الاسم: discordApp.fullName || "—",
-            الجهاز: discordApp.deviceName || "—",
-            "حالة الطلب": discordApp.status || "—",
-            "حالة الدفع": discordApp.paymentStatus || "—",
-            الرسوم: `${truthAfterActions.policy.fileOpeningFeeJod} دنانير`,
-          },
-        });
-        if (!notification.sent && !notification.suppressed) {
-          console.error("V3 continuation Discord delivery failed:", notification.reason);
-        }
-      } catch (error) {
-        console.error("V3 continuation Discord notification failed:", error);
-      }
-    }
   }
 
   const answeredTopics = reply && verification.pass ? plan.answerItems.map((x) => x.topic) : [];

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { sendDiscordNotification } from "@/lib/discord";
+import { notifyV3Discord } from "@/app/api/whatsapp/webhook/_lib/v3-os/discordNotifier";
 
 function firstTwoNames(fullName: string | null | undefined) {
   if (!fullName) return "عميل غير محدد";
@@ -56,20 +57,13 @@ function buildPaymentWhatsAppUrl(params: {
 }) {
   const businessPhone = normalizeJordanPhoneForWhatsApp("0788500337");
 
-  const message = `نعم، أود الاستمرار بإجراءات فتح الملف وتحويل طلبي للدراسة النهائية ✅
+  const message = `تم تأكيد استمراري من صفحة الأمين للأقساط ✅
 
 الاسم: ${params.customerName}
 رقم التتبع: ${params.tracking}
 الجهاز: ${params.deviceName || "—"}
 
-معلومات رسوم فتح الملف:
-قيمة الرسوم: تظهر ضمن التعليمات الرسمية المرتبطة بالطلب
-
-اسم المستفيد: AMEENPAY
-اسم المحفظة: Orang-Money
-الاسم: ABDUL RAHMAN ALHARAHSHEH
-
-سأقوم بتحويل الرسوم وإرسال صورة وصل الدفع عبر واتساب.`;
+أريد بيانات دفع رسوم فتح الملف ورابط رفع الوصل الرسمي المرتبط بطلبي.`;
 
   return `https://wa.me/${businessPhone}?text=${encodeURIComponent(message)}`;
 }
@@ -116,7 +110,7 @@ export async function POST(request: Request) {
   };
 
   if (decision === "confirmed") {
-    updatePayload.payment_status = "pending";
+    updatePayload.payment_status = "pending_payment";
   }
 
   if (decision === "declined") {
@@ -133,51 +127,42 @@ export async function POST(request: Request) {
   const deviceName = application.device_name || "—";
 
   if (!updateError) {
-    const title =
-      decision === "confirmed"
-        ? "✅ العميل وافق على الاستمرار"
-        : "❌ العميل رفض الاستمرار";
-
-    await sendDiscordNotification({
-      title,
-      description:
-        decision === "confirmed"
-          ? "العميل ضغط زر الاستمرار من صفحة التأهيل المبدئي. تم تحويله إلى واتساب مع معلومات الدفع."
-          : "العميل اختار عدم الاستمرار من صفحة التأهيل المبدئي.",
-      color: decision === "confirmed" ? 0x69d97b : 0xff5c5c,
-      fields: [
-        {
-          name: "الاسم",
-          value: customerName,
-          inline: true,
-        },
-        {
-          name: "الهاتف",
-          value: application.phone || phone || "—",
-          inline: true,
-        },
-        {
-          name: "رقم التتبع",
-          value: appTracking,
-          inline: true,
-        },
-        {
-          name: "الجهاز",
-          value: deviceName,
-          inline: false,
-        },
-        {
-          name: "قرار العميل",
-          value: decisionLabel(decision),
-          inline: true,
-        },
-        {
-          name: "الحالة الجديدة",
-          value: nextStatus,
-          inline: true,
-        },
-      ],
-    });
+    if (decision === "confirmed") {
+      const waId = normalizeJordanPhoneForWhatsApp(application.phone || phone);
+      try {
+        await notifyV3Discord({
+          event: "customer_continue_payment_ready",
+          applicationId: application.id,
+          trackingId: appTracking,
+          waId,
+          title: "✅ العميل اختار الاستمرار — بانتظار رسوم فتح الملف",
+          description: "تم تثبيت قرار الاستمرار من صفحة التأهيل المبدئي وحفظه في السجل التشغيلي. خطوة رسوم فتح الملف أصبحت جاهزة للعميل.",
+          details: {
+            الاسم: customerName,
+            الجهاز: deviceName,
+            "حالة الطلب": nextStatus,
+            "حالة الدفع": "pending_payment",
+            "مصدر القرار": "صفحة التأهيل المبدئي",
+          },
+        });
+      } catch (error) {
+        console.error("Continue-decision Discord/ledger notification failed", error);
+      }
+    } else {
+      await sendDiscordNotification({
+        title: "❌ العميل رفض الاستمرار",
+        description: "العميل اختار عدم الاستمرار من صفحة التأهيل المبدئي.",
+        color: 0xff5c5c,
+        fields: [
+          { name: "الاسم", value: customerName, inline: true },
+          { name: "الهاتف", value: application.phone || phone || "—", inline: true },
+          { name: "رقم التتبع", value: appTracking, inline: true },
+          { name: "الجهاز", value: deviceName, inline: false },
+          { name: "قرار العميل", value: decisionLabel(decision), inline: true },
+          { name: "الحالة الجديدة", value: nextStatus, inline: true },
+        ],
+      });
+    }
   }
 
   if (decision === "confirmed") {
