@@ -81,6 +81,14 @@ export function informedCommercialContinuationConfirmed(input: {
   return affirmativeLead && /(?:اوافق|موافق|موافقه|الشروط|اكمل|كمل|استمر)/.test(q);
 }
 
+export function numericContinuationShortcutText(value: string | null | undefined) {
+  const q = normalizeArabic(String(value || ""))
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return /^(?:1|١)$/.test(q);
+}
+
 export function preliminaryApprovalNeedsInformedDisclosure(state: ConversationState, truth: TruthBundle) {
   const stage = applicationJourneyStage(truth.application);
   return ["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)
@@ -173,7 +181,7 @@ export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {
 
 إذا صار دفع مؤكد وما صدرت الموافقة النهائية، الرسوم مستردة بالكامل عبر المسار الرسمي. وإذا قررت تلغي بعد دفع مؤكد، الرسوم إلها مسار استرداد رسمي. وبالنسبة للدراسة: ${review}، ومع ضغط المراجعات ممكن تتأخر بعض الملفات بدون ما نعطيك وعد بموعد غير موثق.
 
-خذ قرارك براحتك؛ إذا التفاصيل مناسبة إلك وبدك تكمل، أكدلي بشكل طبيعي إنك حاب تستمر، وساعتها بعطيك بيانات الدفع الرسمية ورابط رفع الوصل.`;
+خذ قرارك براحتك؛ إذا التفاصيل مناسبة إلك وبدك تكمل، اكتب الرقم 1. وإذا بتحب تحكيها بطريقتك، أي تأكيد واضح للاستمرار بكفي. بعدها بعطيك بيانات الدفع الرسمية ورابط رفع الوصل.`;
 }
 
 export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: string | null) {

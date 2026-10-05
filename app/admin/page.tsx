@@ -51,12 +51,27 @@ type Application = {
 
   status?: string | null;
   payment_status?: string | null;
+  preliminary_qualified_at?: string | null;
+  preliminary_whatsapp_sent_at?: string | null;
+  paid_clicked_at?: string | null;
+  payment_confirmed_at?: string | null;
   delivery_delay_started_at?: string | null;
   delivery_delay_until?: string | null;
 };
 
 
 
+
+type FunnelEvent = {
+  id: string;
+  event_type: string;
+  application_id?: string | null;
+  wa_id?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  sent_at?: string | null;
+  payload?: Record<string, unknown> | null;
+};
 
 type DocumentRecord = {
   id?: string;
@@ -307,17 +322,34 @@ function isNeedsAction(app: Application) {
     app.status === "needs_salary_slip" ||
     app.status === "needs_guarantor" ||
     app.payment_status === "customer_claimed_paid" ||
-    app.status === "pending_payment_confirmation" ||
-    app.status === "customer_confirmed_continue"
+    app.status === "pending_payment_confirmation"
   );
 }
 
 function isPaymentAwaitingConfirmation(app: Application) {
   return (
     app.payment_status === "customer_claimed_paid" ||
-    app.status === "pending_payment_confirmation" ||
-    app.status === "customer_confirmed_continue"
+    app.status === "pending_payment_confirmation"
   );
+}
+
+function isAwaitingFileOpeningFee(app: Application) {
+  const paymentStatus = String(app.payment_status || "");
+  return app.status === "customer_confirmed_continue"
+    && ["pending", "pending_payment", "payment_info_sent", "not_requested_yet", ""].includes(paymentStatus);
+}
+
+function isWithinLastHours(value: string | null | undefined, hours: number) {
+  if (!value) return false;
+  const stamp = new Date(value).getTime();
+  if (!Number.isFinite(stamp)) return false;
+  return Date.now() - stamp <= hours * 60 * 60 * 1000;
+}
+
+function latestTimestamp(values: Array<string | null | undefined>) {
+  return values
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] || null;
 }
 
 function isToday(value: string | null) {
@@ -729,6 +761,19 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
 
   const safeApplications = (applications || []) as Application[];
 
+  const { data: funnelEventsData, error: funnelEventsError } = await supabaseAdmin
+    .from("whatsapp_v3_notification_ledger")
+    .select("id,event_type,application_id,wa_id,status,created_at,sent_at,payload")
+    .eq("event_type", "customer_continue_payment_ready")
+    .order("created_at", { ascending: false })
+    .limit(5000);
+
+  if (funnelEventsError) {
+    console.error("Failed to load payment-funnel events:", funnelEventsError);
+  }
+
+  const funnelEvents = (funnelEventsData || []) as FunnelEvent[];
+
   const filteredApplications = filterApplications(
     safeApplications,
     q,
@@ -823,6 +868,17 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
     (app) => app.status === "refund_requested" || app.payment_status === "refund_requested",
   ).length;
 
+  const awaitingFileOpeningFeeCount = safeApplications.filter(isAwaitingFileOpeningFee).length;
+  const preliminarySentLast24h = safeApplications.filter((app) => isWithinLastHours(app.preliminary_whatsapp_sent_at, 24)).length;
+  const continuationEventsLast24h = funnelEvents.filter((event) => isWithinLastHours(event.created_at, 24));
+  const continuationLast24h = new Set(
+    continuationEventsLast24h.map((event) => event.application_id || `event:${event.id}`),
+  ).size;
+  const receiptUploadedLast24h = safeApplications.filter((app) => isWithinLastHours(app.paid_clicked_at, 24)).length;
+  const paymentConfirmedLast24h = safeApplications.filter((app) => isWithinLastHours(app.payment_confirmed_at, 24)).length;
+  const latestContinuationAt = funnelEvents[0]?.created_at || null;
+  const latestReceiptAt = latestTimestamp(safeApplications.map((app) => app.paid_clicked_at));
+  const latestPaymentConfirmedAt = latestTimestamp(safeApplications.map((app) => app.payment_confirmed_at));
 
   const urgentApplications = safeApplications
     .filter((app) => isNeedsAction(app) || isNewApplication(app))
@@ -978,6 +1034,7 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <StatBox label="🔔 جديدة" value={preliminaryCount} />
           <StatBox label="بحاجة إجراء" value={needsActionCount} />
           <StatBox label="تأكيد دفع" value={awaitingPaymentConfirmationCount} />
+          <StatBox label="بانتظار 5 دنانير" value={awaitingFileOpeningFeeCount} />
           <StatBox label="مؤهلين" value={qualifiedCount} />
           <StatBox label="مقبولة" value={approvedCount} />
         </section>
@@ -986,8 +1043,49 @@ export default async function AdminDashboardPage({ searchParams }: PageProps) {
           <MiniInsight
             label="أولوية المتابعة"
             value={urgentApplications.length}
-            note="طلبات جديدة أو تحتاج إجراء"
+            note="طلبات جديدة أو تحتاج إجراء إداري فعلي"
           />
+          <MiniInsight
+            label="بانتظار قرار العميل"
+            value={qualifiedCount}
+            note="موافقة مبدئية ولم يُسجل قرار استمرار بعد"
+          />
+        </section>
+
+        <section className="glass-panel gold-outline mt-5 rounded-[28px] p-4 shadow-xl sm:mt-6 sm:rounded-[32px] sm:p-5">
+          <div className="mb-4">
+            <h2 className="text-xl font-black text-white">لوحة التحويل التجاري — آخر 24 ساعة</h2>
+            <p className="mt-1 text-sm font-bold leading-7 text-[#aeb9af]">
+              هذه اللوحة تفصل بين قرار الاستمرار، رفع الوصل، وتأكيد الدفع. قرار الاستمرار يُقرأ من سجل V3 الدائم حتى لو تغيّرت حالة الطلب لاحقًا.
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <MiniInsight
+              label="رسائل الموافقة المبدئية"
+              value={preliminarySentLast24h}
+              note="تم إرسالها خلال آخر 24 ساعة"
+            />
+            <MiniInsight
+              label="اختاروا الاستمرار"
+              value={continuationLast24h}
+              note={`آخر قرار: ${formatDate(latestContinuationAt)}`}
+            />
+            <MiniInsight
+              label="رفعوا وصل الدفع"
+              value={receiptUploadedLast24h}
+              note={`آخر وصل: ${formatDate(latestReceiptAt)}`}
+            />
+            <MiniInsight
+              label="دفع مؤكد إداريًا"
+              value={paymentConfirmedLast24h}
+              note={`آخر تأكيد: ${formatDate(latestPaymentConfirmedAt)}`}
+            />
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-sm font-black leading-7 text-[#d7ddd5]">
+            الآن: بانتظار قرار العميل <span className="text-white">{qualifiedCount}</span> — بانتظار رسوم فتح الملف <span className="text-white">{awaitingFileOpeningFeeCount}</span> — وصل بانتظار تأكيد الإدارة <span className="text-white">{awaitingPaymentConfirmationCount}</span>.
+          </div>
         </section>
 
         {urgentApplications.length > 0 && (

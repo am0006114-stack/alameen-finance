@@ -4,6 +4,7 @@ import { notFound, redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { currentFileOpeningPaymentRule } from "@/app/api/whatsapp/webhook/_lib/v3-os/paymentDestinationOverride";
 
 type PageProps = {
   params: Promise<{
@@ -104,6 +105,24 @@ type WhatsAppContactRecord = {
   approved_by?: string | null;
   updated_at?: string | null;
 };
+
+type FunnelEvent = {
+  id: string;
+  event_type: string;
+  application_id?: string | null;
+  wa_id?: string | null;
+  status?: string | null;
+  created_at?: string | null;
+  sent_at?: string | null;
+  payload?: Record<string, unknown> | null;
+};
+
+function notificationStatusLabel(value: string | null | undefined) {
+  if (value === "sent") return "وصل إلى Discord";
+  if (value === "failed") return "فشل إرسال Discord";
+  if (value === "pending") return "بانتظار إرسال Discord";
+  return value || "—";
+}
 
 function formatDate(value: string | null | undefined) {
   if (!value) return "—";
@@ -508,7 +527,7 @@ function currentStatusMessage(app: ApplicationRecord) {
 يمكنك متابعة حالة الطلب من خلال الرابط:
 ${trackUrl}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function preliminaryApprovalWithFeeQuestionMessage(app: ApplicationRecord) {
@@ -533,12 +552,12 @@ ${tracking}
 
 هل تودون الاستمرار بفتح الملف وتحويل الطلب للدراسة النهائية؟
 
-يرجى الرد:
-✅ أود الاستمرار
-أو
-❌ لا أرغب بالاستمرار حاليًا
+للاستمرار اكتب الرقم:
+1
 
-الأمين للأقساط والتمويل`;
+وإذا لا ترغب بالاستمرار حاليًا، اكتب ذلك بشكل واضح.
+
+الأمين للأقساط`;
 }
 
 function preliminaryQualificationMessage(app: ApplicationRecord) {
@@ -561,13 +580,14 @@ ${tracking}
 
 ${continueUrl}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function paymentInfoMessage(app: ApplicationRecord) {
   const name = firstTwoNames(app.full_name);
   const tracking = app.tracking_id || app.id;
   const deviceName = app.device_name || "—";
+  const receiptUrl = `${getBaseUrl()}/receipt?tracking=${encodeURIComponent(tracking)}&phone=${encodeURIComponent(app.phone || "")}`;
 
   return `أهلًا ${name} 🌿
 
@@ -577,16 +597,15 @@ function paymentInfoMessage(app: ApplicationRecord) {
 الجهاز: ${deviceName}
 رقم التتبع: ${tracking}
 
-معلومات رسوم فتح الملف:
-قيمة الرسوم: 5 دنانير فقط
+رسوم فتح الملف: 5 دنانير فقط.
+${currentFileOpeningPaymentRule({ includeApology: false })}
 
-اسم المستفيد: AMEENPAY
-اسم المحفظة: Orang-Money
-الاسم: ABDUL RAHMAN ALHARAHSHEH
+بعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:
+${receiptUrl}
 
-بعد التحويل يرجى إرسال صورة أو لقطة شاشة لوصل الدفع عبر واتساب ليتم فتح الملف وتحويله لقسم الدراسة النهائية.
+تأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل.
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function underReviewMessage(app: ApplicationRecord) {
@@ -606,7 +625,7 @@ function underReviewMessage(app: ApplicationRecord) {
 يمكنك متابعة الطلب من الرابط:
 ${trackUrl}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function salarySlipRequestMessage(app: ApplicationRecord) {
@@ -628,7 +647,7 @@ function salarySlipRequestMessage(app: ApplicationRecord) {
 رابط متابعة الطلب:
 ${trackUrl}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function guarantorRequestMessage(app: ApplicationRecord) {
@@ -695,7 +714,7 @@ function rejectedMessage(app: ApplicationRecord) {
 يمكنك متابعة حالة الطلب من الرابط:
 ${trackUrl}
 
-الأمين للأقساط والتمويل`;
+الأمين للأقساط`;
 }
 
 function missingIdentityDocumentsMessage(app: ApplicationRecord) {
@@ -1009,6 +1028,21 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
 
   const app = application as ApplicationRecord;
 
+  const { data: funnelEventsData, error: funnelEventsError } = await supabaseAdmin
+    .from("whatsapp_v3_notification_ledger")
+    .select("id,event_type,application_id,wa_id,status,created_at,sent_at,payload")
+    .eq("application_id", id)
+    .eq("event_type", "customer_continue_payment_ready")
+    .order("created_at", { ascending: false })
+    .limit(5);
+
+  if (funnelEventsError) {
+    console.error("Failed to load application funnel events:", funnelEventsError);
+  }
+
+  const funnelEvents = (funnelEventsData || []) as FunnelEvent[];
+  const latestContinuationEvent = funnelEvents[0] || null;
+
   const { data: documents, error: documentsError } = await supabaseAdmin
     .from("documents")
     .select("*")
@@ -1312,6 +1346,53 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
         </header>
 
         <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
+          <div className="mb-5">
+            <h2 className="gold-text text-xl font-black">سجل التحويل التجاري</h2>
+            <p className="mt-2 text-sm font-bold leading-7 text-[#cbd6cb]">
+              القرار هنا سجل تاريخي مستقل، لذلك يبقى ظاهرًا حتى لو انتقل الطلب لاحقًا إلى رفع الوصل أو الدراسة النهائية.
+            </p>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-2xl border border-[rgba(105,217,123,0.25)] bg-[rgba(105,217,123,0.08)] p-4">
+              <p className="text-xs font-black text-[#aeb9af]">قرار الاستمرار</p>
+              <p className="mt-2 text-base font-black text-white">
+                {latestContinuationEvent ? "مسجل" : app.status === "customer_confirmed_continue" ? "مسجل بالحالة الحالية" : "لم يُسجل بعد"}
+              </p>
+              <p className="mt-2 text-xs font-bold leading-6 text-[#cbd6cb]">
+                {latestContinuationEvent ? formatDate(latestContinuationEvent.created_at) : "—"}
+              </p>
+              {latestContinuationEvent && (
+                <>
+                  <p className="mt-1 text-xs font-bold text-[#aeb9af]">
+                    {notificationStatusLabel(latestContinuationEvent.status)}
+                  </p>
+                  <p className="mt-1 text-xs font-bold text-[#aeb9af]">
+                    المصدر: {String(latestContinuationEvent.payload?.["مصدر القرار"] || "واتساب / المسار الرسمي")}
+                  </p>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-sky-300/20 bg-sky-950/20 p-4">
+              <p className="text-xs font-black text-[#aeb9af]">رفع وصل رسوم فتح الملف</p>
+              <p className="mt-2 text-base font-black text-white">
+                {app.paid_clicked_at ? "تم رفع الوصل" : "لم يُرفع بعد"}
+              </p>
+              <p className="mt-2 text-xs font-bold leading-6 text-[#cbd6cb]">{formatDate(app.paid_clicked_at)}</p>
+            </div>
+
+            <div className="rounded-2xl border border-[rgba(214,181,107,0.25)] bg-[rgba(214,181,107,0.08)] p-4">
+              <p className="text-xs font-black text-[#aeb9af]">تأكيد الدفع الإداري</p>
+              <p className="mt-2 text-base font-black text-white">
+                {app.payment_confirmed_at ? "مؤكد" : "غير مؤكد بعد"}
+              </p>
+              <p className="mt-2 text-xs font-bold leading-6 text-[#cbd6cb]">{formatDate(app.payment_confirmed_at)}</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="glass-panel gold-outline mb-6 rounded-[32px] p-6 shadow-xl">
           <h2 className="gold-text mb-5 text-xl font-black">
             إجراءات الإدارة حسب الفلو الجديد
           </h2>
@@ -1447,7 +1528,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
           </div>
 
           <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
-            فلو العمل: كل زر يحدّث حالة الطلب فقط، و WhatsApp AI يقرأ الحالة عند سؤال العميل. ردود "أود الاستمرار" و "لا أرغب" و "دفعت/أرسلت الوصل" أصبحت تُحدّث الطلب تلقائيًا من واتساب عند ربط الرقم أو رقم التتبع.
+            فلو العمل: كل زر يحدّث حالة الطلب فقط، و WhatsApp AI يقرأ الحالة عند سؤال العميل. ردود "1" أو "أود الاستمرار" و "لا أرغب" و "دفعت/أرسلت الوصل" تُقرأ من واتساب حسب مرحلة الطلب، وقرار الاستمرار يُسجل أيضًا في السجل التشغيلي وDiscord.
           </div>
         </section>
 
