@@ -1,0 +1,53 @@
+type HumanEscalationReceipt = "recorded" | "already_recorded" | "failed" | "not_applicable" | null;
+
+function explicitHumanEscalationRequest(turn: InterpretedTurn) {
+  const q = normalizeActionConfirmationText(turn.rawText);
+  if (!q) return false;
+  return /(?:بدي|اريد|أريد|ممكن|لازم).{0,30}(?:موظف|موضف|مسؤول|مدير|شخص\s+حقيقي|بني\s+ادم|بني\s+آدم|انسان|إنسان).{0,35}(?:احكي|اتفاهم|اتواصل|اتصل|يرد|معه|معها)?|(?:احكي|اتواصل|اتصل|رن).{0,25}(?:معي|علي|فيي|موظف|مسؤول|مدير)|(?:بدي|اريد|أريد).{0,25}(?:مكالمه|مكالمة|اتصال)/.test(q);
+}
+
+async function recordHumanEscalationReceipt(input: { turn: InterpretedTurn; truth: TruthBundle; waId: string; turnId: string; customerText: string }): Promise<HumanEscalationReceipt> {
+  if (!explicitHumanEscalationRequest(input.turn)) return null;
+  const app = input.truth.application;
+  if (!app || input.truth.contactAccess !== "full") return "not_applicable";
+  try {
+    const notification = await notifyV3Discord({
+      event: "manual_action_required",
+      applicationId: app.id,
+      trackingId: app.trackingId || null,
+      waId: input.waId,
+      actionKey: "record_call_preference",
+      details: {
+        action: "record_call_preference",
+        requestType: "human_contact_request",
+        customerMessage: input.customerText,
+        turnId: input.turnId,
+      },
+    });
+    if (notification.sent) return "recorded";
+    if (notification.reason === "duplicate_actionable_notification") return "already_recorded";
+    return "failed";
+  } catch (error) {
+    console.error("human escalation durable receipt failed", { turnId: input.turnId, error });
+    return "failed";
+  }
+}
+
+function humanRequestGroundedReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; receipt: HumanEscalationReceipt }) {
+  if (!explicitHumanEscalationRequest(input.turn) && !input.turn.topics.some((topic) => ["human_request", "manager_request", "call_request"].includes(topic))) return null;
+  const name = roleDisplayName(input.state.role.currentRole);
+  const tracking = input.truth.application?.trackingId ? ` على الطلب ${input.truth.application.trackingId}` : "";
+  const status = input.truth.application && input.turn.topics.includes("application_status")
+    ? ` حالة طلبك الحالية: ${customerFacingStatusLabel(input.truth.application)}.`
+    : "";
+  if (input.receipt === "recorded" || input.receipt === "already_recorded") {
+    return `معك ${name} من الأمين، وأنا مكمل معك هون.${status} طلبك للتواصل المباشر اتسجل للإدارة${tracking}. هذا تسجيل طلب تواصل فعلي، مش وعد بموعد مكالمة؛ ما رح أقول إن حدا اتصل أو تم تحويلك قبل ما يصير ذلك فعليًا.`;
+  }
+  if (input.receipt === "failed") {
+    return `معك ${name} من الأمين.${status} طلبك للتواصل واضح، لكن ما قدرت أثبت تسجيله تشغيليًا الآن، لذلك ما رح أقول لك إنه اتسجل. احكيلي المشكلة نفسها وبكمل معك هون بدون ما أعيد عليك معلومات معروفة.`;
+  }
+  if (input.receipt === "not_applicable") {
+    return `معك ${name} من الأمين.${status} طلبك للتواصل واضح، لكن ما عندي ربط كامل بطلب محدد أقدر أسجل عليه طلب تواصل إداري بشكل موثوق. ابعث رقم التتبع إذا عندك، وبنفس الوقت احكيلي المشكلة نفسها وبكمل معك هون.`;
+  }
+  return `معك ${name} من الأمين، وبكمل معك هون على نفس المحادثة.${status} ما رح أدّعي إنه صار تحويل أو اتصال إذا ما في تنفيذ فعلي مثبت؛ احكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية.`;
+}
