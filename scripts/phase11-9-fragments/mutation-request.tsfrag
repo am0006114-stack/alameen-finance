@@ -1,0 +1,27 @@
+function mutationRequestReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const app = input.truth.application;
+  const stage = applicationJourneyStage(app);
+  const stopRefundRequest = /(?:وقف|اوقف|ايقاف|الغاء|الغي).{0,34}(?:طلب\s+)?(?:الاسترداد|الاسترجاع)/.test(q);
+  if (stopRefundRequest) {
+    if (stage === "refund_requested") return `طلبك واضح: بدك توقف الاسترداد وترجع تكمل نفس الطلب${app?.trackingId ? ` ${app.trackingId}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
+    if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية، لذلك ما بقدر أعتبره قابلًا للإيقاف من المحادثة وحدها.";
+    return "ما في طلب استرداد نشط ظاهر على الحالة الحالية يحتاج إيقاف.";
+  }
+  const reopenRequest = /(?:ارجع|أرجع|اعيد|أعيد|اعاده|إعادة|افتح|أفتح|تفعيل).{0,35}(?:الطلب|المعامله|المعاملة|الملف)/.test(q);
+  if (reopenRequest && ["cancelled", "refund_requested"].includes(stage)) {
+    return `طلب إعادة فتح الطلب واضح${app?.trackingId ? ` ${app.trackingId}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
+  }
+  const cancel = /(?:الغي|الغاء|إلغاء|الغوا)/.test(q);
+  if (cancel) {
+    if (["cancelled", "refund_requested", "refund_completed"].includes(stage)) {
+      if (stage === "refund_requested") return "طلبك ملغي بالفعل، وطلب الاسترداد مفتوح وقيد المعالجة؛ ما في داعي تعيد الإلغاء.";
+      if (stage === "refund_completed") return "طلبك ملغي والاسترداد مكتمل حسب الحالة الحالية؛ ما في داعي تعيد الإلغاء.";
+      return "طلبك ملغي بالفعل حسب الحالة الحالية؛ ما في داعي تعيد الإلغاء.";
+    }
+    return `وصلني طلب الإلغاء${app?.trackingId ? ` للطلب ${app.trackingId}` : ""}. قبل ما أنفذ أي تغيير، أكدلي مرة واحدة: نعم، ألغي الطلب.`;
+  }
+  if (stage === "refund_requested") return "طلب الاسترداد مسجل بالفعل وقيد المعالجة؛ ما في داعي تعيد طلبه.";
+  if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية؛ ما في داعي تعيد طلبه.";
+  return "وصلني طلب استرداد الرسوم. قبل ما أسجل الإجراء فعليًا، أكدلي مرة واحدة: نعم، أريد استرداد الرسوم.";
+}
