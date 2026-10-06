@@ -34,7 +34,7 @@ ok(src.brain.includes('humanCarePromptContract'),'Human Brain receives the same 
 ok(src.action.includes('human_contact_request_requires_durable_receipt'),'record_call_preference is no longer treated as executed without durable evidence');
 ok(src.native.includes('false_human_contact_registration_claim'),'validator blocks fake call/contact registration claims');
 ok(src.arbiter.includes('authoritativeStopOrReopenReply'),'stop-refund/reopen action truth has deterministic final reply authority');
-ok(src.arbiter.includes('"stop_refund","reopen_application"'),'stop-refund and reopen are included in authoritative mutation results');
+ok(/"stop_refund"\s*,\s*"reopen_application"/.test(src.arbiter),'stop-refund and reopen are included in authoritative mutation results');
 const stopIndex=src.arbiter.indexOf('const stopRefundRequest');const cancelIndex=src.arbiter.indexOf('const cancel =',stopIndex);ok(stopIndex>=0&&cancelIndex>stopIndex,'stop-refund semantic is evaluated before generic cancellation wording');
 ok(src.arbiter.includes('device_change_link_owns_current_turn'),'device-change link request cannot collapse into generic tracking link');
 ok(/وثائق/.test(src.arbiter)&&/كشف\\s\+راتب/.test(src.arbiter),'document/requirements current-question authority covers documents and salary-proof language');
