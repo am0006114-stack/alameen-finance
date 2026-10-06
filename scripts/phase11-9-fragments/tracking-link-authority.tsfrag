@@ -1,0 +1,7 @@
+function asksTrackingLink(value: string | null | undefined) {
+  const q = n(value);
+  // device_change_link_owns_current_turn: an explicit link object outranks the
+  // generic word "رابط" so a device-change link can never become a tracking link.
+  if (/(?:رابط).{0,35}(?:تغيير|تعديل).{0,24}(?:الجهاز|الموديل)|(?:تغيير|تعديل).{0,24}(?:الجهاز|الموديل).{0,35}(?:رابط)/.test(q)) return false;
+  return /(?:اعطيني|ابعث|ابعت|ارسل|بدي|وين|كيف).{0,28}(?:رابط\s+التتبع|رابط).{0,25}(?:طلبي|الطلب)?|(?:كيف\s+اشوف|كيف\s+اتتبع|بدي\s+اتتبع).{0,22}(?:طلبي|الطلب)/.test(q);
+}
