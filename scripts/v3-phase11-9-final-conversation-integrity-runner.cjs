@@ -2,7 +2,7 @@ const fs=require('fs'),path=require('path'),os=require('os'),cp=require('child_p
 const root=process.argv[2]||process.cwd();
 const branch='phase11.9-final-conversation-integrity-human-care';
 const patcherPath='scripts/v3-phase11-9-final-conversation-integrity-patcher.cjs';
-function run(cmd,args,opts={}){const r=cp.spawnSync(cmd,args,{cwd:root,encoding:'utf8',stdio:opts.capture?'pipe':'inherit'});if(r.status!==0)throw new Error(`${cmd} ${args.join(' ')} failed${r.stderr?`: ${String(r.stderr).trim()}`:''}`);return opts.capture?String(r.stdout||''):''}
+function run(cmd,args,opts={}){const r=cp.spawnSync(cmd,args,{cwd:root,encoding:'utf8',stdio:opts.capture?'pipe':'inherit'});if(r.error)throw r.error;if(r.status!==0)throw new Error(`${cmd} ${args.join(' ')} failed${r.stderr?`: ${String(r.stderr).trim()}`:''}`);return opts.capture?String(r.stdout||''):''}
 function read(rel){return fs.readFileSync(path.join(root,rel),'utf8')}
 const preflight=[
  ['app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts','import { notifyV3Discord } from "./discordNotifier";'],
@@ -33,6 +33,10 @@ const idx=lines.findIndex(line=>line.includes("'human brain unified care contrac
 if(idx<0)throw new Error('runner could not locate old human-brain anchor line');
 lines[idx]="replaceOnce(targets[1],'\\n\\nالقواعد الصلبة:','\\n\\nHUMAN_CARE_POLICY:\\n${humanCarePromptContract({ turn: input.anchor, state: input.state, truth: input.truth })}\\n\\nالقواعد الصلبة:','human brain unified care contract');";
 src=lines.join('\n');
+const buildOld="console.log('\\n=== BUILD ===');run(process.platform==='win32'?'npm.cmd':'npm',['run','build']);run('git',['diff','--check']);";
+const buildNew="console.log('\\n=== BUILD ===');if(process.platform==='win32'){run(process.env.ComSpec||'C:\\\\Windows\\\\System32\\\\cmd.exe',['/d','/s','/c','npm run build']);}else{run('npm',['run','build']);}run('git',['diff','--check']);";
+if(!src.includes(buildOld))throw new Error('runner could not locate Windows build invocation');
+src=src.replace(buildOld,buildNew);
 const tmp=path.join(os.tmpdir(),'alameen-phase11-9-final-conversation-integrity-patcher-fixed.cjs');
 fs.writeFileSync(tmp,src,{encoding:'utf8'});
 run(process.execPath,['--check',tmp]);
