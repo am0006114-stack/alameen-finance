@@ -1,0 +1,23 @@
+function hasAuthoritativeMutationResult(actions: ActionResult[]) {
+  return actions.some((a) => ["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(a.action)
+    && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome)));
+}
+
+function authoritativeStopOrReopenReply(input: { actions: ActionResult[]; truth: TruthBundle }) {
+  const tracking = input.truth.application?.trackingId ? ` على الطلب ${input.truth.application.trackingId}` : "";
+  const stop = input.actions.find((a) => a.action === "stop_refund");
+  if (stop) {
+    if (stop.outcome === "needs_confirmation") return `طلب إيقاف الاسترداد واضح${tracking}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
+    if (stop.outcome === "executed") return `تم إيقاف طلب الاسترداد وإعادة تفعيل طلبك${tracking}. المتابعة بتكمل على نفس الطلب.`;
+    if (stop.outcome === "already_done") return `ما في استرداد نشط يحتاج إيقاف${tracking}؛ الطلب مستمر أصلًا حسب النتيجة الموثقة.`;
+    return `طلب إيقاف الاسترداد واضح${tracking}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أعتبر الاسترداد موقوف قبل ما تثبت النتيجة بالنظام.`;
+  }
+  const reopen = input.actions.find((a) => a.action === "reopen_application");
+  if (reopen) {
+    if (reopen.outcome === "needs_confirmation") return `طلب إعادة فتح الطلب واضح${tracking}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
+    if (reopen.outcome === "executed") return `تم إعادة فتح طلبك${tracking} بنجاح، والمتابعة بتكمل على نفس الطلب.`;
+    if (reopen.outcome === "already_done") return `طلبك${tracking} مفتوح أصلًا وما في داعي نعيد فتحه.`;
+    return `طلب إعادة فتح الطلب واضح${tracking}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أقول إنه انفتح قبل ما تثبت النتيجة بالنظام.`;
+  }
+  return null;
+}
