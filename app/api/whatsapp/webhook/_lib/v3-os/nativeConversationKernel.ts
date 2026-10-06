@@ -674,6 +674,7 @@ export function validateNativeConversationReply(input: {
   if (!actionSucceeded(input.actions, "reopen_application") && /تم\s+(?:اعاده|إعادة)\s+(?:فتح|تفعيل)\s+(?:طلبك|الطلب)/.test(n)) reasons.push("false_reopen_completion_claim");
   if (!actionSucceeded(input.actions, "stop_refund") && /تم\s+(?:وقف|ايقاف|إيقاف)\s+(?:الاسترداد|الاسترجاع)/.test(n)) reasons.push("false_stop_refund_completion_claim");
   if (!actionSucceeded(input.actions, "link_whatsapp_alias") && /تم\s+(?:اعتماد|ربط)\s+(?:رقم|الرقم|واتساب)/.test(n)) reasons.push("false_contact_link_completion_claim");
+  if (!actionSucceeded(input.actions, "record_call_preference") && /(?:تم\s+تسجيل|سجلت|سجلنا).{0,45}(?:طلب\s+)?(?:اتصال|مكالمة|تواصل|موظف|مسؤول)/.test(n)) reasons.push("false_human_contact_registration_claim");
 
   const installmentViolation = installmentGroundingViolation({
     reply,

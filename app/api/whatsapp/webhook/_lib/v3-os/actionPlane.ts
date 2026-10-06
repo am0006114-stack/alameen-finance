@@ -7,16 +7,11 @@ export type ActionExecutorAdapter = {
 };
 
 export function guardAction(action: PlannedAction, state: ConversationState, truth: TruthBundle): ActionResult {
-  if (action.action === "switch_ai_role" || action.action === "record_call_preference") {
-    return {
-      action: action.action,
-      outcome: "executed",
-      executed: true,
-      authoritativeSummary: action.action === "switch_ai_role" ? "تم تغيير مستوى المعالجة داخل فريق AI." : "تم تسجيل تفضيل العميل للمكالمة دون وعد باتصال.",
-      mutationId: null,
-      blocker: null,
-      ownerRole: state.role.currentRole,
-    };
+  if (action.action === "switch_ai_role") {
+    return { action: action.action, outcome: "executed", executed: true, authoritativeSummary: "تم تغيير مستوى المعالجة داخل فريق AI.", mutationId: null, blocker: null, ownerRole: state.role.currentRole };
+  }
+  if (action.action === "record_call_preference") {
+    return { action: action.action, outcome: "dry_run", executed: false, authoritativeSummary: null, mutationId: null, blocker: "human_contact_request_requires_durable_receipt", ownerRole: state.role.currentRole };
   }
 
   const businessMutation = actionRequiresOmran(action.action);

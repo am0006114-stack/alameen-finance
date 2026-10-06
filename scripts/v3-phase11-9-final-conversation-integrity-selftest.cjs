@@ -1,0 +1,42 @@
+const fs=require('fs'),path=require('path'),vm=require('vm');
+let ts;try{ts=require('typescript')}catch{try{ts=require('/opt/nvm/versions/node/v22.16.0/lib/node_modules/typescript')}catch{ts=require(path.join(process.cwd(),'node_modules','typescript'))}}
+const root=process.argv[2]||process.cwd();let passed=0,failed=0;
+const ok=(c,m)=>{if(c){passed++;console.log(`PASS ${passed}: ${m}`)}else{failed++;console.error(`FAIL: ${m}`)}};
+const read=rel=>fs.readFileSync(path.join(root,rel),'utf8');
+function transpile(rel){const tr=ts.transpileModule(read(rel),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true},reportDiagnostics:true,fileName:rel});const errs=(tr.diagnostics||[]).filter(d=>d.category===ts.DiagnosticCategory.Error);ok(!errs.length,`${rel} transpiles clean`);if(errs.length)console.error(errs.map(d=>ts.flattenDiagnosticMessageText(d.messageText,' ')).join('\n'))}
+function loadSimple(rel,stubs={}){const abs=path.join(root,rel),src=fs.readFileSync(abs,'utf8');const tr=ts.transpileModule(src,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,esModuleInterop:true},reportDiagnostics:true,fileName:abs});const errs=(tr.diagnostics||[]).filter(d=>d.category===ts.DiagnosticCategory.Error);if(errs.length)throw new Error(errs.map(d=>ts.flattenDiagnosticMessageText(d.messageText,' ')).join('; '));const mod={exports:{}};const req=spec=>{if(Object.prototype.hasOwnProperty.call(stubs,spec))return stubs[spec];throw new Error(`unstubbed require ${spec}`)};vm.runInNewContext(tr.outputText,{module:mod,exports:mod.exports,require:req,console,Date,Intl,Map,Set,URL,URLSearchParams,Buffer,process},{filename:abs});return mod.exports}
+const rel={care:'app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts',human:'app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts',brain:'app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts',arbiter:'app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts',action:'app/api/whatsapp/webhook/_lib/v3-os/actionPlane.ts',native:'app/api/whatsapp/webhook/_lib/v3-os/nativeConversationKernel.ts',burst:'app/api/whatsapp/webhook/_lib/v3-os/conversationBurstAuthority.ts'};
+for(const [name,file] of Object.entries(rel))ok(fs.existsSync(path.join(root,file)),`${name} source exists`);
+for(const file of Object.values(rel))transpile(file);
+const normalizeArabic=v=>String(v||'').toLowerCase().replace(/[إأآٱ]/g,'ا').replace(/ى/g,'ي').replace(/[ًٌٍَُِّْـ]/g,'').replace(/\s+/g,' ').trim();
+const care=loadSimple(rel.care,{'./text':{normalizeArabic}});
+const emptyState={lastCustomerText:null,lastAssistantText:null,humanRelationship:{lastEmotion:'neutral',lastConcern:null,frustrationStreak:0,delayTurnCount:0,warmTurnCount:0,lastGreetingTurnId:null,updatedAt:new Date().toISOString()}};
+const turn=text=>({turnId:`t-${Math.random()}`,rawText:text,normalizedText:normalizeArabic(text),acts:[],topics:[],requestedActions:[],sentiment:'calm',urgency:'normal',explicitRoleRequest:null,confidence:1});
+const profile=text=>care.resolveHumanCareProfile({turn:turn(text),state:emptyState,truth:null});
+ok(profile('والله خايف ادفع وبعدين يروح علي المبلغ').mode==='anxiety','fear/anxiety is recognized as human-care context');
+ok(['frustration','exhaustion'].includes(profile('صارلي 9 ايام وكل مرة نفس الحكي').mode),'long waiting plus repeated-answer fatigue is recognized');
+ok(profile('بترجاك حاول تخلصوا الطلب لاني مسافر الاسبوع الجاي').mode==='time_pressure','concrete travel deadline outranks generic pleading');
+ok(profile('شكلي ازعجتك كثرت اسئلة').mode==='embarrassment','embarrassment / fear of burdening staff is recognized');
+ok(profile('فقدت الثقة فيكم').mode==='trust_loss','loss of trust is recognized');
+ok(profile('مش فاهم شو الفرق').mode==='confusion','confusion is recognized');
+ok(profile('شو صار بالطلب').mode==='none','neutral status question does not manufacture emotion');
+const baseReply='طلبك قيد الدراسة النهائية، وما في عليك خطوة إضافية الآن.';
+let humanized=care.applyHumanCareEgress({reply:baseReply,turn:turn('صارلي 9 ايام وكل مرة نفس الحكي'),state:emptyState,truth:{application:null}});
+ok(humanized!==baseReply&&humanized.includes(baseReply),'human care wraps a useful answer without replacing it');
+ok((humanized.split('\n\n').length<=2),'human care adds at most one acknowledgement paragraph before the answer');
+ok(care.applyHumanCareEgress({reply:baseReply,turn:turn('شو صار بالطلب'),state:emptyState,truth:{application:null}})===baseReply,'neutral question keeps the answer undecorated');
+for(const protectedReply of ['للاستمرار اكتب الرقم 1.','Orange Money / CliQ / PAYAMEEEN','بعد التحويل ارفع الوصل من الرابط الرسمي: https://ameenfinance.co/receipt?tracking=AM-1'])ok(care.applyHumanCareEgress({reply:protectedReply,turn:turn('خايف'),state:emptyState,truth:{application:null}})===protectedReply,`protected commercial egress stays byte-for-byte unchanged: ${protectedReply.slice(0,24)}`);
+const src={};for(const [k,v] of Object.entries(rel))src[k]=read(v);
+ok(src.human.includes('applyHumanCareEgress'),'Human OS applies unified human-care egress after reply arbitration');
+ok(src.human.includes('recordHumanEscalationReceipt')&&src.human.includes('manual_action_required'),'explicit human/call escalation gets a durable Discord ledger receipt path');
+ok(src.human.includes('human_contact_request_durable_ledger'),'human escalation produces an authoritative synthetic action receipt marker');
+ok(src.brain.includes('humanCarePromptContract'),'Human Brain receives the same unified human-care contract');
+ok(src.action.includes('human_contact_request_requires_durable_receipt'),'record_call_preference is no longer treated as executed without durable evidence');
+ok(src.native.includes('false_human_contact_registration_claim'),'validator blocks fake call/contact registration claims');
+ok(src.arbiter.includes('authoritativeStopOrReopenReply'),'stop-refund/reopen action truth has deterministic final reply authority');
+ok(/"stop_refund"\s*,\s*"reopen_application"/.test(src.arbiter),'stop-refund and reopen are included in authoritative mutation results');
+const stopIndex=src.arbiter.indexOf('const stopRefundRequest');const cancelIndex=src.arbiter.indexOf('const cancel =',stopIndex);ok(stopIndex>=0&&cancelIndex>stopIndex,'stop-refund semantic is evaluated before generic cancellation wording');
+ok(src.arbiter.includes('device_change_link_owns_current_turn'),'device-change link request cannot collapse into generic tracking link');
+ok(/وثائق/.test(src.arbiter)&&/كشف\\s\+راتب/.test(src.arbiter),'document/requirements current-question authority covers documents and salary-proof language');
+const burst=loadSimple(rel.burst,{});const rows=[{message_id:'a',body:'صارلي 9 ايام',created_at:'2026-10-06T10:00:00Z',raw_payload:{timestamp:1791280800}},{message_id:'b',body:'وكل مرة نفس الحكي',created_at:'2026-10-06T10:00:08Z',raw_payload:{timestamp:1791280808}}];const selected=burst.selectCanonicalConversationBurst(rows);ok(selected&&selected.leaderMessageId==='b'&&selected.messageIds.length===2,'multi-bubble customer thought becomes one canonical burst');ok(selected&&/صارلي 9 ايام[\s\S]*كل مرة نفس الحكي/.test(selected.combinedText),'canonical burst preserves full customer meaning in order');
+console.log(`\nV3 PHASE 11.9 FINAL CONVERSATION INTEGRITY SELFTEST: assertions=${passed+failed}; passed=${passed}; failed=${failed}`);if(failed)process.exit(1);

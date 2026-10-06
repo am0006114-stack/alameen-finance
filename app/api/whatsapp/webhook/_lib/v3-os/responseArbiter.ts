@@ -138,8 +138,27 @@ function buildSocialClosureReplyForArbiter(turn: InterpretedTurn) {
 }
 
 function hasAuthoritativeMutationResult(actions: ActionResult[]) {
-  return actions.some((a) => ["cancel_application", "request_refund", "link_whatsapp_alias"].includes(a.action)
+  return actions.some((a) => ["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(a.action)
     && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome)));
+}
+
+function authoritativeStopOrReopenReply(input: { actions: ActionResult[]; truth: TruthBundle }) {
+  const tracking = input.truth.application?.trackingId ? ` على الطلب ${input.truth.application.trackingId}` : "";
+  const stop = input.actions.find((a) => a.action === "stop_refund");
+  if (stop) {
+    if (stop.outcome === "needs_confirmation") return `طلب إيقاف الاسترداد واضح${tracking}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
+    if (stop.outcome === "executed") return `تم إيقاف طلب الاسترداد وإعادة تفعيل طلبك${tracking}. المتابعة بتكمل على نفس الطلب.`;
+    if (stop.outcome === "already_done") return `ما في استرداد نشط يحتاج إيقاف${tracking}؛ الطلب مستمر أصلًا حسب النتيجة الموثقة.`;
+    return `طلب إيقاف الاسترداد واضح${tracking}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أعتبر الاسترداد موقوف قبل ما تثبت النتيجة بالنظام.`;
+  }
+  const reopen = input.actions.find((a) => a.action === "reopen_application");
+  if (reopen) {
+    if (reopen.outcome === "needs_confirmation") return `طلب إعادة فتح الطلب واضح${tracking}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
+    if (reopen.outcome === "executed") return `تم إعادة فتح طلبك${tracking} بنجاح، والمتابعة بتكمل على نفس الطلب.`;
+    if (reopen.outcome === "already_done") return `طلبك${tracking} مفتوح أصلًا وما في داعي نعيد فتحه.`;
+    return `طلب إعادة فتح الطلب واضح${tracking}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أقول إنه انفتح قبل ما تثبت النتيجة بالنظام.`;
+  }
+  return null;
 }
 
 function conditionalFutureMutationText(value: string | null | undefined) {
@@ -226,6 +245,9 @@ export function responseHasKnownBadFallbackSignature(reply: string | null | unde
 
 function asksTrackingLink(value: string | null | undefined) {
   const q = n(value);
+  // device_change_link_owns_current_turn: an explicit link object outranks the
+  // generic word "رابط" so a device-change link can never become a tracking link.
+  if (/(?:رابط).{0,35}(?:تغيير|تعديل).{0,24}(?:الجهاز|الموديل)|(?:تغيير|تعديل).{0,24}(?:الجهاز|الموديل).{0,35}(?:رابط)/.test(q)) return false;
   return /(?:اعطيني|ابعث|ابعت|ارسل|بدي|وين|كيف).{0,28}(?:رابط\s+التتبع|رابط).{0,25}(?:طلبي|الطلب)?|(?:كيف\s+اشوف|كيف\s+اتتبع|بدي\s+اتتبع).{0,22}(?:طلبي|الطلب)/.test(q);
 }
 
@@ -395,8 +417,9 @@ function asksRequirementsQuestion(turn: InterpretedTurn) {
   const q = n(turn.rawText);
   if (!q) return false;
   if (/(?:شروط|بنود)\s+العقد/.test(q)) return false;
-  const asks = /(?:شو|ايش|إيش|ما|هل|ايه|إيه).{0,24}(?:شروط|الشروط|المتطلبات|الاوراق|الأوراق)|(?:شو\s+لازم|شو\s+مطلوب).{0,24}(?:للتقديم|للطلب|مني)|(?:هل|بدي|محتاج).{0,24}(?:كفيل|ضامن)|(?:كفيل|الكفيل).{0,24}(?:لازم|مطلوب|ضروري|هل)/.test(q);
-  return asks || (turn.topics.includes("requirements") && /(?:شروط|متطلبات|اوراق|أوراق|كفيل|ضامن|مطلوب|لازم)/.test(q));
+  const requirementObject = /(?:شروط|الشروط|المتطلبات|الاوراق|الأوراق|وثائق|الوثائق|مستند|مستندات|كفيل|ضامن|اثبات\s+دخل|إثبات\s+دخل|كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب)/;
+  const asks = /(?:شو|ايش|إيش|ما|هل|ايه|إيه).{0,28}(?:شروط|الشروط|المتطلبات|الاوراق|الأوراق|وثائق|الوثائق|مستند|مستندات|اثبات\s+دخل|إثبات\s+دخل|كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب)|(?:شو\s+لازم|شو\s+مطلوب).{0,28}(?:للتقديم|للطلب|مني|ارفع|أرفع)|(?:هل|بدي|محتاج).{0,24}(?:كفيل|ضامن|وثائق|مستندات)|(?:كفيل|الكفيل).{0,24}(?:لازم|مطلوب|ضروري|هل)|(?:اثبات\s+دخل|إثبات\s+دخل).{0,24}(?:قصدك|يعني|هو).{0,20}(?:كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب)/.test(q);
+  return asks || (turn.topics.includes("requirements") && requirementObject.test(q));
 }
 
 function asksContractTermsQuestion(turn: InterpretedTurn) {
@@ -537,6 +560,16 @@ function mutationRequestReply(input: { turn: InterpretedTurn; truth: TruthBundle
   const q = n(input.turn.rawText);
   const app = input.truth.application;
   const stage = applicationJourneyStage(app);
+  const stopRefundRequest = /(?:وقف|اوقف|ايقاف|الغاء|الغي).{0,34}(?:طلب\s+)?(?:الاسترداد|الاسترجاع)/.test(q);
+  if (stopRefundRequest) {
+    if (stage === "refund_requested") return `طلبك واضح: بدك توقف الاسترداد وترجع تكمل نفس الطلب${app?.trackingId ? ` ${app.trackingId}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أوقف طلب الاسترداد وأرجع أكمل طلب التقسيط.`;
+    if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية، لذلك ما بقدر أعتبره قابلًا للإيقاف من المحادثة وحدها.";
+    return "ما في طلب استرداد نشط ظاهر على الحالة الحالية يحتاج إيقاف.";
+  }
+  const reopenRequest = /(?:ارجع|أرجع|اعيد|أعيد|اعاده|إعادة|افتح|أفتح|تفعيل).{0,35}(?:الطلب|المعامله|المعاملة|الملف)/.test(q);
+  if (reopenRequest && ["cancelled", "refund_requested"].includes(stage)) {
+    return `طلب إعادة فتح الطلب واضح${app?.trackingId ? ` ${app.trackingId}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
+  }
   const cancel = /(?:الغي|الغاء|إلغاء|الغوا)/.test(q);
   if (cancel) {
     if (["cancelled", "refund_requested", "refund_completed"].includes(stage)) {
@@ -881,6 +914,10 @@ export function arbitrateProductionReply(input: {
   }
 
   if (obligation === "mutation_truth") {
+    const stopOrReopenReply = authoritativeStopOrReopenReply({ actions: input.actions, truth: input.truth });
+    if (stopOrReopenReply) {
+      return { reply: sanitizeUnifiedEgressReply(stopOrReopenReply), obligation, repaired: stopOrReopenReply !== candidate, reason: "stop-refund/reopen action result owns final response" };
+    }
     if (hasAuthoritativeMutationResult(input.actions)) {
       return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
     }

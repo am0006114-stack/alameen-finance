@@ -27,6 +27,7 @@ import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
 import { durableIngressTurnFreshness } from "./durableIngress";
 import { manualMutationReceiptReply, recordManualMutationReceipt, type ManualMutationReceipt } from "./manualMutationReceipt";
 import { notifyV3Discord } from "./discordNotifier";
+import { applyHumanCareEgress } from "./humanCarePolicy";
 import { arbitrateProductionReply } from "./responseArbiter";
 import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
@@ -416,15 +417,58 @@ function simpleSocialClosureReply(turn: InterpretedTurn, customerText: string) {
   return null;
 }
 
-function humanRequestGroundedReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }) {
-  if (input.turn.requestedActions.length) return null;
-  const humanRequested = input.turn.topics.some((topic) => ["human_request", "manager_request", "call_request"].includes(topic));
-  if (!humanRequested) return null;
+type HumanEscalationReceipt = "recorded" | "already_recorded" | "failed" | "not_applicable" | null;
+
+function explicitHumanEscalationRequest(turn: InterpretedTurn) {
+  const q = normalizeActionConfirmationText(turn.rawText);
+  if (!q) return false;
+  return /(?:بدي|اريد|أريد|ممكن|لازم).{0,30}(?:موظف|موضف|مسؤول|مدير|شخص\s+حقيقي|بني\s+ادم|بني\s+آدم|انسان|إنسان).{0,35}(?:احكي|اتفاهم|اتواصل|اتصل|يرد|معه|معها)?|(?:احكي|اتواصل|اتصل|رن).{0,25}(?:معي|علي|فيي|موظف|مسؤول|مدير)|(?:بدي|اريد|أريد).{0,25}(?:مكالمه|مكالمة|اتصال)/.test(q);
+}
+
+async function recordHumanEscalationReceipt(input: { turn: InterpretedTurn; truth: TruthBundle; waId: string; turnId: string; customerText: string }): Promise<HumanEscalationReceipt> {
+  if (!explicitHumanEscalationRequest(input.turn)) return null;
+  const app = input.truth.application;
+  if (!app || input.truth.contactAccess !== "full") return "not_applicable";
+  try {
+    const notification = await notifyV3Discord({
+      event: "manual_action_required",
+      applicationId: app.id,
+      trackingId: app.trackingId || null,
+      waId: input.waId,
+      actionKey: "record_call_preference",
+      details: {
+        action: "record_call_preference",
+        requestType: "human_contact_request",
+        customerMessage: input.customerText,
+        turnId: input.turnId,
+      },
+    });
+    if (notification.sent) return "recorded";
+    if (notification.reason === "duplicate_actionable_notification") return "already_recorded";
+    return "failed";
+  } catch (error) {
+    console.error("human escalation durable receipt failed", { turnId: input.turnId, error });
+    return "failed";
+  }
+}
+
+function humanRequestGroundedReply(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; receipt: HumanEscalationReceipt }) {
+  if (!explicitHumanEscalationRequest(input.turn) && !input.turn.topics.some((topic) => ["human_request", "manager_request", "call_request"].includes(topic))) return null;
   const name = roleDisplayName(input.state.role.currentRole);
+  const tracking = input.truth.application?.trackingId ? ` على الطلب ${input.truth.application.trackingId}` : "";
   const status = input.truth.application && input.turn.topics.includes("application_status")
     ? ` حالة طلبك الحالية: ${customerFacingStatusLabel(input.truth.application)}.`
     : "";
-  return `معك ${name} من الأمين، وبكمل معك هون على نفس المحادثة.${status} ما عندي تحويل تلقائي لمكالمة أو لموظف منفصل من داخل واتساب، فاحكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية.`;
+  if (input.receipt === "recorded" || input.receipt === "already_recorded") {
+    return `معك ${name} من الأمين، وأنا مكمل معك هون.${status} طلبك للتواصل المباشر اتسجل للإدارة${tracking}. هذا تسجيل طلب تواصل فعلي، مش وعد بموعد مكالمة؛ ما رح أقول إن حدا اتصل أو تم تحويلك قبل ما يصير ذلك فعليًا.`;
+  }
+  if (input.receipt === "failed") {
+    return `معك ${name} من الأمين.${status} طلبك للتواصل واضح، لكن ما قدرت أثبت تسجيله تشغيليًا الآن، لذلك ما رح أقول لك إنه اتسجل. احكيلي المشكلة نفسها وبكمل معك هون بدون ما أعيد عليك معلومات معروفة.`;
+  }
+  if (input.receipt === "not_applicable") {
+    return `معك ${name} من الأمين.${status} طلبك للتواصل واضح، لكن ما عندي ربط كامل بطلب محدد أقدر أسجل عليه طلب تواصل إداري بشكل موثوق. ابعث رقم التتبع إذا عندك، وبنفس الوقت احكيلي المشكلة نفسها وبكمل معك هون.`;
+  }
+  return `معك ${name} من الأمين، وبكمل معك هون على نفس المحادثة.${status} ما رح أدّعي إنه صار تحويل أو اتصال إذا ما في تنفيذ فعلي مثبت؛ احكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية.`;
 }
 
 function reconcilePendingMutationWithAuthoritativeTruth(state: ConversationState, truth: TruthBundle) {
@@ -1014,6 +1058,31 @@ export async function runHumanConversationOS(input: {
   });
   let actionResults = actions;
 
+  const humanEscalationReceipt = await recordHumanEscalationReceipt({
+    turn,
+    truth: truthBeforeActions,
+    waId: input.waId,
+    turnId: input.turnId,
+    customerText: input.customerText,
+  });
+  if (humanEscalationReceipt) {
+    const durable = humanEscalationReceipt === "recorded" || humanEscalationReceipt === "already_recorded";
+    const receiptResult: ActionResult = {
+      action: "record_call_preference",
+      outcome: durable ? (humanEscalationReceipt === "recorded" ? "executed" : "already_done") : (humanEscalationReceipt === "failed" ? "failed" : "dry_run"),
+      executed: durable,
+      authoritativeSummary: durable ? "human contact request durably recorded in notification ledger" : null,
+      mutationId: null,
+      blocker: durable ? null : (humanEscalationReceipt === "failed" ? "human_contact_request_receipt_failed" : "human_contact_request_not_applicable"),
+      ownerRole: stateWorking.role.currentRole,
+      details: durable ? { receipt: "human_contact_request_durable_ledger" } : { receipt: humanEscalationReceipt },
+    };
+    const existingContactIndex = actionResults.findIndex((result) => result.action === "record_call_preference");
+    actionResults = existingContactIndex >= 0
+      ? actionResults.map((result, index) => index === existingContactIndex ? receiptResult : result)
+      : [...actionResults, receiptResult];
+  }
+
   let manualMutationReceipt: ManualMutationReceipt | null = null;
   const confirmedManualChange = plan.actions.find((action) => action.action === "change_application_data" && !action.requiresConfirmation);
   if (confirmedManualChange) {
@@ -1112,7 +1181,7 @@ export async function runHumanConversationOS(input: {
     : null;
   const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply({ customerText: input.customerText, state: stateWorking }) : null;
   const authoritativeSocialReply = simpleSocialClosureReply(turn, input.customerText);
-  const authoritativeHumanRequestReply = humanRequestGroundedReply({ turn, state: stateWorking, truth: truthAfterActions });
+  const authoritativeHumanRequestReply = humanRequestGroundedReply({ turn, state: stateWorking, truth: truthAfterActions, receipt: humanEscalationReceipt });
   const authoritativePaymentRelativeReply = paymentRelativeReceiptGroundedReply({ truth: truthAfterActions, customerText: input.customerText });
   const authoritativeManualMutationReply = manualMutationReceiptReply(manualMutationReceipt, truthAfterActions);
   let authoritativeDeviceChangeReply: string | null = null;
@@ -1175,6 +1244,10 @@ export async function runHumanConversationOS(input: {
   if (reply && resemblesPostDisclosurePaymentReply(reply)) {
     reduced = markCommercialDisclosureAcknowledged(reduced, truthAfterActions, turn.turnId);
   }
+
+  // Phase 11.9: human care shapes language only after truth/action/commercial arbitration.
+  // Protected payment execution/disclosure replies stay byte-stable.
+  reply = applyHumanCareEgress({ reply, turn, state: reduced, truth: truthAfterActions });
 
   if (gate.confirmationPrompt && arbitration.obligation !== "mutation_truth" && reply !== gate.confirmationPrompt) {
     reduced = { ...reduced, pendingAction: null, pendingActionPayload: null };

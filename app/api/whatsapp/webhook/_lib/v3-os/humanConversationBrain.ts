@@ -9,6 +9,7 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { resolveApplicationModificationRoute } from "./applicationModificationRouting";
 import { roleDisplayName } from "./hierarchy";
 import { personaWritingContract } from "./personas";
+import { humanCarePromptContract } from "./humanCarePolicy";
 
 const TOPICS: TopicKey[] = [
   "greeting","thanks","acknowledgement","unknown","application_status","application_correction","requirements","guarantor",
@@ -286,6 +287,9 @@ ${persona}
 ${khaledOverlay ? `
 CALMING_OVERLAY:
 ${khaledOverlay}` : ""}
+
+HUMAN_CARE_POLICY:
+${humanCarePromptContract({ turn: input.anchor, state: input.state, truth: input.truth })}
 
 القواعد الصلبة:
 - أنت تكمل خدمة العميل داخل نفس المحادثة بدون انتظار موظف بشري. التدخل البشري التشغيلي الوحيد خارج المحادثة هو تأكيد وصل الدفع عندما تكون حالته بانتظار المراجعة اليدوية.
