@@ -1,0 +1,28 @@
+  let actionResults = actions;
+
+  const humanEscalationReceipt = await recordHumanEscalationReceipt({
+    turn,
+    truth: truthBeforeActions,
+    waId: input.waId,
+    turnId: input.turnId,
+    customerText: input.customerText,
+  });
+  if (humanEscalationReceipt) {
+    const durable = humanEscalationReceipt === "recorded" || humanEscalationReceipt === "already_recorded";
+    const receiptResult: ActionResult = {
+      action: "record_call_preference",
+      outcome: durable ? (humanEscalationReceipt === "recorded" ? "executed" : "already_done") : (humanEscalationReceipt === "failed" ? "failed" : "dry_run"),
+      executed: durable,
+      authoritativeSummary: durable ? "human contact request durably recorded in notification ledger" : null,
+      mutationId: null,
+      blocker: durable ? null : (humanEscalationReceipt === "failed" ? "human_contact_request_receipt_failed" : "human_contact_request_not_applicable"),
+      ownerRole: stateWorking.role.currentRole,
+      details: durable ? { receipt: "human_contact_request_durable_ledger" } : { receipt: humanEscalationReceipt },
+    };
+    const existingContactIndex = actionResults.findIndex((result) => result.action === "record_call_preference");
+    actionResults = existingContactIndex >= 0
+      ? actionResults.map((result, index) => index === existingContactIndex ? receiptResult : result)
+      : [...actionResults, receiptResult];
+  }
+
+  let manualMutationReceipt: ManualMutationReceipt | null = null;
