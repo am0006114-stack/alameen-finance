@@ -116,6 +116,29 @@ function actionFailureReply(truth: TruthBundle, actions: ActionResult[]) {
   return `طلب ${label}${tracking} واضح، لكن التنفيذ الفعلي ما اكتمل بهاللحظة. ما رح أقول إنه تم قبل ما تثبت النتيجة بالنظام، وما في داعي تعيد نفس التأكيد الآن.`;
 }
 
+function explicitReopenApplicationTextForHumanOs(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q) return false;
+  return /(?:اعيد|أعيد|اعاده|إعادة).{0,18}(?:فتح|تفعيل)?.{0,12}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:ارجع|أرجع|رجع).{0,18}(?:افتح|أفتح|فتح|اكمل|أكمل|اقدم|أقدم).{0,18}(?:الطلب|طلب|المعامله|المعاملة)/.test(q)
+    || /(?:بدي|حاب|اريد|أريد)?\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\s|$)/.test(q)
+    || /(?:فك|الغاء|إلغاء).{0,14}(?:الالغاء|الإلغاء)/.test(q);
+}
+
+function commercialFileOpeningTextForHumanOs(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q || explicitReopenApplicationTextForHumanOs(value)) return false;
+  return /(?:بدي|حاب|اريد|أريد|خليني|يلا|ممكن)?\s*(?:افتح|أفتح|فتح|نفتح).{0,14}(?:الملف|ملف)(?:\s|$)/.test(q);
+}
+
+function vetoMisclassifiedCommercialFileReopen(plan: ReplyPlan, customerText: string): ReplyPlan {
+  if (!commercialFileOpeningTextForHumanOs(customerText)) return plan;
+  return {
+    ...plan,
+    actions: plan.actions.filter((action) => action.action !== "reopen_application"),
+  };
+}
+
 const CUSTOMER_STATUS_REPLACEMENTS: Array<[RegExp, string]> = [
   [/\bpreliminary_application\b/gi, "قيد المراجعة المبدئية"],
   [/\bpreliminary_qualified\b/gi, "موافقة مبدئية"],
@@ -987,6 +1010,7 @@ export async function runHumanConversationOS(input: {
   let reduced = reduceState({ state: stateWorking, turn });
   let plan = buildReplyPlan({ turn, state: reduced, truth: truthBeforeActions });
   plan = forceConfirmedPendingMutation(plan, { action: confirmedPendingMutation, state: stateWorking, turn });
+  plan = vetoMisclassifiedCommercialFileReopen(plan, turn.rawText);
   if (secureDeviceChangeRequested) {
     plan = { ...plan, actions: plan.actions.filter((action) => action.action !== "change_device") };
   }

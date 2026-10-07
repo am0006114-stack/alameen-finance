@@ -47,6 +47,8 @@ export type ResponseObligation =
   | "human_semantic_care"
   | "refund_timing"
   | "refund_process_problem"
+  | "operational_calendar"
+  | "fee_document_question"
   | "fee_question"
   | "conditional_future_mutation"
   | "requirements_question"
@@ -99,7 +101,7 @@ function pureSocialClosureTurnForArbiter(turn: InterpretedTurn) {
   if (turn.requestedActions.length) return false;
   // Phase 11.7.1: literal short closures own the current turn even if a model
   // accidentally copied the previous topic into acts/topics.
-  if (/^(?:تمام|تم|اوك|اوكي|أوك|أوكي|شكرا|شكرًا|شكراً|يسلمو|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله|تمام\s+ان\s+شاء\s+الله|تمام\s+إن\s+شاء\s+الله|العفو)$/.test(q)) return true;
+  if (/^(?:خلص|خلص\s+تمام|تمام|تم|اوك|اوكي|أوك|أوكي|شكرا|شكرًا|شكراً|يسلمو|تسلم|الله\s+يعافيك|يعطيك\s+العافيه|يعطيك\s+العافية|الله\s+يعافيك|الله\s+يعطيك\s+العافيه|الله\s+يعطيك\s+العافية|ان\s+شاء\s+الله|إن\s+شاء\s+الله|تمام\s+ان\s+شاء\s+الله|تمام\s+إن\s+شاء\s+الله|العفو)$/.test(q)) return true;
   if (/^(?:👍|👍🏻|❤️|❤|🌹|🙏|🙏🏻|👌|✅|☑️|😁|🙂|😊|✔️)+$/u.test(raw)) return true;
   const materialAct = turn.acts.some((act) => {
     if (["greet", "thank", "acknowledge"].includes(act.type)) return false;
@@ -118,7 +120,7 @@ function pureSocialClosureTurnForArbiter(turn: InterpretedTurn) {
 function pureGreetingTurnForArbiter(turn: InterpretedTurn) {
   if (turn.requestedActions.length) return false;
   const q = n(turn.rawText);
-  return /^(?:مرحبا|مرحبًا|هلا|اهلا|أهلا|السلام\s+عليكم|صباح\s+الخير|مساء\s+الخير|كيفك|كيف\s+حالكم)$/.test(q);
+  return /^(?:مرحبا|مرحبًا|هلا|اهلا|أهلا|السلام\s+عليكم|صباح\s+الخير|مساء\s+الخير|كيفك(?:\s+[\p{L}]+){0,2}|كيف\s+حالكم)$/u.test(q);
 }
 
 function buildGreetingReplyForArbiter(turn: InterpretedTurn) {
@@ -137,12 +139,64 @@ function buildSocialClosureReplyForArbiter(turn: InterpretedTurn) {
   return "تمام، الله يعطيك العافية.";
 }
 
-function hasAuthoritativeMutationResult(actions: ActionResult[]) {
-  return actions.some((a) => ["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(a.action)
-    && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome)));
+function explicitReopenApplicationText(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  return /(?:اعيد|أعيد|اعاده|إعادة).{0,18}(?:فتح|تفعيل)?.{0,12}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:ارجع|أرجع|رجع).{0,18}(?:افتح|أفتح|فتح|اكمل|أكمل|اقدم|أقدم).{0,18}(?:الطلب|طلب|المعامله|المعاملة)/.test(q)
+    || /(?:بدي|حاب|اريد|أريد)?\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\s|$)/.test(q)
+    || /(?:فك|الغاء|إلغاء).{0,14}(?:الالغاء|الإلغاء)/.test(q);
 }
 
-function authoritativeStopOrReopenReply(input: { actions: ActionResult[]; truth: TruthBundle }) {
+function commercialFileOpeningText(value: string | null | undefined) {
+  const q = n(value);
+  if (!q || explicitReopenApplicationText(value)) return false;
+  return /(?:بدي|حاب|اريد|أريد|خليني|يلا|ممكن)?\s*(?:افتح|أفتح|فتح|نفتح).{0,14}(?:الملف|ملف)(?:\s|$)/.test(q);
+}
+
+function asksOperationalCalendarQuestion(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  const weekend = /(?:الجمعه|الجمعة|السبت|عطله|عطلة|الويكند|ويكند)/.test(q);
+  const operation = /(?:دراسه|دراسة|مراجعه|مراجعة|موعد|مواعيد|استلام|تسليم|حضور|دوام|تاجيل|تأجيل|يتحسب|ينحسب|تحسب|ايام|أيام)/.test(q);
+  return weekend && operation;
+}
+
+function operationalCalendarReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const policy = input.truth.policy;
+  const appDevice = String(input.truth.application?.deviceName || "");
+  const mentionsIphone18 = /(?:iphone|ايفون|آيفون)\s*18\b/i.test(String(input.turn.rawText || "")) || /(?:iphone|ايفون|آيفون)\s*18\b/i.test(appDevice);
+  const asksStudy = /(?:دراسه|دراسة|مراجعه|مراجعة|يتحسب|ينحسب|تحسب|ايام|أيام)/.test(q);
+  const parts = [policy.pickupRule];
+  if (asksStudy) parts.push(policy.normalReviewWindow);
+  if (mentionsIphone18) parts.push(policy.recentReleaseAvailabilityRule);
+  return Array.from(new Set(parts.filter(Boolean))).join(" ");
+}
+
+function asksFeeDocumentQuestion(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  const document = /(?:فاتوره|فاتورة|ايصال|إيصال|سند\s+قبض)/.test(q);
+  const fee = /(?:5|٥|الخمس|الخمسه|الخمسة|رسوم|فتح\s+الملف)/.test(q);
+  const beforePayment = /(?:قبل|بدون).{0,20}(?:الدفع|التحويل|احول|أحول)|(?:باسم|اسم).{0,12}(?:الشركه|الشركة)/.test(q);
+  return document && fee && beforePayment;
+}
+
+function feeDocumentQuestionReply() {
+  return "إذا قصدك فاتورة أو إيصال مالي رسمي باسم الشركة قبل التحويل: ما عندي من النظام الحالي مستند صادر قبل الدفع أقدر أؤكد لك إنه متوفر. ما رح أخترع فاتورة أو أوعدك بمستند مش مثبت. إذا وجود فاتورة قبل الدفع شرط إلك، لا تحوّل قبل ما يتم تأكيد توفرها إداريًا. أما بعد التحويل فإثبات الدفع يُرفع من المسار الرسمي ويُعتمد إداريًا.";
+}
+
+function hasAuthoritativeMutationResult(actions: ActionResult[], turn?: InterpretedTurn) {
+  const reopenAllowed = !turn || explicitReopenApplicationText(turn.rawText);
+  return actions.some((a) => {
+    if (a.action === "reopen_application" && !reopenAllowed) return false;
+    return ["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(a.action)
+      && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome));
+  });
+}
+
+function authoritativeStopOrReopenReply(input: { actions: ActionResult[]; truth: TruthBundle; turn: InterpretedTurn }) {
   const tracking = input.truth.application?.trackingId ? ` على الطلب ${input.truth.application.trackingId}` : "";
   const stop = input.actions.find((a) => a.action === "stop_refund");
   if (stop) {
@@ -151,7 +205,7 @@ function authoritativeStopOrReopenReply(input: { actions: ActionResult[]; truth:
     if (stop.outcome === "already_done") return `ما في استرداد نشط يحتاج إيقاف${tracking}؛ الطلب مستمر أصلًا حسب النتيجة الموثقة.`;
     return `طلب إيقاف الاسترداد واضح${tracking}، لكن الإجراء ما تنفذ فعليًا لحد الآن. ما رح أعتبر الاسترداد موقوف قبل ما تثبت النتيجة بالنظام.`;
   }
-  const reopen = input.actions.find((a) => a.action === "reopen_application");
+  const reopen = explicitReopenApplicationText(input.turn.rawText) ? input.actions.find((a) => a.action === "reopen_application") : undefined;
   if (reopen) {
     if (reopen.outcome === "needs_confirmation") return `طلب إعادة فتح الطلب واضح${tracking}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
     if (reopen.outcome === "executed") return `تم إعادة فتح طلبك${tracking} بنجاح، والمتابعة بتكمل على نفس الطلب.`;
@@ -329,7 +383,8 @@ function asksProductAvailability(value: string | null | undefined) {
 
 function asksPickupDelivery(value: string | null | undefined) {
   const q = n(value);
-  return /(?:يوجد|في|عندكم).{0,15}(?:توصيل|دليفري)|(?:التوصيل|توصيل).{0,20}(?:موجود|في|عندكم|ولا)|(?:الاستلام).{0,20}(?:توصيل|مكتب)/.test(q);
+  return /(?:يوجد|في|عندكم).{0,15}(?:توصيل|دليفري)|(?:التوصيل|توصيل).{0,20}(?:موجود|في|عندكم|ولا)|(?:الاستلام).{0,20}(?:توصيل|مكتب)/.test(q)
+    || /(?:متى|امتى|قديش|كم|ليش).{0,35}(?:استلم|الاستلام|التسليم)|(?:استلم|الاستلام|التسليم).{0,35}(?:متى|امتى|بعد\s+شهر|شهر|قديش|كم|ليش)/.test(q);
 }
 
 function asksPostPaymentNextStep(value: string | null | undefined) {
@@ -455,7 +510,7 @@ export function resolveResponseObligation(input: {
 
   if (currentHumanTurn.kind === "contact_isolation_continuation") return "current_human_turn";
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
-  if (hasAuthoritativeMutationResult(input.actions)) return "mutation_truth";
+  if (hasAuthoritativeMutationResult(input.actions, input.turn)) return "mutation_truth";
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
   if (pureGreetingTurnForArbiter(input.turn)) return "social_greeting";
   if (pureSocialClosureTurnForArbiter(input.turn)) return "social_closure";
@@ -465,6 +520,8 @@ export function resolveResponseObligation(input: {
   if (currentHumanTurn.kind !== "none") return "current_human_turn";
   const answerBundle = resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth });
   if (answerBundle.kind !== "none") return "answer_bundle";
+  if (asksOperationalCalendarQuestion(input.turn.rawText)) return "operational_calendar";
+  if (asksFeeDocumentQuestion(input.turn.rawText)) return "fee_document_question";
   if (semanticQuestionLock.kind !== "none") return semanticQuestionLock.kind;
   if (refundHumanCareMode({ turn: input.turn, state: input.state, truth: input.truth })) return "refund_human_care";
   if (conditionalFutureMutationText(input.turn.rawText)) return "conditional_future_mutation";
@@ -532,7 +589,7 @@ function approvalReply(truth: TruthBundle) {
 
 function reviewTimingReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
   const app = input.truth.application;
-  const window = input.truth.policy.normalReviewWindow || "من يومين لـ3 أيام عمل";
+  const window = input.truth.policy.normalReviewWindow || "من يومين لـ3 أيام تشغيلية؛ الجمعة والسبت لا تُحتسبان ولا تُنفذ فيهما دراسة";
   const pressure = input.truth.policy.severePressureRule || "حاليًا في ضغط مراجعات شديد وقد تتأخر بعض الملفات أكثر من المعدل الطبيعي.";
   if (explicitExpediteRequestTextForArbiter(input.turn.rawText)) {
     const status = app ? ` طلبك${app.trackingId ? ` ${app.trackingId}` : ""} حالته الآن ${customerFacingStatusLabel(app)}.` : "";
@@ -566,7 +623,7 @@ function mutationRequestReply(input: { turn: InterpretedTurn; truth: TruthBundle
     if (stage === "refund_completed") return "الاسترداد مكتمل حسب الحالة الحالية، لذلك ما بقدر أعتبره قابلًا للإيقاف من المحادثة وحدها.";
     return "ما في طلب استرداد نشط ظاهر على الحالة الحالية يحتاج إيقاف.";
   }
-  const reopenRequest = /(?:ارجع|أرجع|اعيد|أعيد|اعاده|إعادة|افتح|أفتح|تفعيل).{0,35}(?:الطلب|المعامله|المعاملة|الملف)/.test(q);
+  const reopenRequest = explicitReopenApplicationText(input.turn.rawText);
   if (reopenRequest && ["cancelled", "refund_requested"].includes(stage)) {
     return `طلب إعادة فتح الطلب واضح${app?.trackingId ? ` ${app.trackingId}` : ""}. للتأكيد النهائي اكتب: نعم، بدي أعيد فتح الطلب وأكمل عليه.`;
   }
@@ -631,7 +688,10 @@ function pickupDeliveryReply(input: { turn: InterpretedTurn; truth: TruthBundle 
   const requirements = /(?:الاوراق|الأوراق|الوثائق|الهويه|الهوية|اثبات\s+الدخل|إثبات\s+الدخل)/.test(q)
     ? `${input.truth.policy.requirementsGuidanceRule} `
     : "";
-  return `${requirements}ما في توصيل. الاستلام من المكتب فقط وبموعد رسمي مؤكد بعد استحقاق مرحلة الاستلام. ${input.truth.policy.generalLocation}.`;
+  const device = String(input.truth.application?.deviceName || "");
+  const iphone18 = /(?:iphone|ايفون|آيفون)\s*18\b/i.test(String(input.turn.rawText || "")) || /(?:iphone|ايفون|آيفون)\s*18\b/i.test(device);
+  if (iphone18) return `${requirements}${input.truth.policy.recentReleaseAvailabilityRule} ${input.truth.policy.pickupRule}`;
+  return `${requirements}ما في توصيل. الاستلام من المكتب فقط وبموعد رسمي مؤكد بعد استحقاق مرحلة الاستلام. ${input.truth.policy.pickupRule}`;
 }
 
 function postPaymentNextStepReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
@@ -747,8 +807,10 @@ function directRepair(input: {
     case "human_semantic_care": return buildHumanSemanticCareReply({ turn: input.turn, state: input.state, truth: input.truth });
     case "refund_timing": return refundTimingReply({ turn, truth: input.truth });
     case "refund_process_problem": return refundProcessProblemReply(input.truth);
+    case "operational_calendar": return operationalCalendarReply({ turn, truth: input.truth });
     case "review_timing": return reviewTimingReply({ turn, truth: input.truth });
     case "refund_meaning": return refundMeaningReply(input.truth);
+    case "fee_document_question": return feeDocumentQuestionReply();
     case "fee_question": return feeQuestionReply({ turn, truth: input.truth });
     case "conditional_future_mutation": return conditionalFutureMutationReply({ turn, truth: input.truth });
     case "requirements_question": return requirementsQuestionReply(input.truth);
@@ -778,6 +840,7 @@ function candidateLooksResponsive(input: { obligation: ResponseObligation; candi
   if (responseHasKnownBadFallbackSignature(raw)) return false;
   const q = n(raw);
   const stage = applicationJourneyStage(input.truth.application);
+  if (["operational_calendar", "fee_document_question", "review_timing", "pickup_delivery"].includes(input.obligation)) return false;
   switch (input.obligation) {
     case "protected_business_registration":
     case "stop_refund_keep_request":
@@ -852,8 +915,16 @@ export function arbitrateProductionReply(input: {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+
+  // Phase 11.9.1: a new text turn immediately expires stale media authority.
+  if (staleMediaCandidateOnTextTurn(input.turn, candidate)) {
+    const repair = staleMediaTextTurnRepair({ turn: input.turn, state: input.state, truth: input.truth });
+    return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_question_contract", repaired: repair !== candidate, reason: "new text turn expired stale media authority before human-turn arbitration" };
+  }
+
   const currentQuestionFirst = new Set<ResponseObligation>([
     "current_human_turn", "answer_bundle", "refund_human_care", "refund_timing", "refund_process_problem",
+    "operational_calendar", "fee_document_question", "fee_question", "pickup_delivery", "approval_status",
     "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",
   ]);
 
@@ -914,11 +985,11 @@ export function arbitrateProductionReply(input: {
   }
 
   if (obligation === "mutation_truth") {
-    const stopOrReopenReply = authoritativeStopOrReopenReply({ actions: input.actions, truth: input.truth });
+    const stopOrReopenReply = authoritativeStopOrReopenReply({ actions: input.actions, truth: input.truth, turn: input.turn });
     if (stopOrReopenReply) {
       return { reply: sanitizeUnifiedEgressReply(stopOrReopenReply), obligation, repaired: stopOrReopenReply !== candidate, reason: "stop-refund/reopen action result owns final response" };
     }
-    if (hasAuthoritativeMutationResult(input.actions)) {
+    if (hasAuthoritativeMutationResult(input.actions, input.turn)) {
       return { reply: candidate, obligation, repaired: false, reason: "mutation/action truth remains authoritative" };
     }
     // An explicit customer mutation request still needs the two-step confirmation

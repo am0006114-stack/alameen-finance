@@ -207,7 +207,7 @@ function officeLocationPart(truth: TruthBundle) {
 }
 
 function officeHoursPart() {
-  return "الجمعة والسبت عطلة تشغيلية للمكتب، بينما استقبال الطلبات والمتابعة الرقمية مستمران. ما عندي ساعات يومية موثقة لباقي الأيام أذكرها بدون تخمين، والحضور للمكتب بيكون فقط بموعد رسمي مؤكد.";
+  return "أيام الدراسة والتشغيل والمواعيد والتسليم هي الأحد إلى الخميس. الجمعة والسبت عطلة تشغيلية كاملة: لا تُحتسبان ضمن أيام الدراسة، ولا تُنفذ فيهما دراسة أو مراجعة أو تسليم، ولا يُعطى فيهما موعد حضور أو استلام. استقبال الطلبات والمتابعة الرقمية عبر الموقع وواتساب يستمران خلال العطلة.";
 }
 
 function remoteProcessPart() {
@@ -228,7 +228,7 @@ function bankInstallmentChannelPart() {
 function deliveryTimingPart(turn: InterpretedTurn, truth: TruthBundle) {
   const q = n(turn.rawText);
   if (/iphone\s*18|ايفون\s*18|آيفون\s*18/i.test(q) || /iphone\s*18|ايفون\s*18|آيفون\s*18/i.test(String(truth.application?.deviceName || ""))) {
-    return "إذا الجهاز iPhone 18 Pro أو Pro Max، الاستلام يكون بعد شهر من الموافقة النهائية، ومن المكتب وبموعد رسمي مؤكد فقط؛ ما في توصيل.";
+    return truth.policy.recentReleaseAvailabilityRule;
   }
   const stage = applicationJourneyStage(truth.application);
   if (stage === "approved") return `الموافقة النهائية صادرة، لكن ما عندي قاعدة موثقة إن الاستلام يكون بنفس يوم الموافقة. موعد الاستلام نفسه لازم يكون موعدًا رسميًا مؤكدًا مرتبطًا بالطلب. ${truth.policy.generalLocation}.`;

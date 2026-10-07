@@ -168,7 +168,7 @@ const ACKS: Record<Exclude<HumanCareMode, "none" | "warmth">, string[]> = {
 
 function replyHasHumanAcknowledgement(value: string) {
   const q = n(value);
-  return /(?:فاهم|معك\s+حق|مقدّر|مقدر|بعرف\s+إن|بعرف\s+ان|واضح\s+إنك|واضح\s+انك|ولا\s+يهمك|ما\s+أزعجتني|ما\s+ازعجتني|إن\s+شاء\s+الله\s+خير|ان\s+شاء\s+الله\s+خير|الثقه\s+اهتزت|الثقة\s+اهتزت)/.test(q);
+  return /(?:فاهم|مفهوم\s+إنك|مفهوم\s+انك|معك\s+حق|مقدّر|مقدر|بعرف\s+إن|بعرف\s+ان|واضح\s+إنك|واضح\s+انك|ولا\s+يهمك|ما\s+أزعجتني|ما\s+ازعجتني|إن\s+شاء\s+الله\s+خير|ان\s+شاء\s+الله\s+خير|الثقه\s+اهتزت|الثقة\s+اهتزت)/.test(q);
 }
 
 function actionCriticalReply(value: string) {

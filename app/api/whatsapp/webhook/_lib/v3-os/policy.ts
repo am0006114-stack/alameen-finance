@@ -50,7 +50,7 @@ function buildPolicy(): PolicyTruth {
     paymentBeneficiaryName: FILE_OPENING_PAYMENT_BENEFICIARY,
     paymentMethodRule: `${currentFileOpeningPaymentRule()} لا تفترض توافق محفظة/بنك غير موثق مع قناة معينة؛ اشرح فقط قنوات الاستلام الرسمية المعتمدة.`,
     paymentConfirmationRule: "رسالة العميل أو صورة الوصل لا تؤكد الدفع تلقائيًا. تأكيد الدفع النهائي يتم يدويًا من الإدارة/الأدمن بعد مراجعة الإثبات الرسمي المرفوع من الرابط الآمن.",
-    normalReviewWindow: "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام عمل",
+    normalReviewWindow: "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام تشغيلية (الأحد إلى الخميس)، والجمعة والسبت لا تُحتسبان ضمن مدة الدراسة ولا تُنفذ فيهما مراجعة",
     recentReleaseAvailabilityRule: `${IPHONE18_PICKUP_RULE} وجود iPhone 18 في الكتالوج يعني أنه معروض للتقديم، ولا يعني مخزونًا أو استلامًا فوريًا. لا تخترع سعرًا أو لونًا أو قسطًا أو توفرًا خارج الحقيقة التجارية المعتمدة.`,
     recentReleaseNotBefore: "",
     reviewPressureLevel: level,

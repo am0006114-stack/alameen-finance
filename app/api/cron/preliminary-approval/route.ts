@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isOperationalDate } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -268,6 +269,10 @@ function isAuthorizedCronRequest(request: Request) {
 export async function GET(request: Request) {
   if (!isAuthorizedCronRequest(request)) {
     return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  }
+
+  if (!isOperationalDate(new Date())) {
+    return NextResponse.json({ ok: true, skipped: true, reason: "operational_weekend", message: "الجمعة والسبت لا تُنفذ فيهما دراسة أو إرسال موافقات تشغيلية؛ تبقى الطلبات في الانتظار حتى أول يوم تشغيل." });
   }
 
   const cronLimit = Number(process.env.PRELIMINARY_CRON_LIMIT || "25");

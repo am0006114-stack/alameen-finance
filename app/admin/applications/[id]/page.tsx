@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { currentFileOpeningPaymentRule } from "@/app/api/whatsapp/webhook/_lib/v3-os/paymentDestinationOverride";
+import { addOneCalendarMonthOperational, isIphone18Device, isOperationalDate, jordanDateKey } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar";
 
 type PageProps = {
   params: Promise<{
@@ -618,7 +619,7 @@ function underReviewMessage(app: ApplicationRecord) {
 تم تأكيد رسوم فتح الملف، وتم تحويل طلبك إلى قسم الدراسة.
 
 حالة الطلب الآن: قيد الدراسة
-مدة المراجعة المتوقعة: من 24 إلى 72 ساعة من وقت تأكيد الدفع.
+مدة المراجعة المتوقعة: من يومين إلى 3 أيام تشغيلية من وقت تأكيد الدفع. الجمعة والسبت لا تُحتسبان ضمن أيام الدراسة ولا تُنفذ فيهما مراجعة.
 
 رقم التتبع: ${tracking}
 
@@ -1070,6 +1071,10 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     const applicationId = String(formData.get("applicationId") || "");
     const nextStatus = String(formData.get("status") || "");
     const nextPaymentStatus = String(formData.get("payment_status") || "");
+    const studyDecisionStatuses = new Set(["preliminary_qualified", "needs_identity", "needs_salary_slip", "needs_guarantor", "approved", "rejected"]);
+    if (nextStatus && studyDecisionStatuses.has(nextStatus) && !isOperationalDate(new Date())) {
+      redirect(`/admin/applications/${applicationId}?calendar=weekend-study-blocked`);
+    }
 
     if (!applicationId) {
       redirect("/admin");
@@ -1107,7 +1112,27 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
       redirect(`/admin/applications/${applicationId}?status=error`);
     }
 
+    if (nextStatus === "approved" && String(app.status || "").toLowerCase() !== "approved") {
+      const approvalRecordedAt = new Date().toISOString();
+      const { error: approvalLedgerError } = await supabaseAdmin
+        .from("whatsapp_v3_notification_ledger")
+        .insert({
+          dedupe_key: `final_approval_recorded:${applicationId}`,
+          event_type: "final_approval_recorded",
+          application_id: applicationId,
+          wa_id: normalizeJordanPhoneForWhatsApp(preferredWhatsAppPhone) || null,
+          severity: "info",
+          payload: { trackingId: app.tracking_id || null, deviceName: app.device_name || null, source: "admin_status_approved" },
+          status: "sent",
+          sent_at: approvalRecordedAt,
+        });
+      if (approvalLedgerError && String((approvalLedgerError as { code?: string }).code || "") !== "23505") {
+        console.error("Failed to record final approval calendar event:", approvalLedgerError);
+      }
+    }
+
     revalidatePath("/admin");
+    revalidatePath("/admin/operations-calendar");
     revalidatePath(`/admin/applications/${applicationId}`);
 
     redirect(`/admin/applications/${applicationId}?status=success`);
@@ -1271,9 +1296,27 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     "use server";
 
     const pickupDate = String(formData.get("pickup_date") || "").trim();
+    if (!pickupDate) redirect(`/admin/applications/${app.id}`);
+    if (String(app.status || "").toLowerCase() !== "approved") redirect(`/admin/applications/${app.id}?pickup=requires-final-approval`);
 
-    if (!pickupDate) {
-      redirect(`/admin/applications/${app.id}`);
+    const pickupDateTime = new Date(`${pickupDate}T12:00:00+03:00`);
+    if (Number.isNaN(pickupDateTime.getTime())) redirect(`/admin/applications/${app.id}?pickup=invalid-date`);
+    if (!isOperationalDate(pickupDateTime)) redirect(`/admin/applications/${app.id}?pickup=weekend-blocked`);
+
+    if (isIphone18Device(app.device_name)) {
+      const { data: approvalEvent } = await supabaseAdmin
+        .from("whatsapp_v3_notification_ledger")
+        .select("created_at")
+        .eq("application_id", app.id)
+        .eq("event_type", "final_approval_recorded")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!approvalEvent?.created_at) redirect(`/admin/applications/${app.id}?pickup=approval-date-missing`);
+      const earliest = addOneCalendarMonthOperational(approvalEvent.created_at);
+      const pickupKey = jordanDateKey(pickupDateTime);
+      const earliestKey = jordanDateKey(earliest);
+      if (!pickupKey || !earliestKey || pickupKey < earliestKey) redirect(`/admin/applications/${app.id}?pickup=iphone18-too-early`);
     }
 
     redirect(makeWhatsAppUrl(preferredWhatsAppPhone, approvedMessage(app, pickupDate)));
