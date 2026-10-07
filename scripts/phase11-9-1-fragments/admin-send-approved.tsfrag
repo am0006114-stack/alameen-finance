@@ -1,0 +1,29 @@
+  async function sendApprovedWithCustomDateAction(formData: FormData) {
+    "use server";
+
+    const pickupDate = String(formData.get("pickup_date") || "").trim();
+    if (!pickupDate) redirect(`/admin/applications/${app.id}`);
+    if (String(app.status || "").toLowerCase() !== "approved") redirect(`/admin/applications/${app.id}?pickup=requires-final-approval`);
+
+    const pickupDateTime = new Date(`${pickupDate}T12:00:00+03:00`);
+    if (Number.isNaN(pickupDateTime.getTime())) redirect(`/admin/applications/${app.id}?pickup=invalid-date`);
+    if (!isOperationalDate(pickupDateTime)) redirect(`/admin/applications/${app.id}?pickup=weekend-blocked`);
+
+    if (isIphone18Device(app.device_name)) {
+      const { data: approvalEvent } = await supabaseAdmin
+        .from("whatsapp_v3_notification_ledger")
+        .select("created_at")
+        .eq("application_id", app.id)
+        .eq("event_type", "final_approval_recorded")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!approvalEvent?.created_at) redirect(`/admin/applications/${app.id}?pickup=approval-date-missing`);
+      const earliest = addOneCalendarMonthOperational(approvalEvent.created_at);
+      const pickupKey = jordanDateKey(pickupDateTime);
+      const earliestKey = jordanDateKey(earliest);
+      if (!pickupKey || !earliestKey || pickupKey < earliestKey) redirect(`/admin/applications/${app.id}?pickup=iphone18-too-early`);
+    }
+
+    redirect(makeWhatsAppUrl(preferredWhatsAppPhone, approvedMessage(app, pickupDate)));
+  }
