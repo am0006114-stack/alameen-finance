@@ -5,10 +5,10 @@ const ok=(c,m)=>{if(c){passed++;console.log(`PASS ${passed}: ${m}`)}else{failed+
 const read=rel=>fs.readFileSync(path.join(root,rel),'utf8');
 function transpile(rel){const tr=ts.transpileModule(read(rel),{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS,jsx:ts.JsxEmit.ReactJSX,esModuleInterop:true},reportDiagnostics:true,fileName:rel});const errs=(tr.diagnostics||[]).filter(d=>d.category===ts.DiagnosticCategory.Error);ok(!errs.length,`${rel} transpiles clean`);if(errs.length)console.error(errs.map(d=>ts.flattenDiagnosticMessageText(d.messageText,' ')).join('\n'));return tr.outputText}
 function loadCalendar(){const rel='app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar.ts';const mod={exports:{}};vm.runInNewContext(transpile(rel),{module:mod,exports:mod.exports,require,console,Date,Intl,Map,Set,Math},{filename:rel});return mod.exports}
-const rel={calendar:'app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar.ts',calendarPage:'app/admin/operations-calendar/page.tsx',arbiter:'app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts',truth:'app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts',detail:'app/admin/applications/[id]/page.tsx',care:'app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts',cron:'app/api/cron/preliminary-approval/route.ts'};
+const rel={calendar:'app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar.ts',calendarPage:'app/admin/operations-calendar/page.tsx',arbiter:'app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts',truth:'app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts',detail:'app/admin/applications/[id]/page.tsx',care:'app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts',cron:'app/api/cron/preliminary-approval/route.ts',human:'app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts'};
 for(const [name,file] of Object.entries(rel))ok(fs.existsSync(path.join(root,file)),`${name} source exists`);
 const calendar=loadCalendar();
-transpile(rel.calendarPage);transpile(rel.arbiter);transpile(rel.truth);transpile(rel.detail);transpile(rel.care);transpile(rel.cron);
+transpile(rel.calendarPage);transpile(rel.arbiter);transpile(rel.truth);transpile(rel.detail);transpile(rel.care);transpile(rel.cron);transpile(rel.human);
 ok(calendar.isOperationalDate(new Date('2026-10-08T12:00:00+03:00'))===true,'Thursday is an operational day');
 ok(calendar.isOperationalDate(new Date('2026-10-09T12:00:00+03:00'))===false,'Friday is excluded from operations');
 ok(calendar.isOperationalDate(new Date('2026-10-10T12:00:00+03:00'))===false,'Saturday is excluded from operations');
@@ -31,6 +31,8 @@ ok(src.detail.includes('studyDecisionStatuses')&&src.detail.includes('calendar=w
 ok(src.detail.includes('pickup=weekend-blocked')&&src.detail.includes('pickup=iphone18-too-early'),'admin appointment action blocks weekends and early iPhone 18 pickup dates');
 ok(src.cron.includes('operational_weekend')&&src.cron.includes('isOperationalDate(new Date())'),'preliminary-approval cron skips Friday/Saturday');
 ok(src.arbiter.includes('commercialFileOpeningText')&&src.arbiter.includes('explicitReopenApplicationText'),'commercial file opening is disambiguated from reopening a cancelled application');
+ok(src.human.includes('vetoMisclassifiedCommercialFileReopen')&&src.human.includes('commercialFileOpeningTextForHumanOs'),'misclassified commercial file opening is vetoed before Action Plane execution');
+ok(src.arbiter.includes('"operational_calendar", "fee_document_question", "fee_question"')&&src.arbiter.includes('"pickup_delivery"'),'fresh calendar/fee/pickup questions are protected from stale meaning locks');
 ok(src.arbiter.includes('asksOperationalCalendarQuestion')&&src.arbiter.includes('operational_calendar'),'current-turn weekend/calendar questions have deterministic authority');
 ok(src.arbiter.includes('fee_document_question'),'pre-payment invoice question owns its current turn instead of payment egress');
 ok(src.care.includes('مفهوم\\s+إنك')||src.care.includes('مفهوم\\s+انك'),'human care recognizes existing acknowledgement and avoids stacking empathy');
