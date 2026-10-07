@@ -1,0 +1,8 @@
+function hasAuthoritativeMutationResult(actions: ActionResult[], turn?: InterpretedTurn) {
+  const reopenAllowed = !turn || explicitReopenApplicationText(turn.rawText);
+  return actions.some((a) => {
+    if (a.action === "reopen_application" && !reopenAllowed) return false;
+    return ["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(a.action)
+      && (a.executed || ["executed", "already_done", "needs_confirmation", "blocked", "failed", "dry_run"].includes(a.outcome));
+  });
+}
