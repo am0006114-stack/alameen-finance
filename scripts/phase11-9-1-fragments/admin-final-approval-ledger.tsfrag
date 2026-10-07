@@ -3,7 +3,7 @@
       const { error: approvalLedgerError } = await supabaseAdmin
         .from("whatsapp_v3_notification_ledger")
         .insert({
-          dedupe_key: `final_approval_recorded:${applicationId}:${approvalRecordedAt}`,
+          dedupe_key: `final_approval_recorded:${applicationId}`,
           event_type: "final_approval_recorded",
           application_id: applicationId,
           wa_id: normalizeJordanPhoneForWhatsApp(preferredWhatsAppPhone) || null,
@@ -12,7 +12,9 @@
           status: "sent",
           sent_at: approvalRecordedAt,
         });
-      if (approvalLedgerError) console.error("Failed to record final approval calendar event:", approvalLedgerError);
+      if (approvalLedgerError && String((approvalLedgerError as { code?: string }).code || "") !== "23505") {
+        console.error("Failed to record final approval calendar event:", approvalLedgerError);
+      }
     }
 
     revalidatePath("/admin");
