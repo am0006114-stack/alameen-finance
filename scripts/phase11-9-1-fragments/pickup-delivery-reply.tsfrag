@@ -5,6 +5,6 @@ function pickupDeliveryReply(input: { turn: InterpretedTurn; truth: TruthBundle 
     : "";
   const device = String(input.truth.application?.deviceName || "");
   const iphone18 = /(?:iphone|ايفون|آيفون)\s*18\b/i.test(String(input.turn.rawText || "")) || /(?:iphone|ايفون|آيفون)\s*18\b/i.test(device);
-  if (iphone18) return `${requirements}${input.truth.policy.iphone18PickupRule} ${input.truth.policy.officeOperationRule}`;
-  return `${requirements}ما في توصيل. الاستلام من المكتب فقط وبموعد رسمي مؤكد بعد استحقاق مرحلة الاستلام. ${input.truth.policy.officeOperationRule}`;
+  if (iphone18) return `${requirements}${input.truth.policy.recentReleaseAvailabilityRule} ${input.truth.policy.pickupRule}`;
+  return `${requirements}ما في توصيل. الاستلام من المكتب فقط وبموعد رسمي مؤكد بعد استحقاق مرحلة الاستلام. ${input.truth.policy.pickupRule}`;
 }
