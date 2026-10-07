@@ -4,6 +4,15 @@ const branch='phase11.9.1-operational-calendar-integrity';
 const patcherPath='scripts/v3-phase11-9-1-operational-calendar-integrity-patcher-v2.cjs';
 function run(cmd,args,opts={}){const r=cp.spawnSync(cmd,args,{cwd:root,encoding:'utf8',stdio:opts.capture?'pipe':'inherit'});if(r.error)throw r.error;if(r.status!==0)throw new Error(cmd+' '+args.join(' ')+' failed'+(r.stderr?': '+String(r.stderr).trim():''));return opts.capture?String(r.stdout||''):''}
 let src=run('git',['show','origin/'+branch+':'+patcherPath],{capture:true});
+
+// Windows worktrees may contain CRLF while repository blobs/anchors use LF.
+// Canonicalize only reads inside the temporary patcher; rollback still restores
+// the exact original bytes from backup if any gate fails.
+const readOld="function read(rel){return fs.readFileSync(path.join(root,rel),'utf8')}";
+const readNew="function read(rel){return fs.readFileSync(path.join(root,rel),'utf8').replace(/\\r\\n/g,'\\n').replace(/\\r/g,'\\n')}";
+if(!src.includes(readOld))throw new Error('runner precheck failed: patcher read helper anchor missing');
+src=src.replace(readOld,readNew);
+
 const oldTargets="const targets=['app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts','app/api/whatsapp/webhook/_lib/v3-os/policy.ts','app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts','app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts','app/admin/applications/[id]/page.tsx','app/api/cron/preliminary-approval/route.ts'];";
 const newTargets="const targets=['app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts','app/api/whatsapp/webhook/_lib/v3-os/policy.ts','app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts','app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts','app/admin/applications/[id]/page.tsx','app/api/cron/preliminary-approval/route.ts','app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts'];";
 if(!src.includes(oldTargets))throw new Error('runner precheck failed: target list anchor missing');
