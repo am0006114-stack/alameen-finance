@@ -1,0 +1,46 @@
+function explicitReopenApplicationText(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  return /(?:اعيد|أعيد|اعاده|إعادة).{0,18}(?:فتح|تفعيل)?.{0,12}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:ارجع|أرجع|رجع).{0,18}(?:افتح|أفتح|فتح|اكمل|أكمل).{0,18}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:فك|الغاء|إلغاء).{0,14}(?:الالغاء|الإلغاء)/.test(q);
+}
+
+function commercialFileOpeningText(value: string | null | undefined) {
+  const q = n(value);
+  if (!q || explicitReopenApplicationText(value)) return false;
+  return /(?:بدي|حاب|اريد|أريد|خليني|يلا|ممكن)?\s*(?:افتح|أفتح|فتح|نفتح).{0,14}(?:الملف|ملف)(?:\s|$)/.test(q);
+}
+
+function asksOperationalCalendarQuestion(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  const weekend = /(?:الجمعه|الجمعة|السبت|عطله|عطلة|الويكند|ويكند)/.test(q);
+  const operation = /(?:دراسه|دراسة|مراجعه|مراجعة|موعد|مواعيد|استلام|تسليم|حضور|دوام|تاجيل|تأجيل|يتحسب|ينحسب|تحسب|ايام|أيام)/.test(q);
+  return weekend && operation;
+}
+
+function operationalCalendarReply(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const policy = input.truth.policy;
+  const appDevice = String(input.truth.application?.deviceName || "");
+  const mentionsIphone18 = /(?:iphone|ايفون|آيفون)\s*18\b/i.test(String(input.turn.rawText || "")) || /(?:iphone|ايفون|آيفون)\s*18\b/i.test(appDevice);
+  const asksStudy = /(?:دراسه|دراسة|مراجعه|مراجعة|يتحسب|ينحسب|تحسب|ايام|أيام)/.test(q);
+  const parts = [policy.officeOperationRule];
+  if (asksStudy) parts.push(policy.normalReviewWindow);
+  if (mentionsIphone18) parts.push(policy.iphone18PickupRule);
+  return Array.from(new Set(parts.filter(Boolean))).join(" ");
+}
+
+function asksFeeDocumentQuestion(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  const document = /(?:فاتوره|فاتورة|ايصال|إيصال|سند\s+قبض)/.test(q);
+  const fee = /(?:5|٥|الخمس|الخمسه|الخمسة|رسوم|فتح\s+الملف)/.test(q);
+  const beforePayment = /(?:قبل|بدون).{0,20}(?:الدفع|التحويل|احول|أحول)|(?:باسم|اسم).{0,12}(?:الشركه|الشركة)/.test(q);
+  return document && fee && beforePayment;
+}
+
+function feeDocumentQuestionReply() {
+  return "إذا قصدك فاتورة أو إيصال مالي رسمي باسم الشركة قبل التحويل: ما عندي من النظام الحالي مستند صادر قبل الدفع أقدر أؤكد لك إنه متوفر. ما رح أخترع فاتورة أو أوعدك بمستند مش مثبت. إذا وجود فاتورة قبل الدفع شرط إلك، لا تحوّل قبل ما يتم تأكيد توفرها إداريًا. أما بعد التحويل فإثبات الدفع يُرفع من المسار الرسمي ويُعتمد إداريًا.";
+}
