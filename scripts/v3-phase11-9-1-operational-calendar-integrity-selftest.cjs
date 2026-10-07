@@ -33,6 +33,9 @@ ok(src.cron.includes('operational_weekend')&&src.cron.includes('isOperationalDat
 ok(src.arbiter.includes('commercialFileOpeningText')&&src.arbiter.includes('explicitReopenApplicationText'),'commercial file opening is disambiguated from reopening a cancelled application');
 ok(src.human.includes('vetoMisclassifiedCommercialFileReopen')&&src.human.includes('commercialFileOpeningTextForHumanOs'),'misclassified commercial file opening is vetoed before Action Plane execution');
 ok(src.arbiter.includes('"operational_calendar", "fee_document_question", "fee_question"')&&src.arbiter.includes('"pickup_delivery"'),'fresh calendar/fee/pickup questions are protected from stale meaning locks');
+const mediaGuard=src.arbiter.indexOf('new text turn expired stale media authority before human-turn arbitration');
+const humanTurnBranch=src.arbiter.indexOf('if (currentHumanTurn.kind !== "none")');
+ok(mediaGuard>=0&&humanTurnBranch>=0&&mediaGuard<humanTurnBranch,'new text expires stale media before human-turn arbitration can return');
 ok(src.arbiter.includes('asksOperationalCalendarQuestion')&&src.arbiter.includes('operational_calendar'),'current-turn weekend/calendar questions have deterministic authority');
 ok(src.arbiter.includes('fee_document_question'),'pre-payment invoice question owns its current turn instead of payment egress');
 ok(src.care.includes('مفهوم\\s+إنك')||src.care.includes('مفهوم\\s+انك'),'human care recognizes existing acknowledgement and avoids stacking empathy');
