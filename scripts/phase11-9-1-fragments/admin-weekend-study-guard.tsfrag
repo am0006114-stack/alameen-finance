@@ -1,0 +1,4 @@
+    const studyDecisionStatuses = new Set(["preliminary_qualified", "needs_identity", "needs_salary_slip", "needs_guarantor", "approved", "rejected"]);
+    if (nextStatus && studyDecisionStatuses.has(nextStatus) && !isOperationalDate(new Date())) {
+      redirect(`/admin/applications/${applicationId}?calendar=weekend-study-blocked`);
+    }
