@@ -26,9 +26,9 @@ function operationalCalendarReply(input: { turn: InterpretedTurn; truth: TruthBu
   const appDevice = String(input.truth.application?.deviceName || "");
   const mentionsIphone18 = /(?:iphone|ايفون|آيفون)\s*18\b/i.test(String(input.turn.rawText || "")) || /(?:iphone|ايفون|آيفون)\s*18\b/i.test(appDevice);
   const asksStudy = /(?:دراسه|دراسة|مراجعه|مراجعة|يتحسب|ينحسب|تحسب|ايام|أيام)/.test(q);
-  const parts = [policy.officeOperationRule];
+  const parts = [policy.pickupRule];
   if (asksStudy) parts.push(policy.normalReviewWindow);
-  if (mentionsIphone18) parts.push(policy.iphone18PickupRule);
+  if (mentionsIphone18) parts.push(policy.recentReleaseAvailabilityRule);
   return Array.from(new Set(parts.filter(Boolean))).join(" ");
 }
 
