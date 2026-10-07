@@ -21,6 +21,11 @@ function dateFromParts(year: number, month: number, day: number) {
   return new Date(Date.UTC(year, month - 1, day, 12, 0, 0));
 }
 
+function daySerial(value: Date) {
+  const p = jordanParts(value);
+  return Date.UTC(p.year, p.month - 1, p.day, 12, 0, 0);
+}
+
 function daysInMonth(year: number, month: number) {
   return new Date(Date.UTC(year, month, 0, 12, 0, 0)).getUTCDate();
 }
@@ -123,7 +128,7 @@ export function iphone18DeliveryCalendar(input: {
   const nowKey = jordanDateKey(now);
   const dueKey = jordanDateKey(dueDate);
   if (!nowKey || !dueKey) return { state: "approval_date_missing" as const, dueDate: null, daysRemaining: null };
-  const daysRemaining = Math.ceil((dateFromParts(...Object.values(jordanParts(dueDate)) as [number, number, number]).getTime() - dateFromParts(...Object.values(jordanParts(now)) as [number, number, number]).getTime()) / 86_400_000);
+  const daysRemaining = Math.ceil((daySerial(dueDate) - daySerial(now)) / 86_400_000);
   return nowKey >= dueKey
     ? { state: "delivery_due" as const, dueDate, daysRemaining: Math.max(0, daysRemaining) }
     : { state: "within_delivery_window" as const, dueDate, daysRemaining: Math.max(0, daysRemaining) };
