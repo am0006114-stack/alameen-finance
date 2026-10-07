@@ -17,9 +17,13 @@ replaceOnce(humanOs,'  plan = forceConfirmedPendingMutation(plan, { action: conf
 const cqOld='    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",';
 const cqNew='    "operational_calendar", "fee_document_question", "fee_question", "pickup_delivery", "approval_status",\\n    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",';
 replaceOnce(arbiter,cqOld,cqNew,'protect fresh calendar/fee/pickup questions from stale meaning locks');
+replaceOnce(arbiter,'  if (asksReviewTiming(input.turn.rawText, input.turn)) return "review_timing";','  if (asksReviewTiming(input.turn.rawText, { ...input.turn, topics: [] })) return "review_timing";','literal review timing must not inherit stale topic');
 const mediaOld='  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });\\n  const currentQuestionFirst = new Set<ResponseObligation>([';
 const mediaNew='  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });\\n\\n  // Phase 11.9.1: a new text turn immediately expires stale media authority.\\n  if (staleMediaCandidateOnTextTurn(input.turn, candidate)) {\\n    const repair = staleMediaTextTurnRepair({ turn: input.turn, state: input.state, truth: input.truth });\\n    return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_question_contract", repaired: repair !== candidate, reason: "new text turn expired stale media authority before human-turn arbitration" };\\n  }\\n\\n  const currentQuestionFirst = new Set<ResponseObligation>([';
 replaceOnce(arbiter,mediaOld,mediaNew,'expire stale media before human-turn arbitration');
+const responsiveOld='  const stage = applicationJourneyStage(input.truth.application);\\n  switch (input.obligation) {';
+const responsiveNew='  const stage = applicationJourneyStage(input.truth.application);\\n  if (["operational_calendar", "fee_document_question", "review_timing", "pickup_delivery"].includes(input.obligation)) return false;\\n  switch (input.obligation) {';
+replaceOnce(arbiter,responsiveOld,responsiveNew,'force deterministic calendar/timing/pickup replies');
 
 `;
 src=src.replace(testAnchor,extra+testAnchor);
