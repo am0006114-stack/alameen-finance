@@ -13,20 +13,31 @@ const readNew="function read(rel){return fs.readFileSync(path.join(root,rel),'ut
 if(!src.includes(readOld))throw new Error('runner precheck failed: patcher read helper anchor missing');
 src=src.replace(readOld,readNew);
 
+// Phase 11.9.1 must not replace established 11.7.1 answer-bundle ownership for
+// ordinary delivery/review questions. The new guards remain deterministic
+// fallbacks, while answerBundle continues to own questions it already understands.
+const earlyPickup='  if (asksPickupDelivery(input.turn.rawText)) return "pickup_delivery";\\n';
+const earlyReview='  if (asksReviewTiming(input.turn.rawText, input.turn)) return "review_timing";\\n';
+if(!src.includes(earlyPickup))throw new Error('runner precheck failed: early pickup precedence anchor missing');
+if(!src.includes(earlyReview))throw new Error('runner precheck failed: early review precedence anchor missing');
+src=src.replace(earlyPickup,'');
+src=src.replace(earlyReview,'');
+
 const oldTargets="const targets=['app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts','app/api/whatsapp/webhook/_lib/v3-os/policy.ts','app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts','app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts','app/admin/applications/[id]/page.tsx','app/api/cron/preliminary-approval/route.ts'];";
-const newTargets="const targets=['app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts','app/api/whatsapp/webhook/_lib/v3-os/policy.ts','app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts','app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts','app/admin/applications/[id]/page.tsx','app/api/cron/preliminary-approval/route.ts','app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts'];";
+const newTargets="const targets=['app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry.ts','app/api/whatsapp/webhook/_lib/v3-os/policy.ts','app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts','app/api/whatsapp/webhook/_lib/v3-os/humanCarePolicy.ts','app/admin/applications/[id]/page.tsx','app/api/cron/preliminary-approval/route.ts','app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts','app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts'];";
 if(!src.includes(oldTargets))throw new Error('runner precheck failed: target list anchor missing');
 src=src.replace(oldTargets,newTargets);
 const testAnchor="console.log('\\n=== PHASE 11.9.1 OPERATIONAL CALENDAR SELFTEST ===');";
 if(!src.includes(testAnchor))throw new Error('runner precheck failed: test anchor missing');
 const extra=`const humanOs=targets[6];
+const obligations=targets[7];
 const humanGuardFragment=gitShow('scripts/phase11-9-1-fragments/human-os-commercial-file-veto.tsfrag').trimEnd();
 replaceOnce(humanOs,'const CUSTOMER_STATUS_REPLACEMENTS: Array<[RegExp, string]> = [',humanGuardFragment+'\\n\\nconst CUSTOMER_STATUS_REPLACEMENTS: Array<[RegExp, string]> = [','insert pre-action commercial-file/reopen veto');
 replaceOnce(humanOs,'  plan = forceConfirmedPendingMutation(plan, { action: confirmedPendingMutation, state: stateWorking, turn });','  plan = forceConfirmedPendingMutation(plan, { action: confirmedPendingMutation, state: stateWorking, turn });\\n  plan = vetoMisclassifiedCommercialFileReopen(plan, turn.rawText);','veto misclassified reopen before Action Plane');
+replaceOnce(obligations,'    return "إذا الجهاز iPhone 18 Pro أو Pro Max، الاستلام يكون بعد شهر من الموافقة النهائية، ومن المكتب وبموعد رسمي مؤكد فقط؛ ما في توصيل.";','    return truth.policy.recentReleaseAvailabilityRule;','route iPhone 18 delivery answer through authoritative all-variants policy');
 const cqOld='    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",';
 const cqNew='    "operational_calendar", "fee_document_question", "fee_question", "pickup_delivery", "approval_status",\\n    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",';
 replaceOnce(arbiter,cqOld,cqNew,'protect fresh calendar/fee/pickup questions from stale meaning locks');
-replaceOnce(arbiter,'  if (asksReviewTiming(input.turn.rawText, input.turn)) return "review_timing";','  if (asksReviewTiming(input.turn.rawText, { ...input.turn, topics: [] })) return "review_timing";','literal review timing must not inherit stale topic');
 const mediaOld='  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });\\n  const currentQuestionFirst = new Set<ResponseObligation>([';
 const mediaNew='  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });\\n\\n  // Phase 11.9.1: a new text turn immediately expires stale media authority.\\n  if (staleMediaCandidateOnTextTurn(input.turn, candidate)) {\\n    const repair = staleMediaTextTurnRepair({ turn: input.turn, state: input.state, truth: input.truth });\\n    return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_question_contract", repaired: repair !== candidate, reason: "new text turn expired stale media authority before human-turn arbitration" };\\n  }\\n\\n  const currentQuestionFirst = new Set<ResponseObligation>([';
 replaceOnce(arbiter,mediaOld,mediaNew,'expire stale media before human-turn arbitration');
