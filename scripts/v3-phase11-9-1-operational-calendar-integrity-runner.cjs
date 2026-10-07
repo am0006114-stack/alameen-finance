@@ -17,6 +17,9 @@ replaceOnce(humanOs,'  plan = forceConfirmedPendingMutation(plan, { action: conf
 const cqOld='    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",';
 const cqNew='    "operational_calendar", "fee_document_question", "fee_question", "pickup_delivery", "approval_status",\\n    "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",';
 replaceOnce(arbiter,cqOld,cqNew,'protect fresh calendar/fee/pickup questions from stale meaning locks');
+const mediaOld='  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });\\n  const currentQuestionFirst = new Set<ResponseObligation>([';
+const mediaNew='  const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });\\n\\n  // Phase 11.9.1: a new text turn immediately expires stale media authority.\\n  if (staleMediaCandidateOnTextTurn(input.turn, candidate)) {\\n    const repair = staleMediaTextTurnRepair({ turn: input.turn, state: input.state, truth: input.truth });\\n    return { reply: sanitizeUnifiedEgressReply(repair), obligation: "current_question_contract", repaired: repair !== candidate, reason: "new text turn expired stale media authority before human-turn arbitration" };\\n  }\\n\\n  const currentQuestionFirst = new Set<ResponseObligation>([';
+replaceOnce(arbiter,mediaOld,mediaNew,'expire stale media before human-turn arbitration');
 
 `;
 src=src.replace(testAnchor,extra+testAnchor);
