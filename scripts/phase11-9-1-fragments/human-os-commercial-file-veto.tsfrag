@@ -1,0 +1,21 @@
+function explicitReopenApplicationTextForHumanOs(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q) return false;
+  return /(?:اعيد|أعيد|اعاده|إعادة).{0,18}(?:فتح|تفعيل)?.{0,12}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:ارجع|أرجع|رجع).{0,18}(?:افتح|أفتح|فتح|اكمل|أكمل).{0,18}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:فك|الغاء|إلغاء).{0,14}(?:الالغاء|الإلغاء)/.test(q);
+}
+
+function commercialFileOpeningTextForHumanOs(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q || explicitReopenApplicationTextForHumanOs(value)) return false;
+  return /(?:بدي|حاب|اريد|أريد|خليني|يلا|ممكن)?\s*(?:افتح|أفتح|فتح|نفتح).{0,14}(?:الملف|ملف)(?:\s|$)/.test(q);
+}
+
+function vetoMisclassifiedCommercialFileReopen(plan: ReplyPlan, customerText: string): ReplyPlan {
+  if (!commercialFileOpeningTextForHumanOs(customerText)) return plan;
+  return {
+    ...plan,
+    actions: plan.actions.filter((action) => action.action !== "reopen_application"),
+  };
+}
