@@ -1,0 +1,122 @@
+function explicitNoReplyRequestForArbiter(turn: InterpretedTurn) {
+  const q = n(turn.rawText);
+  if (!q || turn.requestedActions.length || hasCurrentSensitiveMutation(turn)) return false;
+  return /(?:ما\s*في\s*داعي\s*(?:لل)?رد|ما\s*بدّي\s*رد|ما\s*بدي\s*رد|لا\s*ترد|ما\s*ترد|اخرس|إخرس|اسكت)/.test(q);
+}
+
+function directLocationQuestionForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:وين|اين|أين).{0,20}(?:موقع|المكتب|المحل|المعرض|الفرع)|(?:في|عندكم).{0,14}(?:معرض|مكتب|فرع)|(?:اقرب|أقرب).{0,18}(?:فرع|معرض|مكتب)|(?:موقع\s+للمحل)/.test(q);
+}
+
+function directContactQuestionForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:هل\s+في|في|بدي|اريد|أريد|اعطيني|عطيني).{0,20}(?:رقم|تلفون|هاتف).{0,18}(?:تواصل|اتصال|الشركه|الشركة|خدمه|خدمة)?|(?:كيف|وين).{0,20}(?:اتواصل|احكي|اتصل).{0,22}(?:الشركه|الشركة|الاداره|الإدارة|موظف|حد)|(?:بدي|اريد|أريد).{0,24}(?:موظف|موضف|مسؤول|مدير|بني\s+ادم|بني\s+آدم|انسان|إنسان)|(?:وين|حولني|حوّلني|حولوني|حوّلوني|بدي).{0,18}(?:عمران|عبدالله|عبدالرحمن|تالا|فدوة)|(?:حد|احد|أحد).{0,18}(?:الموظفين|الموظف)/.test(q);
+}
+
+function directHumanEscalationTextForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:بدي|اريد|أريد).{0,24}(?:موظف|موضف|مسؤول|مدير|بني\s+ادم|بني\s+آدم|انسان|إنسان)|(?:وين|حولني|حوّلني|حولوني|حوّلوني|بدي).{0,18}(?:عمران|عبدالله|عبدالرحمن|تالا|فدوة)|(?:حد|احد|أحد).{0,18}(?:الموظفين|الموظف)|(?:موظف|موضف).{0,16}(?:رسمي|حقيقي)/.test(q);
+}
+
+function directApprovalStatusQuestionForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  if (/(?:متى|امتى|ايمتى|كم|قديش|اليوم|بكرا|غدا|غدًا|ليش|ليه).{0,28}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار)/.test(q)) return false;
+  return /(?:الموافقه|الموافقة).{0,20}(?:طلعت|صدرت|جاهزه|جاهزة|ولا\s+لسا|ولا\s+لا)|(?:طلعت|صدرت).{0,18}(?:الموافقه|الموافقة)|(?:انقبل|انقبلت|مقبول).{0,16}(?:الطلب|طلبي)?/.test(q);
+}
+
+function directReviewTimingQuestionForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:متى|امتى|ايمتى|كم|قديش|لمتى|لحد\s+متى|اليوم|بكرا|غدا|غدًا|ليش|ليه).{0,38}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار|الدراسه|الدراسة|المراجعه|المراجعة)|(?:في\s+امل|في\s+أمل).{0,26}(?:النتيجه|النتيجة|الموافقه|الموافقة).{0,18}(?:اليوم)?|(?:كم|قديش).{0,18}(?:بدو|بدها|بتاخد|بتاخذ|تحتاج).{0,24}(?:موافقه|موافقة|نتيجه|نتيجة|قرار)|(?:ليش|ليه).{0,20}(?:بتطول|طولت|تاخرت|تأخرت).{0,20}(?:الموافقه|الموافقة|الدراسه|الدراسة)?/.test(q);
+}
+
+function directReceiptClarificationForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:هاي|هذي|هذه|هاد|هاض|الصوره|الصورة).{0,28}(?:تأكيد|تاكيد|اثبات|إثبات).{0,20}(?:حواله|حوالة|تحويل|كليك|cliq)|(?:تأكيد|تاكيد|اثبات|إثبات).{0,20}(?:حواله|حوالة|تحويل|كليك|cliq)/i.test(q);
+}
+
+function businessTruthQuestionForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:فيسبوك|فيس\s*بوك|facebook|انستغرام|instagram|صفحتكم|صفحه\s+رسميه|صفحة\s+رسمية|مرخص|مرخصه|مرخصة|ترخيص|سجل\s+تجاري|تسجيل\s+الشركه|تسجيل\s+الشركة|شركة\s+حقيقيه|شركة\s+حقيقية|شركة\s+وهميه|شركة\s+وهمية|احتيال|نصب|مصداقيه|مصداقية|موقع\s+الكتروني|موقع\s+إلكتروني|معلوماتي|بياناتي).*/i.test(q);
+}
+
+function commercialFileOpeningStatusTextForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:بانتظار|انتظار).{0,12}(?:فتح\s+الملف|فتح\s+ملف)|(?:متى|امتى|ايمتى|كيف|وين).{0,20}(?:افتح|أفتح|فتح).{0,12}(?:الملف|ملف)|(?:فتح\s+الملف).{0,22}(?:متى|امتى|ايمتى|كيف|شو\s+يعني)|(?:لما\s+افتح|لما\s+أفتح).{0,20}(?:الطلب).{0,30}(?:فتح\s+الملف)/.test(q);
+}
+
+function rejectsPreviousAnswerForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:بلا|بدون).{0,18}(?:هالحكي|هل\s+حكي|الكلام|الحكي)|(?:ما\s+بدي|مش\s+بدي).{0,22}(?:اسمع|أسمع).{0,20}(?:هالحكي|نفس|الكلام)|(?:حكي|كلام).{0,10}(?:فاضي|فارغ)|(?:حفظت|حافظ).{0,22}(?:الرساله|الرسالة|الحكي)|(?:نفس).{0,12}(?:الرساله|الرسالة|الحكي|الكلام)|(?:ردك|الرد).{0,18}(?:ضعيف|غبي|سيء)|^(?:حدثو|حدّثوا|حدثوا)\s+طلبي$|^(?:حل|حلوا|حلّوا)\s+مشكلتي$/.test(q);
+}
+
+function candidateHasUnsupportedBusinessClaimForArbiter(value: string | null | undefined) {
+  const q = n(value);
+  if (!q) return false;
+  return /(?:صفحاتنا|صفحتنا|موجودين|موجودون).{0,28}(?:فيسبوك|فيس\s*بوك|facebook|انستغرام|instagram)|(?:ما\s+عنا|ما\s+عندنا).{0,18}(?:موقع\s+الكتروني|موقع\s+إلكتروني|ويبسايت)|(?:احنا|نحن).{0,18}(?:مرخصين|مرخصون|مسجلين\s+رسمي)/i.test(q);
+}
+
+function businessTruthReplyForArbiter(input: { turn: InterpretedTurn; truth: TruthBundle }) {
+  const q = n(input.turn.rawText);
+  const links = buildOfficialLinkContext(input.turn, input.truth);
+  const site = links.baseUrl || "https://www.ameenfinance.co";
+  if (/(?:فيسبوك|فيس\s*بوك|facebook|انستغرام|instagram|صفحتكم|صفحه\s+رسميه|صفحة\s+رسمية)/i.test(q)) {
+    return `الموقع الرسمي الموثق عندي هو ${site}. ما عندي اسم أو رابط صفحة فيسبوك أو إنستغرام موثق أقدر أعطيك إياه من النظام، لذلك ما رح أخترع صفحة.`;
+  }
+  if (/(?:مرخص|مرخصه|مرخصة|ترخيص|سجل\s+تجاري|تسجيل\s+الشركه|تسجيل\s+الشركة)/.test(q)) {
+    return `الاسم المعتمد عندي هو ${input.truth.policy.businessName}. الموقع الرسمي الموثق: ${site}. ما عندي رقم ترخيص أو تسجيل موثق ومصرح للمحادثة أقدر أعطيك إياه، لذلك ما رح أختلق رقم أو أقول إن الترخيص مثبت إذا ما عندي مرجع موثق.`;
+  }
+  if (/(?:معلوماتي|بياناتي)/.test(q)) {
+    return `${input.truth.policy.secureDocumentsRule} وبخصوص تفاصيل استخدام البيانات أو مدة الاحتفاظ فيها، ما عندي من داخل المحادثة نص موثق يسمحلي أضيف تفاصيل من عندي؛ ما رح أخمّن بسياسة خصوصية غير ظاهرة عندي.`;
+  }
+  if (/(?:موقع\s+الكتروني|موقع\s+إلكتروني|ويبسايت)/i.test(q)) {
+    return `نعم، الموقع الرسمي الموثق عندي هو ${site}.`;
+  }
+  return `طبيعي تتأكد قبل ما تكمل. الاسم المعتمد عندي هو ${input.truth.policy.businessName}، والموقع الرسمي الموثق هو ${site}. ما رح أستخدم وجود موقع أو واتساب كدليل على ترخيص غير موثق، وما رح أخترع صفحة اجتماعية أو رقم تسجيل مش موجود عندي.`;
+}
+
+function commercialFileOpeningStatusReplyForArbiter(input: { truth: TruthBundle }) {
+  const app = input.truth.application;
+  const stage = applicationJourneyStage(app);
+  if (!app) return "إذا قصدك فتح ملف التقسيط: هذا غير إعادة فتح طلب ملغي. ما عندي طلب مرتبط بالمحادثة هسا أقدر أحدد مرحلته، فابدأ من الطلب الرسمي أولًا.";
+  if (stage === "preliminary_review") return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مفتوح أصلًا وقيد المراجعة المبدئية. عبارة فتح الملف هنا ما تعني إعادة فتح طلب ملغي؛ خطوة فتح الملف للدراسة النهائية بتجي بعد الموافقة المبدئية واختيار الاستمرار.`;
+  if (stage === "preliminary_approved_waiting_decision") return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مفتوح وعليه موافقة مبدئية. المقصود بفتح الملف هو الانتقال للدراسة النهائية إذا اخترت الاستمرار؛ مش إعادة فتح طلب ملغي.`;
+  if (stage === "continuation_confirmed_fee_due") return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مفتوح واختيار الاستمرار مسجل. عبارة فتح الملف هنا تخص خطوة الانتقال للدراسة النهائية، مش إعادة فتح طلب ملغي.`;
+  return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مفتوح أصلًا وحالته الآن: ${customerFacingStatusLabel(app)}. عبارة فتح الملف ما بتعني إعادة فتح طلب ملغي.`;
+}
+
+function hardCurrentTurnReplyForArbiter(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle; actions: ActionResult[] }) {
+  if (hasAuthoritativeMutationResult(input.actions, input.turn) || hasCurrentSensitiveMutation(input.turn)) return null;
+  if (explicitNoReplyRequestForArbiter(input.turn)) return { reply: null as string | null, suppress: true, reason: "explicit customer no-reply request" };
+  if (directReceiptClarificationForArbiter(input.turn.rawText)) {
+    const links = buildOfficialLinkContext({ ...input.turn, topics: Array.from(new Set([...input.turn.topics, "payment_fee", "receipt_upload"])) as InterpretedTurn["topics"] }, input.truth);
+    const receipt = links.relevant.receipt;
+    return { reply: `فهمت: الصورة/الرسالة اللي تقصدها هي إثبات حوالة CliQ. ما رح أعتبر الدفع مؤكد من صورة واتساب وحدها. ارفع الوصل من المسار الرسمي${receipt ? `:\n${receipt}` : " المرتبط بطلبك"} وبعدها يعتمد الدفع إداريًا.`, suppress: false, reason: "fresh receipt clarification owns current turn" };
+  }
+  if (asksOperationalCalendarQuestion(input.turn.rawText)) return { reply: operationalCalendarReply({ turn: input.turn, truth: input.truth }), suppress: false, reason: "fresh operational-calendar question owns current turn" };
+  if (commercialFileOpeningStatusTextForArbiter(input.turn.rawText)) return { reply: commercialFileOpeningStatusReplyForArbiter({ truth: input.truth }), suppress: false, reason: "commercial file opening is not reopen application" };
+  if (directLocationQuestionForArbiter(input.turn.rawText)) return { reply: `${input.truth.policy.generalLocation}. الحضور للمكتب بموعد رسمي مؤكد فقط؛ ما رح أبدّل سؤالك عن الموقع برد عن الدفع أو حالة الطلب.`, suppress: false, reason: "fresh location question owns current turn" };
+  if (directContactQuestionForArbiter(input.turn.rawText)) {
+    const human = directHumanEscalationTextForArbiter(input.turn.rawText);
+    const receipt = input.actions.find((a) => a.action === "record_call_preference");
+    if (human && receipt?.executed) return { reply: `طلبك للتواصل المباشر اتسجل للإدارة${input.truth.application?.trackingId ? ` على الطلب ${input.truth.application.trackingId}` : ""}. هذا تسجيل طلب تواصل فعلي، مش وعد بموعد مكالمة أو تحويل فوري.`, suppress: false, reason: "durable human-contact receipt owns current turn" };
+    if (human) return { reply: "طلبك إنك تحكي مع موظف واضح. ما رح أدّعي إنه تم تحويلك أو ترتيب مكالمة إذا ما في تنفيذ فعلي مثبت. المتابعة الرسمية المتاحة عندي الآن من نفس واتساب.", suppress: false, reason: "fresh human-contact request owns current turn" };
+    return { reply: "المتابعة الرسمية للطلبات من نفس واتساب الحالي. ما عندي رقم هاتف إضافي رسمي موثق أقدر أعطيك إياه.", suppress: false, reason: "fresh contact-channel question owns current turn" };
+  }
+  if (asksExternalSystemQuestion(input.turn.rawText)) return { reply: externalSystemReply(), suppress: false, reason: "fresh external-system question owns current turn" };
+  if (directApprovalStatusQuestionForArbiter(input.turn.rawText)) return { reply: approvalReply(input.truth), suppress: false, reason: "fresh approval-status question owns current turn" };
+  if (directReviewTimingQuestionForArbiter(input.turn.rawText)) {
+    const q = n(input.turn.rawText);
+    const app = input.truth.application;
+    if (/(?:اليوم)/.test(q) && app && applicationJourneyStage(app) !== "approved") {
+      return { reply: `ممكن يصدر القرار اليوم، لكن ما عندي شيء موثق يضمن ذلك. حالة طلبك الآن: ${customerFacingStatusLabel(app)}. ${input.truth.policy.normalReviewWindow}، وما رح أوعدك بيوم محدد قبل ما يظهر القرار فعليًا.`, suppress: false, reason: "fresh today-result question owns current turn" };
+    }
+    return { reply: reviewTimingReply({ turn: input.turn, truth: input.truth }), suppress: false, reason: "fresh review-timing question owns current turn" };
+  }
+  if (businessTruthQuestionForArbiter(input.turn.rawText)) return { reply: businessTruthReplyForArbiter({ turn: input.turn, truth: input.truth }), suppress: false, reason: "business-truth hard guard owns current turn" };
+  if (rejectsPreviousAnswerForArbiter(input.turn.rawText)) {
+    const app = input.truth.application;
+    return { reply: app ? `ما عندي تحديث جديد فعليًا على الطلب${app.trackingId ? ` ${app.trackingId}` : ""} غير حالته الحالية: ${customerFacingStatusLabel(app)}. وما رح أعيد عليك رسالة المدة نفسها. أول تغيير حقيقي على الملف هو اللي يستحق تحديث جديد.` : "ما عندي تحديث جديد فعليًا أضيفه، وما رح أعيد عليك نفس الرسالة بصياغة ثانية.", suppress: false, reason: "customer rejected repeated answer" };
+  }
+  return null;
+}
