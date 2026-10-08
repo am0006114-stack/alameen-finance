@@ -12,7 +12,7 @@ function statusFor(files){return run('git',['status','--porcelain','--',...files
 const arb='app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts';
 const human='app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts';
 const targets=[arb,human];
-const created=['scripts/v3-phase11-9-2-final-current-turn-hard-gate-selftest.cjs'];
+const created=['scripts/v3-phase11-9-2-final-current-turn-hard-gate-selftest.cjs','scripts/v3-phase11-9-2-current-turn-production-cases-selftest.cjs'];
 const protectedFiles=[
 'app/api/whatsapp/webhook/_lib/v3-os/informedCommercialContinuation.ts',
 'app/api/whatsapp/webhook/_lib/v3-os/continuationPersistence.ts',
@@ -59,10 +59,11 @@ try{
 
   const escalationStart='function explicitHumanEscalationRequest(turn: InterpretedTurn) {';
   const escalationEnd='\n\nasync function recordHumanEscalationReceipt';
-  const escalationReplacement=`function explicitHumanEscalationRequest(turn: InterpretedTurn) {\n  const q = normalizeActionConfirmationText(turn.rawText);\n  if (!q) return false;\n  if (/(?:وين|حولني|حوّلني|حولوني|حوّلوني|بدي).{0,18}(?:عمران|عبدالله|عبدالرحمن|تالا|فدوة)|(?:حد|احد|أحد).{0,18}(?:الموظفين|الموظف)|(?:موظف|موضف).{0,16}(?:رسمي|حقيقي)/.test(q)) return true;\n  return /(?:بدي|اريد|أريد|ممكن|لازم).{0,30}(?:موظف|موضف|مسؤول|مدير|شخص\\s+حقيقي|بني\\s+ادم|بني\\s+آدم|انسان|إنسان).{0,35}(?:احكي|اتفاهم|اتواصل|اتصل|يرد|معه|معها)?|(?:احكي|اتواصل|اتصل|رن).{0,25}(?:معي|علي|فيي|موظف|مسؤول|مدير)|(?:بدي|اريد|أريد).{0,25}(?:مكالمه|مكالمة|اتصال)/.test(q);\n}`;
+  const escalationReplacement=`function explicitHumanEscalationRequest(turn: InterpretedTurn) {\n  const q = normalizeActionConfirmationText(turn.rawText);\n  if (!q) return false;\n  if (/(?:وين|حولني|حوّلني|حولوني|حوّلوني|بدي).{0,18}(?:عمران|عبدالله|عبدالرحمن|تالا|فدوة)|(?:حد|احد|أحد).{0,18}(?:الموظفين|الموظف)|(?:موظف|موضف).{0,16}(?:رسمي|حقيقي)|(?:خدمه|خدمة)\\s+(?:ال)?عملاء/.test(q)) return true;\n  return /(?:بدي|اريد|أريد|ممكن|لازم).{0,30}(?:موظف|موضف|مسؤول|مدير|شخص\\s+حقيقي|بني\\s+ادم|بني\\s+آدم|انسان|إنسان).{0,35}(?:احكي|اتفاهم|اتواصل|اتصل|يرد|معه|معها)?|(?:احكي|اتواصل|اتصل|رن).{0,25}(?:معي|علي|فيي|موظف|مسؤول|مدير)|(?:بدي|اريد|أريد).{0,25}(?:مكالمه|مكالمة|اتصال)/.test(q);\n}`;
   replaceBlock(human,escalationStart,escalationEnd,escalationReplacement,'expand durable human escalation request detection');
 
   console.log('\n=== PHASE 11.9.2 FINAL CURRENT-TURN HARD GATE SELFTEST ===');run('node',[created[0],root]);
+  console.log('\n=== PHASE 11.9.2 PRODUCTION CASES SELFTEST ===');run('node',[created[1],root]);
   console.log('\n=== PHASE 11.9.1 OPERATIONAL CALENDAR REGRESSION ===');run('node',['scripts/v3-phase11-9-1-operational-calendar-integrity-selftest.cjs',root]);
   console.log('\n=== PHASE 11.9 HUMAN CARE REGRESSION ===');run('node',['scripts/v3-phase11-9-final-conversation-integrity-selftest.cjs',root]);
   console.log('\n=== PHASE 11.7.1 CURRENT-TURN REGRESSION ===');run('node',['scripts/v3-phase11-7-1-turn-scoped-authority-finalization-selftest.cjs',root]);
