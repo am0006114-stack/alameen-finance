@@ -39,6 +39,7 @@ try{
 
   const arbiterFragment=gitShow('scripts/phase11-9-2-fragments/arbiter-hard-current-turn.tsfrag').trimEnd();
   replaceOnce(arb,'function hasAuthoritativeMutationResult(actions: ActionResult[], turn?: InterpretedTurn) {',arbiterFragment+'\n\nfunction hasAuthoritativeMutationResult(actions: ActionResult[], turn?: InterpretedTurn) {','insert hard current-turn authority');
+  replaceOnce(arb,'    || /(?:بدي|حاب|اريد|أريد)?\\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\\s|$)/.test(q)','    || /(?:بدي|حاب|اريد|أريد)\\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\\s|$)/.test(q)','tighten arbiter reopen intent');
 
   replaceOnce(arb,'    || genericCurrentQuestionDeflection(reply);','    || genericCurrentQuestionDeflection(reply)\n    || candidateHasUnsupportedBusinessClaimForArbiter(reply);','reject unsupported business claims');
 
@@ -50,6 +51,7 @@ try{
 
   const humanFragment=gitShow('scripts/phase11-9-2-fragments/human-os-hard-current-turn.tsfrag').trimEnd();
   replaceOnce(human,'function explicitReopenApplicationTextForHumanOs(value: string | null | undefined) {',humanFragment+'\n\nfunction explicitReopenApplicationTextForHumanOs(value: string | null | undefined) {','insert Human OS typo/reopen hard gate');
+  replaceOnce(human,'    || /(?:بدي|حاب|اريد|أريد)?\\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\\s|$)/.test(q)','    || /(?:بدي|حاب|اريد|أريد)\\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\\s|$)/.test(q)','tighten Human OS reopen intent');
 
   replaceOnce(human,'  if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);','  if (contextualContinuation || typoContinuationTextForHumanOs(input.customerText)) turn = makeDeterministicContinuationTurn(turn);','normalize continuation typo before state and planning');
   replaceOnce(human,'  plan = vetoMisclassifiedCommercialFileReopen(plan, turn.rawText);','  plan = vetoMisclassifiedCommercialFileReopenV1192(vetoMisclassifiedCommercialFileReopen(plan, turn.rawText), turn.rawText);','veto file-opening reopen before Action Plane');
