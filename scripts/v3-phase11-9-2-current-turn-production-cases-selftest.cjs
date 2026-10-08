@@ -42,7 +42,7 @@ ok(!/للتأكيد النهائي.*أعيد فتح/.test(r.reply||''),'misclass
 
 r=arb('لا هاي تأكيد حوالة كليك','وصلت الصورة. إذا هي هوية أو إثبات دخل ارفعها من الرابط الآمن.',baseState,prelimApp,[],'receipt-clarification');
 ok(/إثبات حوالة CliQ/.test(r.reply||''),'CliQ image clarification is recognized as payment proof context');
-ok(/ارفع الوصل/.test(r.reply||'')&&!/الدفع مؤكد/.test(r.reply||''),'receipt clarification routes to official upload without confirming payment');
+ok(/ارفع الوصل/.test(r.reply||'')&&/ما رح أعتبر الدفع مؤكد/.test(r.reply||''),'receipt clarification routes to official upload without confirming payment');
 
 r=arb('هل الكم صفحات على فيسبوك او انستغرام','أكيد، صفحاتنا الرسمية موجودة على فيسبوك وإنستغرام وما عنا موقع إلكتروني منفصل.',baseState,prelimApp,[],'business-social');
 ok(/الموقع الرسمي الموثق/.test(r.reply||''),'business-truth guard answers with documented official site');
