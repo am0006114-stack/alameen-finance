@@ -1,0 +1,25 @@
+function typoContinuationTextForHumanOs(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q) return false;
+  return /^(?:اود|أود|اريد|أريد|بدي|حاب|حابب).{0,12}(?:الستمرار|لاستمرار|الاستمرار|استمرار)|^(?:الستمرار|لاستمرار)$/.test(q);
+}
+
+function explicitReopenApplicationTextForHumanOsV1192(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q) return false;
+  return /(?:اعيد|أعيد|اعاده|إعادة).{0,18}(?:فتح|تفعيل)?.{0,12}(?:الطلب|المعامله|المعاملة)/.test(q)
+    || /(?:ارجع|أرجع|رجع).{0,18}(?:افتح|أفتح|فتح|اكمل|أكمل|اقدم|أقدم).{0,18}(?:الطلب|طلب|المعامله|المعاملة)/.test(q)
+    || /(?:بدي|حاب|اريد|أريد)\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\s|$)/.test(q)
+    || /(?:فك|الغاء|إلغاء).{0,14}(?:الالغاء|الإلغاء)/.test(q);
+}
+
+function commercialFileOpeningTextForHumanOsV1192(value: string | null | undefined) {
+  const q = normalizeActionConfirmationText(value);
+  if (!q || explicitReopenApplicationTextForHumanOsV1192(value)) return false;
+  return /(?:بدي|حاب|اريد|أريد|خليني|يلا|ممكن)?\s*(?:افتح|أفتح|فتح|نفتح).{0,14}(?:الملف|ملف)(?:\s|$)|(?:بانتظار|انتظار).{0,12}(?:فتح\s+الملف|فتح\s+ملف)|(?:متى|امتى|ايمتى|كيف|وين).{0,20}(?:افتح|أفتح|فتح).{0,12}(?:الملف|ملف)|(?:فتح\s+الملف).{0,22}(?:متى|امتى|ايمتى|كيف|شو\s+يعني)|(?:لما\s+افتح|لما\s+أفتح).{0,20}(?:الطلب).{0,30}(?:فتح\s+الملف)/.test(q);
+}
+
+function vetoMisclassifiedCommercialFileReopenV1192(plan: ReplyPlan, customerText: string): ReplyPlan {
+  if (!commercialFileOpeningTextForHumanOsV1192(customerText)) return plan;
+  return { ...plan, actions: plan.actions.filter((action) => action.action !== "reopen_application") };
+}
