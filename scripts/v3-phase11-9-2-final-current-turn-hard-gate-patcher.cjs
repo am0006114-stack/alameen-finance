@@ -40,6 +40,7 @@ try{
   const arbiterFragment=gitShow('scripts/phase11-9-2-fragments/arbiter-hard-current-turn.tsfrag').trimEnd();
   replaceOnce(arb,'function hasAuthoritativeMutationResult(actions: ActionResult[], turn?: InterpretedTurn) {',arbiterFragment+'\n\nfunction hasAuthoritativeMutationResult(actions: ActionResult[], turn?: InterpretedTurn) {','insert hard current-turn authority');
   replaceOnce(arb,'    || /(?:بدي|حاب|اريد|أريد)?\\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\\s|$)/.test(q)','    || /(?:بدي|حاب|اريد|أريد)\\s*(?:افتح|أفتح|فتح).{0,8}(?:الطلب|طلب)(?:\\s|$)/.test(q)','tighten arbiter reopen intent');
+  replaceOnce(arb,'  const operation = /(?:دراسه|دراسة|مراجعه|مراجعة|موعد|مواعيد|استلام|تسليم|حضور|دوام|تاجيل|تأجيل|يتحسب|ينحسب|تحسب|ايام|أيام)/.test(q);','  const operation = /(?:دراسه|دراسة|مراجعه|مراجعة|موعد|مواعيد|استلام|تسليم|حضور|دوام|تاجيل|تأجيل|اجلت|أجلت|يتحسب|ينحسب|تحسب|ايام|أيام|يوم|الاحد|الأحد)/.test(q);','route implicit weekend reschedule question');
 
   replaceOnce(arb,'    || genericCurrentQuestionDeflection(reply);','    || genericCurrentQuestionDeflection(reply)\n    || candidateHasUnsupportedBusinessClaimForArbiter(reply);','reject unsupported business claims');
 
