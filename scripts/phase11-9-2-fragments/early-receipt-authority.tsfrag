@@ -1,0 +1,18 @@
+  // Phase 11.9.2: a fresh text clarification that the prior image is a payment
+  // receipt owns the turn before generic stale-media repair. This does NOT
+  // confirm payment; it only routes the proof to the official receipt path.
+  if (directReceiptClarificationForArbiter(input.turn.rawText)) {
+    const receiptTurn = {
+      ...input.turn,
+      topics: Array.from(new Set([...input.turn.topics, "payment_fee", "receipt_upload"])) as InterpretedTurn["topics"],
+    };
+    const receiptLinks = buildOfficialLinkContext(receiptTurn, input.truth);
+    const receiptUrl = receiptLinks.relevant.receipt;
+    const receiptReply = `فهمت: الصورة/الرسالة اللي تقصدها هي إثبات حوالة CliQ. ما رح أعتبر الدفع مؤكد من صورة واتساب وحدها. ارفع الوصل من المسار الرسمي${receiptUrl ? `:\n${receiptUrl}` : " المرتبط بطلبك"} وبعدها يعتمد الدفع إداريًا.`;
+    return {
+      reply: sanitizeUnifiedEgressReply(receiptReply),
+      obligation: "current_question_contract",
+      repaired: receiptReply !== candidate,
+      reason: "fresh receipt clarification precedes stale-media and payment locks",
+    };
+  }
