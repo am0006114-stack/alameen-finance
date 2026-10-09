@@ -195,10 +195,22 @@ export async function runV4ProductionLive(input: {
   };
 }
 
+function fallbackCustomerIsAngryOrDistrustful(text: string) {
+  return /(?:نصاب|نصابين|نصبين|احتيال|حرامي|حراميه|فضح|افضح|اشكي|شكوى|مش مصدق|كذاب|كذابين|فيسبوك|facebook)/i.test(text);
+}
+
+function fallbackCustomerAskedForStatus(text: string) {
+  return /(?:شو صار|وين وصل|وين صار|حاله|حالة|طلبي|الموافقه|الموافقة|انقبل|انقبلت|تتبع|tracking|status)/i.test(text);
+}
+
 /**
  * Deterministic emergency response only. It never calls a conversational model and
  * never executes an action. Keeping this function beside V4 lets the existing
  * delivery/retry machinery remain intact without falling back to V3 conversation.
+ *
+ * The fallback is current-turn aware: it must not force an old application-status
+ * template onto an angry, distrustful, or unrelated customer message merely because
+ * an application exists in truth.
  */
 export function buildV4LastResortReply(input?: {
   truth?: TruthBundle | null;
@@ -207,16 +219,22 @@ export function buildV4LastResortReply(input?: {
   turn?: InterpretedTurn | null;
   actions?: ActionResult[] | null;
 }) {
-  void input?.customerText;
   void input?.turn;
   void input?.actions;
+  const customerText = String(input?.customerText || "").trim();
   const app = input?.truth?.application || null;
   const tracking = app?.trackingId || input?.state?.activeTrackingId || null;
-  if (app) {
+
+  if (fallbackCustomerIsAngryOrDistrustful(customerText)) {
+    return "أنا معك، واعتراضك واضح. ما رح أرجعك لقالب حالة الطلب ولا أتجاهل كلامك. صار خلل مؤقت بالرد الكامل بهاللحظة؛ اكتبلي النقطة اللي بدك جوابها وأنا بجاوبك عليها مباشرة.";
+  }
+
+  if (app && fallbackCustomerAskedForStatus(customerText)) {
     const status = customerFacingStatusLabel(app);
     return `أنا معك. الرد الكامل تعذّر بهاللحظة، بس ما بدي أخمّن عليك: ${tracking ? `طلبك ${tracking} موجود، و` : ""}حالته المثبتة عندي الآن: ${status}.`;
   }
-  return "أنا معك. صار خلل مؤقت بالرد، وما بدي أعطيك معلومة غير مؤكدة. ابعتلي نفس النقطة بجملة قصيرة وأنا بكمل معك.";
+
+  return "أنا معك. صار خلل مؤقت بالرد الكامل، وما رح أخمّن عليك أو أرجعك لموضوع قديم. ابعتلي نفس النقطة بجملة قصيرة وأنا بجاوبك عليها مباشرة.";
 }
 
 // Cutover compatibility aliases: route.ts can switch to V4 by changing the module
