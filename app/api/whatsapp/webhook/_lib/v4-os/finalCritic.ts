@@ -65,22 +65,45 @@ function truthSupportsResultText(text: string | null | undefined, truth: V4Truth
   return false;
 }
 
-const PUBLIC_PRESENCE_PATTERN = /(?:فيسبوك|facebook|انستغرام|instagram|انستا|مرخص|ترخيص|سجل\s+تجاري|فرع|فروع|license|licensed)/i;
+const PUBLIC_SOCIAL_PATTERN = /(?:فيسبوك|facebook|انستغرام|instagram|انستا)/i;
+const PUBLIC_LEGAL_PATTERN = /(?:مرخص|ترخيص|سجل\s+تجاري|license|licensed)/i;
+const PUBLIC_BRANCH_PATTERN = /(?:فرع|فروع)/i;
 
 function safeUnverifiedPublicPresenceReply(text: string) {
   const q = normalizeForFingerprint(text);
-  return /(?:ما عندي|ليس عندي|ما في عندي|غير موثق|مش موثق|لا يوجد عندي|لا اقدر اثبت|ما بقدر اثبت|ما بقدر اكد|لا استطيع تاكيد)/.test(q);
+  return /(?:ما عندي|ليس عندي|ما في عندي|غير موثق|مش موثق|لا يوجد عندي|لا اقدر اثبت|ما بقدر اثبت|ما بقدر اكد|لا استطيع تاكيد|مش مرخص|غير مرخص|ما عندنا ترخيص|ما عنا ترخيص|لا يوجد ترخيص|ما عندنا فرع|ما عنا فرع|لا يوجد فرع)/.test(q);
+}
+
+function assertsSocialPresence(text: string) {
+  return /(?:عندنا|لدينا|عنا|صفحتنا|حسابنا|تابعنا|تواصل معنا|احنا موجودين|نحن موجودون).{0,45}(?:فيسبوك|facebook|انستغرام|instagram|انستا)|(?:فيسبوك|facebook|انستغرام|instagram|انستا).{0,25}(?:الرسمي|الرسمية|تبعتنا|لنا|عندنا)/i.test(text);
+}
+
+function assertsLegalPresence(text: string) {
+  return /(?:احنا|نحن|الشركه|الشركة|عندنا|لدينا|عنا).{0,35}(?:مرخص|ترخيص|سجل\s+تجاري)|(?:مرخصين|مرخصه|مرخصة|ترخيصنا|سجلنا\s+التجاري|licensed)/i.test(text);
+}
+
+function assertsBranchPresence(text: string) {
+  return /(?:عندنا|لدينا|عنا).{0,25}(?:فرع|فروع)|(?:فرعنا|فروعنا)/i.test(text);
 }
 
 function mentionsUnsupportedPublicPresence(text: string | null | undefined, truth: V4TruthBundle) {
   const q = normalizeForFingerprint(text);
-  if (!PUBLIC_PRESENCE_PATTERN.test(q)) return false;
-  if (safeUnverifiedPublicPresenceReply(q)) return false;
+  if (!q || safeUnverifiedPublicPresenceReply(q)) return false;
+
+  const socialClaim = assertsSocialPresence(q);
+  const legalClaim = assertsLegalPresence(q);
+  const branchClaim = assertsBranchPresence(q);
+  if (!socialClaim && !legalClaim && !branchClaim) return false;
+
   const visibleTruthText = normalizeForFingerprint(Object.values(truth.facts)
     .filter((f) => f.customerVisible)
     .map((f) => String(f.value || ""))
     .join(" "));
-  return !PUBLIC_PRESENCE_PATTERN.test(visibleTruthText);
+
+  if (socialClaim && !PUBLIC_SOCIAL_PATTERN.test(visibleTruthText)) return true;
+  if (legalClaim && !PUBLIC_LEGAL_PATTERN.test(visibleTruthText)) return true;
+  if (branchClaim && !PUBLIC_BRANCH_PATTERN.test(visibleTruthText)) return true;
+  return false;
 }
 
 function questionCovered(question: string, answered: string[]) {
@@ -161,8 +184,8 @@ export function deterministicFinalCritic(input: {
   }
 
   if (mentionsUnsupportedPublicPresence(input.draft.text, input.truth)) {
-    reasons.push("draft mentions public presence/license/branch that is absent from authoritative truth");
-    repairInstructions.push("لا تخترع فيسبوك أو إنستغرام أو ترخيصًا أو فروعًا. استخدم فقط الحقائق الموجودة في TruthBundle، أو قل إنها غير موثقة عندك.");
+    reasons.push("draft asserts public presence/license/branch that is absent from authoritative truth");
+    repairInstructions.push("لا تدّعي وجود صفحة رسمية أو ترخيص أو فرع غير موجود في TruthBundle. يجوز ذكر فيسبوك أو غيره إذا كان فقط جزءًا من كلام العميل أو سياق شكواه، بدون تحويله إلى حقيقة عن الشركة.");
   }
 
   const accepted = reasons.length === 0;
