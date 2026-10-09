@@ -28,6 +28,7 @@ export type V4TurnUnderstanding = {
   explicitQuestions: string[];
   requestedAction: V4ActionName | null;
   actionDisposition: "request" | "confirm" | "deny" | "conditional" | "none";
+  requestedPersona: V4Persona | null;
   references: V4Reference[];
   emotion: V4Emotion;
   urgency: "normal" | "urgent";
@@ -59,13 +60,24 @@ export type V4CustomerDecision = {
   updatedAt: string;
 };
 
+export type V4ConversationEpisode = {
+  turnId: string;
+  customerText: string;
+  meaningSummary: string;
+  goal: string | null;
+  assistantText: string | null;
+  persona: V4Persona;
+  emotion: V4Emotion;
+  createdAt: string;
+};
+
 export type V4WorkingMemory = {
   version: typeof V4_OS_VERSION;
   conversationId: string;
   persona: V4Persona;
   activeGoal: string | null;
   activeGoalTurnId: string | null;
-  openQuestions: Array<{ text: string; turnId: string; answered: boolean }>;
+  openQuestions: Array<{ text: string; turnId: string; answered: boolean; active: boolean }>;
   pendingProcedure: V4PendingProcedure | null;
   customerDecisions: V4CustomerDecision[];
   factsAlreadyExplained: string[];
@@ -73,9 +85,12 @@ export type V4WorkingMemory = {
   currentEmotion: V4Emotion;
   frustrationStreak: number;
   humanContactRequested: boolean;
+  prefersBriefReplies: boolean;
+  repetitionSensitivity: number;
   lastCustomerText: string | null;
   lastAssistantText: string | null;
   lastAssistantFingerprint: string | null;
+  episodes: V4ConversationEpisode[];
   updatedAt: string;
 };
 
