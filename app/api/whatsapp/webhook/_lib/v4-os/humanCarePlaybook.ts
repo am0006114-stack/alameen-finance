@@ -30,8 +30,15 @@ export function detectHumanCareModes(input: { burstText?: string | null; underst
   if (input.understanding.emotion === "distrustful" || /(?:نصب|نصاب|حقيقي|مضمون|اثق|اوثق|ثقه|ثقة)/.test(text)) modes.add("distrust");
   if (input.understanding.emotion === "confused" || /(?:مش فاهم|فهمني|شو يعني|يعني كيف)/.test(text)) modes.add("confusion");
   if (/(?:صرلي|صارلي|الي|إلي).{0,12}(?:يوم|ايام|أيام|اسبوع|أسبوع)|(?:طولت|تأخرت|استنيت|انتظرت|زهقت|قرفت)/.test(text)) modes.add("wait_fatigue");
-  if (/(?:دفع|ادفع|احول|تحويل|الخمسه|الخمس|5|٥).{0,40}(?:اخاف|خايف|تروح|تضيع|عالفاضي|على الفاضي)|(?:اذا ما طلعت|لو ما طلعت).{0,35}(?:الموافقه|الموافقة)/.test(text)) modes.add("payment_anxiety");
-  if (/(?:استرداد|رجعولي|رجعلي|المصاري|الرسوم).{0,50}(?:متى|راحت|ضاعت|بتوصل|ترجع)/.test(text)) modes.add("refund_anxiety");
+
+  const paymentSubject = /(?:دفع|ادفع|احول|تحويل|الخمسه|الخمس|رسوم|5|٥)/.test(text);
+  const paymentConcern = /(?:اخاف|خايف|تروح|تضيع|عالفاضي|على الفاضي|ما طلعتلي|ما طلعت|ما انقبل|ما انقبلت|ما وافقوا|بدون موافقه|بدون الموافقه)/.test(text);
+  if (paymentSubject && paymentConcern) modes.add("payment_anxiety");
+
+  const refundSubject = /(?:استرداد|رجعولي|رجعلي|المصاري|الرسوم)/.test(text);
+  const refundConcern = /(?:متى|راحت|ضاعت|بتوصل|ترجع|رجعت|وينها|وينهم)/.test(text);
+  if (refundSubject && refundConcern) modes.add("refund_anxiety");
+
   if (/(?:بروح|اروح|أروح|اشوف|أشوف).{0,25}(?:محل ثاني|غيركم)|(?:بدي الغي|رح الغي|راح الغي).{0,30}(?:اذا|إذا|لو)/.test(text)) modes.add("threat_to_leave");
   if (/(?:يا حمار|غبي|هبل|غباء|قرفتوني|مسخره|مسخرة)/.test(text) && !input.understanding.socialClosure) modes.add("insult_without_disengagement");
   if (/(?:مش عارف|محتار|افكر|أفكر|خليني افكر|خليني أفكر|يمكن اكمل|يمكن أكمل)/.test(text)) modes.add("decision_hesitation");
