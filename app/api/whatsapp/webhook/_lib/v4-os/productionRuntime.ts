@@ -1,9 +1,10 @@
+import { customerFacingStatusLabel } from "../v3-os/applicationJourney";
 import { interpretTurn } from "../v3-os/interpreter";
 import { resolveV3ProductionTruth } from "../v3-os/productionTruth";
 import { emptyState } from "../v3-os/state";
 import { loadV3ConversationState } from "../v3-os/stateStore";
 import { v3TransactionalActionAdapter } from "../v3-os/transactionalActionAdapter";
-import type { ConversationState, TruthBundle, VerificationReport } from "../v3-os/types";
+import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle, VerificationReport } from "../v3-os/types";
 import { runV4FromExistingRuntime } from "./runtimeEntrypoint";
 
 export type V4ProductionLiveResult = {
@@ -175,3 +176,33 @@ export async function runV4ProductionLive(input: {
     },
   };
 }
+
+/**
+ * Deterministic emergency response only. It never calls a conversational model and
+ * never executes an action. Keeping this function beside V4 lets the existing
+ * delivery/retry machinery remain intact without falling back to V3 conversation.
+ */
+export function buildV4LastResortReply(input?: {
+  truth?: TruthBundle | null;
+  state?: ConversationState | null;
+  customerText?: string | null;
+  turn?: InterpretedTurn | null;
+  actions?: ActionResult[] | null;
+}) {
+  void input?.customerText;
+  void input?.turn;
+  void input?.actions;
+  const app = input?.truth?.application || null;
+  const tracking = app?.trackingId || input?.state?.activeTrackingId || null;
+  if (app) {
+    const status = customerFacingStatusLabel(app);
+    return `أنا معك. الرد الكامل تعذّر بهاللحظة، بس ما بدي أخمّن عليك: ${tracking ? `طلبك ${tracking} موجود، و` : ""}حالته المثبتة عندي الآن: ${status}.`;
+  }
+  return "أنا معك. صار خلل مؤقت بالرد، وما بدي أعطيك معلومة غير مؤكدة. ابعتلي نفس النقطة بجملة قصيرة وأنا بكمل معك.";
+}
+
+// Cutover compatibility aliases: route.ts can switch to V4 by changing the module
+// path only. The names stay temporarily stable so the huge delivery/deduplication
+// transport block does not need a risky rewrite during the architecture cutover.
+export const runV3ProductionLive = runV4ProductionLive;
+export const buildV3LastResortReply = buildV4LastResortReply;
