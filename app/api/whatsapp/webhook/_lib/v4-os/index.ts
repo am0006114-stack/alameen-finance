@@ -1,5 +1,6 @@
 export * from "./types";
 export * from "./humanBehaviorPolicy";
+export * from "./humanCarePlaybook";
 export * from "./workingMemory";
 export * from "./understandingGuard";
 export * from "./burstAssembler";
