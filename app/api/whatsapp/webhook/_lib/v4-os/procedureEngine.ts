@@ -110,15 +110,17 @@ export function applyProcedureResolution(input: {
   }
 
   const existing = s.pendingProcedure;
-  const same = existing?.name === r.action;
+  const sameExisting = existing && existing.name === r.action ? existing : null;
   const next: V4PendingProcedure = {
     name: r.action,
     state: r.nextState,
-    requestedAtTurnId: same ? existing.requestedAtTurnId : input.turnId,
-    confirmedAtTurnId: r.nextState === "confirmed" || r.nextState === "executing" || r.nextState === "executed" ? input.turnId : same ? existing.confirmedAtTurnId : null,
-    executedAtTurnId: r.nextState === "executed" ? input.turnId : same ? existing.executedAtTurnId : null,
-    payload: input.payload ?? (same ? existing.payload : null),
-    lastError: same ? existing.lastError : null,
+    requestedAtTurnId: sameExisting?.requestedAtTurnId || input.turnId,
+    confirmedAtTurnId: r.nextState === "confirmed" || r.nextState === "executing" || r.nextState === "executed"
+      ? input.turnId
+      : sameExisting?.confirmedAtTurnId || null,
+    executedAtTurnId: r.nextState === "executed" ? input.turnId : sameExisting?.executedAtTurnId || null,
+    payload: input.payload ?? sameExisting?.payload ?? null,
+    lastError: sameExisting?.lastError || null,
   };
   s.pendingProcedure = next;
   return s;
