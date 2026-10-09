@@ -146,6 +146,21 @@ export type V4ActionExecutionResult = {
   error: string | null;
 };
 
+export type V4CommercialContinuationResult = {
+  handled: boolean;
+  persisted: boolean;
+  receiptId: string | null;
+  reply: string | null;
+  blocker: string | null;
+};
+
+export interface V4CommercialContinuationExecutor {
+  continue(input: {
+    turnId: string;
+    customerText: string;
+  }): Promise<V4CommercialContinuationResult>;
+}
+
 export interface V4ModelAdapter {
   understand(input: {
     burstText: string;
@@ -196,5 +211,6 @@ export type V4TurnResult = {
   memory: V4WorkingMemory;
   procedure: V4ProcedureResolution;
   actionResult: V4ActionExecutionResult | null;
+  commercialContinuation: V4CommercialContinuationResult | null;
   critic: V4CriticResult;
 };
