@@ -4,9 +4,10 @@ import { actionRequiresOmran } from "../v3-os/hierarchy";
 import { v3InterpreterProviderFromEnv, v3JudgeProviderFromEnv, v3WriterProviderFromEnv } from "../v3-os/provider";
 import type { ActionKey, ConversationState, PlannedAction, TruthBundle } from "../v3-os/types";
 import { runFrozenCommercialContinuation } from "./commercialContinuationBridge";
+import { requestRealHumanEscalation } from "./humanEscalationBridge";
 import { createV4ModelAdapter } from "./modelAdapter";
 import { toV4TruthBundle } from "./truthAdapter";
-import type { V4ActionExecutor, V4ActionName, V4CommercialContinuationExecutor, V4ModelAdapter, V4Persona } from "./types";
+import type { V4ActionExecutor, V4ActionName, V4CommercialContinuationExecutor, V4HumanEscalationExecutor, V4ModelAdapter, V4Persona } from "./types";
 
 function mapV4ActionToV3(action: V4ActionName): ActionKey | null {
   switch (action) {
@@ -63,6 +64,19 @@ export function createV4CommercialContinuationExecutorFromV3(input: { truth: Tru
   };
 }
 
+export function createV4HumanEscalationExecutorFromV3(input: { state: ConversationState; truth: TruthBundle }): V4HumanEscalationExecutor {
+  return {
+    async request(req) {
+      return requestRealHumanEscalation({
+        turnId: req.turnId,
+        customerText: req.customerText,
+        state: input.state,
+        truth: input.truth,
+      });
+    },
+  };
+}
+
 // V4 deliberately reuses the already-proven authoritative V3 mutation backplane.
 // This bridge does not weaken role ownership, payment truth, contact isolation,
 // application scope, or mutation receipts. If the V3 guard blocks execution,
@@ -83,10 +97,10 @@ export function createV4ActionExecutorFromV3(input: {
         return { action: req.action, executed: false, receiptId: null, summary: null, error: "continuation_must_use_frozen_commercial_delegate" };
       }
 
-      // Human-contact durability has its own receipt path in the current runtime and will
-      // be bridged explicitly before cutover; never fake an executed contact request.
+      // Real-human escalation is also a dedicated durable bridge; never turn it into a
+      // fake generic action receipt.
       if (req.action === "record_human_contact_request") {
-        return { action: req.action, executed: false, receiptId: null, summary: null, error: "human_contact_durable_receipt_bridge_not_connected" };
+        return { action: req.action, executed: false, receiptId: null, summary: null, error: "human_contact_must_use_durable_escalation_bridge" };
       }
 
       const planned: PlannedAction = {
