@@ -37,6 +37,14 @@ export function resolveV4Procedure(input: {
   const requested = input.understanding.requestedAction;
   const disposition = input.understanding.actionDisposition;
 
+  // Commercial continuation is intentionally NOT a generic V4 business mutation.
+  // It is delegated to the frozen 5-JOD funnel which owns persistence, payment
+  // destinations and receipt-link semantics. This prevents V4 from accidentally
+  // reimplementing or weakening that revenue-critical path.
+  if (requested === "continue_application" && (disposition === "request" || disposition === "confirm")) {
+    return { action: null, nextState: null, shouldExecute: false, needsConfirmation: false, reason: "continuation_delegated_to_frozen_commercial_funnel" };
+  }
+
   if (pending && pending.state === "confirmation_required") {
     // A new question/topic may temporarily leave the procedure pending, but it may never
     // hijack the current reply. The customer can return to it later and confirm explicitly.
