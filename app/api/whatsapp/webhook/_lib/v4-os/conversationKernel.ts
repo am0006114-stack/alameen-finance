@@ -43,6 +43,7 @@ function deterministicDraft(input: {
   truth: V4TruthBundle;
   actionResult: V4ActionExecutionResult | null;
   identityQuestion: boolean;
+  explicitQuestions: string[];
 }): V4DraftResponse | null {
   if (input.actionResult) {
     return {
@@ -78,7 +79,7 @@ function deterministicDraft(input: {
       text: personaIdentityReply(input.memory.persona),
       decision: "ANSWER",
       claims: [{ kind: "identity", text: `معك ${name} من فريق الأمين` }],
-      answeredQuestions: ["identity"],
+      answeredQuestions: input.explicitQuestions.length ? input.explicitQuestions : ["identity"],
       usedFactKeys: [],
       notes: ["human-presence identity reply without explicit human/non-AI claim"],
     };
@@ -143,7 +144,7 @@ export async function runV4ConversationTurn(input: {
   }
 
   const decision = chooseDecision({ understanding, procedure });
-  const hardDraft = deterministicDraft({ decision, memory, procedure, truth, actionResult, identityQuestion: understanding.identityQuestion });
+  const hardDraft = deterministicDraft({ decision, memory, procedure, truth, actionResult, identityQuestion: understanding.identityQuestion, explicitQuestions: understanding.explicitQuestions });
 
   let draft = hardDraft || await input.model.compose({
     burstText: input.burstText,
