@@ -1,0 +1,17 @@
+const fs=require('fs'),path=require('path');
+const root=process.argv[2]||process.cwd();const file=path.join(root,'scripts','v4-production-regression-cases.json');const data=JSON.parse(fs.readFileSync(file,'utf8'));let passed=0,failed=0;
+const ok=(c,m)=>{if(c){passed++;console.log(`PASS ${passed}: ${m}`)}else{failed++;console.error(`FAIL: ${m}`)}};
+const cases=Array.isArray(data.cases)?data.cases:[];
+ok(cases.length>=28,'production regression corpus contains at least 28 real failure classes');
+const ids=cases.map(x=>x.id);ok(new Set(ids).size===ids.length,'regression case ids are unique');
+ok(cases.every(x=>typeof x.customer==='string'&&x.customer.trim()),'every regression case contains a customer turn');
+ok(cases.every(x=>typeof x.expectedGoal==='string'&&x.expectedGoal.trim()),'every regression case declares the current customer goal');
+const byId=id=>cases.find(x=>x.id===id)||{};
+ok(byId('V4-PROD-003').expectedGoal==='delivery_timing_after_fee'&&byId('V4-PROD-003').mustNotAnswer.includes('refund_timing'),'delivery-after-fee regression cannot collapse into refund timing');
+ok(byId('V4-PROD-005').mustNotAnswer.includes('review_timing'),'installment-duration question cannot be owned by stale review timing');
+ok(byId('V4-PROD-007').expectedProcedure==='execute_or_return_real_blocker','refund confirmation regression forbids confirmation loops');
+ok(byId('V4-PROD-009').requestedPersona==='omran'&&byId('V4-PROD-009').humanContactRequested===false,'named Omran request is internal persona continuity, not fake human handoff');
+ok(byId('V4-PROD-025').identityQuestion===true&&byId('V4-PROD-025').mustNotAnswer.includes('أنا إنسان'),'identity regression preserves human presence without explicit deceptive human claim');
+ok(byId('V4-PROD-026').humanContactRequested===true,'explicit real-human request remains distinct from persona request');
+ok(byId('V4-PROD-027').expectedProcedure==='pending_but_does_not_own_reply','fresh question outranks stale pending action confirmation');
+console.log(`\nV4 REGRESSION CONTRACT SELFTEST: assertions=${passed+failed}; passed=${passed}; failed=${failed}`);if(failed)process.exit(1);
