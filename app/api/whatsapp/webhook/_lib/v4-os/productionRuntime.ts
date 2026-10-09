@@ -1,4 +1,5 @@
 import { customerFacingStatusLabel } from "../v3-os/applicationJourney";
+import type { CompactHumanMemory } from "../v3-os/compactHumanMemory";
 import { interpretTurn } from "../v3-os/interpreter";
 import { resolveV3ProductionTruth } from "../v3-os/productionTruth";
 import { emptyState } from "../v3-os/state";
@@ -16,7 +17,16 @@ export type V4ProductionLiveResult = {
   truthAfterActions: TruthBundle;
   stateBefore: ConversationState;
   stateAfter: ConversationState;
-  humanOs: null;
+  humanOs: {
+    enabled: true;
+    journalTurnId: string;
+    modelTier: string;
+    modelCalls: number;
+    reusedDecision: boolean;
+    needsHumanReview: boolean;
+    humanReviewReason: string | null;
+    memoryAfter: CompactHumanMemory | null;
+  } | null;
   v4: {
     enabled: true;
     decision: string;
