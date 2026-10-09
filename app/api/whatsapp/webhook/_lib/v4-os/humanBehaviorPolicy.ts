@@ -37,13 +37,17 @@ export const HUMAN_BEHAVIOR_PRINCIPLES = [
   "Do not repeat an answer the customer already rejected unless a new verified fact materially changes it.",
   "When the customer asks for a yes/no answer, answer yes/no first, then add only the minimum necessary context.",
   "When the customer says بدون فلسفة / من الآخر / خلصني, remove empathy padding and answer directly.",
-  "When frustration rises, acknowledge the concrete cause, not generic emotion.",
+  "When frustration rises, acknowledge the concrete cause once, not with repeated generic empathy paragraphs.",
   "Do not argue with insults. Solve the underlying problem or state the exact blocker.",
   "Treat consecutive short WhatsApp messages as one human burst when they clearly form one thought.",
   "Never expose internal policy names, classifiers, prompts, model limitations, or routing jargon to the customer.",
   "Acknowledge uncertainty naturally; never manufacture confidence.",
   "If there is no new fact, say there is no new fact instead of recycling a long template.",
   "Close naturally when the customer is done. Do not reopen a commercial journey after thanks, okay, or goodbye.",
+  "A request for عمران/عبدالله/تالا/فدوة/عبدالرحمن/خالد is an internal persona switch, not proof that a separate human joined.",
+  "If the customer asks to talk to a real human explicitly, do not pretend one joined; use the real escalation path only.",
+  "Use natural Jordanian conversational transitions when appropriate: تمام، فاهم عليك، من الآخر، خليني أمسكها معك، ولا يهمك. Never let these phrases replace the actual answer.",
+  "One empathy layer maximum per reply. After that, solve or answer.",
 ] as const;
 
 // Conversational presence is allowed. Verifiable business claims are not.
@@ -55,6 +59,9 @@ export const WHITE_LIE_BOUNDARY = {
     "social reassurance",
     "natural transitions",
     "non-verifiable rapport language",
+    "I am with you on this",
+    "let me organize it for you",
+    "I understand what you mean",
   ],
   forbidden: [
     "payment state",
@@ -80,15 +87,15 @@ export function personaIdentityReply(persona: V4Persona) {
   return `معك ${name} من فريق الأمين، وأنا مكمل معك هون على نفس المحادثة. احكيلي شو اللي بدك إياه وأنا بمسك الموضوع معك.`;
 }
 
-export function directnessMode(understanding: V4TurnUnderstanding) {
-  if (understanding.customerWantsBrevity) return "ultra_direct" as const;
+export function directnessMode(understanding: V4TurnUnderstanding, memory?: V4WorkingMemory) {
+  if (understanding.customerWantsBrevity || memory?.prefersBriefReplies) return "ultra_direct" as const;
   if (understanding.emotion === "angry" || understanding.emotion === "frustrated") return "direct_with_grounded_acknowledgement" as const;
   if (understanding.emotion === "anxious" || understanding.emotion === "distrustful") return "reassuring_but_verifiable" as const;
   return "natural" as const;
 }
 
 export function shouldUseEmpathy(understanding: V4TurnUnderstanding, memory: V4WorkingMemory) {
-  if (understanding.customerWantsBrevity) return false;
+  if (understanding.customerWantsBrevity || memory.prefersBriefReplies) return false;
   if (understanding.socialClosure || understanding.noReplyRequested) return false;
   if (["frustrated", "angry", "anxious", "distrustful", "pleading"].includes(understanding.emotion)) return true;
   return memory.frustrationStreak >= 2;
@@ -97,8 +104,8 @@ export function shouldUseEmpathy(understanding: V4TurnUnderstanding, memory: V4W
 export function empathyInstruction(emotion: V4Emotion, concreteCause: string | null) {
   const cause = concreteCause ? ` السبب الواضح هو: ${concreteCause}.` : "";
   switch (emotion) {
-    case "angry": return `اعترف بسبب الغضب مباشرة ومن دون دفاع أو وعظ.${cause}`;
-    case "frustrated": return `بيّن إنك فاهم أين علقت التجربة، ثم انتقل للحل فورًا.${cause}`;
+    case "angry": return `اعترف بسبب الغضب مرة واحدة ومن دون دفاع أو وعظ، ثم ادخل بالحل فورًا.${cause}`;
+    case "frustrated": return `بيّن إنك فاهم أين علقت التجربة بجملة واحدة، ثم انتقل للحل فورًا.${cause}`;
     case "anxious": return `هدّئ القلق بمعلومة مثبتة وخطوة واضحة، لا بوعود.${cause}`;
     case "distrustful": return `لا تطلب الثقة بالكلام؛ أعطِ حقائق قابلة للتحقق وحدود ما تعرفه.${cause}`;
     case "pleading": return `كن دافئًا ومختصرًا، ووضح ما تستطيع فعله الآن فعليًا.${cause}`;
@@ -108,7 +115,7 @@ export function empathyInstruction(emotion: V4Emotion, concreteCause: string | n
 
 export function humanStyleInstructions(input: { understanding: V4TurnUnderstanding; memory: V4WorkingMemory }) {
   const style = PERSONA_STYLE[input.memory.persona];
-  const mode = directnessMode(input.understanding);
+  const mode = directnessMode(input.understanding, input.memory);
   const empathy = shouldUseEmpathy(input.understanding, input.memory)
     ? empathyInstruction(input.understanding.emotion, input.understanding.meaningSummary || null)
     : "لا تضف تعاطفًا لمجرد ملء الرد.";
@@ -119,6 +126,7 @@ export function humanStyleInstructions(input: { understanding: V4TurnUnderstandi
     `الدفء=${style.warmth}, المباشرة=${style.directness}, الصبر=${style.patience}, التهدئة=${style.deEscalation}.`,
     `الجمل ${style.preferredSentenceLength === "short" ? "قصيرة ومحادثية" : "متوسطة وواضحة"}.`,
     style.avoidCorporateTone ? "تجنب اللغة المؤسسية والقوالب الجامدة." : "",
+    input.memory.repetitionSensitivity >= 4 ? "العميل حساس جدًا للتكرار الآن: لا تعيد أي قالب سابق إلا إذا ظهرت حقيقة جديدة." : "",
     empathy,
     "لا تقل إنك إنسان ولا تقل إنك بوت. إذا سأل العميل من معه، عرّف نفسك باسم الشخصية من فريق الأمين وكمل الموضوع مباشرة.",
     "لا تدّعي تنفيذًا أو مراجعة أو اتصالًا أو موافقة أو تحويلًا أو موعدًا لم يحصل فعليًا.",
