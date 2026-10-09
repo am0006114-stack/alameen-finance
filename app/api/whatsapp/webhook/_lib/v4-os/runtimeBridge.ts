@@ -36,6 +36,20 @@ export function v4ModelAdapterFromEnv(): V4ModelAdapter | null {
   return createV4ModelAdapter({ understandingProvider: interpreter, writerProvider: writer, criticProvider: critic });
 }
 
+function executionStateForAction(state: ConversationState, action: ActionKey, turnId: string): ConversationState {
+  if (!actionRequiresOmran(action)) return state;
+  return {
+    ...state,
+    role: {
+      ...state.role,
+      currentRole: "omran",
+      tier: "supervisor",
+      reason: "v4_confirmed_business_mutation_owned_by_omran",
+      sinceTurnId: turnId,
+    },
+  };
+}
+
 // V4 deliberately reuses the already-proven authoritative V3 mutation backplane.
 // This bridge does not weaken role ownership, payment truth, contact isolation,
 // application scope, or mutation receipts. If the V3 guard blocks execution,
@@ -75,7 +89,8 @@ export function createV4ActionExecutorFromV3(input: {
         } as Record<string, string | number | boolean | null>,
       };
       const scoped = stampActionScope(planned, input.truth, req.turnId);
-      const results = await executeActions({ actions: [scoped], state: input.state, truth: input.truth, adapter: input.adapter, allowMutation: true });
+      const executionState = executionStateForAction(input.state, v3Action, req.turnId);
+      const results = await executeActions({ actions: [scoped], state: executionState, truth: input.truth, adapter: input.adapter, allowMutation: true });
       const result = results[0];
       if (!result) return { action: req.action, executed: false, receiptId: null, summary: null, error: "v3_action_backplane_returned_no_result" };
       return {
