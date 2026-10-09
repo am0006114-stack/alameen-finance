@@ -48,6 +48,7 @@
       "history": ["قبل ما أسجل طلب التعديل أكدلي."],
       "customer": "تأكيد",
       "pendingProcedure": "change_application_data",
+      "expectedGoal": "confirm_application_data_change",
       "expectedActionDisposition": "confirm",
       "expectedProcedure": "execute_or_return_real_blocker",
       "mustNotAnswer": ["ask_confirmation_again"]
@@ -57,6 +58,7 @@
       "history": ["أكدلي مرة واحدة: نعم، أريد استرداد الرسوم."],
       "customer": "نعم اريد استرداد الرسوم",
       "pendingProcedure": "request_refund",
+      "expectedGoal": "confirm_refund_request",
       "expectedActionDisposition": "confirm",
       "expectedProcedure": "execute_or_return_real_blocker",
       "mustNotAnswer": ["ask_confirmation_again"]
@@ -159,6 +161,7 @@
       "history": ["رقم واتسابك مختلف. اكتب نعم، اعتمد الرقم."],
       "customer": "نعم اعتمد الرقم",
       "pendingProcedure": "link_whatsapp_alias",
+      "expectedGoal": "confirm_whatsapp_alias_link",
       "expectedActionDisposition": "confirm",
       "expectedProcedure": "execute_or_return_real_blocker",
       "mustNotAnswer": ["ask_alias_confirmation_again"]
