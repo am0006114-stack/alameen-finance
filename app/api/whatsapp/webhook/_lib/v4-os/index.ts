@@ -8,6 +8,7 @@ export * from "./procedureEngine";
 export * from "./finalCritic";
 export * from "./modelAdapter";
 export * from "./truthAdapter";
+export * from "./commercialContinuationBridge";
 export * from "./runtimeBridge";
 export * from "./stateMemoryBridge";
 export * from "./conversationKernel";
