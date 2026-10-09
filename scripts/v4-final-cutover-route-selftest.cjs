@@ -1,0 +1,16 @@
+const fs=require('fs'),path=require('path');
+const root=process.argv[2]||process.cwd();let passed=0,failed=0;
+const ok=(c,m)=>{if(c){passed++;console.log(`PASS ${passed}: ${m}`)}else{failed++;console.error(`FAIL: ${m}`)}};
+const route=fs.readFileSync(path.join(root,'app/api/whatsapp/webhook/route.ts'),'utf8');
+const importV4=/import\s*\{\s*buildV3LastResortReply\s*,\s*runV3ProductionLive\s*\}\s*from\s*["']\.\/_lib\/v4-os\/productionRuntime["'];/.test(route);
+ok(importV4,'production webhook imports live conversation runtime from V4');
+ok(!/from\s*["']\.\/_lib\/v3-os\/runtimeLive["']/.test(route),'production webhook no longer imports V3 conversational runtime');
+ok((route.match(/await\s+runV3ProductionLive\s*\(/g)||[]).length===1,'production transport invokes exactly one conversational runtime per customer burst');
+ok(/v3ConversationOsActive\s*=\s*true\s+as\s+const/.test(route),'single conversation OS path remains absolute for non-OTP customer traffic');
+ok(/v3Run\.suppressReply/.test(route),'webhook understands explicit V4 silence instead of forcing a fake reply');
+ok(/saveV3ConversationState\(v3Run\.stateAfter\)/.test(route),'silent V4 turn persists conversation memory before completion');
+ok(/markIncomingWhatsAppMessagesProcessed/.test(route),'silent turn still completes inbound durability contract');
+const liveImportIndex=route.indexOf('./_lib/v4-os/productionRuntime');
+const liveCallIndex=route.indexOf('await runV3ProductionLive(');
+ok(liveImportIndex>=0&&liveCallIndex>liveImportIndex,'V4 import owns the existing proven delivery pipeline');
+console.log(`\nV4 FINAL CUTOVER ROUTE SELFTEST: assertions=${passed+failed}; passed=${passed}; failed=${failed}`);if(failed)process.exit(1);
