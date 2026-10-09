@@ -1,5 +1,5 @@
 import type { ConversationState } from "../v3-os/types";
-import { emptyV4WorkingMemory } from "./workingMemory";
+import { answerFingerprint, emptyV4WorkingMemory } from "./workingMemory";
 import { V4_OS_VERSION, type V4Emotion, type V4Persona, type V4WorkingMemory } from "./types";
 
 type StateWithV4Memory = ConversationState & {
@@ -36,11 +36,39 @@ function normalizeStoredMemory(memory: V4WorkingMemory, conversationId: string, 
   };
 }
 
+function seedEpisodesFromV3(state: ConversationState, persona: V4Persona, emotion: V4Emotion) {
+  const episodes = state.semanticMemory?.episodes || [];
+  return episodes.slice(-12).map((episode) => ({
+    turnId: episode.turnId,
+    customerText: "",
+    meaningSummary: episode.customerMeaning || episode.currentQuestion || "سياق سابق من V3",
+    goal: episode.customerGoal || null,
+    assistantText: episode.assistantAnswer || null,
+    persona,
+    emotion,
+    createdAt: episode.createdAt,
+  }));
+}
+
+function seedDecisionsFromV3(state: ConversationState) {
+  const entries = state.semanticMemory?.entries || [];
+  return entries
+    .filter((entry) => entry.kind === "decision")
+    .slice(-20)
+    .map((entry) => ({
+      key: entry.key,
+      value: entry.value,
+      turnId: entry.sourceTurnId,
+      updatedAt: entry.updatedAt,
+    }));
+}
+
 /**
  * V4 keeps its memory inside the existing JSON conversation-state document.
  * No SQL migration or new table is required. If a customer already has V3 state,
- * V4 seeds only safe conversational context; destructive pending actions are NOT
- * imported automatically.
+ * V4 seeds useful conversational context but deliberately refuses to inherit a
+ * destructive pending action. Any unfinished mutation must be understood again by
+ * V4 and confirmed under the V4 procedure contract after cutover.
  */
 export function loadV4MemoryFromConversationState(state: ConversationState): V4WorkingMemory {
   const conversationId = String(state.waId || "").trim();
@@ -50,17 +78,38 @@ export function loadV4MemoryFromConversationState(state: ConversationState): V4W
     return normalizeStoredMemory(embedded, conversationId, persona);
   }
 
+  const emotion = emotionFromV3(state);
   const memory = emptyV4WorkingMemory(conversationId, persona);
+  const activeQuestion = state.semanticMemory?.activeQuestion || null;
+  const activeQuestionTurnId = state.semanticMemory?.activeQuestionTurnId || state.lastTurnId || "v3-cutover";
+
   memory.activeGoal = state.semanticMemory?.activeGoal || state.currentGoal || null;
   memory.activeGoalTurnId = state.semanticMemory?.activeQuestionTurnId || state.lastTurnId || null;
   memory.lastCustomerText = state.lastCustomerText || null;
   memory.lastAssistantText = state.lastAssistantText || null;
-  memory.currentEmotion = emotionFromV3(state);
-  memory.frustrationStreak = Math.max(0, Number(state.humanRelationship?.frustrationStreak || 0));
+  memory.lastAssistantFingerprint = answerFingerprint(memory.lastAssistantText);
+  memory.currentEmotion = emotion;
+  memory.frustrationStreak = Math.max(0, Math.min(20, Number(state.humanRelationship?.frustrationStreak || 0)));
   memory.humanContactRequested = state.currentTopic === "human_request" || state.currentTopic === "manager_request";
+  memory.prefersBriefReplies = Boolean(state.conversationConstraints?.avoidRepetition && memory.frustrationStreak > 0);
+  memory.repetitionSensitivity = state.conversationConstraints?.avoidRepetition
+    ? Math.min(10, 3 + memory.frustrationStreak)
+    : 0;
 
-  // Never inherit a V3 pending mutation blindly. V4 requires a fresh, explicit
-  // procedure confirmation contract on its own turn boundary.
+  if (activeQuestion) {
+    memory.openQuestions = [{
+      text: activeQuestion,
+      turnId: activeQuestionTurnId,
+      answered: false,
+      active: true,
+    }];
+  }
+
+  memory.customerDecisions = seedDecisionsFromV3(state);
+  memory.episodes = seedEpisodesFromV3(state, persona, emotion);
+
+  // Hard cutover boundary: never inherit a V3 pending mutation. This prevents an
+  // old cancel/refund/reopen confirmation from owning the first fresh V4 turn.
   memory.pendingProcedure = null;
   return memory;
 }
