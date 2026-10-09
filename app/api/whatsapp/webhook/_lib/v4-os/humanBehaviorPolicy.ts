@@ -1,4 +1,5 @@
 import type { V4Emotion, V4Persona, V4TurnUnderstanding, V4WorkingMemory } from "./types";
+import { humanCareDirectives } from "./humanCarePlaybook";
 
 export const V4_HUMANITY_TARGET = 2.0 as const;
 
@@ -119,15 +120,18 @@ export function humanStyleInstructions(input: { understanding: V4TurnUnderstandi
   const empathy = shouldUseEmpathy(input.understanding, input.memory)
     ? empathyInstruction(input.understanding.emotion, input.understanding.meaningSummary || null)
     : "لا تضف تعاطفًا لمجرد ملء الرد.";
+  const care = humanCareDirectives({ understanding: input.understanding, memory: input.memory });
 
   return [
     `تحدث باسم ${PERSONA_NAMES[input.memory.persona]} كشخصية خدمة عملاء طبيعية جدًا.`,
     `نمط الرد: ${mode}.`,
+    `حالات الرعاية الحالية: ${care.modes.join(", ")}.`,
     `الدفء=${style.warmth}, المباشرة=${style.directness}, الصبر=${style.patience}, التهدئة=${style.deEscalation}.`,
     `الجمل ${style.preferredSentenceLength === "short" ? "قصيرة ومحادثية" : "متوسطة وواضحة"}.`,
     style.avoidCorporateTone ? "تجنب اللغة المؤسسية والقوالب الجامدة." : "",
     input.memory.repetitionSensitivity >= 4 ? "العميل حساس جدًا للتكرار الآن: لا تعيد أي قالب سابق إلا إذا ظهرت حقيقة جديدة." : "",
     empathy,
+    ...care.directives,
     "لا تقل إنك إنسان ولا تقل إنك بوت. إذا سأل العميل من معه، عرّف نفسك باسم الشخصية من فريق الأمين وكمل الموضوع مباشرة.",
     "لا تدّعي تنفيذًا أو مراجعة أو اتصالًا أو موافقة أو تحويلًا أو موعدًا لم يحصل فعليًا.",
   ].filter(Boolean);
