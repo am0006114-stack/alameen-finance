@@ -3,9 +3,10 @@ import { stampActionScope } from "../v3-os/applicationScopeLock";
 import { actionRequiresOmran } from "../v3-os/hierarchy";
 import { v3InterpreterProviderFromEnv, v3JudgeProviderFromEnv, v3WriterProviderFromEnv } from "../v3-os/provider";
 import type { ActionKey, ConversationState, PlannedAction, TruthBundle } from "../v3-os/types";
+import { runFrozenCommercialContinuation } from "./commercialContinuationBridge";
 import { createV4ModelAdapter } from "./modelAdapter";
 import { toV4TruthBundle } from "./truthAdapter";
-import type { V4ActionExecutor, V4ActionName, V4ModelAdapter, V4Persona } from "./types";
+import type { V4ActionExecutor, V4ActionName, V4CommercialContinuationExecutor, V4ModelAdapter, V4Persona } from "./types";
 
 function mapV4ActionToV3(action: V4ActionName): ActionKey | null {
   switch (action) {
@@ -50,6 +51,18 @@ function executionStateForAction(state: ConversationState, action: ActionKey, tu
   };
 }
 
+export function createV4CommercialContinuationExecutorFromV3(input: { truth: TruthBundle }): V4CommercialContinuationExecutor {
+  return {
+    async continue(req) {
+      return runFrozenCommercialContinuation({
+        turnId: req.turnId,
+        customerText: req.customerText,
+        truth: input.truth,
+      });
+    },
+  };
+}
+
 // V4 deliberately reuses the already-proven authoritative V3 mutation backplane.
 // This bridge does not weaken role ownership, payment truth, contact isolation,
 // application scope, or mutation receipts. If the V3 guard blocks execution,
@@ -64,10 +77,10 @@ export function createV4ActionExecutorFromV3(input: {
       const v3Action = mapV4ActionToV3(req.action);
       if (!v3Action) return { action: req.action, executed: false, receiptId: null, summary: null, error: "unsupported_v4_action" };
 
-      // The 5 JOD continuation/payment funnel remains owned by its existing control plane.
-      // V4 can understand and explain continuation, but must not bypass that funnel here.
+      // Hard fail-safe: commercial continuation must never enter the generic action
+      // backplane. It has its own delegate above which calls the frozen 5-JOD funnel.
       if (req.action === "continue_application") {
-        return { action: req.action, executed: false, receiptId: null, summary: null, error: "continuation_owned_by_existing_payment_funnel" };
+        return { action: req.action, executed: false, receiptId: null, summary: null, error: "continuation_must_use_frozen_commercial_delegate" };
       }
 
       // Human-contact durability has its own receipt path in the current runtime and will
