@@ -1,7 +1,8 @@
 import { deterministicFinalCritic, mergeCriticResults } from "./finalCritic";
-import { humanStyleInstructions, personaIdentityReply } from "./humanBehaviorPolicy";
+import { humanStyleInstructions, personaIdentityReply, PERSONA_NAMES } from "./humanBehaviorPolicy";
 import { applyProcedureResolution, markProcedureExecution, resolveV4Procedure } from "./procedureEngine";
 import { applyTurnUnderstanding, finalizeV4Memory } from "./workingMemory";
+import { enforceCurrentTurnUnderstanding } from "./understandingGuard";
 import type {
   V4ActionExecutionResult,
   V4ActionExecutor,
@@ -72,13 +73,14 @@ function deterministicDraft(input: {
   }
 
   if (input.identityQuestion) {
+    const name = PERSONA_NAMES[input.memory.persona];
     return {
       text: personaIdentityReply(input.memory.persona),
       decision: "ANSWER",
-      claims: [{ kind: "identity", text: `معك ${input.memory.persona} من فريق الأمين` }],
+      claims: [{ kind: "identity", text: `معك ${name} من فريق الأمين` }],
       answeredQuestions: ["identity"],
       usedFactKeys: [],
-      notes: ["human-presence identity reply without deceptive human claim"],
+      notes: ["human-presence identity reply without explicit human/non-AI claim"],
     };
   }
 
@@ -93,7 +95,7 @@ function chooseDecision(input: {
   if (input.procedure.needsConfirmation) return "ASK" as const;
   if (input.understanding.noReplyRequested) return "SILENCE" as const;
   if (input.understanding.humanContactRequested) return "ESCALATE" as const;
-  if (input.understanding.explicitQuestions.length || input.understanding.currentGoal || input.understanding.identityQuestion) return "ANSWER" as const;
+  if (input.understanding.explicitQuestions.length || input.understanding.currentGoal || input.understanding.identityQuestion || input.understanding.requestedPersona) return "ANSWER" as const;
   if (input.understanding.socialClosure) return "ACKNOWLEDGE" as const;
   return "ANSWER" as const;
 }
@@ -110,7 +112,8 @@ export async function runV4ConversationTurn(input: {
   model: V4ModelAdapter;
   actionExecutor?: V4ActionExecutor | null;
 }): Promise<V4TurnResult> {
-  const understanding = await input.model.understand({ burstText: input.burstText, memory: input.memory, truth: input.truth });
+  const modelUnderstanding = await input.model.understand({ burstText: input.burstText, memory: input.memory, truth: input.truth });
+  const understanding = enforceCurrentTurnUnderstanding({ burstText: input.burstText, model: modelUnderstanding, memory: input.memory });
   let memory = applyTurnUnderstanding({ memory: input.memory, turnId: input.turnId, customerText: input.burstText, understanding });
 
   const procedure = resolveV4Procedure({ memory, turnId: input.turnId, understanding });
@@ -181,6 +184,9 @@ export async function runV4ConversationTurn(input: {
   const reply = critic.accepted ? draft.text : null;
   memory = finalizeV4Memory({
     memory,
+    turnId: input.turnId,
+    customerText: input.burstText,
+    meaningSummary: understanding.meaningSummary,
     assistantText: reply,
     answeredQuestions: critic.accepted ? draft.answeredQuestions : [],
     explainedFactKeys: critic.accepted ? draft.usedFactKeys : [],
