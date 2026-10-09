@@ -15,3 +15,4 @@ export * from "./runtimeBridge";
 export * from "./stateMemoryBridge";
 export * from "./conversationKernel";
 export * from "./runtimeEntrypoint";
+export * from "./productionRuntime";
