@@ -37,9 +37,23 @@ export type V4ProductionLiveResult = {
   };
 };
 
-function compactRecentTurns(input?: Array<{ direction?: string; content?: string }>) {
+type V4ProductionRecentTurn = string | {
+  id?: string;
+  direction?: string;
+  message_type?: string;
+  content?: string;
+  created_at?: string | null;
+};
+
+function compactRecentTurns(input?: V4ProductionRecentTurn[]) {
   return (input || [])
-    .map((turn) => `${String(turn.direction || "").toLowerCase() === "incoming" ? "العميل" : "الأمين"}: ${String(turn.content || "").trim()}`)
+    .map((turn) => {
+      if (typeof turn === "string") return turn.trim();
+      const content = String(turn.content || "").trim();
+      if (!content) return "";
+      const speaker = String(turn.direction || "").toLowerCase() === "incoming" ? "العميل" : "الأمين";
+      return `${speaker}: ${content}`;
+    })
     .filter((line) => line.trim().length > 1)
     .slice(-24);
 }
@@ -103,13 +117,7 @@ export async function runV4ProductionLive(input: {
   waId: string;
   turnId: string;
   customerText: string;
-  recentTurns?: Array<{
-    id?: string;
-    direction?: string;
-    message_type?: string;
-    content?: string;
-    created_at?: string | null;
-  }>;
+  recentTurns?: V4ProductionRecentTurn[];
   profileName?: string | null;
   realActionsEnabled?: boolean;
 }): Promise<V4ProductionLiveResult> {
