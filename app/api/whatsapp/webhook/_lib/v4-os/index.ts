@@ -9,3 +9,4 @@ export * from "./truthAdapter";
 export * from "./runtimeBridge";
 export * from "./stateMemoryBridge";
 export * from "./conversationKernel";
+export * from "./runtimeEntrypoint";
