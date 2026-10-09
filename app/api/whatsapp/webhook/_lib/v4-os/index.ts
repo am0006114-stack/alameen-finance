@@ -2,6 +2,7 @@ export * from "./types";
 export * from "./humanBehaviorPolicy";
 export * from "./workingMemory";
 export * from "./understandingGuard";
+export * from "./truthLens";
 export * from "./procedureEngine";
 export * from "./finalCritic";
 export * from "./modelAdapter";
