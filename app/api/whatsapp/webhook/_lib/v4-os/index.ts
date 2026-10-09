@@ -5,4 +5,5 @@ export * from "./procedureEngine";
 export * from "./finalCritic";
 export * from "./modelAdapter";
 export * from "./truthAdapter";
+export * from "./runtimeBridge";
 export * from "./conversationKernel";
