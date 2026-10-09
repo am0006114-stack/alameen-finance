@@ -1,4 +1,4 @@
-import { proposedAnswerRepeatsLast, proposedAnswerRepeatsRejected } from "./workingMemory";
+import { proposedAnswerRepeatsLast, proposedAnswerRepeatsRejected, normalizeForFingerprint, semanticOverlap } from "./workingMemory";
 import { PERSONA_NAMES } from "./humanBehaviorPolicy";
 import type { V4CriticResult, V4DraftResponse, V4TruthBundle, V4TurnUnderstanding, V4WorkingMemory } from "./types";
 
@@ -40,7 +40,7 @@ function startsWithDirectYesNo(text: string | null | undefined) {
   return /^(?:نعم|لا|اه|أه|ايوه|أيوه|مش بالضرورة|حسب)/.test(String(text || "").trim());
 }
 
-function textClaimsExecutionWithoutReceipt(text: string | null | undefined) {
+function textClaimsExecutionOrResult(text: string | null | undefined) {
   const q = String(text || "");
   return /(?:تم|صار)\s+(?:الغاء|إلغاء|الاسترداد|التحويل|الدفع|التواصل|التعديل|تغيير|اعتماد|إعادة\s+فتح)|(?:تمت|صدرت)\s+(?:الموافقة|الموافقه)|(?:حولنا|رجعنا|اعتمدنا|عدلنا|غيرنا|رفعنا)\b/i.test(q);
 }
@@ -49,14 +49,45 @@ function hasAnyExecutedReceipt(truth: V4TruthBundle) {
   return truth.verifiedActionReceipts.some((r) => r.executed);
 }
 
+function visibleFactText(truth: V4TruthBundle, key: string) {
+  const value = truth.facts[key];
+  return value?.customerVisible ? normalizeForFingerprint(String(value.value ?? "")) : "";
+}
+
+function truthSupportsResultText(text: string | null | undefined, truth: V4TruthBundle) {
+  const q = normalizeForFingerprint(text);
+  const status = `${visibleFactText(truth,"application.status.customer")} ${visibleFactText(truth,"application.status.raw")} ${visibleFactText(truth,"application.journey_stage")}`;
+  const payment = `${visibleFactText(truth,"application.payment_confirmed")} ${visibleFactText(truth,"application.payment_status")}`;
+  if (/(?:تم الاسترداد|استرداد مكتمل|رجعت الرسوم)/.test(q) && /(?:تم الاسترداد|refund_completed|refunded)/.test(status)) return true;
+  if (/(?:تم الغاء|تم إلغاء|الطلب ملغي)/.test(q) && /(?:ملغي|cancelled|customer_declined_continue)/.test(status)) return true;
+  if (/(?:تمت الموافقه|تمت الموافقة|صدرت الموافقه|صدرت الموافقة|موافق عليه)/.test(q) && /(?:موافق عليه|approved|final_approved|ready_for_pickup|ready_for_contract|delivery_ready)/.test(status)) return true;
+  if (/(?:تم الدفع|الدفع مؤكد|تم تأكيد الدفع)/.test(q) && /(?:true|confirmed|paid)/.test(payment)) return true;
+  return false;
+}
+
+function safeUnverifiedPublicPresenceReply(text: string) {
+  const q = normalizeForFingerprint(text);
+  return /(?:ما عندي|ليس عندي|ما في عندي|غير موثق|مش موثق|لا يوجد عندي|لا اقدر اثبت|ما بقدر اثبت|ما بقدر اكد|لا استطيع تاكيد)/.test(q);
+}
+
 function mentionsUnsupportedPublicPresence(text: string | null | undefined, truth: V4TruthBundle) {
   const q = String(text || "");
   if (!/(?:فيسبوك|facebook|انستغرام|instagram|مرخص|ترخيص|سجل\s+تجاري|فرع|فروع)/i.test(q)) return false;
+  if (safeUnverifiedPublicPresenceReply(q)) return false;
   const visibleTruthText = Object.values(truth.facts)
     .filter((f) => f.customerVisible)
     .map((f) => String(f.value || ""))
     .join(" ");
   return !/(?:فيسبوك|facebook|انستغرام|instagram|مرخص|ترخيص|سجل\s+تجاري|فرع|فروع)/i.test(visibleTruthText);
+}
+
+function questionCovered(question: string, answered: string[]) {
+  const nq = normalizeForFingerprint(question);
+  if (!nq) return true;
+  return answered.some((candidate) => {
+    const nc = normalizeForFingerprint(candidate);
+    return nc === nq || nc.includes(nq) || nq.includes(nc) || semanticOverlap(nq, nc) >= 0.55;
+  });
 }
 
 export function deterministicFinalCritic(input: {
@@ -89,9 +120,10 @@ export function deterministicFinalCritic(input: {
     repairInstructions.push("اسكت ما لم يوجد تنفيذ أو إيصال إجراء يجب إبلاغ العميل به.");
   }
 
-  if (input.understanding.explicitQuestions.length && input.draft.decision === "ANSWER" && input.draft.answeredQuestions.length === 0) {
-    reasons.push("draft did not mark any current explicit question as answered");
-    repairInstructions.push("جاوب السؤال الحالي أولًا قبل أي سياق قديم.");
+  const uncovered = input.understanding.explicitQuestions.filter((q) => !questionCovered(q, input.draft.answeredQuestions));
+  if (input.draft.decision === "ANSWER" && uncovered.length) {
+    reasons.push(`draft left ${uncovered.length} current explicit question(s) unanswered`);
+    repairInstructions.push(`جاوب كل أسئلة الرسالة الحالية مباشرة: ${uncovered.join(" | ")}`);
   }
 
   if (input.understanding.customerRejectedPreviousAnswer && proposedAnswerRepeatsRejected(input.memory, input.draft.text)) {
@@ -114,9 +146,9 @@ export function deterministicFinalCritic(input: {
     repairInstructions.push("ابدأ بنعم أو لا أو جواب حاسم مناسب، ثم أضف أقل قدر لازم من التوضيح.");
   }
 
-  if (textClaimsExecutionWithoutReceipt(input.draft.text) && !hasAnyExecutedReceipt(input.truth)) {
-    reasons.push("draft contains an execution/result claim without an authoritative receipt");
-    repairInstructions.push("احذف ادعاء التنفيذ واذكر فقط الحقيقة الحالية أو ما تستطيع فعله الآن فعليًا.");
+  if (textClaimsExecutionOrResult(input.draft.text) && !hasAnyExecutedReceipt(input.truth) && !truthSupportsResultText(input.draft.text, input.truth)) {
+    reasons.push("draft contains an execution/result claim without an authoritative receipt or database truth");
+    repairInstructions.push("احذف ادعاء التنفيذ أو النتيجة واذكر فقط الحقيقة الحالية المثبتة أو ما تستطيع فعله الآن فعليًا.");
   }
 
   if (input.draft.text && /(?:تم\s+التواصل\s+مع\s+الاداره|تم\s+التواصل\s+مع\s+الإدارة|المشرف\s+شاف|تم\s+تسريع|رح\s+تطلع\s+اليوم)/.test(input.draft.text)) {
@@ -128,7 +160,7 @@ export function deterministicFinalCritic(input: {
 
   if (mentionsUnsupportedPublicPresence(input.draft.text, input.truth)) {
     reasons.push("draft mentions public presence/license/branch that is absent from authoritative truth");
-    repairInstructions.push("لا تخترع فيسبوك أو إنستغرام أو ترخيصًا أو فروعًا. استخدم فقط الحقائق الموجودة في TruthBundle.");
+    repairInstructions.push("لا تخترع فيسبوك أو إنستغرام أو ترخيصًا أو فروعًا. استخدم فقط الحقائق الموجودة في TruthBundle، أو قل إنها غير موثقة عندك.");
   }
 
   const accepted = reasons.length === 0;
