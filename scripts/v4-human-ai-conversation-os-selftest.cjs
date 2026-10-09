@@ -10,14 +10,21 @@ const procedureMod=L('procedureEngine.ts');
 const criticMod=L('finalCritic.ts');
 const humanMod=L('humanBehaviorPolicy.ts');
 const guardMod=L('understandingGuard.ts');
+const lensMod=L('truthLens.ts');
 const kernel=L('conversationKernel.ts');
 
 const truth={applicationId:'app-v4',trackingId:'AM-V4-001',facts:{
   'application.exists':{key:'application.exists',value:true,source:'database',confidence:1,customerVisible:true},
+  'application.tracking_id':{key:'application.tracking_id',value:'AM-V4-001',source:'database',confidence:1,customerVisible:true},
+  'application.journey_stage':{key:'application.journey_stage',value:'payment_confirmed_under_review',source:'database',confidence:1,customerVisible:true},
   'application.status.customer':{key:'application.status.customer',value:'قيد الدراسة النهائية',source:'database',confidence:1,customerVisible:true},
   'business.location.general':{key:'business.location.general',value:'عمّان – شارع المدينة المنورة',source:'policy',confidence:1,customerVisible:true},
+  'business.website':{key:'business.website',value:'https://www.ameenfinance.co',source:'system',confidence:1,customerVisible:true},
+  'fee.opening.amount_jod':{key:'fee.opening.amount_jod',value:5,source:'policy',confidence:1,customerVisible:true},
+  'payment.beneficiary':{key:'payment.beneficiary',value:'TEST BENEFICIARY',source:'policy',confidence:1,customerVisible:true},
+  'review.normal_window':{key:'review.normal_window',value:'2-3 operational days',source:'policy',confidence:1,customerVisible:true},
 },verifiedActionReceipts:[]};
-const U=(over={})=>({meaningSummary:'رسالة العميل الحالية',currentGoal:'answer_current_question',explicitQuestions:[],requestedAction:null,actionDisposition:'none',requestedPersona:null,references:[],emotion:'neutral',urgency:'normal',topicChanged:false,customerRejectedPreviousAnswer:false,customerWantsBrevity:false,noReplyRequested:false,identityQuestion:false,humanContactRequested:false,socialClosure:false,confidence:.99,warnings:[],...over});
+const U=(over={})=>({meaningSummary:'رسالة العميل الحالية',currentGoal:'answer_current_question',explicitQuestions:[],neededFactKeys:[],requestedAction:null,actionDisposition:'none',requestedPersona:null,references:[],emotion:'neutral',urgency:'normal',topicChanged:false,customerRejectedPreviousAnswer:false,customerWantsBrevity:false,noReplyRequested:false,identityQuestion:false,humanContactRequested:false,socialClosure:false,confidence:.99,warnings:[],...over});
 const accepted={accepted:true,score:1,reasons:[],repairInstructions:[]};
 function modelFor(turns,draft){let i=0;return{async understand(){return turns[Math.min(i++,turns.length-1)]},async compose(req){return typeof draft==='function'?draft(req):draft||{text:'جواب مباشر.',decision:req.decision,claims:[],answeredQuestions:req.understanding.explicitQuestions,usedFactKeys:[],notes:[]}},async critique(){return accepted}}}
 
@@ -31,6 +38,12 @@ function modelFor(turns,draft){let i=0;return{async understand(){return turns[Ma
   mem=memoryMod.applyTurnUnderstanding({memory:mem,turnId:'t2',customerText:'طيب متى بعرف اذا انقبلت؟',understanding:U({currentGoal:'approval_timing',explicitQuestions:['متى بعرف اذا انقبلت؟'],topicChanged:true})});
   ok(mem.activeGoal==='approval_timing'&&mem.activeGoalTurnId==='t2','fresh goal replaces stale topic authority');
   ok(mem.openQuestions.filter(q=>q.active&&!q.answered).length===1,'old unanswered question becomes historical instead of owning fresh turn');
+
+  const locationLens=lensMod.lensTruthBundle({burstText:'وين موقعكم؟',understanding:U({currentGoal:'location',explicitQuestions:['وين موقعكم؟']}),truth});
+  ok(Boolean(locationLens.facts['business.location.general']),'truth lens exposes current location fact');
+  ok(!locationLens.facts['payment.beneficiary']&&!locationLens.facts['fee.opening.amount_jod'],'location question cannot see unrelated payment facts');
+  const requestedLens=lensMod.lensTruthBundle({burstText:'خبرني عن هالنقطة',understanding:U({neededFactKeys:['review.normal_window']}),truth});
+  ok(Boolean(requestedLens.facts['review.normal_window']),'explicit neededFactKeys can request an existing authoritative fact');
 
   const first=procedureMod.resolveV4Procedure({memory:mem,turnId:'r1',understanding:U({requestedAction:'request_refund',actionDisposition:'request',currentGoal:'refund'})});
   ok(first.needsConfirmation&&!first.shouldExecute,'refund requires exactly one separate confirmation turn');
@@ -103,7 +116,7 @@ function modelFor(turns,draft){let i=0;return{async understand(){return turns[Ma
   c=criticMod.deterministicFinalCritic({burstText:'وين موقعكم؟',understanding:U({currentGoal:'location',topicChanged:true,explicitQuestions:['وين موقعكم؟']}),memory:newGoalMem,truth,draft:{text:rejectMem.lastAssistantText,decision:'ANSWER',claims:[],answeredQuestions:['وين موقعكم؟'],usedFactKeys:[],notes:[]}});
   ok(!c.accepted&&c.reasons.some(x=>x.includes('topic changed')),'fresh topic cannot be answered by stale previous-topic template');
 
-  r=await kernel.runV4ConversationTurn({turnId:'goal1',burstText:'وين موقعكم؟',memory:memoryMod.emptyV4WorkingMemory('wa-goal','tala'),truth,model:modelFor([U({currentGoal:'location',explicitQuestions:['وين موقعكم؟'],topicChanged:true})],(req)=>({text:'الموقع العام: عمّان – شارع المدينة المنورة.',decision:req.decision,claims:[{kind:'fact',text:'عمّان – شارع المدينة المنورة',factKey:'business.location.general'}],answeredQuestions:['وين موقعكم؟'],usedFactKeys:['business.location.general'],notes:[]}))});
+  r=await kernel.runV4ConversationTurn({turnId:'goal1',burstText:'وين موقعكم؟',memory:memoryMod.emptyV4WorkingMemory('wa-goal','tala'),truth,model:modelFor([U({currentGoal:'location',explicitQuestions:['وين موقعكم؟'],topicChanged:true,neededFactKeys:['business.location.general']})],(req)=>({text:'الموقع العام: عمّان – شارع المدينة المنورة.',decision:req.decision,claims:[{kind:'fact',text:'عمّان – شارع المدينة المنورة',factKey:'business.location.general'}],answeredQuestions:['وين موقعكم؟'],usedFactKeys:['business.location.general'],notes:[]}))});
   ok(r.critic.accepted&&/شارع المدينة المنورة/.test(r.reply||''),'grounded current-question answer passes truth-aware critic');
   ok(r.memory.episodes.length===1&&r.memory.episodes[0].goal==='location','accepted turn is written to bounded episodic conversation memory');
 
