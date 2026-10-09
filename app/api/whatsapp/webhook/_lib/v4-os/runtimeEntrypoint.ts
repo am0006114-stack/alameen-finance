@@ -1,7 +1,7 @@
 import type { ActionExecutorAdapter } from "../v3-os/actionPlane";
 import type { ConversationState, TruthBundle } from "../v3-os/types";
 import { runV4ConversationTurn } from "./conversationKernel";
-import { createV4ActionExecutorFromV3, createV4CommercialContinuationExecutorFromV3, v4ModelAdapterFromEnv, v4TruthFromV3 } from "./runtimeBridge";
+import { createV4ActionExecutorFromV3, createV4CommercialContinuationExecutorFromV3, createV4HumanEscalationExecutorFromV3, v4ModelAdapterFromEnv, v4TruthFromV3 } from "./runtimeBridge";
 import { attachV4MemoryToConversationState, loadV4MemoryFromConversationState } from "./stateMemoryBridge";
 import type { V4TurnResult } from "./types";
 
@@ -32,6 +32,7 @@ export async function runV4FromExistingRuntime(input: {
     ? createV4ActionExecutorFromV3({ state: input.state, truth: input.truth, adapter: input.actionAdapter })
     : null;
   const commercialContinuationExecutor = createV4CommercialContinuationExecutorFromV3({ truth: input.truth });
+  const humanEscalationExecutor = createV4HumanEscalationExecutorFromV3({ state: input.state, truth: input.truth });
 
   const result = await runV4ConversationTurn({
     turnId: input.turnId,
@@ -41,6 +42,7 @@ export async function runV4FromExistingRuntime(input: {
     model,
     actionExecutor,
     commercialContinuationExecutor,
+    humanEscalationExecutor,
   });
 
   return {
