@@ -1,5 +1,5 @@
 {
-  "version": "2026-10-09-v1",
+  "version": "2026-10-09-v2",
   "source": "production WhatsApp failure classes, anonymized into semantic fixtures",
   "principle": "current meaning owns the reply; verified truth and action receipts own factual claims",
   "cases": [
@@ -74,17 +74,20 @@
       "id": "V4-PROD-009",
       "history": ["حالة الطلب قيد الدراسة النهائية."],
       "customer": "وين عمران",
-      "expectedGoal": "human_supervisor_contact",
-      "humanContactRequested": true,
+      "expectedGoal": "named_team_persona_request",
+      "requestedPersona": "omran",
+      "humanContactRequested": false,
+      "mustAnswer": ["معك عمران"],
       "mustNotAnswer": ["payment", "review_template", "status_template"]
     },
     {
       "id": "V4-PROD-010",
       "history": ["حالة الطلب قيد الدراسة النهائية."],
       "customer": "وين عمران\nانا ليش استنى ٢٦ يوم شو هالمسخرة",
-      "expectedGoal": "human_supervisor_contact_and_delay_complaint",
+      "expectedGoal": "named_persona_and_delay_complaint",
+      "requestedPersona": "omran",
       "emotion": "angry",
-      "mustAnswer": ["طول الانتظار", "طلب التواصل"],
+      "mustAnswer": ["عمران", "طول الانتظار"],
       "mustNotAnswer": ["generic_two_to_three_day_only"]
     },
     {
@@ -209,6 +212,32 @@
       "identityQuestion": true,
       "mustAnswer": ["معك فلان من فريق الأمين"],
       "mustNotAnswer": ["أنا إنسان", "مش بوت", "أنا نموذج ذكاء اصطناعي"]
+    },
+    {
+      "id": "V4-PROD-026",
+      "history": ["معك عبدالله من فريق الأمين."],
+      "customer": "لا بدي موظف حقيقي احكي معه",
+      "expectedGoal": "real_human_contact",
+      "humanContactRequested": true,
+      "mustNotAnswer": ["pretend_human_joined", "fake_call"]
+    },
+    {
+      "id": "V4-PROD-027",
+      "history": ["أكدلي مرة واحدة إنك بدك تلغي الطلب."],
+      "customer": "طيب قبل ما أأكد، متى بستلم إذا كملت؟",
+      "pendingProcedure": "cancel_application",
+      "expectedGoal": "delivery_timing_if_continue",
+      "expectedProcedure": "pending_but_does_not_own_reply",
+      "mustNotAnswer": ["ask_cancel_confirmation_again"]
+    },
+    {
+      "id": "V4-PROD-028",
+      "history": ["حالة الطلب قيد الدراسة النهائية."],
+      "customer": "وين عمران وشو صار بطلبي؟",
+      "requestedPersona": "omran",
+      "expectedGoal": "named_persona_plus_status",
+      "mustAnswer": ["معك عمران", "حالة الطلب"],
+      "mustNotAnswer": ["generic_handoff_only"]
     }
   ]
 }
