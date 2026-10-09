@@ -12,6 +12,8 @@ import type {
   V4CriticResult,
   V4Decision,
   V4DraftResponse,
+  V4HumanEscalationExecutor,
+  V4HumanEscalationResult,
   V4ModelAdapter,
   V4ProcedureResolution,
   V4TruthBundle,
@@ -38,6 +40,16 @@ function executionReply(result: V4ActionExecutionResult) {
   return result.error ? `ما تم تنفيذ الإجراء. السبب المثبت عندي: ${result.error}` : "ما تم تنفيذ الإجراء، وما رح أدّعي إنه تم قبل وجود نتيجة فعلية.";
 }
 
+function appendHumanEscalation(base: string | null, humanEscalation: V4HumanEscalationResult | null) {
+  if (!humanEscalation) return base;
+  return [base, humanEscalation.reply].filter(Boolean).join("\n\n");
+}
+
+function escalationClaim(humanEscalation: V4HumanEscalationResult | null) {
+  if (!humanEscalation?.recorded) return [];
+  return [{ kind: "action" as const, text: "تم تسجيل طلب التواصل مع موظف فعلي", action: "record_human_contact_request" as const }];
+}
+
 function deterministicDraft(input: {
   decision: V4Decision;
   memory: V4WorkingMemory;
@@ -45,43 +57,61 @@ function deterministicDraft(input: {
   truth: V4TruthBundle;
   actionResult: V4ActionExecutionResult | null;
   commercialContinuation: V4CommercialContinuationResult | null;
+  humanEscalation: V4HumanEscalationResult | null;
   identityQuestion: boolean;
   explicitQuestions: string[];
 }): V4DraftResponse | null {
   if (input.commercialContinuation?.handled) {
     return {
-      text: input.commercialContinuation.reply,
-      decision: input.commercialContinuation.persisted ? "ACT" : "ANSWER",
-      claims: input.commercialContinuation.persisted
-        ? [{ kind: "action", text: "تم تثبيت قرار الاستمرار على الطلب", action: "continue_application" }]
-        : [],
+      text: appendHumanEscalation(input.commercialContinuation.reply, input.humanEscalation),
+      decision: input.humanEscalation ? "ESCALATE" : input.commercialContinuation.persisted ? "ACT" : "ANSWER",
+      claims: [
+        ...(input.commercialContinuation.persisted
+          ? [{ kind: "action" as const, text: "تم تثبيت قرار الاستمرار على الطلب", action: "continue_application" as const }]
+          : []),
+        ...escalationClaim(input.humanEscalation),
+      ],
       answeredQuestions: input.explicitQuestions,
       usedFactKeys: [],
-      notes: ["delegated to frozen 5-JOD commercial funnel"],
+      notes: ["delegated to frozen 5-JOD commercial funnel", ...(input.humanEscalation ? ["durable real-human escalation also handled"] : [])],
     };
   }
 
   if (input.actionResult) {
     return {
-      text: executionReply(input.actionResult),
-      decision: "ACT",
-      claims: input.actionResult.executed
-        ? [{ kind: "action", text: input.actionResult.summary || "تم تنفيذ الإجراء", action: input.actionResult.action }]
-        : [],
-      answeredQuestions: [],
+      text: appendHumanEscalation(executionReply(input.actionResult), input.humanEscalation),
+      decision: input.humanEscalation ? "ESCALATE" : "ACT",
+      claims: [
+        ...(input.actionResult.executed
+          ? [{ kind: "action" as const, text: input.actionResult.summary || "تم تنفيذ الإجراء", action: input.actionResult.action }]
+          : []),
+        ...escalationClaim(input.humanEscalation),
+      ],
+      answeredQuestions: input.explicitQuestions,
       usedFactKeys: [],
-      notes: ["deterministic action receipt reply"],
+      notes: ["deterministic action receipt reply", ...(input.humanEscalation ? ["durable real-human escalation also handled"] : [])],
     };
   }
 
   if (input.procedure.needsConfirmation && input.procedure.action) {
     return {
-      text: confirmationPrompt(input.procedure.action, input.truth.trackingId),
-      decision: "ASK",
-      claims: [],
-      answeredQuestions: [],
+      text: appendHumanEscalation(confirmationPrompt(input.procedure.action, input.truth.trackingId), input.humanEscalation),
+      decision: input.humanEscalation ? "ESCALATE" : "ASK",
+      claims: escalationClaim(input.humanEscalation),
+      answeredQuestions: input.explicitQuestions,
       usedFactKeys: [],
-      notes: ["single-confirmation procedure contract"],
+      notes: ["single-confirmation procedure contract", ...(input.humanEscalation ? ["durable real-human escalation also handled"] : [])],
+    };
+  }
+
+  if (input.humanEscalation) {
+    return {
+      text: input.humanEscalation.reply,
+      decision: "ESCALATE",
+      claims: escalationClaim(input.humanEscalation),
+      answeredQuestions: input.explicitQuestions,
+      usedFactKeys: [],
+      notes: [input.humanEscalation.recorded ? "durable real-human escalation recorded" : "real-human escalation requested but not durably recorded"],
     };
   }
 
@@ -108,7 +138,9 @@ function chooseDecision(input: {
   understanding: Awaited<ReturnType<V4ModelAdapter["understand"]>>;
   procedure: V4ProcedureResolution;
   commercialContinuation: V4CommercialContinuationResult | null;
+  humanEscalation: V4HumanEscalationResult | null;
 }) {
+  if (input.humanEscalation) return "ESCALATE" as const;
   if (input.commercialContinuation?.handled) return input.commercialContinuation.persisted ? "ACT" as const : "ANSWER" as const;
   if (input.procedure.shouldExecute) return "ACT" as const;
   if (input.procedure.needsConfirmation) return "ASK" as const;
@@ -131,6 +163,7 @@ export async function runV4ConversationTurn(input: {
   model: V4ModelAdapter;
   actionExecutor?: V4ActionExecutor | null;
   commercialContinuationExecutor?: V4CommercialContinuationExecutor | null;
+  humanEscalationExecutor?: V4HumanEscalationExecutor | null;
 }): Promise<V4TurnResult> {
   const modelUnderstanding = await input.model.understand({ burstText: input.burstText, memory: input.memory, truth: input.truth });
   const understanding = enforceCurrentTurnUnderstanding({ burstText: input.burstText, model: modelUnderstanding, memory: input.memory });
@@ -184,8 +217,39 @@ export async function runV4ConversationTurn(input: {
     };
   }
 
-  const decision = chooseDecision({ understanding, procedure, commercialContinuation });
-  const hardDraft = deterministicDraft({ decision, memory, procedure, truth, actionResult, commercialContinuation, identityQuestion: understanding.identityQuestion, explicitQuestions: understanding.explicitQuestions });
+  let humanEscalation: V4HumanEscalationResult | null = null;
+  if (understanding.humanContactRequested) {
+    humanEscalation = input.humanEscalationExecutor
+      ? await input.humanEscalationExecutor.request({ turnId: input.turnId, customerText: input.burstText })
+      : {
+          recorded: false,
+          receiptId: null,
+          reply: "طلبك بالتواصل مع موظف فعلي واضح، بس مسار التحويل الفعلي مش مربوط بهالمعالجة هسا. ما رح أدعي إنه تم. أنا مكمل معك هون وبقدر أساعدك بالمشكلة نفسها الآن.",
+          blocker: "human_escalation_executor_not_connected",
+        };
+    if (humanEscalation.recorded && humanEscalation.receiptId) {
+      truth = {
+        ...truth,
+        verifiedActionReceipts: [
+          ...truth.verifiedActionReceipts,
+          { action: "record_human_contact_request", executed: true, receiptId: humanEscalation.receiptId, summary: "تم تسجيل طلب التواصل مع موظف فعلي" },
+        ],
+      };
+    }
+  }
+
+  const decision = chooseDecision({ understanding, procedure, commercialContinuation, humanEscalation });
+  const hardDraft = deterministicDraft({
+    decision,
+    memory,
+    procedure,
+    truth,
+    actionResult,
+    commercialContinuation,
+    humanEscalation,
+    identityQuestion: understanding.identityQuestion,
+    explicitQuestions: understanding.explicitQuestions,
+  });
 
   let draft = hardDraft || await input.model.compose({
     burstText: input.burstText,
@@ -234,5 +298,5 @@ export async function runV4ConversationTurn(input: {
     explainedFactKeys: critic.accepted ? draft.usedFactKeys : [],
   });
 
-  return { reply, decision, understanding, memory, procedure, actionResult, commercialContinuation, critic };
+  return { reply, decision, understanding, memory, procedure, actionResult, commercialContinuation, humanEscalation, critic };
 }
