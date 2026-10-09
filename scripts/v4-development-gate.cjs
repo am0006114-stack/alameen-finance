@@ -10,6 +10,8 @@ if(forbidden.length){console.error('FAIL - V4 DEVELOPMENT TOUCHED FROZEN PRODUCT
 console.log(`PASS - production baseline ${BASE.slice(0,7)} remains frozen; ${names.length} V4-only files changed`);
 console.log('\n=== V4 CORE SELFTEST ===');
 run(process.execPath,[path.join('scripts','v4-human-ai-conversation-os-selftest.cjs'),root]);
+console.log('\n=== V4 STATE MEMORY BRIDGE SELFTEST ===');
+run(process.execPath,[path.join('scripts','v4-state-memory-bridge-selftest.cjs'),root]);
 console.log('\n=== V4 BURST ASSEMBLER SELFTEST ===');
 run(process.execPath,[path.join('scripts','v4-burst-assembler-selftest.cjs'),root]);
 console.log('\n=== V4 FROZEN COMMERCIAL DELEGATE SELFTEST ===');
