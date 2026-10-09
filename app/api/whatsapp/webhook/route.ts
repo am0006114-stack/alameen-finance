@@ -164,7 +164,7 @@ import {
   resolveConversationKernelIntent,
 } from "./_lib/conversationKernel";
 import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/productionControl";
-import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
+import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v4-os/productionRuntime";
 import { interpretTurn as interpretV3Turn } from "./_lib/v3-os/interpreter";
 import { resolveV3ProductionTruth } from "./_lib/v3-os/productionTruth";
 import { completeHumanTurnDelivery } from "./_lib/v3-os/durableTurnJournal";
@@ -11253,7 +11253,7 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
               profileName: contactName,
               realActionsEnabled: v3RealActionsEnabled,
             });
-            if (!v3Run.finalSafetyPass || !v3Run.reply) {
+            if (!v3Run.finalSafetyPass || (!v3Run.reply && !v3Run.suppressReply)) {
               console.error("V3 Phase 8.1.2 liveness retry: Native Kernel produced no validated reply", {
                 waId: from,
                 messageId: message.id || null,
@@ -11263,7 +11263,15 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
               // the webhook retryable; the incoming dedupe lease will reclaim it safely.
               throw new Error("V3_RETRYABLE_NO_VALIDATED_REPLY");
             }
-            reply = v3Run.reply;
+            if (v3Run.suppressReply) {
+              // V4 explicit silence is a valid human conversation outcome. Persist the
+              // memory and complete the inbound burst without fabricating an outgoing message.
+              await saveV3ConversationState(v3Run.stateAfter);
+              await markIncomingWhatsAppMessagesProcessed(burstMessageIds.length ? burstMessageIds : [String(message.id || "")]);
+              console.log("V4 explicit no-reply turn completed", { waId: from, messageId: message.id || null, turnId: v3TurnId });
+              return;
+            }
+            reply = v3Run.reply || "";
           } catch (v3RuntimeError) {
             console.error("V3 live runtime failed; contextual degraded Native reply will answer", { waId: from, messageId: message.id || null, error: v3RuntimeError });
             // Phase 11.5: the last-resort writer already supports truth/state/current
