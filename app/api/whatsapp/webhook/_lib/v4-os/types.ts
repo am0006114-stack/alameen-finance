@@ -26,6 +26,7 @@ export type V4TurnUnderstanding = {
   meaningSummary: string;
   currentGoal: string | null;
   explicitQuestions: string[];
+  neededFactKeys: string[];
   requestedAction: V4ActionName | null;
   actionDisposition: "request" | "confirm" | "deny" | "conditional" | "none";
   requestedPersona: V4Persona | null;
