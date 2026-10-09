@@ -7,6 +7,8 @@ import type {
   V4ActionExecutionResult,
   V4ActionExecutor,
   V4ActionName,
+  V4CommercialContinuationExecutor,
+  V4CommercialContinuationResult,
   V4CriticResult,
   V4Decision,
   V4DraftResponse,
@@ -42,9 +44,23 @@ function deterministicDraft(input: {
   procedure: V4ProcedureResolution;
   truth: V4TruthBundle;
   actionResult: V4ActionExecutionResult | null;
+  commercialContinuation: V4CommercialContinuationResult | null;
   identityQuestion: boolean;
   explicitQuestions: string[];
 }): V4DraftResponse | null {
+  if (input.commercialContinuation?.handled) {
+    return {
+      text: input.commercialContinuation.reply,
+      decision: input.commercialContinuation.persisted ? "ACT" : "ANSWER",
+      claims: input.commercialContinuation.persisted
+        ? [{ kind: "action", text: "تم تثبيت قرار الاستمرار على الطلب", action: "continue_application" }]
+        : [],
+      answeredQuestions: input.explicitQuestions,
+      usedFactKeys: [],
+      notes: ["delegated to frozen 5-JOD commercial funnel"],
+    };
+  }
+
   if (input.actionResult) {
     return {
       text: executionReply(input.actionResult),
@@ -91,7 +107,9 @@ function deterministicDraft(input: {
 function chooseDecision(input: {
   understanding: Awaited<ReturnType<V4ModelAdapter["understand"]>>;
   procedure: V4ProcedureResolution;
+  commercialContinuation: V4CommercialContinuationResult | null;
 }) {
+  if (input.commercialContinuation?.handled) return input.commercialContinuation.persisted ? "ACT" as const : "ANSWER" as const;
   if (input.procedure.shouldExecute) return "ACT" as const;
   if (input.procedure.needsConfirmation) return "ASK" as const;
   if (input.understanding.noReplyRequested) return "SILENCE" as const;
@@ -112,6 +130,7 @@ export async function runV4ConversationTurn(input: {
   truth: V4TruthBundle;
   model: V4ModelAdapter;
   actionExecutor?: V4ActionExecutor | null;
+  commercialContinuationExecutor?: V4CommercialContinuationExecutor | null;
 }): Promise<V4TurnResult> {
   const modelUnderstanding = await input.model.understand({ burstText: input.burstText, memory: input.memory, truth: input.truth });
   const understanding = enforceCurrentTurnUnderstanding({ burstText: input.burstText, model: modelUnderstanding, memory: input.memory });
@@ -120,9 +139,31 @@ export async function runV4ConversationTurn(input: {
   const procedure = resolveV4Procedure({ memory, turnId: input.turnId, understanding });
   memory = applyProcedureResolution({ memory, turnId: input.turnId, resolution: procedure });
 
-  let actionResult: V4ActionExecutionResult | null = null;
   let truth = input.truth;
-  if (procedure.shouldExecute && procedure.action) {
+  let commercialContinuation: V4CommercialContinuationResult | null = null;
+  if (understanding.requestedAction === "continue_application" && ["request", "confirm"].includes(understanding.actionDisposition)) {
+    commercialContinuation = input.commercialContinuationExecutor
+      ? await input.commercialContinuationExecutor.continue({ turnId: input.turnId, customerText: input.burstText })
+      : {
+          handled: true,
+          persisted: false,
+          receiptId: null,
+          reply: "رغبتك بالاستمرار واضحة، لكن مسار الاستمرار التجاري الرسمي مش مربوط بهالمعالجة هسا. ما رح أعطيك بيانات دفع أو أعتبر الخطوة تمت من مسار غير موثق.",
+          blocker: "commercial_continuation_executor_not_connected",
+        };
+    if (commercialContinuation.persisted && commercialContinuation.receiptId) {
+      truth = {
+        ...truth,
+        verifiedActionReceipts: [
+          ...truth.verifiedActionReceipts,
+          { action: "continue_application", executed: true, receiptId: commercialContinuation.receiptId, summary: "تم تثبيت قرار الاستمرار على الطلب" },
+        ],
+      };
+    }
+  }
+
+  let actionResult: V4ActionExecutionResult | null = null;
+  if (!commercialContinuation && procedure.shouldExecute && procedure.action) {
     if (!input.actionExecutor) {
       actionResult = { action: procedure.action, executed: false, receiptId: null, summary: null, error: "action executor is not connected" };
     } else {
@@ -143,8 +184,8 @@ export async function runV4ConversationTurn(input: {
     };
   }
 
-  const decision = chooseDecision({ understanding, procedure });
-  const hardDraft = deterministicDraft({ decision, memory, procedure, truth, actionResult, identityQuestion: understanding.identityQuestion, explicitQuestions: understanding.explicitQuestions });
+  const decision = chooseDecision({ understanding, procedure, commercialContinuation });
+  const hardDraft = deterministicDraft({ decision, memory, procedure, truth, actionResult, commercialContinuation, identityQuestion: understanding.identityQuestion, explicitQuestions: understanding.explicitQuestions });
 
   let draft = hardDraft || await input.model.compose({
     burstText: input.burstText,
@@ -193,5 +234,5 @@ export async function runV4ConversationTurn(input: {
     explainedFactKeys: critic.accepted ? draft.usedFactKeys : [],
   });
 
-  return { reply, decision, understanding, memory, procedure, actionResult, critic };
+  return { reply, decision, understanding, memory, procedure, actionResult, commercialContinuation, critic };
 }
