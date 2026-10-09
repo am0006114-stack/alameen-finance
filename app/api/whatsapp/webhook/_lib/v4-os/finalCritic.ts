@@ -65,20 +65,22 @@ function truthSupportsResultText(text: string | null | undefined, truth: V4Truth
   return false;
 }
 
+const PUBLIC_PRESENCE_PATTERN = /(?:فيسبوك|facebook|انستغرام|instagram|انستا|مرخص|ترخيص|سجل\s+تجاري|فرع|فروع|license|licensed)/i;
+
 function safeUnverifiedPublicPresenceReply(text: string) {
   const q = normalizeForFingerprint(text);
   return /(?:ما عندي|ليس عندي|ما في عندي|غير موثق|مش موثق|لا يوجد عندي|لا اقدر اثبت|ما بقدر اثبت|ما بقدر اكد|لا استطيع تاكيد)/.test(q);
 }
 
 function mentionsUnsupportedPublicPresence(text: string | null | undefined, truth: V4TruthBundle) {
-  const q = String(text || "");
-  if (!/(?:فيسبوك|facebook|انستغرام|instagram|مرخص|ترخيص|سجل\s+تجاري|فرع|فروع)/i.test(q)) return false;
+  const q = normalizeForFingerprint(text);
+  if (!PUBLIC_PRESENCE_PATTERN.test(q)) return false;
   if (safeUnverifiedPublicPresenceReply(q)) return false;
-  const visibleTruthText = Object.values(truth.facts)
+  const visibleTruthText = normalizeForFingerprint(Object.values(truth.facts)
     .filter((f) => f.customerVisible)
     .map((f) => String(f.value || ""))
-    .join(" ");
-  return !/(?:فيسبوك|facebook|انستغرام|instagram|مرخص|ترخيص|سجل\s+تجاري|فرع|فروع)/i.test(visibleTruthText);
+    .join(" "));
+  return !PUBLIC_PRESENCE_PATTERN.test(visibleTruthText);
 }
 
 function questionCovered(question: string, answered: string[]) {
