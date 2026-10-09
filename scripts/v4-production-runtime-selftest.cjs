@@ -1,0 +1,18 @@
+const fs=require('fs'),path=require('path');
+const root=process.argv[2]||process.cwd();let passed=0,failed=0;
+const ok=(c,m)=>{if(c){passed++;console.log(`PASS ${passed}: ${m}`)}else{failed++;console.error(`FAIL: ${m}`)}};
+const p=path.join(root,'app/api/whatsapp/webhook/_lib/v4-os/productionRuntime.ts');
+const s=fs.readFileSync(p,'utf8');
+ok(/export async function runV4ProductionLive/.test(s),'V4 production runtime has one explicit live entrypoint');
+ok(/export const runV3ProductionLive = runV4ProductionLive/.test(s),'temporary route compatibility alias points to V4 only');
+ok(/export const buildV3LastResortReply = buildV4LastResortReply/.test(s),'legacy fallback name points to deterministic V4 fallback only');
+ok(!/from\s+["']\.\.\/v3-os\/runtimeLive["']/.test(s),'V4 production runtime never imports V3 conversational runtime');
+ok(!/(enqueueShadowJob|enqueueConversationOsShadowJob|shadow-core|routeShadowAgent)/.test(s),'V4 production runtime contains no shadow execution path');
+ok(/v3TransactionalActionAdapter/.test(s),'real actions reuse the proven transactional backplane');
+ok(/input\.realActionsEnabled \? v3TransactionalActionAdapter : null/.test(s),'real actions remain controlled by existing production control');
+ok(/runV4FromExistingRuntime/.test(s),'customer conversation is routed through V4 kernel');
+ok(/resolveV3ProductionTruth/.test(s),'authoritative production truth is reused instead of reimplemented');
+ok(/suppressReply = v4Run\.result\.decision === ["']SILENCE["']/.test(s),'explicit no-reply decision has a first-class production contract');
+ok(/finalSafetyPass = verification\.pass/.test(s),'critic rejection fails production safety closed');
+ok(/buildV4LastResortReply/.test(s)&&/never calls a conversational model/.test(s),'emergency fallback is deterministic and non-conversational');
+console.log(`\nV4 PRODUCTION RUNTIME SELFTEST: assertions=${passed+failed}; passed=${passed}; failed=${failed}`);if(failed)process.exit(1);
