@@ -1,0 +1,214 @@
+{
+  "version": "2026-10-09-v1",
+  "source": "production WhatsApp failure classes, anonymized into semantic fixtures",
+  "principle": "current meaning owns the reply; verified truth and action receipts own factual claims",
+  "cases": [
+    {
+      "id": "V4-PROD-001",
+      "history": ["المعدل الطبيعي للمراجعة من يومين إلى 3 أيام تشغيلية."],
+      "customer": "هل سعر الجهاز المعروض على الموقع الرسمي هو كامل مع الاقساط",
+      "expectedGoal": "total_payable_or_price_structure",
+      "mustAnswer": ["السعر", "الأقساط"],
+      "mustNotAnswer": ["office_location"]
+    },
+    {
+      "id": "V4-PROD-002",
+      "history": ["حالة طلبك الآن: موافقة مبدئية."],
+      "customer": "شو ضل",
+      "expectedGoal": "next_step_after_preliminary_approval",
+      "mustAnswer": ["الخطوة التالية"],
+      "mustNotAnswer": ["status_only"]
+    },
+    {
+      "id": "V4-PROD-003",
+      "history": ["رسوم فتح الملف 5 دنانير."],
+      "customer": "بس احول المبلغ متى بستلم الجهاز",
+      "expectedGoal": "delivery_timing_after_fee",
+      "mustAnswer": ["الاستلام"],
+      "mustNotAnswer": ["refund_timing"]
+    },
+    {
+      "id": "V4-PROD-004",
+      "history": ["تم شرح دفع رسوم فتح الملف."],
+      "customer": "يعني متى ببين إذا تم قبول الطلب او لا",
+      "expectedGoal": "final_approval_timing",
+      "mustAnswer": ["الموافقة النهائية", "مدة المراجعة"],
+      "mustNotAnswer": ["refund"]
+    },
+    {
+      "id": "V4-PROD-005",
+      "history": ["كم بدو وقت تقريبا", "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام تشغيلية."],
+      "customer": "وبقدر الاقساط على ١٢ شهر بدال ٣٦",
+      "expectedGoal": "installment_duration_change_question",
+      "mustAnswer": ["12 شهر", "36 شهر"],
+      "mustNotAnswer": ["review_timing"]
+    },
+    {
+      "id": "V4-PROD-006",
+      "history": ["قبل ما أسجل طلب التعديل أكدلي."],
+      "customer": "تأكيد",
+      "pendingProcedure": "change_application_data",
+      "expectedActionDisposition": "confirm",
+      "expectedProcedure": "execute_or_return_real_blocker",
+      "mustNotAnswer": ["ask_confirmation_again"]
+    },
+    {
+      "id": "V4-PROD-007",
+      "history": ["أكدلي مرة واحدة: نعم، أريد استرداد الرسوم."],
+      "customer": "نعم اريد استرداد الرسوم",
+      "pendingProcedure": "request_refund",
+      "expectedActionDisposition": "confirm",
+      "expectedProcedure": "execute_or_return_real_blocker",
+      "mustNotAnswer": ["ask_confirmation_again"]
+    },
+    {
+      "id": "V4-PROD-008",
+      "history": ["طلب الاسترداد مسجل وقيد المعالجة."],
+      "customer": "رح تبلغني بالاسترداد لما يتم او لأ",
+      "expectedGoal": "refund_completion_notification_question",
+      "answerMode": "yes_no_first",
+      "mustAnswer": ["نعم أو لا بشكل مباشر"],
+      "mustNotAnswer": ["long_refund_template"]
+    },
+    {
+      "id": "V4-PROD-009",
+      "history": ["حالة الطلب قيد الدراسة النهائية."],
+      "customer": "وين عمران",
+      "expectedGoal": "human_supervisor_contact",
+      "humanContactRequested": true,
+      "mustNotAnswer": ["payment", "review_template", "status_template"]
+    },
+    {
+      "id": "V4-PROD-010",
+      "history": ["حالة الطلب قيد الدراسة النهائية."],
+      "customer": "وين عمران\nانا ليش استنى ٢٦ يوم شو هالمسخرة",
+      "expectedGoal": "human_supervisor_contact_and_delay_complaint",
+      "emotion": "angry",
+      "mustAnswer": ["طول الانتظار", "طلب التواصل"],
+      "mustNotAnswer": ["generic_two_to_three_day_only"]
+    },
+    {
+      "id": "V4-PROD-011",
+      "history": ["وصلت الصورة. إذا هي هوية أو إثبات دخل..."],
+      "customer": "لا هاي تأكيد حوالة كليك",
+      "expectedGoal": "payment_receipt_clarification",
+      "mustAnswer": ["إثبات حوالة", "رفع الوصل الرسمي", "الدفع غير مؤكد من الصورة وحدها"],
+      "mustNotAnswer": ["identity_document"]
+    },
+    {
+      "id": "V4-PROD-012",
+      "history": ["تم استلام رسالة صوتية بدون تفريغ."],
+      "customer": "قدمت على تلفون من عندكو من يومين بدي اشوف الموافقة طلعت",
+      "expectedGoal": "approval_status",
+      "mustAnswer": ["حالة الطلب"],
+      "mustNotAnswer": ["voice_message"]
+    },
+    {
+      "id": "V4-PROD-013",
+      "history": ["طلبك ملغي بالفعل."],
+      "customer": "لغيت لاني مش مصدقكم",
+      "expectedGoal": "trust_explanation_after_cancel",
+      "mustAnswer": ["سبب عدم الثقة"],
+      "mustNotAnswer": ["repeat_cancel_status_only"]
+    },
+    {
+      "id": "V4-PROD-014",
+      "history": ["رسوم فتح الملف 5 دنانير."],
+      "customer": "طيب اذا ما طلعتلي موافقه بتروح الرسوم ع الفاضي؟",
+      "expectedGoal": "fee_refund_if_not_approved",
+      "mustAnswer": ["الاسترداد"],
+      "mustNotAnswer": ["payment_details_again"]
+    },
+    {
+      "id": "V4-PROD-015",
+      "history": ["المتابعة الرسمية من نفس واتساب."],
+      "customer": "انا بدي اجي عندكم على الشركة اخلص كل الامور",
+      "expectedGoal": "office_visit_process",
+      "mustAnswer": ["الحضور بموعد رسمي"],
+      "mustNotAnswer": ["payment_details"]
+    },
+    {
+      "id": "V4-PROD-016",
+      "history": [],
+      "customer": "عندي سجل تجاري وانا كابتن على تطبيق تكسي اف",
+      "expectedGoal": "self_employed_income_requirements",
+      "mustAnswer": ["إثبات الدخل أو البدائل"],
+      "mustNotAnswer": ["business_registration_secrecy"]
+    },
+    {
+      "id": "V4-PROD-017",
+      "history": ["حالة طلبك الآن: قيد المراجعة المبدئية."],
+      "customer": "كم مدة المراجعه",
+      "expectedGoal": "review_timing",
+      "mustAnswer": ["مدة المراجعة"],
+      "mustNotAnswer": ["status_only"]
+    },
+    {
+      "id": "V4-PROD-018",
+      "history": ["الموقع العام عمّان – شارع المدينة المنورة."],
+      "customer": "تمام صديقي شوفو الإجراءات وبس تخلص المراجعة ابعتلي خبر على طلبي",
+      "expectedGoal": "follow_up_notification_request",
+      "mustAnswer": ["المتابعة أو حدود الإشعار"],
+      "mustNotAnswer": ["location_again"]
+    },
+    {
+      "id": "V4-PROD-019",
+      "history": ["رقم واتسابك مختلف. اكتب نعم، اعتمد الرقم."],
+      "customer": "نعم اعتمد الرقم",
+      "pendingProcedure": "link_whatsapp_alias",
+      "expectedActionDisposition": "confirm",
+      "expectedProcedure": "execute_or_return_real_blocker",
+      "mustNotAnswer": ["ask_alias_confirmation_again"]
+    },
+    {
+      "id": "V4-PROD-020",
+      "history": ["المعدل الطبيعي للمراجعة من يومين إلى 3 أيام."],
+      "customer": "ما في أسرع من هيك",
+      "expectedGoal": "expedite_or_faster_review_question",
+      "mustAnswer": ["هل يوجد تسريع فعلي أم لا"],
+      "mustNotAnswer": ["repeat_exact_review_template"]
+    },
+    {
+      "id": "V4-PROD-021",
+      "history": ["الموقع العام عمّان – شارع المدينة المنورة."],
+      "customer": "ابعت لوكيشن",
+      "expectedGoal": "precise_location_request",
+      "mustAnswer": ["حدود الموقع الموثق أو الموعد"],
+      "mustNotAnswer": ["fee_disclosure"]
+    },
+    {
+      "id": "V4-PROD-022",
+      "history": ["تم شرح الرسوم."],
+      "customer": "انا لما بعثتو اول رساله حولت 5 دنانير حكتلكو اصور الحواله",
+      "expectedGoal": "existing_payment_receipt_followup",
+      "mustAnswer": ["رفع أو حالة الوصل"],
+      "mustNotAnswer": ["restart_commercial_disclosure"]
+    },
+    {
+      "id": "V4-PROD-023",
+      "history": ["طلبك قيد الدراسة النهائية."],
+      "customer": "كان المفروض اليوم اخر يوم للدراسه هيك معطيني على التطبيق",
+      "expectedGoal": "review_deadline_mismatch",
+      "mustAnswer": ["التعارض بين الموعد الظاهر والحالة الحالية"],
+      "mustNotAnswer": ["status_only"]
+    },
+    {
+      "id": "V4-PROD-024",
+      "history": ["فاهم إنك متضايق..."],
+      "customer": "ضاغط عليك لحالك جاوبني بدون فلسفة",
+      "expectedGoal": "direct_answer_requested",
+      "customerWantsBrevity": true,
+      "mustAnswer": ["الجواب المباشر أولاً"],
+      "mustNotAnswer": ["empathy_paragraph"]
+    },
+    {
+      "id": "V4-PROD-025",
+      "history": [],
+      "customer": "انت بني آدم ولا رد آلي؟",
+      "expectedGoal": "identity",
+      "identityQuestion": true,
+      "mustAnswer": ["معك فلان من فريق الأمين"],
+      "mustNotAnswer": ["أنا إنسان", "مش بوت", "أنا نموذج ذكاء اصطناعي"]
+    }
+  ]
+}
