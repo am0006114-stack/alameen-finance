@@ -14,6 +14,20 @@ export function actionNeedsConfirmation(action: V4ActionName) {
   return CONFIRMATION_REQUIRED.has(action);
 }
 
+function freshTurnShouldNotBeOwnedByPending(understanding: V4TurnUnderstanding) {
+  if (understanding.requestedAction) return false;
+  if (understanding.actionDisposition === "confirm" || understanding.actionDisposition === "deny") return false;
+  return Boolean(
+    understanding.explicitQuestions.length ||
+    understanding.topicChanged ||
+    understanding.identityQuestion ||
+    understanding.requestedPersona ||
+    understanding.humanContactRequested ||
+    understanding.noReplyRequested ||
+    understanding.socialClosure
+  );
+}
+
 export function resolveV4Procedure(input: {
   memory: V4WorkingMemory;
   turnId: string;
@@ -24,6 +38,18 @@ export function resolveV4Procedure(input: {
   const disposition = input.understanding.actionDisposition;
 
   if (pending && pending.state === "confirmation_required") {
+    // A new question/topic may temporarily leave the procedure pending, but it may never
+    // hijack the current reply. The customer can return to it later and confirm explicitly.
+    if (freshTurnShouldNotBeOwnedByPending(input.understanding)) {
+      return {
+        action: null,
+        nextState: null,
+        shouldExecute: false,
+        needsConfirmation: false,
+        reason: "fresh current-turn goal temporarily supersedes pending procedure",
+      };
+    }
+
     if (disposition === "deny") {
       return {
         action: pending.name,
