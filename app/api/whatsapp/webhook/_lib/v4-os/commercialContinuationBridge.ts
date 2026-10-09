@@ -2,14 +2,7 @@ import { applicationJourneyStage } from "../v3-os/applicationJourney";
 import { buildMandatoryFiveJodContinuationReply } from "../v3-os/conversationRecovery";
 import { persistExplicitContinuation } from "../v3-os/continuationPersistence";
 import type { InterpretedTurn, TruthBundle } from "../v3-os/types";
-
-export type V4CommercialContinuationResult = {
-  handled: boolean;
-  persisted: boolean;
-  receiptId: string | null;
-  reply: string | null;
-  blocker: string | null;
-};
+import type { V4CommercialContinuationResult } from "./types";
 
 function syntheticContinuationTurn(input: { turnId: string; customerText: string }): InterpretedTurn {
   return {
