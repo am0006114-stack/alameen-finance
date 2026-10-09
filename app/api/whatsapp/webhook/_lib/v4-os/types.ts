@@ -161,6 +161,20 @@ export interface V4CommercialContinuationExecutor {
   }): Promise<V4CommercialContinuationResult>;
 }
 
+export type V4HumanEscalationResult = {
+  recorded: boolean;
+  receiptId: string | null;
+  reply: string;
+  blocker: string | null;
+};
+
+export interface V4HumanEscalationExecutor {
+  request(input: {
+    turnId: string;
+    customerText: string;
+  }): Promise<V4HumanEscalationResult>;
+}
+
 export interface V4ModelAdapter {
   understand(input: {
     burstText: string;
@@ -212,5 +226,6 @@ export type V4TurnResult = {
   procedure: V4ProcedureResolution;
   actionResult: V4ActionExecutionResult | null;
   commercialContinuation: V4CommercialContinuationResult | null;
+  humanEscalation: V4HumanEscalationResult | null;
   critic: V4CriticResult;
 };
