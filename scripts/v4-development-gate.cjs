@@ -10,6 +10,10 @@ if(forbidden.length){console.error('FAIL - V4 DEVELOPMENT TOUCHED FROZEN PRODUCT
 console.log(`PASS - production baseline ${BASE.slice(0,7)} remains frozen; ${names.length} V4-only files changed`);
 console.log('\n=== V4 CORE SELFTEST ===');
 run(process.execPath,[path.join('scripts','v4-human-ai-conversation-os-selftest.cjs'),root]);
+console.log('\n=== V4 BURST ASSEMBLER SELFTEST ===');
+run(process.execPath,[path.join('scripts','v4-burst-assembler-selftest.cjs'),root]);
+console.log('\n=== V4 PRODUCTION REGRESSION CONTRACT ===');
+run(process.execPath,[path.join('scripts','v4-regression-contract-selftest.cjs'),root]);
 console.log('\n=== TYPESCRIPT / NEXT BUILD ===');
 if(process.platform==='win32')run(process.env.ComSpec||'C:\\Windows\\System32\\cmd.exe',['/d','/s','/c','npm run build']);else run('npm',['run','build']);
 console.log('\n=== DIFF CHECK ===');
