@@ -1,6 +1,8 @@
 import { applicationJourneyStage } from "../v3-os/applicationJourney";
 import { buildMandatoryFiveJodContinuationReply } from "../v3-os/conversationRecovery";
 import { persistExplicitContinuation } from "../v3-os/continuationPersistence";
+import { fileOpeningPaymentWriterTruth } from "../v3-os/paymentDestinationOverride";
+import { applicationReceiptUrl } from "../v3-os/linkIntegrity";
 import type { InterpretedTurn, TruthBundle } from "../v3-os/types";
 import type { V4CommercialContinuationResult } from "./types";
 
@@ -30,10 +32,21 @@ function syntheticContinuationTurn(input: { turnId: string; customerText: string
   };
 }
 
+function compactPaymentHandoff(truth: TruthBundle) {
+  const payment = fileOpeningPaymentWriterTruth();
+  const receipt = truth.contactAccess === "full" ? applicationReceiptUrl(truth) : null;
+  const aliases = payment.channels.cliq.aliases.join(" / ");
+  const receiptLine = receipt
+    ? `\nارفع الوصل من الرابط الرسمي:\n${receipt}`
+    : "\nرابط رفع الوصل المرتبط بطلبك مش متاح عندي بشكل موثق هسا، فما رح أعطيك رابط عام.";
+
+  return `تمام. المطلوب الآن 5 دنانير رسوم فتح الملف.\nOrange Money: ${payment.channels.orangeMoney.phone}\nCliQ: ${aliases}\nالمستفيد: ${payment.beneficiaryName}${receiptLine}`;
+}
+
 /**
- * This is a delegate, not a rewrite of the payment funnel. It calls the exact frozen
- * V3 continuation persistence and deterministic 5-JOD customer reply. V4 never
- * reconstructs payment destinations, receipt URLs, or payment confirmation rules.
+ * V4 owns presentation speed, while the frozen V3 backplane still owns persistence,
+ * payment destinations, receipt binding, and payment truth. No payment value or alias
+ * is duplicated in V4.
  */
 export async function runFrozenCommercialContinuation(input: {
   turnId: string;
@@ -48,14 +61,17 @@ export async function runFrozenCommercialContinuation(input: {
   const stage = applicationJourneyStage(app);
   const turn = syntheticContinuationTurn({ turnId: input.turnId, customerText: input.customerText });
 
-  // The frozen reply function already knows how to handle already-paid, receipt-pending,
-  // preliminary-review and post-continuation states without asking for money twice.
+  // If continuation was already recorded and the fee is due, repeat only the useful
+  // payment handoff. Paid/pending/refund/other stages remain delegated to the frozen
+  // V3 reply so V4 cannot weaken payment truth or ask for money twice.
   if (stage !== "preliminary_approved_waiting_decision") {
     return {
       handled: true,
       persisted: false,
       receiptId: null,
-      reply: buildMandatoryFiveJodContinuationReply(turn, input.truth),
+      reply: stage === "continuation_confirmed_fee_due"
+        ? compactPaymentHandoff(input.truth)
+        : buildMandatoryFiveJodContinuationReply(turn, input.truth),
       blocker: null,
     };
   }
@@ -66,7 +82,7 @@ export async function runFrozenCommercialContinuation(input: {
       handled: true,
       persisted: false,
       receiptId: null,
-      reply: "رغبتك بالاستمرار وصلت، لكن ما بدي أفتح لك خطوة دفع على حالة غير مثبتة. في تعذر بتثبيت قرار الاستمرار على الطلب، فالمطلوب مراجعة الحالة الفعلية بدل ما أوهمك إنه تم.",
+      reply: "قرار الاستمرار وصل، لكن تعذر تثبيته على الطلب. ما رح أفتح الدفع قبل ما تكون الخطوة مثبتة فعليًا.",
       blocker: persisted.blocker,
     };
   }
@@ -75,7 +91,7 @@ export async function runFrozenCommercialContinuation(input: {
     handled: true,
     persisted: Boolean(persisted.updated || persisted.alreadyRecorded),
     receiptId: persisted.updated ? `continuation:${app.id}:${input.turnId}` : persisted.alreadyRecorded ? `continuation-existing:${app.id}` : null,
-    reply: buildMandatoryFiveJodContinuationReply(turn, input.truth),
+    reply: compactPaymentHandoff(input.truth),
     blocker: null,
   };
 }
