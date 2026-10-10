@@ -102,6 +102,36 @@ function explicitHumanRejectionOfAutomation(burstText: string): V4TurnUnderstand
   });
 }
 
+function explicitLongWaitOverride(burstText: string): V4TurnUnderstanding | null {
+  const q = normalizeArabic(burstText);
+  const unit = /(?:يوم|ايام|اسبوع|اسابيع|شهر|شهور|اشهر|سنه|سنين|سنوات)/;
+  const waitPhrase = /(?:صارلي|صار\s+لي|انتظرت|بستنى|استنى|استنيت|من)\s*.{0,24}/;
+  const elapsed = new RegExp(`${waitPhrase.source}(?:\\d+\\s*)?${unit.source}`).test(q);
+  const explicitTimeQuestion = /(?:كم|قديش|متى|امتى).{0,30}(?:وقت|مده|الرد|الموافقه)/.test(q);
+  if (!elapsed && !explicitTimeQuestion) return null;
+  return {
+    meaningSummary: elapsed ? "العميل يعترض على طول الانتظار بمدة صريحة" : "العميل يسأل عن مدة المراجعة",
+    currentGoal: "application_review_time",
+    explicitQuestions: [burstText.trim()].filter(Boolean),
+    neededFactKeys: ["application.status.customer", "application.journey_stage", "application.age_days", "review.normal_window", "refund.pressure_rule"],
+    requestedAction: null,
+    actionDisposition: "none",
+    requestedPersona: null,
+    references: [],
+    emotion: elapsed ? "frustrated" : "neutral",
+    urgency: elapsed ? "high" : "normal",
+    topicChanged: false,
+    customerRejectedPreviousAnswer: false,
+    customerWantsBrevity: true,
+    noReplyRequested: false,
+    identityQuestion: false,
+    humanContactRequested: false,
+    socialClosure: false,
+    confidence: 1,
+    warnings: ["journey_director:review_time", "v4_1_explicit_wait_duration"],
+  };
+}
+
 function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemory }): V4TurnUnderstanding | null {
   const q = normalizeArabic(input.burstText);
   const last = normalizeArabic(input.memory.lastAssistantText);
@@ -170,6 +200,8 @@ export function createV41JourneyAwareModelAdapter(input: {
       if (explicitHuman) return explicitHuman;
       const visibleConfirmation = confirmsVisiblePrompt({ burstText: req.burstText, memory: req.memory });
       if (visibleConfirmation) return visibleConfirmation;
+      const longWait = explicitLongWaitOverride(req.burstText);
+      if (longWait) return longWait;
       const preliminaryOverride = preliminaryDecisionOverride({ burstText: req.burstText, truth: req.truth });
       if (preliminaryOverride) return preliminaryOverride;
       const directed = resolveJourneyDirectorUnderstanding(req);
