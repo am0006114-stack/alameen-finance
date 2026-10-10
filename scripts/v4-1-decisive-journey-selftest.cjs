@@ -12,9 +12,15 @@ const procedure = read('app/api/whatsapp/webhook/_lib/v4-os/procedureEngine.ts')
 const truth = read('app/api/whatsapp/webhook/_lib/v4-os/truthAdapter.ts');
 const commercial = read('app/api/whatsapp/webhook/_lib/v4-os/commercialFunnelPolicy.ts');
 
+const visibleCall = wrapper.indexOf('const visibleConfirmation = confirmsVisiblePrompt');
+const preliminaryCall = wrapper.indexOf('const preliminaryOverride = preliminaryDecisionOverride');
+const directorCall = wrapper.indexOf('const directed = resolveJourneyDirectorUnderstanding(req)');
+const pendingCall = director.indexOf('const pending = pendingConfirmation({');
+const commercialCall = director.indexOf('const commercial = resolveCommercialFastPathUnderstanding(input);');
+
 ok(/createV41JourneyAwareModelAdapter/.test(bridge), 'runtime uses V4.1 journey-aware adapter');
-ok(wrapper.indexOf('confirmsVisiblePrompt') < wrapper.indexOf('resolveJourneyDirectorUnderstanding'), 'visible prior confirmation is recovered before normal routing');
-ok(director.indexOf('pendingConfirmation') < director.indexOf('resolveCommercialFastPathUnderstanding'), 'pending sensitive confirmation outranks commercial funnel');
+ok(visibleCall >= 0 && preliminaryCall > visibleCall && directorCall > preliminaryCall, 'visible confirmation and preliminary decision are resolved before normal routing');
+ok(pendingCall >= 0 && commercialCall > pendingCall, 'pending sensitive confirmation outranks commercial funnel');
 ok(director.indexOf('asksHowToUpload') < director.indexOf('asksStatus'), 'exact document upload question outranks generic status');
 ok(director.indexOf('asksWhatIsMissing') < director.indexOf('asksStatus'), 'missing-document question outranks generic status');
 ok(director.indexOf('asksInstallmentArrears') < director.indexOf('asksStatus'), 'contract installment question cannot collapse into payment/status template');
@@ -36,7 +42,7 @@ ok(/visible_prior_confirmation:cancel_application/.test(wrapper), 'cancel confir
 ok(/visible_prior_confirmation:request_refund/.test(wrapper), 'refund confirmation shown to customer is recoverable');
 ok(/visible_prior_confirmation:reopen_application/.test(wrapper), 'reopen confirmation shown to customer is recoverable');
 ok(/confirmedAgainstVisiblePrompt/.test(procedure) && /shouldExecute: true/.test(procedure), 'already-shown sensitive confirmation executes without asking again');
-ok(/ما\\s\+بدي\\s\+رد/.test(wrapper) && /explicit_real_human_request:not_silence/.test(wrapper), 'ما بدي رد آلي is human escalation, not silence');
+ok(/explicitHumanRejectionOfAutomation/.test(wrapper) && /explicit_real_human_request:not_silence/.test(wrapper) && /noReplyRequested: false/.test(wrapper), 'ما بدي رد آلي is human escalation, not silence');
 ok(/tracking blocked before authoritative payment/.test(director), 'explicit tracking request before payment is blocked from receiving a tracking link');
 ok(/never confuse contract installment with opening-fee payment proof/.test(director), 'missed monthly installment is isolated from 5-JOD payment proof');
 ok(/product question isolated from stale application topic/.test(director), 'device availability/price is isolated from stale refund/status context');
