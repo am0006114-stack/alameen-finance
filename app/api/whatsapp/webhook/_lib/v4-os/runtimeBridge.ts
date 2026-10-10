@@ -5,7 +5,7 @@ import { v3InterpreterProviderFromEnv, v3JudgeProviderFromEnv, v3WriterProviderF
 import type { ActionKey, ConversationState, PlannedAction, TruthBundle } from "../v3-os/types";
 import { runFrozenCommercialContinuation } from "./commercialContinuationBridge";
 import { requestRealHumanEscalation } from "./humanEscalationBridge";
-import { createV41JourneyAwareModelAdapter } from "./journeyAwareModelAdapter";
+import { createV41DeterministicOnlyModelAdapter, createV41JourneyAwareModelAdapter } from "./journeyAwareModelAdapter";
 import { toV4TruthBundle } from "./truthAdapter";
 import type { V4ActionExecutor, V4ActionName, V4CommercialContinuationExecutor, V4HumanEscalationExecutor, V4ModelAdapter, V4Persona } from "./types";
 
@@ -30,11 +30,16 @@ export function v4PersonaFromV3State(state: ConversationState): V4Persona {
   return "abdullah";
 }
 
-export function v4ModelAdapterFromEnv(): V4ModelAdapter | null {
+/**
+ * V4.1 always returns a conversation adapter. Critical journey paths are deterministic
+ * and must stay available even when every LLM/provider is unavailable. The real model
+ * is an optional enhancement for unmatched/open-ended conversation only.
+ */
+export function v4ModelAdapterFromEnv(): V4ModelAdapter {
   const writer = v3WriterProviderFromEnv();
   const interpreter = v3InterpreterProviderFromEnv() || writer;
   const critic = v3JudgeProviderFromEnv() || writer;
-  if (!writer || !interpreter || !critic) return null;
+  if (!writer || !interpreter || !critic) return createV41DeterministicOnlyModelAdapter();
   return createV41JourneyAwareModelAdapter({ understandingProvider: interpreter, writerProvider: writer, criticProvider: critic });
 }
 
@@ -91,14 +96,10 @@ export function createV4ActionExecutorFromV3(input: {
       const v3Action = mapV4ActionToV3(req.action);
       if (!v3Action) return { action: req.action, executed: false, receiptId: null, summary: null, error: "unsupported_v4_action" };
 
-      // Hard fail-safe: commercial continuation must never enter the generic action
-      // backplane. It has its own delegate above which calls the frozen 5-JOD funnel.
       if (req.action === "continue_application") {
         return { action: req.action, executed: false, receiptId: null, summary: null, error: "continuation_must_use_frozen_commercial_delegate" };
       }
 
-      // Real-human escalation is also a dedicated durable bridge; never turn it into a
-      // fake generic action receipt.
       if (req.action === "record_human_contact_request") {
         return { action: req.action, executed: false, receiptId: null, summary: null, error: "human_contact_must_use_durable_escalation_bridge" };
       }
