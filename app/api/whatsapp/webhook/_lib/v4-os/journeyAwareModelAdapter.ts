@@ -76,7 +76,6 @@ function preliminaryDecisionOverride(input: { burstText: string; truth: { facts:
   if (stage !== "preliminary_approved_waiting_decision") return null;
   const q = normalizeArabic(input.burstText);
 
-  // 1 / ١ and explicit variants are consent. Plain تمام/OK is only acknowledgement.
   if (/^1(?:\s+(?:موافق|نعم|استمرار|اكمل|كمل))?$/.test(q)) {
     return directUnderstanding({
       summary: "العميل اختار الاستمرار صراحة من خيار الموافقة المبدئية",
@@ -108,7 +107,7 @@ function explicitLongWaitOverride(burstText: string): V4TurnUnderstanding | null
   const unit = /(?:يوم|ايام|اسبوع|اسابيع|شهر|شهور|اشهر|سنه|سنين|سنوات)/;
   const waitPhrase = /(?:صارلي|صار\s+لي|انتظرت|بستنى|استنى|استنيت|من)\s*.{0,24}/;
   const elapsed = new RegExp(`${waitPhrase.source}(?:\\d+\\s*)?${unit.source}`).test(q);
-  const explicitTimeQuestion = /(?:كم|قديش|متى|امتى).{0,30}(?:وقت|مده|الرد|الموافقه)/.test(q);
+  const explicitTimeQuestion = /(?:كم|قديش|متى|امتى).{0,30}(?:وقت|مده|الرد|الموافقه|للموافقه|موافقه)/.test(q);
   if (!elapsed && !explicitTimeQuestion) return null;
   return {
     meaningSummary: elapsed ? "العميل يعترض على طول الانتظار بمدة صريحة" : "العميل يسأل عن مدة المراجعة",
@@ -133,61 +132,55 @@ function explicitLongWaitOverride(burstText: string): V4TurnUnderstanding | null
   };
 }
 
+function explicitReviewAndDeliveryOverride(burstText: string): V4TurnUnderstanding | null {
+  const q = normalizeArabic(burstText);
+  const delivery = /(?:استلام|استلم|التسليم|تسليم)/.test(q) && /(?:كم|قديش|متى|امتى|مده|وقت)/.test(q);
+  const review = /(?:الموافقه|للموافقه|موافقه|الرد|المراجعه|للمراجعه)/.test(q) && /(?:كم|قديش|متى|امتى|مده|وقت)/.test(q);
+  if (!delivery || !review) return null;
+  return {
+    meaningSummary: "العميل يسأل عن مدة الموافقة ومدة الاستلام معًا",
+    currentGoal: "review_and_delivery_time",
+    explicitQuestions: [burstText.trim()].filter(Boolean),
+    neededFactKeys: ["application.device_name", "review.normal_window", "recent_release.rule", "pickup.rule"],
+    requestedAction: null,
+    actionDisposition: "none",
+    requestedPersona: null,
+    references: [],
+    emotion: "neutral",
+    urgency: "normal",
+    topicChanged: true,
+    customerRejectedPreviousAnswer: false,
+    customerWantsBrevity: true,
+    noReplyRequested: false,
+    identityQuestion: false,
+    humanContactRequested: false,
+    socialClosure: false,
+    confidence: 1,
+    warnings: ["journey_extension:review_and_delivery_time", "v4_1_dual_question_integrity"],
+  };
+}
+
 function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemory }): V4TurnUnderstanding | null {
   const q = normalizeArabic(input.burstText);
   const last = normalizeArabic(input.memory.lastAssistantText);
   if (!q || !last) return null;
-
-  // These are confirmations of a confirmation prompt that the customer actually saw.
-  // This reconstructs authority even if a legacy/state migration missed pendingProcedure.
   const yes = /^(?:نعم|اه|ايوه|موافق|تمام)$/.test(q);
 
   if (/اعتمد\s+الرقم|اعتمد.*واتساب/.test(last) && (yes || /اعتمد\s+(?:الرقم|رقم\s+الواتساب)/.test(q))) {
-    return directUnderstanding({
-      summary: "العميل أكد اعتماد رقم واتساب بعد مطالبة واضحة ظهرت له",
-      goal: "confirm_link_whatsapp_alias",
-      action: "link_whatsapp_alias",
-      disposition: "confirm",
-      warning: "visible_prior_confirmation:link_whatsapp_alias",
-    });
+    return directUnderstanding({ summary: "العميل أكد اعتماد رقم واتساب بعد مطالبة واضحة ظهرت له", goal: "confirm_link_whatsapp_alias", action: "link_whatsapp_alias", disposition: "confirm", warning: "visible_prior_confirmation:link_whatsapp_alias" });
   }
   if (/نعم.*الغي\s+الطلب|اكتب.*الغي\s+الطلب/.test(last) && (yes || /الغي\s+(?:الطلب|طلبي)/.test(q))) {
-    return directUnderstanding({
-      summary: "العميل أكد إلغاء الطلب بعد مطالبة واضحة ظهرت له",
-      goal: "confirm_cancel_application",
-      action: "cancel_application",
-      disposition: "confirm",
-      warning: "visible_prior_confirmation:cancel_application",
-    });
+    return directUnderstanding({ summary: "العميل أكد إلغاء الطلب بعد مطالبة واضحة ظهرت له", goal: "confirm_cancel_application", action: "cancel_application", disposition: "confirm", warning: "visible_prior_confirmation:cancel_application" });
   }
   if (/نعم.*استرداد\s+الرسوم|اكتب.*استرداد\s+الرسوم/.test(last) && (yes || /استرداد\s+(?:الرسوم|المبلغ)/.test(q))) {
-    return directUnderstanding({
-      summary: "العميل أكد استرداد الرسوم بعد مطالبة واضحة ظهرت له",
-      goal: "confirm_request_refund",
-      action: "request_refund",
-      disposition: "confirm",
-      warning: "visible_prior_confirmation:request_refund",
-    });
+    return directUnderstanding({ summary: "العميل أكد استرداد الرسوم بعد مطالبة واضحة ظهرت له", goal: "confirm_request_refund", action: "request_refund", disposition: "confirm", warning: "visible_prior_confirmation:request_refund" });
   }
   if (/اعيد\s+فتح\s+الطلب.*اكمل|اكتب.*اعيد\s+فتح/.test(last) && (yes || /اعيد\s+فتح\s+(?:الطلب|الملف)|اكمل\s+عليه/.test(q))) {
-    return directUnderstanding({
-      summary: "العميل أكد إعادة فتح الطلب بعد مطالبة واضحة ظهرت له",
-      goal: "confirm_reopen_application",
-      action: "reopen_application",
-      disposition: "confirm",
-      warning: "visible_prior_confirmation:reopen_application",
-    });
+    return directUnderstanding({ summary: "العميل أكد إعادة فتح الطلب بعد مطالبة واضحة ظهرت له", goal: "confirm_reopen_application", action: "reopen_application", disposition: "confirm", warning: "visible_prior_confirmation:reopen_application" });
   }
-
   return null;
 }
 
-/**
- * V4.1 puts deterministic current-turn/journey handling in front of paid model calls.
- * The base V4 model remains available for genuinely open-ended conversation, but it no
- * longer owns revenue steps, document upload, action confirmations, tracking gates,
- * status boilerplate, delivery/apply/requirements routing, or other high-risk routine turns.
- */
 export function createV41JourneyAwareModelAdapter(input: {
   understandingProvider: V3TextProvider;
   writerProvider: V3TextProvider;
@@ -203,6 +196,8 @@ export function createV41JourneyAwareModelAdapter(input: {
       if (visibleConfirmation) return visibleConfirmation;
       const preliminaryOverride = preliminaryDecisionOverride({ burstText: req.burstText, truth: req.truth });
       if (preliminaryOverride) return preliminaryOverride;
+      const dualTiming = explicitReviewAndDeliveryOverride(req.burstText);
+      if (dualTiming) return dualTiming;
       const extended = resolveV41ExtendedUnderstanding({ burstText: req.burstText, truth: req.truth });
       if (extended) return extended;
       const longWait = explicitLongWaitOverride(req.burstText);
@@ -214,19 +209,12 @@ export function createV41JourneyAwareModelAdapter(input: {
     async compose(req) {
       const extended = buildV41ExtendedDraft({ understanding: req.understanding, truth: req.truth });
       if (extended) return extended;
-      const directed = buildJourneyDirectorDraft({
-        burstText: req.burstText,
-        understanding: req.understanding,
-        memory: req.memory,
-        truth: req.truth,
-      });
+      const directed = buildJourneyDirectorDraft({ burstText: req.burstText, understanding: req.understanding, memory: req.memory, truth: req.truth });
       return directed || base.compose(req);
     },
 
     async critique(req) {
-      if (req.draft.notes.includes(JOURNEY_DIRECTOR_NOTE)) {
-        return { accepted: true, score: 1, reasons: [], repairInstructions: [] };
-      }
+      if (req.draft.notes.includes(JOURNEY_DIRECTOR_NOTE)) return { accepted: true, score: 1, reasons: [], repairInstructions: [] };
       return base.critique(req);
     },
   };
