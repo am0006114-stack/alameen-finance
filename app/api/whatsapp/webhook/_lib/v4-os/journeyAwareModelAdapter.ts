@@ -4,6 +4,8 @@ import { buildJourneyDirectorDraft, JOURNEY_DIRECTOR_NOTE, resolveJourneyDirecto
 import { buildV41ExtendedDraft, resolveV41ExtendedUnderstanding } from "./journeyExtensions";
 import type { V4ActionName, V4ModelAdapter, V4TurnUnderstanding, V4WorkingMemory } from "./types";
 
+const MODEL_UNAVAILABLE_NOTE = "v4_1_model_unavailable_degraded_reply";
+
 function normalizeArabic(value: string | null | undefined) {
   return String(value || "")
     .toLowerCase()
@@ -181,13 +183,58 @@ function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemo
   return null;
 }
 
-export function createV41JourneyAwareModelAdapter(input: {
-  understandingProvider: V3TextProvider;
-  writerProvider: V3TextProvider;
-  criticProvider: V3TextProvider;
-}): V4ModelAdapter {
-  const base = createV4ModelAdapter(input);
+function modelUnavailableUnderstanding(burstText: string): V4TurnUnderstanding {
+  const text = String(burstText || "").trim();
+  return {
+    meaningSummary: "المسار الحتمي لم يطابق الرسالة ومزوّد المحادثة غير متاح",
+    currentGoal: "open_ended_model_unavailable",
+    explicitQuestions: text ? [text] : [],
+    neededFactKeys: [],
+    requestedAction: null,
+    actionDisposition: "none",
+    requestedPersona: null,
+    references: [],
+    emotion: "neutral",
+    urgency: "normal",
+    topicChanged: true,
+    customerRejectedPreviousAnswer: false,
+    customerWantsBrevity: true,
+    noReplyRequested: false,
+    identityQuestion: false,
+    humanContactRequested: false,
+    socialClosure: false,
+    confidence: 1,
+    warnings: [MODEL_UNAVAILABLE_NOTE, "v4_1_no_model_provider"],
+  };
+}
 
+function createDeterministicOnlyBase(): V4ModelAdapter {
+  return {
+    async understand(req) {
+      return modelUnavailableUnderstanding(req.burstText);
+    },
+    async compose(req) {
+      const q = normalizeArabic(req.burstText);
+      const yesNo = /^(?:هل|يعني|ممكن|رح|راح|بت|بدي\s+اعرف\s+اذا)/.test(q) || /(?:ولا\s+لا|او\s+لا|صح)$/.test(q);
+      const text = yesNo
+        ? "لا أقدر أعطيك جواب نعم/لا موثّق على هالنقطة هسا لأن خدمة الجواب المفتوح متعذرة مؤقتًا. ما رح أخمّن عليك أو أرجعك لموضوع قديم."
+        : "صار خلل مؤقت بخدمة الجواب المفتوح لهالنقطة. ما رح أخمّن عليك ولا أرجعك لحالة طلب قديمة؛ ابعت نفس السؤال بجملة قصيرة بعد شوي.";
+      return {
+        text,
+        decision: "ANSWER",
+        claims: [],
+        answeredQuestions: req.understanding.explicitQuestions,
+        usedFactKeys: [],
+        notes: [JOURNEY_DIRECTOR_NOTE, MODEL_UNAVAILABLE_NOTE],
+      };
+    },
+    async critique() {
+      return { accepted: true, score: 1, reasons: [], repairInstructions: [] };
+    },
+  };
+}
+
+export function createV41JourneyAwareAdapterWithBase(base: V4ModelAdapter): V4ModelAdapter {
   return {
     async understand(req) {
       const explicitHuman = explicitHumanRejectionOfAutomation(req.burstText);
@@ -218,4 +265,16 @@ export function createV41JourneyAwareModelAdapter(input: {
       return base.critique(req);
     },
   };
+}
+
+export function createV41DeterministicOnlyModelAdapter(): V4ModelAdapter {
+  return createV41JourneyAwareAdapterWithBase(createDeterministicOnlyBase());
+}
+
+export function createV41JourneyAwareModelAdapter(input: {
+  understandingProvider: V3TextProvider;
+  writerProvider: V3TextProvider;
+  criticProvider: V3TextProvider;
+}): V4ModelAdapter {
+  return createV41JourneyAwareAdapterWithBase(createV4ModelAdapter(input));
 }
