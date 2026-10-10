@@ -81,9 +81,6 @@ function semanticMutationRequest(action: ActionKey, turn: InterpretedTurn) {
   if (action === "cancel_application") return semantic.decision.cancellation === "requested";
   if (action === "request_refund") return semantic.decision.refund === "requested";
   if (action === "stop_refund" || action === "reopen_application") return turn.requestedActions.includes(action);
-  // Alias linking has an explicit identity/open-loop contract and is intentionally
-  // not opened from model semantics alone. Destructive execution still always
-  // requires the separate deterministic action-specific confirmation turn.
   return false;
 }
 
@@ -115,7 +112,6 @@ function bareAffirmative(value: string | null | undefined) {
   return /^(?:نعم|اه|أه|ايوه|أيوه|اكيد|أكيد|موافق)$/.test(q);
 }
 
-
 function contextualReopenOpenLoopConfirmation(input: { value: string | null | undefined; state: ConversationState; truth: TruthBundle }) {
   if (!bareAffirmative(input.value)) return false;
   if (!input.truth.application) return false;
@@ -127,8 +123,15 @@ function contextualReopenOpenLoopConfirmation(input: { value: string | null | un
   if (payload._scopeWaId && payload._scopeWaId !== input.state.waId) return false;
   return true;
 }
+
 function contextualAliasOpenLoopConfirmation(input: { value: string | null | undefined; state: ConversationState; truth: TruthBundle }) {
-  if (!bareAffirmative(input.value)) return false;
+  const q = normalized(input.value);
+  // The confirmation prompt itself establishes the target as the WhatsApp alias for
+  // this exact application. Therefore natural replies such as "نعم اعتمد" are
+  // sufficient here, without globally broadening "اعتمد" into mutation consent.
+  const aliasAffirmative = bareAffirmative(input.value)
+    || /^(?:(?:نعم|اه|ايوه|اكيد|موافق)\s+)?(?:اعتمد|اربط|ثبت|سجل)(?:\s+(?:الرقم|واتساب|واتس))?$/.test(q);
+  if (!aliasAffirmative) return false;
   if (!input.truth.application) return false;
   const aliasLoopActive = input.state.pendingAction === "link_whatsapp_alias"
     || input.state.contactResolution?.status === "awaiting_alias_confirmation";
@@ -144,10 +147,6 @@ export function explicitMutationConfirmation(input: { action: ActionKey; value: 
   if (!q || mutationQuestion(input.action, q) || mutationDecline(input.action, q)) return false;
   const actionMentioned = actionWords(input.action, q);
   const explicit = /(?:نعم|اه|ايوه|اكيد|اكد|موافق).{0,28}/.test(q) && actionMentioned;
-  // Phase 7.6.0 P0: generic acknowledgements are never mutation consent. Production
-  // proved that "تم" after a payment instruction could inherit a stale cancellation.
-  // Every real mutation must be named on the confirmation turn itself: cancellation,
-  // refund, or WhatsApp-alias linking (for example: "نعم اعتمد الرقم").
   return explicit;
 }
 
@@ -239,10 +238,6 @@ export function enforceMutationConfirmationGate(input: {
   const authoritativeStage = applicationJourneyStage(input.truth.application);
   const currentQ = normalized(input.turn.rawText);
 
-  // Phase 9.1: "stop the refund and keep my device order" is an autonomous
-  // stop_refund action, never a cancellation/refund inversion. If an upstream
-  // planner missed the action, create the deterministic candidate here; it still
-  // goes through the same separate confirmation and transactional truth guards.
   const stopRefundContinuationRequest = stopRefundKeepRequest(input.turn.rawText);
   const candidateActions: PlannedAction[] = stopRefundContinuationRequest
     ? [
@@ -258,11 +253,6 @@ export function enforceMutationConfirmationGate(input: {
       ]
     : input.actions;
 
-  // Phase 11.1: one customer turn may express both “cancel” and “refund”. The
-  // audited cancel RPC already opens refund_requested automatically when payment
-  // is authoritatively confirmed, so staging request_refund beside cancellation
-  // creates two competing confirmation prompts for one turn. Keep cancellation
-  // as the single mutation authority for that combined request.
   const hasCancellation = candidateActions.some((action) => action.action === "cancel_application");
   const normalizedCandidateActions = hasCancellation
     ? candidateActions.filter((action) => action.action !== "request_refund")
@@ -312,10 +302,6 @@ export function enforceMutationConfirmationGate(input: {
           && explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state })
         ) || null;
 
-  // If the runtime/state reducer failed to persist the pending confirmation token but
-  // the immediately previous assistant message asked for this exact confirmation, the
-  // second customer message can still complete the two-step flow. Never infer this
-  // across a different application or without current authoritative truth.
   const recoverableScopeMatches = Boolean(input.truth.application)
     && Boolean(input.state.activeApplicationId || input.state.activeTrackingId)
     && (!input.state.activeApplicationId || input.state.activeApplicationId === input.truth.application?.id)
@@ -333,11 +319,6 @@ export function enforceMutationConfirmationGate(input: {
     clearPendingConfirmation = true;
   }
 
-  // P0 stale-confirmation killer: a generic acknowledgement such as "تم" must
-  // never inherit an older cancellation/refund prompt after the assistant has
-  // already moved on to another topic (for example payment instructions).
-  // If the immediately previous assistant turn is no longer the matching
-  // confirmation prompt and the customer did not name the mutation, clear it.
   if (pending && !lastAssistantAskedForConfirmation(input.state, pending)) {
     const namesPending = actionWords(pending, q);
     if (!namesPending) clearPendingConfirmation = true;
@@ -365,11 +346,7 @@ export function enforceMutationConfirmationGate(input: {
       clearPendingConfirmation = true;
       continue;
     }
-
-    // Only one mutation confirmation may be open per customer turn. This keeps
-    // the prompt, pendingAction and needs_confirmation result aligned.
     if (prompt) continue;
-
     if (mutationDecline(action.action, input.turn.rawText)) {
       clearPendingConfirmation = true;
       continue;
@@ -415,7 +392,6 @@ export function enforceMutationConfirmationGate(input: {
       prompt = confirmationPrompt(action.action, input.truth);
       continue;
     }
-    // Model/planner inference alone can never authorize a real mutation.
   }
 
   if (confirmedAction && !input.truth.application) {
