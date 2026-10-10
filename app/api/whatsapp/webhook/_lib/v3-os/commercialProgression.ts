@@ -16,8 +16,10 @@ export function continuationCommercialState(app: ApplicationTruth | null | undef
   if (["customer_claimed_paid", "pending_payment_confirmation"].includes(paymentStatus)) return "payment_pending_admin";
 
   const status = String(app.status || "").trim().toLowerCase();
+  // Payment destinations become available only AFTER the continuation decision is
+  // durably persisted. preliminary_qualified is intentionally NOT payment_ready:
+  // it is the decision stage, not the fee-due stage.
   if (
-    status === "preliminary_qualified" ||
     status === "customer_confirmed_continue" ||
     ["pending", "pending_payment", "payment_info_sent"].includes(paymentStatus)
   ) return "payment_ready";
