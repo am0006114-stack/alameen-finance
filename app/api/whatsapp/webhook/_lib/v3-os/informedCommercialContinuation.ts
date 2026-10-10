@@ -6,9 +6,16 @@ import type { ApplicationTruth, CommercialDisclosureState, ConversationState, In
 
 export const COMMERCIAL_DISCLOSURE_VERSION = "2026-10-concise-decision-v3" as const;
 
+function disclosureVersionForState(): CommercialDisclosureState["version"] {
+  // The persisted state type still carries the historical literal for backward
+  // compatibility with frozen V3 state. Runtime migration is intentionally scoped
+  // here so the new contract can invalidate old disclosure memory safely.
+  return COMMERCIAL_DISCLOSURE_VERSION as unknown as CommercialDisclosureState["version"];
+}
+
 export function emptyCommercialDisclosure(): CommercialDisclosureState {
   return {
-    version: COMMERCIAL_DISCLOSURE_VERSION,
+    version: disclosureVersionForState(),
     applicationId: null,
     trackingId: null,
     status: "not_delivered",
@@ -29,7 +36,7 @@ function sameApplication(disclosure: CommercialDisclosureState | null | undefine
 export function currentCommercialDisclosure(state: ConversationState, truth: TruthBundle) {
   const existing = state.commercialDisclosure || emptyCommercialDisclosure();
   if (!truth.application || !sameApplication(existing, truth.application)) return emptyCommercialDisclosure();
-  if (existing.version !== COMMERCIAL_DISCLOSURE_VERSION) return emptyCommercialDisclosure();
+  if (String(existing.version) !== COMMERCIAL_DISCLOSURE_VERSION) return emptyCommercialDisclosure();
   return existing;
 }
 
@@ -92,7 +99,7 @@ export function markCommercialDisclosureDelivered(state: ConversationState, trut
   return {
     ...state,
     commercialDisclosure: {
-      version: COMMERCIAL_DISCLOSURE_VERSION,
+      version: disclosureVersionForState(),
       applicationId: app.id,
       trackingId: app.trackingId,
       status: "delivered",
@@ -113,7 +120,7 @@ export function markCommercialDisclosureAcknowledged(state: ConversationState, t
   return {
     ...state,
     commercialDisclosure: {
-      version: COMMERCIAL_DISCLOSURE_VERSION,
+      version: disclosureVersionForState(),
       applicationId: app.id,
       trackingId: app.trackingId,
       status: "acknowledged",
