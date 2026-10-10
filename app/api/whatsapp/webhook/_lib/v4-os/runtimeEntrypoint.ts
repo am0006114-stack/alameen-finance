@@ -11,10 +11,11 @@ export type V4RuntimeEntrypointResult = {
 };
 
 /**
- * Isolated V4 entrypoint for the eventual cutover.
- * It is intentionally NOT called by the production webhook yet.
- * No shadow execution, no duplicate model calls, and no customer traffic is routed here
- * until the final cutover explicitly changes the production entrypoint.
+ * Isolated V4/V4.1 entrypoint for cutover testing and the eventual production path.
+ * Critical journey/revenue/document/action routing remains deterministic and available
+ * even when conversational model providers are unavailable. There is no V3
+ * conversational fallback here; V3 is reused only as the authoritative Truth/Action
+ * backplane.
  */
 export async function runV4FromExistingRuntime(input: {
   turnId: string;
@@ -24,7 +25,6 @@ export async function runV4FromExistingRuntime(input: {
   actionAdapter?: ActionExecutorAdapter | null;
 }): Promise<V4RuntimeEntrypointResult> {
   const model = v4ModelAdapterFromEnv();
-  if (!model) throw new Error("v4_model_adapter_not_configured");
 
   const memory = loadV4MemoryFromConversationState(input.state);
   const v4Truth = v4TruthFromV3({ truth: input.truth });
