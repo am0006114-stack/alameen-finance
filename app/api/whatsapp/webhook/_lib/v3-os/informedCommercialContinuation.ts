@@ -4,7 +4,7 @@ import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import type { ApplicationTruth, CommercialDisclosureState, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
-export const COMMERCIAL_DISCLOSURE_VERSION = "2026-09-informed-fee-v2-full-rationale" as const;
+export const COMMERCIAL_DISCLOSURE_VERSION = "2026-10-concise-decision-v3" as const;
 
 export function emptyCommercialDisclosure(): CommercialDisclosureState {
   return {
@@ -29,8 +29,6 @@ function sameApplication(disclosure: CommercialDisclosureState | null | undefine
 export function currentCommercialDisclosure(state: ConversationState, truth: TruthBundle) {
   const existing = state.commercialDisclosure || emptyCommercialDisclosure();
   if (!truth.application || !sameApplication(existing, truth.application)) return emptyCommercialDisclosure();
-  // v1/partial disclosures are intentionally not enough for 7.9.0. A customer
-  // must receive the full rationale version before payment destinations open.
   if (existing.version !== COMMERCIAL_DISCLOSURE_VERSION) return emptyCommercialDisclosure();
   return existing;
 }
@@ -59,10 +57,6 @@ export function informedCommercialContinuationConfirmed(input: {
     if (semantic.decision.continuation === "confirmed") return true;
   }
 
-  // This is a contextual commercial consent fallback, not a phrase router: it only
-  // becomes active after the full disclosure for this exact application was sent.
-  // A short affirmative then means “yes to the disclosed continuation decision”;
-  // it never authorizes destructive mutations or confirms payment.
   const q = normalizeArabic(String(input.customerText || ""))
     .replace(/[؟?!.,،؛:]+/g, " ")
     .replace(/\s+/g, " ")
@@ -70,12 +64,9 @@ export function informedCommercialContinuationConfirmed(input: {
   const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
   if (declines) return false;
 
-  // After the full disclosure has been delivered for this exact application,
-  // accept the customer's natural decision instead of requiring a literal phrase.
-  // normalizeArabic folds أ/إ/آ -> ا, so hamza spelling never changes the result.
   const naturalContinuation = /(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q);
   if (naturalContinuation) return true;
-  if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)/.test(q)) return true;
+  if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا|استمرار).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)?$/.test(q)) return true;
   if (/^(?:نعم|اه|ايوه|yes|موافق|موافقه|اوافق|اكيد)$/.test(q)) return true;
   const affirmativeLead = /^(?:نعم|اه|ايوه|yes)(?:\s|$)/.test(q);
   return affirmativeLead && /(?:اوافق|موافق|موافقه|الشروط|اكمل|كمل|استمر)/.test(q);
@@ -91,8 +82,7 @@ export function numericContinuationShortcutText(value: string | null | undefined
 
 export function preliminaryApprovalNeedsInformedDisclosure(state: ConversationState, truth: TruthBundle) {
   const stage = applicationJourneyStage(truth.application);
-  return ["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)
-    && !commercialDisclosureDelivered(state, truth);
+  return stage === "preliminary_approved_waiting_decision" && !commercialDisclosureDelivered(state, truth);
 }
 
 export function markCommercialDisclosureDelivered(state: ConversationState, truth: TruthBundle, turnId: string): ConversationState {
@@ -136,31 +126,45 @@ export function markCommercialDisclosureAcknowledged(state: ConversationState, t
   };
 }
 
+function asksStatusOrNextStep(turn: InterpretedTurn) {
+  const q = normalizeArabic(String(turn.rawText || ""));
+  if (turn.topics.includes("application_status") || turn.topics.includes("tracking")) return true;
+  return /(?:شو|ايش|إيش|ما).{0,22}(?:مطلوب|الخطوه|الخطوة|اعمل|اسوي|التالي|بعدين)|(?:شو\s+صار|وين\s+وصل|حاله\s+الطلب|حالة\s+الطلب)/.test(q);
+}
+
+function asksFeeReason(turn: InterpretedTurn) {
+  const q = normalizeArabic(String(turn.rawText || ""));
+  return /(?:ليش|لماذا|شو\s+سبب|ايش\s+سبب|لشو|شو\s+مقابل).{0,40}(?:رسوم|5\s*دنانير|٥\s*دنانير|خمس\s+دنانير|فتح\s+الملف)/.test(q);
+}
+
 export function shouldExplainCommercialStep(input: { state: ConversationState; truth: TruthBundle; turn: InterpretedTurn; explicitContinuationIntent: boolean; observedFullDisclosure?: boolean }) {
-  // Durable state is primary, but an actually-sent full disclosure visible in the
-  // canonical transcript is valid recovery evidence if state persistence lagged.
-  // Never punish a payment-ready customer by repeating the disclosure after the
-  // system itself already sent it.
-  if (input.observedFullDisclosure) return false;
-  if (!preliminaryApprovalNeedsInformedDisclosure(input.state, input.truth)) return false;
-  if (input.explicitContinuationIntent) return true;
-  const semantic = input.turn.semantic;
-  if (!semantic || semantic.confidence < 0.62 || semantic.socialClosure) return false;
-  const commercialTopics = new Set(["continuation", "payment_fee", "payment_timing", "payment_method"]);
-  if (input.turn.topics.some((topic) => commercialTopics.has(topic))) return true;
-  // Phase 9.1 positive-only disclosure authority: an unrelated or merely unknown
-  // question can never be swallowed by the 5-JOD stage. The disclosure opens only
-  // from an explicit continuation/payment signal above.
-  return false;
+  const stage = applicationJourneyStage(input.truth.application);
+  if (stage !== "preliminary_approved_waiting_decision") return false;
+
+  // A fee-rationale question must be answered as a fee-rationale question. Do not
+  // replace it with the decision CTA; the customer already knows a fee exists.
+  if (asksFeeReason(input.turn)) return false;
+
+  // After preliminary approval, status/next-step questions own a deterministic
+  // conversion decision screen. This is intentionally independent of intent labels
+  // and of whether the CTA was shown earlier: if the customer asks what happens now,
+  // answer that exact commercial decision instead of returning a stale tracking link.
+  if (!input.explicitContinuationIntent && asksStatusOrNextStep(input.turn)) return true;
+
+  // First explicit continuation signal opens the short decision disclosure. Once the
+  // same application has already received it, natural confirmation/1 may proceed.
+  if (input.observedFullDisclosure || commercialDisclosureDelivered(input.state, input.truth)) return false;
+  return input.explicitContinuationIntent || input.turn.topics.includes("continuation");
 }
 
 export function resemblesFullCommercialDisclosure(value: string | null | undefined) {
   const q = normalizeArabic(String(value || ""));
-  return /رسوم\s+فتح\s+ملف/.test(q)
-    && /(?:مش|ليست).{0,20}(?:دفعه\s+اولي|دفعة\s+أولى|ثمن\s+الجهاز)/.test(q)
-    && /(?:ما|لا).{0,24}(?:يعني|تعني|تضمن).{0,24}(?:موافقه|الموافقه).{0,12}(?:نهاي|نهائ)/.test(q)
-    && /مسترد/.test(q)
-    && /(?:حاب|بدك|تقرر).{0,30}(?:تكمل|الاستمرار)/.test(q);
+  return /موافقه\s+مبدئيه/.test(q)
+    && /هل.{0,20}(?:ترغب|بدك|حاب).{0,25}(?:الاستمرار|تكمل)/.test(q)
+    && /(?:1|١).{0,18}(?:نعم|استمرار|اكمل|كمل)/.test(q)
+    && /(?:2|٢).{0,18}(?:لا|مش\s+هسا|لاحقا|لاحق)/.test(q)
+    && /رسوم\s+فتح\s+الملف/.test(q)
+    && /مسترد/.test(q);
 }
 
 export function resemblesPostDisclosurePaymentReply(value: string | null | undefined) {
@@ -174,20 +178,13 @@ export function resemblesPostDisclosurePaymentReply(value: string | null | undef
 
 export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {
   const fee = truth.policy.fileOpeningFeeJod;
-  const review = truth.policy.normalReviewWindow;
-  return `أكيد. قبل ما نثبت الاستمرار، بوضحلك المرحلة كاملة حتى يكون قرارك على بينة. بعد الموافقة المبدئية، إذا حاب تكمل للدراسة النهائية، في رسوم فتح ملف مقدارها ${fee} دنانير. هي مش دفعة أولى، ومش جزء من سعر الجهاز أو القسط الأول، ودفعها ما يعني موافقة نهائية ولا يضمن قبول الطلب.
-
-سبب الرسوم إن مرحلة الدراسة النهائية بتحتاج معالجة فعلية للملف، ومع وجود عدد كبير جدًا من الطلبات بنستخدم خطوة فتح الملف لتمييز العملاء الراغبين فعلًا بالاستمرار والمستعدين لإكمال الالتزامات الأساسية، حتى ما تأخر الطلبات غير الجادة ملفات العملاء الجادين. هاي الخطوة مؤشر أولي على الجدية والاستعداد للاستمرار، وليست تقييمًا نهائيًا للقدرة على السداد ولا شراءً للموافقة.
-
-إذا صار دفع مؤكد وما صدرت الموافقة النهائية، الرسوم مستردة بالكامل عبر المسار الرسمي. وإذا قررت تلغي بعد دفع مؤكد، الرسوم إلها مسار استرداد رسمي. وبالنسبة للدراسة: ${review}، ومع ضغط المراجعات ممكن تتأخر بعض الملفات بدون ما نعطيك وعد بموعد غير موثق.
-
-خذ قرارك براحتك؛ إذا التفاصيل مناسبة إلك وبدك تكمل، اكتب الرقم 1. وإذا بتحب تحكيها بطريقتك، أي تأكيد واضح للاستمرار بكفي. بعدها بعطيك بيانات الدفع الرسمية ورابط رفع الوصل.`;
+  return `طلبك أخذ موافقة مبدئية ✅\n\nهل ترغب بالاستمرار للدراسة النهائية؟\n1 - نعم، أريد الاستمرار\n2 - لا، مش هسا\n\nعند اختيار 1، رسوم فتح الملف ${fee} دنانير، وهي مستردة إذا ما صدرت الموافقة النهائية.`;
 }
 
 export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: string | null) {
   const p = truth.policy;
   const upload = receiptUrl
-    ? `\nبعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:\n${receiptUrl}`
+    ? `\nارفع الوصل من الرابط الرسمي:\n${receiptUrl}`
     : "\nرابط رفع الوصل المرتبط بالطلب غير متاح عندي الآن، لذلك ما رح أعطيك رابطًا عامًا بدل الصحيح.";
-  return `تمام، هيك ثبتنا إنك حاب تكمل بعد ما وضحنا الخطوة. رسوم فتح الملف ${p.fileOpeningFeeJod} دنانير، وهاي بيانات الدفع الرسمية:\n${currentFileOpeningPaymentRule({ includeApology: false })}${upload}\nتأكيد الدفع النهائي يتم يدويًا بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن؛ يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز.`;
+  return `تمام. المطلوب الآن ${p.fileOpeningFeeJod} دنانير رسوم فتح الملف.\n${currentFileOpeningPaymentRule({ includeApology: false })}${upload}`;
 }
