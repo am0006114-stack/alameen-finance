@@ -40,6 +40,26 @@ export function currentCommercialDisclosure(state: ConversationState, truth: Tru
   return existing;
 }
 
+function normalizedCommercialDecisionText(value: string | null | undefined) {
+  return normalizeArabic(String(value || ""))
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function commercialContinuationAffirmativeText(value: string | null | undefined) {
+  const q = normalizedCommercialDecisionText(value);
+  if (!q) return false;
+  const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
+  if (declines) return false;
+  if (/^(?:1|١)$/.test(q)) return true;
+  if (/(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q)) return true;
+  if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا|استمرار).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)?$/.test(q)) return true;
+  if (/^(?:نعم|اه|ايوه|yes|ok|اوك|موافق|موافقه|اوافق|اكيد)$/.test(q)) return true;
+  const affirmativeLead = /^(?:نعم|اه|ايوه|yes)(?:\s|$)/.test(q);
+  return affirmativeLead && /(?:اوافق|موافق|موافقه|الشروط|اكمل|كمل|استمر)/.test(q);
+}
+
 export function resemblesFullCommercialDisclosure(value: string | null | undefined) {
   const q = normalizeArabic(String(value || ""));
   const declineChoice = /لا\s+اريد\s+الاستمرار/.test(q)
@@ -87,27 +107,11 @@ export function informedCommercialContinuationConfirmed(input: {
     if (semantic.decision.continuation === "confirmed") return true;
   }
 
-  const q = normalizeArabic(String(input.customerText || ""))
-    .replace(/[؟?!.,،؛:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
-  if (declines) return false;
-  if (/^(?:1|١)$/.test(q)) return true;
-
-  const naturalContinuation = /(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q);
-  if (naturalContinuation) return true;
-  if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا|استمرار).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)?$/.test(q)) return true;
-  if (/^(?:نعم|اه|ايوه|yes|موافق|موافقه|اوافق|اكيد)$/.test(q)) return true;
-  const affirmativeLead = /^(?:نعم|اه|ايوه|yes)(?:\s|$)/.test(q);
-  return affirmativeLead && /(?:اوافق|موافق|موافقه|الشروط|اكمل|كمل|استمر)/.test(q);
+  return commercialContinuationAffirmativeText(input.customerText);
 }
 
 export function numericContinuationShortcutText(value: string | null | undefined) {
-  const q = normalizeArabic(String(value || ""))
-    .replace(/[؟?!.,،؛:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  const q = normalizedCommercialDecisionText(value);
   return /^(?:1|١)$/.test(q);
 }
 
