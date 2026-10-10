@@ -119,7 +119,7 @@ function explicitLongWaitOverride(burstText: string): V4TurnUnderstanding | null
     requestedPersona: null,
     references: [],
     emotion: elapsed ? "frustrated" : "neutral",
-    urgency: elapsed ? "high" : "normal",
+    urgency: elapsed ? "urgent" : "normal",
     topicChanged: false,
     customerRejectedPreviousAnswer: false,
     customerWantsBrevity: true,
