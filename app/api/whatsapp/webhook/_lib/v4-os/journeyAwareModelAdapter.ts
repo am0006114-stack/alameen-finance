@@ -46,6 +46,49 @@ function directUnderstanding(input: {
   };
 }
 
+function socialClosureUnderstanding(): V4TurnUnderstanding {
+  return {
+    meaningSummary: "العميل أقرّ بالرسالة بدون اختيار الاستمرار أو الرفض",
+    currentGoal: "social_closure",
+    explicitQuestions: [],
+    neededFactKeys: [],
+    requestedAction: null,
+    actionDisposition: "none",
+    requestedPersona: null,
+    references: [],
+    emotion: "neutral",
+    urgency: "normal",
+    topicChanged: false,
+    customerRejectedPreviousAnswer: false,
+    customerWantsBrevity: true,
+    noReplyRequested: false,
+    identityQuestion: false,
+    humanContactRequested: false,
+    socialClosure: true,
+    confidence: 1,
+    warnings: ["journey_director:social_closure", "v4_1_preliminary_ack_not_consent"],
+  };
+}
+
+function preliminaryDecisionOverride(input: { burstText: string; truth: { facts: Record<string, { value: unknown }> } }): V4TurnUnderstanding | null {
+  const stage = String(input.truth.facts["application.journey_stage"]?.value || "");
+  if (stage !== "preliminary_approved_waiting_decision") return null;
+  const q = normalizeArabic(input.burstText);
+
+  // 1 / ١ and explicit variants are consent. Plain تمام/OK is only acknowledgement.
+  if (/^1(?:\s+(?:موافق|نعم|استمرار|اكمل|كمل))?$/.test(q)) {
+    return directUnderstanding({
+      summary: "العميل اختار الاستمرار صراحة من خيار الموافقة المبدئية",
+      goal: "continue_after_preliminary_approval",
+      action: "continue_application",
+      disposition: "request",
+      warning: "commercial_fastpath:continue",
+    });
+  }
+  if (/^(?:تمام|اوكي|اوك)$/.test(q)) return socialClosureUnderstanding();
+  return null;
+}
+
 function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemory }): V4TurnUnderstanding | null {
   const q = normalizeArabic(input.burstText);
   const last = normalizeArabic(input.memory.lastAssistantText);
@@ -124,6 +167,8 @@ export function createV41JourneyAwareModelAdapter(input: {
     async understand(req) {
       const visibleConfirmation = confirmsVisiblePrompt({ burstText: req.burstText, memory: req.memory });
       if (visibleConfirmation) return visibleConfirmation;
+      const preliminaryOverride = preliminaryDecisionOverride({ burstText: req.burstText, truth: req.truth });
+      if (preliminaryOverride) return preliminaryOverride;
       const directed = resolveJourneyDirectorUnderstanding(req);
       return directed || base.understand(req);
     },
