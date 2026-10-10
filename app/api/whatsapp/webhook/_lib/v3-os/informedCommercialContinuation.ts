@@ -47,12 +47,16 @@ function normalizedCommercialDecisionText(value: string | null | undefined) {
     .trim();
 }
 
+export function numericCommercialContinueText(value: string | null | undefined) {
+  return /^(?:1|١)$/.test(normalizedCommercialDecisionText(value));
+}
+
 export function commercialContinuationAffirmativeText(value: string | null | undefined) {
   const q = normalizedCommercialDecisionText(value);
   if (!q) return false;
   const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
   if (declines) return false;
-  if (/^(?:1|١)$/.test(q)) return true;
+  if (numericCommercialContinueText(q)) return true;
   if (/(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q)) return true;
   if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا|استمرار).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)?$/.test(q)) return true;
   if (/^(?:نعم|اه|ايوه|yes|ok|اوك|موافق|موافقه|اوافق|اكيد)$/.test(q)) return true;
@@ -76,12 +80,32 @@ export function commercialDisclosureDelivered(state: ConversationState, truth: T
   const disclosure = currentCommercialDisclosure(state, truth);
   if (disclosure.status === "delivered" || disclosure.status === "acknowledged") return true;
 
+  const app = truth.application;
+  if (!app) return false;
+
+  // Phase 12 clean commercial-funnel authority:
+  // An exact numeric menu choice (1 / ١) is itself deterministic evidence that
+  // the customer is answering the preliminary-approval decision screen. We do
+  // not depend on the volatile conversation-state write having survived the
+  // previous outbound delivery. This prevents the production loop where the
+  // screen is delivered, state persistence is stale/missing, and every "1"
+  // causes the same screen to be sent again.
+  //
+  // This recovery is deliberately narrow: bare "نعم" is NOT enough here. Only
+  // the explicit numeric menu choice may repair missing disclosure state, and
+  // only while the authoritative application is still in the decision/fee handoff
+  // stages. Application/contact truth remains authoritative elsewhere.
+  const stage = applicationJourneyStage(app);
+  if (["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)
+      && numericCommercialContinueText(state.lastCustomerText)) {
+    return true;
+  }
+
   // Backward repair for conversations where Human OS rendered the decision screen
   // through a status authority before the disclosure recognizer was fixed. The
   // last delivered assistant text is accepted only when it is the exact commercial
   // decision contract and the active conversation is scoped to this application.
-  const app = truth.application;
-  if (!app || !resemblesFullCommercialDisclosure(state.lastAssistantText)) return false;
+  if (!resemblesFullCommercialDisclosure(state.lastAssistantText)) return false;
   const sameActiveApplication = Boolean(
     (state.activeApplicationId && state.activeApplicationId === app.id)
     || (state.activeTrackingId && app.trackingId && state.activeTrackingId === app.trackingId)
@@ -111,8 +135,7 @@ export function informedCommercialContinuationConfirmed(input: {
 }
 
 export function numericContinuationShortcutText(value: string | null | undefined) {
-  const q = normalizedCommercialDecisionText(value);
-  return /^(?:1|١)$/.test(q);
+  return numericCommercialContinueText(value);
 }
 
 export function preliminaryApprovalNeedsInformedDisclosure(state: ConversationState, truth: TruthBundle) {
