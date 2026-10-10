@@ -40,9 +40,33 @@ export function currentCommercialDisclosure(state: ConversationState, truth: Tru
   return existing;
 }
 
+export function resemblesFullCommercialDisclosure(value: string | null | undefined) {
+  const q = normalizeArabic(String(value || ""));
+  const declineChoice = /لا\s+اريد\s+الاستمرار/.test(q)
+    || /(?:2|٢).{0,24}(?:لا|مش\s+هسا)/.test(q);
+  return /موافقه\s+مبدئيه/.test(q)
+    && /هل.{0,20}(?:ترغب|بدك|حاب).{0,25}(?:الاستمرار|تكمل)/.test(q)
+    && /(?:1|١).{0,18}(?:نعم|استمرار|اكمل|كمل)/.test(q)
+    && declineChoice
+    && /رسوم\s+فتح\s+الملف/.test(q)
+    && /مسترد/.test(q);
+}
+
 export function commercialDisclosureDelivered(state: ConversationState, truth: TruthBundle) {
   const disclosure = currentCommercialDisclosure(state, truth);
-  return disclosure.status === "delivered" || disclosure.status === "acknowledged";
+  if (disclosure.status === "delivered" || disclosure.status === "acknowledged") return true;
+
+  // Backward repair for conversations where Human OS rendered the decision screen
+  // through a status authority before the disclosure recognizer was fixed. The
+  // last delivered assistant text is accepted only when it is the exact commercial
+  // decision contract and the active conversation is scoped to this application.
+  const app = truth.application;
+  if (!app || !resemblesFullCommercialDisclosure(state.lastAssistantText)) return false;
+  const sameActiveApplication = Boolean(
+    (state.activeApplicationId && state.activeApplicationId === app.id)
+    || (state.activeTrackingId && app.trackingId && state.activeTrackingId === app.trackingId)
+  );
+  return sameActiveApplication;
 }
 
 export function informedCommercialContinuationConfirmed(input: {
@@ -51,8 +75,7 @@ export function informedCommercialContinuationConfirmed(input: {
   turn: InterpretedTurn;
   customerText: string;
 }) {
-  const disclosure = currentCommercialDisclosure(input.state, input.truth);
-  if (disclosure.status !== "delivered") return false;
+  if (!commercialDisclosureDelivered(input.state, input.truth)) return false;
   const stage = applicationJourneyStage(input.truth.application);
   if (!["preliminary_approved_waiting_decision", "continuation_confirmed_fee_due"].includes(stage)) return false;
 
@@ -70,6 +93,7 @@ export function informedCommercialContinuationConfirmed(input: {
     .trim();
   const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
   if (declines) return false;
+  if (/^(?:1|١)$/.test(q)) return true;
 
   const naturalContinuation = /(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q);
   if (naturalContinuation) return true;
@@ -155,18 +179,6 @@ export function shouldExplainCommercialStep(input: { state: ConversationState; t
 
   if (input.observedFullDisclosure || commercialDisclosureDelivered(input.state, input.truth)) return false;
   return input.explicitContinuationIntent || input.turn.topics.includes("continuation");
-}
-
-export function resemblesFullCommercialDisclosure(value: string | null | undefined) {
-  const q = normalizeArabic(String(value || ""));
-  const declineChoice = /لا\s+اريد\s+الاستمرار/.test(q)
-    || /(?:2|٢).{0,24}(?:لا|مش\s+هسا)/.test(q);
-  return /موافقه\s+مبدئيه/.test(q)
-    && /هل.{0,20}(?:ترغب|بدك|حاب).{0,25}(?:الاستمرار|تكمل)/.test(q)
-    && /(?:1|١).{0,18}(?:نعم|استمرار|اكمل|كمل)/.test(q)
-    && declineChoice
-    && /رسوم\s+فتح\s+الملف/.test(q)
-    && /مسترد/.test(q);
 }
 
 export function resemblesPostDisclosurePaymentReply(value: string | null | undefined) {
