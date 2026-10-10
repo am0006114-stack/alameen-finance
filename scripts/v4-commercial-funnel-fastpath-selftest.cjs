@@ -13,6 +13,9 @@ const bridge = fs.readFileSync(bridgePath, 'utf8');
 const adapter = fs.readFileSync(adapterPath, 'utf8');
 const truth = fs.readFileSync(truthPath, 'utf8');
 
+const trackingBlock = truth.match(/if \(paymentConfirmed\) \{([\s\S]*?)\n\s*\}/)?.[1] || '';
+const feeDueBlock = truth.match(/if \(stage === "continuation_confirmed_fee_due" && !paymentConfirmed\) \{([\s\S]*?)\n\s*\}/)?.[1] || '';
+
 ok(/preliminary_approved_waiting_decision/.test(policy), 'fast path is gated to preliminary approval waiting-decision stage');
 ok(/currentStatusQuestion/.test(policy), 'status question at preliminary approval is captured by the deterministic funnel');
 ok(/هل ترغب بالاستمرار للدراسة النهائية/.test(policy), 'preliminary approval response asks the continuation decision explicitly');
@@ -35,8 +38,8 @@ ok(/applicationReceiptUrl/.test(bridge), 'receipt upload remains bound through t
 ok(/Orange Money:/.test(bridge) && /CliQ:/.test(bridge) && /المستفيد:/.test(bridge), 'post-1 payment handoff contains actionable payment data');
 ok(!/(0788500337|PAYAMEEEN|AMEEN1ST|AM500337)/.test(bridge), 'V4 does not duplicate payment numbers or aliases in its own source');
 ok(/business\.tracking_url[^\n]+false/.test(truth), 'generic tracking URL is hidden from the writer before payment');
-ok(/if \(paymentConfirmed\)/.test(truth) && /application\.tracking_link/.test(truth), 'bound tracking link is exposed only after authoritative payment confirmation');
-ok(!/tracking_link[\s\S]{0,160}continuation_confirmed_fee_due/.test(truth), 'fee-due stage does not expose tracking before payment confirmation');
+ok(/application\.tracking_link/.test(trackingBlock), 'bound tracking link exists only inside authoritative payment-confirmed block');
+ok(/application\.receipt_upload_link/.test(feeDueBlock) && !/application\.tracking_link/.test(feeDueBlock), 'fee-due block exposes receipt upload but never tracking before payment confirmation');
 ok(!/ضغط المراجعات|يومين إلى 3|يومين الى 3|الجمعة والسبت/.test(policy), 'commercial decision prompt does not dump unrelated review policy');
 
 console.log(`\nV4 COMMERCIAL FUNNEL FASTPATH SELFTEST: assertions=${passed + failed}; passed=${passed}; failed=${failed}`);
