@@ -5,7 +5,7 @@ import { v3InterpreterProviderFromEnv, v3JudgeProviderFromEnv, v3WriterProviderF
 import type { ActionKey, ConversationState, PlannedAction, TruthBundle } from "../v3-os/types";
 import { runFrozenCommercialContinuation } from "./commercialContinuationBridge";
 import { requestRealHumanEscalation } from "./humanEscalationBridge";
-import { createV4ModelAdapter } from "./modelAdapter";
+import { createV41JourneyAwareModelAdapter } from "./journeyAwareModelAdapter";
 import { toV4TruthBundle } from "./truthAdapter";
 import type { V4ActionExecutor, V4ActionName, V4CommercialContinuationExecutor, V4HumanEscalationExecutor, V4ModelAdapter, V4Persona } from "./types";
 
@@ -35,7 +35,7 @@ export function v4ModelAdapterFromEnv(): V4ModelAdapter | null {
   const interpreter = v3InterpreterProviderFromEnv() || writer;
   const critic = v3JudgeProviderFromEnv() || writer;
   if (!writer || !interpreter || !critic) return null;
-  return createV4ModelAdapter({ understandingProvider: interpreter, writerProvider: writer, criticProvider: critic });
+  return createV41JourneyAwareModelAdapter({ understandingProvider: interpreter, writerProvider: writer, criticProvider: critic });
 }
 
 function executionStateForAction(state: ConversationState, action: ActionKey, turnId: string): ConversationState {
