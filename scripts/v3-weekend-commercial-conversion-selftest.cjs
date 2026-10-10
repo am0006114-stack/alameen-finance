@@ -29,8 +29,8 @@ ok(calendar.includes('addOneCalendarMonthOperational')&&calendar.includes('iphon
 
 ok(runtime.includes('event: "customer_continue_payment_ready"'),'continuation operational event remains wired');
 ok(runtime.includes('continuationPersistence.updated || continuationPersistence.alreadyRecorded'),'continuation event recovers already-recorded decisions as well as fresh writes');
-ok(runtime.includes('خطوة الدفع مفتوحة'),'Discord title clearly identifies continuation/payment step');
-ok(runtime.includes('معلومات دفع رسوم فتح الملف')&&runtime.includes('رابط رفع الوصل'),'Discord description identifies payment information and receipt-upload readiness');
+ok(runtime.includes('\u062e\u0637\u0648\u0629 \u0627\u0644\u062f\u0641\u0639 \u0645\u0641\u062a\u0648\u062d\u0629'),'Discord title clearly identifies continuation/payment step');
+ok(runtime.includes('\u0645\u0639\u0644\u0648\u0645\u0627\u062a \u062f\u0641\u0639 \u0631\u0633\u0648\u0645 \u0641\u062a\u062d \u0627\u0644\u0645\u0644\u0641')&&runtime.includes('\u0631\u0627\u0628\u0637 \u0631\u0641\u0639 \u0627\u0644\u0648\u0635\u0644'),'Discord description identifies payment information and receipt-upload readiness');
 ok(policy.includes('input.event === "customer_continue_payment_ready"')&&policy.includes('customer-continue:${input.applicationId || "unknown"}'),'continuation event has deterministic dedupe policy');
 ok(notifier.includes('whatsapp_v3_notification_ledger')&&notifier.includes('status: "pending"'),'Discord notifier durably claims ledger row before delivery');
 
