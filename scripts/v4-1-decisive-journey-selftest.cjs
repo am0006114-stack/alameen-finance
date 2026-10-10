@@ -21,6 +21,8 @@ ok(director.indexOf('asksInstallmentArrears') < director.indexOf('asksStatus'), 
 ok(director.indexOf('asksProduct') < director.indexOf('asksStatus'), 'product question cannot be owned by stale application status');
 ok(/replace\(\/\[٠-٩\]\//.test(commercial) && /q === "1"/.test(commercial), 'Arabic digit ١ normalizes into deterministic CTA 1');
 ok(/تمام\\s\+استمرار|تمام\s+استمرار/.test(commercial), 'natural continuation phrase تمام استمرار is deterministic');
+ok(/\^1\(\?:\\s\+/.test(wrapper) && /commercial_fastpath:continue/.test(wrapper), '1 موافق and explicit numeric variants are deterministic consent');
+ok(/v4_1_preliminary_ack_not_consent/.test(wrapper) && /\(\?:تمام\|اوكي\|اوك\)/.test(wrapper), 'plain تمام/OK after offer is acknowledgement, not payment consent');
 ok(/1️⃣ نعم، أريد الاستمرار/.test(commercial) && /2️⃣ لا، مش هسا/.test(commercial), 'preliminary approval shows explicit 1/2 decision options');
 ok(/fee rationale intentionally omitted unless asked/.test(commercial), 'initial fee CTA does not dump fee rationale');
 ok(/business\.tracking_url.*false/.test(truth), 'tracking is hidden by default before payment');
