@@ -8,6 +8,8 @@ export * from "./truthLens";
 export * from "./procedureEngine";
 export * from "./finalCritic";
 export * from "./modelAdapter";
+export * from "./journeyDirector";
+export * from "./journeyAwareModelAdapter";
 export * from "./truthAdapter";
 export * from "./commercialContinuationBridge";
 export * from "./humanEscalationBridge";
