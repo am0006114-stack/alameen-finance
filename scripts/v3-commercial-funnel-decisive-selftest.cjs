@@ -28,7 +28,7 @@ ok(/\.\.\.\(paymentConfirmed \? \[`\$\{baseUrl\}\/track`\] : \[\]\)/.test(links)
 
 ok(!/status === "preliminary_qualified" \|\|\s*status === "customer_confirmed_continue"/.test(commercial), 'preliminary approval alone is no longer payment_ready');
 ok(/status === "customer_confirmed_continue"/.test(commercial), 'persisted continuation remains payment_ready');
-ok(/status === "preliminary_qualified"/.test(persistence), 'persistence layer still accepts preliminary_qualified as the durable decision source');
+ok(/\["preliminary_qualified", "customer_confirmed_continue"\]\.includes\(status\)/.test(persistence) && /\.eq\("status", "preliminary_qualified"\)/.test(persistence), 'persistence layer still accepts preliminary_qualified as the durable decision source and scopes the write to that exact state');
 
 ok(/const aliasAffirmative = bareAffirmative/.test(mutation), 'WhatsApp alias confirmation has a dedicated contextual affirmative path');
 ok(/نعم\|اه\|ايوه\|اكيد\|موافق/.test(mutation) && /اعتمد\|اربط\|ثبت\|سجل/.test(mutation), 'natural نعم اعتمد is recognized only inside the alias confirmation loop');
