@@ -99,11 +99,17 @@ function requirementLinks(turn: InterpretedTurn, truth: TruthBundle) {
 export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBundle): OfficialLinkContext {
   const baseUrl = canonicalBaseUrl();
   const relevant: Partial<Record<OfficialLinkKind, string>> = {};
+  const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
 
   if (turnNeeds("website", turn.topics) || turnNeeds("trust", turn.topics)) relevant.website = baseUrl;
   if (turnNeeds("products", turn.topics)) relevant.products = `${baseUrl}/products`;
+
+  // Commercial funnel invariant: tracking is a post-payment customer tool. Before
+  // authoritative payment confirmation, a status question must answer the current
+  // business step itself (review / decision / payment), not eject the customer to
+  // /track and abandon the WhatsApp conversion flow.
   const contextualStatusConfirmation = turn.acts.some((act) => act.topic === "application_status" && act.value === "confirm_current_application_status");
-  if (turnNeeds("tracking", turn.topics) || (turnNeeds("application_status", turn.topics) && !contextualStatusConfirmation)) {
+  if (paymentConfirmed && (turnNeeds("tracking", turn.topics) || (turnNeeds("application_status", turn.topics) && !contextualStatusConfirmation))) {
     relevant.tracking = boundApplicationUrl("/track", truth) || `${baseUrl}/track`;
   }
 
@@ -118,7 +124,6 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
     (turnNeeds("payment_fee", turn.topics) && continuationNeedsFeeNow(truth)) ||
     (turnNeeds("continuation", turn.topics) && continuationNeedsFeeNow(truth))
   );
-  const paymentConfirmed = hasAuthoritativePaymentConfirmation(truth.application);
   const receipt = receiptRequested && !paymentConfirmed ? boundApplicationUrl("/receipt", truth) : null;
   if (receipt) relevant.receipt = receipt;
 
@@ -139,14 +144,17 @@ export function buildOfficialLinkContext(turn: InterpretedTurn, truth: TruthBund
     return { officialHost: isOfficialAmeenHost(parsed?.hostname) };
   });
 
-  const canonicalPublicUrls = [baseUrl, `${baseUrl}/products`, `${baseUrl}/track`];
+  const canonicalPublicUrls = [
+    baseUrl,
+    `${baseUrl}/products`,
+    ...(paymentConfirmed ? [`${baseUrl}/track`] : []),
+  ];
 
   return {
     baseUrl,
     relevant,
-    // Public navigation links are always safe to issue. Bound/sensitive links
-    // (receipt/refund/identity/salary-slip/guarantor) remain context-scoped in
-    // `relevant`, so this does not weaken sensitive-link integrity.
+    // Public navigation links are safe, but /track is deliberately withheld until
+    // payment is authoritatively confirmed. Sensitive bound links remain scoped.
     allowedUrls: Array.from(new Set([
       ...canonicalPublicUrls,
       ...(Object.values(relevant).filter(Boolean) as string[]),
@@ -206,7 +214,7 @@ export function sanitizeStateForWriter(state: ConversationState) {
 
 export function sanitizeTurnForWriter(turn: InterpretedTurn) {
   const customerUrls = extractHttpUrls(turn.rawText).map((value) => {
-    const parsed = safeUrl(value);
+    const parsed = safeUrl(trimUrlPunctuation(value));
     return { officialHost: isOfficialAmeenHost(parsed?.hostname) };
   });
   const redact = (value: string) => String(value || "").replace(HTTP_URL_RE, "[CUSTOMER_URL_REDACTED]");
