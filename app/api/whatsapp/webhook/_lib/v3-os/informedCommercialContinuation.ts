@@ -178,7 +178,7 @@ export function resemblesPostDisclosurePaymentReply(value: string | null | undef
 
 export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {
   const fee = truth.policy.fileOpeningFeeJod;
-  return `طلبك أخذ موافقة مبدئية ✅\n\nهل ترغب بالاستمرار للدراسة النهائية؟\n1 - نعم، أريد الاستمرار\nإذا مش حاب تكمل هسا، اكتب: لا أريد الاستمرار.\n\nعند اختيار 1، رسوم فتح الملف ${fee} دنانير، وهي مستردة إذا ما صدرت الموافقة النهائية.`;
+  return `طلبك أخذ موافقة مبدئية ✅\n\nهل ترغب بالاستمرار للدراسة النهائية؟\n1 - نعم، أريد الاستمرار\n2 - لا، مش هسا\n\nعند اختيار 1، رسوم فتح الملف ${fee} دنانير، وهي مستردة إذا ما صدرت الموافقة النهائية.`;
 }
 
 export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: string | null) {

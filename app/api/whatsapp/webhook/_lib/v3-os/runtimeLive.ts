@@ -1142,7 +1142,7 @@ async function runLegacyV3ProductionLive(input: {
     application: truthAtContinuationDecision.application,
     explicitContinue: continuationDecisionThisTurn,
   });
-  if (continuationPersistence.updated) {
+  if (continuationPersistence.updated || continuationPersistence.alreadyRecorded) {
     truthAfterActions = await resolveV3ProductionTruth({
       waId: input.waId,
       customerText: effectiveCustomerText,
@@ -1159,8 +1159,8 @@ async function runLegacyV3ProductionLive(input: {
           applicationId: discordApp.id,
           trackingId: discordApp.trackingId,
           waId: input.waId,
-          title: "✅ العميل اختار الاستمرار — بانتظار رسوم فتح الملف",
-          description: "تم تثبيت قرار الاستمرار على الطلب وحفظه كسجل تشغيلي مستقل. خطوة رسوم فتح الملف أصبحت جاهزة للعميل.",
+          title: "✅ العميل اختار الاستمرار — خطوة الدفع مفتوحة",
+          description: "تم تثبيت قرار الاستمرار على الطلب، وأصبحت معلومات دفع رسوم فتح الملف ورابط رفع الوصل جاهزة ضمن مسار العميل الحالي.",
           details: {
             الاسم: discordApp.fullName || "—",
             الجهاز: discordApp.deviceName || "—",

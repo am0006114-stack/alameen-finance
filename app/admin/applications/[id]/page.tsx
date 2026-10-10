@@ -1071,7 +1071,7 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     const applicationId = String(formData.get("applicationId") || "");
     const nextStatus = String(formData.get("status") || "");
     const nextPaymentStatus = String(formData.get("payment_status") || "");
-    const studyDecisionStatuses = new Set(["preliminary_qualified", "needs_identity", "needs_salary_slip", "needs_guarantor", "approved", "rejected"]);
+    const studyDecisionStatuses = new Set(["needs_identity", "needs_salary_slip", "needs_guarantor", "approved", "rejected"]);
     if (nextStatus && studyDecisionStatuses.has(nextStatus) && !isOperationalDate(new Date())) {
       redirect(`/admin/applications/${applicationId}?calendar=weekend-study-blocked`);
     }

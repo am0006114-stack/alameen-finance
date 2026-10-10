@@ -27,9 +27,9 @@ ok(/الجمعة والسبت/.test(src.truth)&&/لا تُحتسبان/.test(src
 ok(/جميع أجهزة iPhone 18/.test(src.truth)&&/شهر كامل من تاريخ الموافقة النهائية/.test(src.truth),'business truth applies one-month delivery rule to all iPhone 18 variants');
 ok(src.calendarPage.includes('عداد شهر التسليم لم يبدأ')&&src.calendarPage.includes('countOperationalDaysElapsed'),'admin calendar surfaces paid iPhone 18 and operational review days');
 ok(src.detail.includes('final_approval_recorded'),'admin final approval writes a durable calendar timestamp');
-ok(src.detail.includes('studyDecisionStatuses')&&src.detail.includes('calendar=weekend-study-blocked'),'admin study decisions are blocked on Friday/Saturday');
+ok(src.detail.includes('studyDecisionStatuses')&&src.detail.includes('calendar=weekend-study-blocked')&&!/studyDecisionStatuses = new Set\(\[\"preliminary_qualified\"/.test(src.detail),'preliminary qualification is 7-day while final study decisions remain weekend-blocked');
 ok(src.detail.includes('pickup=weekend-blocked')&&src.detail.includes('pickup=iphone18-too-early'),'admin appointment action blocks weekends and early iPhone 18 pickup dates');
-ok(src.cron.includes('operational_weekend')&&src.cron.includes('isOperationalDate(new Date())'),'preliminary-approval cron skips Friday/Saturday');
+ok(!src.cron.includes('operational_weekend')&&!src.cron.includes('isOperationalDate(new Date())'),'preliminary-approval conversion cron runs Friday/Saturday');
 ok(src.arbiter.includes('commercialFileOpeningText')&&src.arbiter.includes('explicitReopenApplicationText'),'commercial file opening is disambiguated from reopening a cancelled application');
 ok(src.human.includes('vetoMisclassifiedCommercialFileReopen')&&src.human.includes('commercialFileOpeningTextForHumanOs'),'misclassified commercial file opening is vetoed before Action Plane execution');
 ok(src.arbiter.includes('"operational_calendar", "fee_document_question", "fee_question"')&&src.arbiter.includes('"pickup_delivery"'),'fresh calendar/fee/pickup questions are protected from stale meaning locks');
