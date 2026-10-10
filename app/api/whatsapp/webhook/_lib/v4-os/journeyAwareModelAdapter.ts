@@ -1,6 +1,7 @@
 import type { V3TextProvider } from "../v3-os/provider";
 import { createV4ModelAdapter } from "./modelAdapter";
 import { buildJourneyDirectorDraft, JOURNEY_DIRECTOR_NOTE, resolveJourneyDirectorUnderstanding } from "./journeyDirector";
+import { buildV41ExtendedDraft, resolveV41ExtendedUnderstanding } from "./journeyExtensions";
 import type { V4ActionName, V4ModelAdapter, V4TurnUnderstanding, V4WorkingMemory } from "./types";
 
 function normalizeArabic(value: string | null | undefined) {
@@ -185,7 +186,7 @@ function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemo
  * V4.1 puts deterministic current-turn/journey handling in front of paid model calls.
  * The base V4 model remains available for genuinely open-ended conversation, but it no
  * longer owns revenue steps, document upload, action confirmations, tracking gates,
- * status boilerplate, or other high-risk routine turns.
+ * status boilerplate, delivery/apply/requirements routing, or other high-risk routine turns.
  */
 export function createV41JourneyAwareModelAdapter(input: {
   understandingProvider: V3TextProvider;
@@ -200,15 +201,19 @@ export function createV41JourneyAwareModelAdapter(input: {
       if (explicitHuman) return explicitHuman;
       const visibleConfirmation = confirmsVisiblePrompt({ burstText: req.burstText, memory: req.memory });
       if (visibleConfirmation) return visibleConfirmation;
-      const longWait = explicitLongWaitOverride(req.burstText);
-      if (longWait) return longWait;
       const preliminaryOverride = preliminaryDecisionOverride({ burstText: req.burstText, truth: req.truth });
       if (preliminaryOverride) return preliminaryOverride;
+      const extended = resolveV41ExtendedUnderstanding({ burstText: req.burstText, truth: req.truth });
+      if (extended) return extended;
+      const longWait = explicitLongWaitOverride(req.burstText);
+      if (longWait) return longWait;
       const directed = resolveJourneyDirectorUnderstanding(req);
       return directed || base.understand(req);
     },
 
     async compose(req) {
+      const extended = buildV41ExtendedDraft({ understanding: req.understanding, truth: req.truth });
+      if (extended) return extended;
       const directed = buildJourneyDirectorDraft({
         burstText: req.burstText,
         understanding: req.understanding,
