@@ -3,6 +3,7 @@ import { continuationCommercialState } from "./commercialProgression";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
+import { buildInformedCommercialDisclosureReply } from "./informedCommercialContinuation";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 function n(value: string | null | undefined) {
@@ -130,7 +131,7 @@ function progressReply(turn: InterpretedTurn, truth: TruthBundle) {
   }
   if (stage === "payment_proof_pending_admin") return `وصل الدفع موجود على الملف وبانتظار اعتماد الإدارة. ما في عليك دفع أو رفع جديد هسا؛ بعد الاعتماد بكمل الملف للدراسة النهائية.${track}`;
   if (stage === "payment_confirmed_under_review") return `آه، خطوة فتح الملف مكتملة والدفع مؤكد إداريًا. طلبك هسا قيد الدراسة النهائية، وما في عليك خطوة مالية ثانية.${track}`;
-  if (stage === "preliminary_approved_waiting_decision") return `الطلب أخذ موافقة مبدئية، بس لسا ما انتقل للدراسة النهائية. إذا بدك تكمل، لازم تسجل اختيار الاستمرار أولًا.`;
+  if (stage === "preliminary_approved_waiting_decision") return buildInformedCommercialDisclosureReply(truth);
   if (stage === "preliminary_review") return `الطلب لسا بالمراجعة المبدئية، يعني ما وصل لمرحلة فتح الملف أو الدراسة النهائية بعد.${track}`;
   return `حالة طلبك الآن: ${customerFacingStatusLabel(app)}.${track}`;
 }
@@ -147,7 +148,7 @@ function statusReply(turn: InterpretedTurn, truth: TruthBundle) {
     return `طلبك${app.trackingId ? ` ${app.trackingId}` : ""} لسا قيد المراجعة المبدئية.${delayed ? ` ${window}، وحاليًا في ضغط مراجعات شديد وقد تتأخر بعض الملفات أكثر من المعدل. ما عندي موعد مؤكد أقدر أوعدك فيه.` : ""}${track}`;
   }
   if (stage === "preliminary_approved_waiting_decision") {
-    return `طلبك أخذ موافقة مبدئية، ولسا مش موافقة نهائية. إذا بدك تكمل، الخطوة التالية تسجيل الاستمرار ثم فتح الملف للدراسة النهائية.${track}`;
+    return buildInformedCommercialDisclosureReply(truth);
   }
   if (stage === "continuation_confirmed_fee_due") {
     return `اختيار الاستمرار مسجل على طلبك، والخطوة الحالية فتح الملف. المطلوب 5 دنانير رسوم فتح الملف ثم رفع الوصل الرسمي؛ بعد اعتماد الدفع تبدأ الدراسة النهائية.${track}`;
