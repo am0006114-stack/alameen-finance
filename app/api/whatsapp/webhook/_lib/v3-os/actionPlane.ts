@@ -1,5 +1,8 @@
 import { actionRequiresOmran } from "./hierarchy";
 import { hasPaymentRefundIntegrityConflict, truthHasAuthoritativePaymentConfirmation } from "./paymentTruth";
+import { applicationJourneyStage } from "./applicationJourney";
+import { commercialContinuationAffirmativeText, commercialDisclosureDelivered } from "./informedCommercialContinuation";
+import { persistExplicitContinuation } from "./continuationPersistence";
 import type { ActionKey, ActionResult, ConversationState, PlannedAction, TruthBundle } from "./types";
 
 export type ActionExecutorAdapter = {
@@ -58,9 +61,68 @@ function realMutationOwnershipBlocker(action: PlannedAction, state: Conversation
   return null;
 }
 
+function deterministicCommercialContinuationAction(state: ConversationState, truth: TruthBundle): PlannedAction | null {
+  const app = truth.application;
+  if (!app || String(truth.contactAccess || "") !== "full") return null;
+  if (applicationJourneyStage(app) !== "preliminary_approved_waiting_decision") return null;
+  if (!commercialDisclosureDelivered(state, truth)) return null;
+  if (!commercialContinuationAffirmativeText(state.lastCustomerText)) return null;
+
+  return {
+    action: "continue_application",
+    sourceActId: state.lastTurnId || "commercial-continuation",
+    requiresConfirmation: false,
+    authority: "deterministic",
+    requiredRole: "omran",
+    payload: {
+      _commercialDecision: true,
+      _scopeApplicationId: app.id,
+      _scopeTrackingId: app.trackingId,
+      _scopeWaId: state.waId,
+    },
+  };
+}
+
 export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean }): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
-  for (const action of input.actions) {
+  const commercialContinuation = deterministicCommercialContinuationAction(input.state, input.truth);
+  const actions = commercialContinuation
+    ? [commercialContinuation, ...input.actions.filter((action) => action.action !== "continue_application")]
+    : input.actions;
+
+  for (const action of actions) {
+    // Commercial continuation is intentionally not a broad Real Action. It is a
+    // narrow, idempotent state transition that may run even while general real
+    // mutations are disabled. The decision screen must have been delivered for
+    // this exact application and the current customer turn must be affirmative.
+    if (action.action === "continue_application" && action.payload?._commercialDecision === true) {
+      const persisted = await persistExplicitContinuation({
+        application: input.truth.application,
+        explicitContinue: true,
+      });
+      const success = persisted.updated || persisted.alreadyRecorded;
+      results.push({
+        action: "continue_application",
+        outcome: persisted.updated ? "executed" : persisted.alreadyRecorded ? "already_done" : persisted.attempted ? "failed" : "blocked",
+        executed: success,
+        authoritativeSummary: persisted.updated
+          ? "تم تسجيل رغبة الاستمرار وفتح خطوة رسوم فتح الملف."
+          : persisted.alreadyRecorded
+            ? "رغبة الاستمرار مسجلة أصلًا."
+            : null,
+        mutationId: null,
+        blocker: persisted.blocker,
+        ownerRole: input.state.role.currentRole,
+        details: {
+          deterministicCommercialContinuation: true,
+          attempted: persisted.attempted,
+          updated: persisted.updated,
+          alreadyRecorded: persisted.alreadyRecorded,
+        },
+      });
+      continue;
+    }
+
     const guarded = guardAction(action,input.state,input.truth);
     if (guarded.outcome !== "dry_run" || !input.allowMutation || !input.adapter) {
       results.push(guarded);
