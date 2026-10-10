@@ -61,6 +61,9 @@ jobs:
       - name: V4.1 executable offline replay
         run: node scripts/v4-1-offline-replay.cjs "$GITHUB_WORKSPACE"
 
+      - name: V4.1 second-pass 24h replay
+        run: node scripts/v4-1-second-pass-replay.cjs "$GITHUB_WORKSPACE"
+
       - name: TypeScript typecheck
         run: npx tsc --noEmit
 
