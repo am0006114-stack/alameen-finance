@@ -7,16 +7,23 @@ const ok = (cond, msg) => cond ? (passed++, console.log(`PASS ${passed}: ${msg}`
 const policyPath = path.join(root, 'app/api/whatsapp/webhook/_lib/v4-os/commercialFunnelPolicy.ts');
 const bridgePath = path.join(root, 'app/api/whatsapp/webhook/_lib/v4-os/commercialContinuationBridge.ts');
 const adapterPath = path.join(root, 'app/api/whatsapp/webhook/_lib/v4-os/modelAdapter.ts');
+const truthPath = path.join(root, 'app/api/whatsapp/webhook/_lib/v4-os/truthAdapter.ts');
 const policy = fs.readFileSync(policyPath, 'utf8');
 const bridge = fs.readFileSync(bridgePath, 'utf8');
 const adapter = fs.readFileSync(adapterPath, 'utf8');
+const truth = fs.readFileSync(truthPath, 'utf8');
 
 ok(/preliminary_approved_waiting_decision/.test(policy), 'fast path is gated to preliminary approval waiting-decision stage');
+ok(/currentStatusQuestion/.test(policy), 'status question at preliminary approval is captured by the deterministic funnel');
+ok(/هل ترغب بالاستمرار للدراسة النهائية/.test(policy), 'preliminary approval response asks the continuation decision explicitly');
+ok(/1️⃣ نعم، أريد الاستمرار/.test(policy), 'continuation option 1 is shown explicitly');
+ok(/2️⃣ لا، مش هسا/.test(policy), 'decline option 2 is shown explicitly');
+ok(/عند اختيار 1، رسوم فتح الملف 5 دنانير/.test(policy), '5 JOD fee is disclosed briefly with the decision, not hidden');
 ok(/q === "1"/.test(policy), 'numeric CTA 1 is a deterministic continuation shortcut');
+ok(/q === "2"/.test(policy), 'numeric CTA 2 is a deterministic decline shortcut after the prompt');
 ok(/نعم\\s\+اعتمد|نعم\s+اعتمد/.test(policy), 'natural نعم اعتمد continuation is recognized');
 ok(/requestedAction: isContinue \? "continue_application" : null/.test(policy), 'continuation shortcut becomes the canonical continue_application action');
-ok(/إذا حاب تكمل للدراسة النهائية، رسوم فتح الملف 5 دنانير، وهي مستردة إذا ما صدرت الموافقة النهائية\. للمتابعة اكتب 1\./.test(policy), 'pre-payment CTA is intentionally short');
-ok(!/إذا حاب تكمل للدراسة النهائية[^\n]{0,260}تمييز الطلبات الجادة/.test(policy), 'fee rationale is not injected into the initial CTA');
+ok(!/هل ترغب بالاستمرار للدراسة النهائية[^\n]{0,500}تمييز الطلبات الجادة/.test(policy), 'fee rationale is not injected into the initial decision prompt');
 ok(/feeReasonQuestion/.test(policy) && /تمييز الطلبات الجادة/.test(policy), 'fee rationale exists only on the explicit why-fee path');
 ok(/resolveCommercialFastPathUnderstanding/.test(adapter), 'model adapter checks deterministic commercial understanding first');
 ok(adapter.indexOf('resolveCommercialFastPathUnderstanding') < adapter.indexOf('understandingProvider.generate'), 'commercial shortcut is evaluated before any understanding-model call');
@@ -25,9 +32,12 @@ ok(/commercial deterministic fastpath/.test(adapter) && /accepted: true, score: 
 ok(/persistExplicitContinuation/.test(bridge), 'continuation still uses the frozen persistence backplane');
 ok(/fileOpeningPaymentWriterTruth/.test(bridge), 'payment destinations still come from the frozen canonical payment source');
 ok(/applicationReceiptUrl/.test(bridge), 'receipt upload remains bound through the canonical link source');
-ok(/Orange Money:/.test(bridge) && /CliQ:/.test(bridge) && /المستفيد:/.test(bridge), 'post-1 payment handoff contains only actionable payment data');
+ok(/Orange Money:/.test(bridge) && /CliQ:/.test(bridge) && /المستفيد:/.test(bridge), 'post-1 payment handoff contains actionable payment data');
 ok(!/(0788500337|PAYAMEEEN|AMEEN1ST|AM500337)/.test(bridge), 'V4 does not duplicate payment numbers or aliases in its own source');
-ok(!/ضغط المراجعات|يومين إلى 3|يومين الى 3|الجمعة والسبت/.test(policy), 'short commercial CTA does not dump unrelated review policy');
+ok(/business\.tracking_url[^\n]+false/.test(truth), 'generic tracking URL is hidden from the writer before payment');
+ok(/if \(paymentConfirmed\)/.test(truth) && /application\.tracking_link/.test(truth), 'bound tracking link is exposed only after authoritative payment confirmation');
+ok(!/tracking_link[\s\S]{0,160}continuation_confirmed_fee_due/.test(truth), 'fee-due stage does not expose tracking before payment confirmation');
+ok(!/ضغط المراجعات|يومين إلى 3|يومين الى 3|الجمعة والسبت/.test(policy), 'commercial decision prompt does not dump unrelated review policy');
 
 console.log(`\nV4 COMMERCIAL FUNNEL FASTPATH SELFTEST: assertions=${passed + failed}; passed=${passed}; failed=${failed}`);
 if (failed) process.exit(1);
