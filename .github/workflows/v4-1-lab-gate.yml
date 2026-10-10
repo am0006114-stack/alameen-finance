@@ -1,0 +1,66 @@
+name: ALAMEEN V4.1 Lab Gate
+
+on:
+  push:
+    branches:
+      - alameen-v4-1-decisive-rebuild
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deterministic-lab-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact branch commit
+        uses: actions/checkout@v4
+
+      - name: Use Node 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: V4 core
+        run: node scripts/v4-human-ai-conversation-os-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: V4 state memory
+        run: node scripts/v4-state-memory-bridge-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: V4 burst assembler
+        run: node scripts/v4-burst-assembler-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: Frozen commercial delegate
+        run: node scripts/v4-commercial-delegate-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: Human care
+        run: node scripts/v4-human-care-playbook-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: Human escalation
+        run: node scripts/v4-human-escalation-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: Production failure contract
+        run: node scripts/v4-regression-contract-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: Production runtime safety
+        run: node scripts/v4-production-runtime-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: Commercial conversion funnel
+        run: node scripts/v4-commercial-funnel-fastpath-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: V4.1 journey structural gate
+        run: node scripts/v4-1-decisive-journey-selftest.cjs "$GITHUB_WORKSPACE"
+
+      - name: V4.1 executable offline replay
+        run: node scripts/v4-1-offline-replay.cjs "$GITHUB_WORKSPACE"
+
+      - name: TypeScript typecheck
+        run: npx tsc --noEmit
+
+      - name: Diff whitespace integrity
+        run: git diff --check 81d5a72b3052d64d660eccde8f4a0db40739dcd4...HEAD
