@@ -61,18 +61,25 @@ const once = (src, re, replacement, label) => {
     throw new Error('continuation notification condition anchor missing');
   }
 
-  src = src.replace(
-    'title: "✅ العميل اختار الاستمرار — بانتظار رسوم فتح الملف",',
-    'title: "✅ العميل اختار الاستمرار — خطوة الدفع مفتوحة",'
-  );
-  src = src.replace(
-    'description: "تم تثبيت قرار الاستمرار على الطلب وحفظه كسجل تشغيلي مستقل. خطوة رسوم فتح الملف أصبحت جاهزة للعميل.",',
-    'description: "تم تثبيت قرار الاستمرار على الطلب، وأصبحت معلومات دفع رسوم فتح الملف ورابط رفع الوصل جاهزة ضمن مسار العميل الحالي.",'
-  );
-  if (!src.includes('event: "customer_continue_payment_ready"')) throw new Error('continuation Discord event missing');
+  const eventAnchor = 'event: "customer_continue_payment_ready"';
+  const eventAt = src.indexOf(eventAnchor);
+  if (eventAt < 0) throw new Error('continuation Discord event missing');
+
+  const before = src.slice(0, eventAt);
+  let eventTail = src.slice(eventAt);
+  const titleRe = /title:\s*"[^"\r\n]*",/;
+  const descriptionRe = /description:\s*"[^"\r\n]*",/;
+  if (!titleRe.test(eventTail)) throw new Error('continuation Discord title anchor missing');
+  eventTail = eventTail.replace(titleRe, 'title: "✅ العميل اختار الاستمرار — خطوة الدفع مفتوحة",');
+  if (!descriptionRe.test(eventTail)) throw new Error('continuation Discord description anchor missing');
+  eventTail = eventTail.replace(descriptionRe, 'description: "تم تثبيت قرار الاستمرار على الطلب، وأصبحت معلومات دفع رسوم فتح الملف ورابط رفع الوصل جاهزة ضمن مسار العميل الحالي.",');
+  src = before + eventTail;
+
   if (!src.includes('continuationPersistence.updated || continuationPersistence.alreadyRecorded')) throw new Error('continuation event recovery guard missing');
+  if (!src.includes('title: "✅ العميل اختار الاستمرار — خطوة الدفع مفتوحة",')) throw new Error('continuation Discord title was not enforced');
+  if (!src.includes('description: "تم تثبيت قرار الاستمرار على الطلب، وأصبحت معلومات دفع رسوم فتح الملف ورابط رفع الوصل جاهزة ضمن مسار العميل الحالي.",')) throw new Error('continuation Discord description was not enforced');
   write(rel, src);
-  console.log('PASS - continuation ledger/Discord event is durable and recoverable');
+  console.log('PASS - continuation ledger/Discord event is durable, recoverable and explicit about payment handoff');
 }
 
 // 4) Historical calendar selftest: keep weekend rules for study/review/delivery,
