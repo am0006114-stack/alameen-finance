@@ -28,6 +28,11 @@ function freshTurnShouldNotBeOwnedByPending(understanding: V4TurnUnderstanding) 
   );
 }
 
+function confirmedAgainstVisiblePrompt(understanding: V4TurnUnderstanding, action: V4ActionName) {
+  return understanding.actionDisposition === "confirm" &&
+    understanding.warnings.includes(`visible_prior_confirmation:${action}`);
+}
+
 export function resolveV4Procedure(input: {
   memory: V4WorkingMemory;
   turnId: string;
@@ -39,8 +44,7 @@ export function resolveV4Procedure(input: {
 
   // Commercial continuation is intentionally NOT a generic V4 business mutation.
   // It is delegated to the frozen 5-JOD funnel which owns persistence, payment
-  // destinations and receipt-link semantics. This prevents V4 from accidentally
-  // reimplementing or weakening that revenue-critical path.
+  // destinations and receipt-link semantics.
   if (requested === "continue_application" && (disposition === "request" || disposition === "confirm")) {
     return { action: null, nextState: null, shouldExecute: false, needsConfirmation: false, reason: "continuation_delegated_to_frozen_commercial_funnel" };
   }
@@ -69,8 +73,7 @@ export function resolveV4Procedure(input: {
     }
 
     // A second, separate turn that clearly repeats the same requested action is itself
-    // a valid confirmation. This intentionally prevents confirmation loops such as:
-    // refund -> 'confirm' -> 'yes I want refund' -> 'confirm again'.
+    // a valid confirmation. This intentionally prevents confirmation loops.
     const sameActionRepeated = requested === pending.name && (disposition === "request" || disposition === "confirm");
     const genericConfirmation = disposition === "confirm" && (!requested || requested === pending.name);
     if (sameActionRepeated || genericConfirmation) {
@@ -106,6 +109,20 @@ export function resolveV4Procedure(input: {
 
   if (disposition === "deny") {
     return { action: requested, nextState: "cancelled", shouldExecute: false, needsConfirmation: false, reason: "customer explicitly declined action" };
+  }
+
+  // Migration/legacy continuity: if the previous assistant message visibly asked for
+  // this exact confirmation and the customer now supplied it, do not ask a second time
+  // merely because pendingProcedure was absent from state. The warning is emitted only
+  // by the deterministic visible-prompt matcher.
+  if (confirmedAgainstVisiblePrompt(input.understanding, requested)) {
+    return {
+      action: requested,
+      nextState: "confirmed",
+      shouldExecute: true,
+      needsConfirmation: false,
+      reason: "customer confirmed an exact sensitive-action prompt already shown on the previous turn",
+    };
   }
 
   if (actionNeedsConfirmation(requested)) {
