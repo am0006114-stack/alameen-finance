@@ -500,8 +500,10 @@ function continuationReply(turn: InterpretedTurn, truth: TruthBundle) {
   const links = buildOfficialLinkContext(turn, truth);
   if (commercial === "already_paid") return "تمام، رغبتك بالاستمرار واضحة والدفع مؤكد إداريًا أصلًا. ما في داعي تدفع رسوم فتح الملف أو ترفع الوصل مرة ثانية؛ الطلب مكمل بمساره الحالي.";
   if (commercial === "payment_pending_admin" || app?.documents?.paymentReceiptUploaded) return "تمام، رغبتك بالاستمرار واضحة ووصل الدفع موجود بانتظار اعتماد الإدارة. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.";
-  if (isContinuationRevenueReady(app)) {
-    // Phase 9.1 P0: once informed continuation is confirmed, the receipt URL is
+  if (commercial === "payment_ready") {
+    // Phase 9.1 P0: payment handoff is allowed only after continuation is durably persisted.
+    // A preliminary_qualified application is the decision stage, never payment-ready.
+    // Once informed continuation is confirmed, the receipt URL is
     // a deterministic view over the bound application. Do not depend on the
     // current topic label to decide whether this revenue-critical link exists.
     const receipt = applicationReceiptUrl(truth) || links.relevant.receipt;
