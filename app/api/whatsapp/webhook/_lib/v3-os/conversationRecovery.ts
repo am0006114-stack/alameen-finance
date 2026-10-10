@@ -231,7 +231,10 @@ export function explicitDoNotContinueText(value: string | null | undefined, cont
   const explicit = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابه|حابب|راغب|مكمل)|ما\s+(?:بدي|ارغب|اريد)|مش\s+بدي|بديش).{0,35}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر|المتابعه|فتح\s+الملف|الدراسه\s+النهائيه)|(?:لا\s+(?:ارغب|اريد)).{0,25}(?:حاليا|مستقبلا)/.test(q);
   const contextualDecline = /^(?:لا\s*يسلمو|لا\s*شكرا|يسلمو\s+لا|بلاش|خلص\s+لا)$/.test(q)
     && /(?:اود\s+الاستمرار|اريد\s+الاستمرار|هل\s+(?:تود|تريد|بدك).{0,25}(?:الاستمرار|تكمل)|رسوم\s+فتح\s+الملف|(?:5|٥)\s*(?:دنانير|دينار))/.test(ctx);
-  const numericDecisionDecline = /^(?:2|\u0662)$/.test(q)\n    && /(?:1|2|\u0661|\u0662)/.test(ctx)\n    && /(?:\u0627\u0644\u0627\u0633\u062a\u0645\u0631\u0627\u0631|\u0631\u0633\u0648\u0645\s+\u0641\u062a\u062d\s+\u0627\u0644\u0645\u0644\u0641)/.test(ctx);\n  return explicit || contextualDecline || numericDecisionDecline;
+  const numericDecisionDecline = /^(?:2|\u0662)$/.test(q)
+    && /(?:1|2|\u0661|\u0662)/.test(ctx)
+    && /(?:\u0627\u0644\u0627\u0633\u062a\u0645\u0631\u0627\u0631|\u0631\u0633\u0648\u0645\s+\u0641\u062a\u062d\s+\u0627\u0644\u0645\u0644\u0641)/.test(ctx);
+  return explicit || contextualDecline || numericDecisionDecline;
 }
 
 export function explicitContinuationText(value: string | null | undefined) {
