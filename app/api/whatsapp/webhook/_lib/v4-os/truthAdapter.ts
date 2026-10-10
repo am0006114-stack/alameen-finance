@@ -18,6 +18,13 @@ function boundUrl(path: string, truth: TruthBundle) {
   return `${baseUrl()}${path}?tracking=${encodeURIComponent(app.trackingId)}&phone=${encodeURIComponent(app.phone)}`;
 }
 
+function ageDays(createdAt: string | null | undefined) {
+  if (!createdAt) return null;
+  const ts = new Date(createdAt).getTime();
+  if (!Number.isFinite(ts)) return null;
+  return Math.max(0, Math.floor((Date.now() - ts) / 86_400_000));
+}
+
 function mapAction(action: string): V4ActionName | null {
   switch (action) {
     case "cancel_application": return "cancel_application";
@@ -45,9 +52,7 @@ export function toV4TruthBundle(input: { truth: TruthBundle; actions?: ActionRes
   facts["business.commercial_structure"] = fact("business.commercial_structure", policy.commercialStructureRule, "policy");
   facts["business.website"] = fact("business.website", official, "system");
   facts["business.products_url"] = fact("business.products_url", `${official}/products`, "system");
-  // Tracking is intentionally hidden from the V4 writer until payment is authoritatively
-  // confirmed. The commercial funnel must not distract a preliminary-approved customer
-  // with a tracking link before the 5 JOD continuation step is completed.
+  // Tracking is intentionally hidden until payment is authoritatively confirmed.
   facts["business.tracking_url"] = fact("business.tracking_url", `${official}/track`, "system", false);
   facts["fee.opening.amount_jod"] = fact("fee.opening.amount_jod", policy.fileOpeningFeeJod, "policy");
   facts["fee.opening.timing"] = fact("fee.opening.timing", policy.fileOpeningFeeTiming, "policy");
@@ -70,8 +75,11 @@ export function toV4TruthBundle(input: { truth: TruthBundle; actions?: ActionRes
   if (app) {
     const stage = applicationJourneyStage(app);
     const paymentConfirmed = hasAuthoritativePaymentConfirmation(app);
+    const docs = app.documents || null;
     facts["application.exists"] = fact("application.exists", true);
     facts["application.tracking_id"] = fact("application.tracking_id", app.trackingId);
+    facts["application.created_at"] = fact("application.created_at", app.createdAt || null);
+    facts["application.age_days"] = fact("application.age_days", ageDays(app.createdAt));
     facts["application.status.raw"] = fact("application.status.raw", app.status);
     facts["application.status.customer"] = fact("application.status.customer", customerFacingStatusLabel(app));
     facts["application.journey_stage"] = fact("application.journey_stage", stage);
@@ -86,22 +94,35 @@ export function toV4TruthBundle(input: { truth: TruthBundle; actions?: ActionRes
     facts["application.payment_status"] = fact("application.payment_status", app.paymentStatus);
     facts["application.payment_confirmed_at"] = fact("application.payment_confirmed_at", app.paymentConfirmedAt);
     facts["application.delivery_delay_until"] = fact("application.delivery_delay_until", app.deliveryDelayUntil);
-    facts["application.documents"] = fact("application.documents", app.documents || null);
+    facts["application.documents"] = fact("application.documents", docs);
+    facts["application.documents.loaded"] = fact("application.documents.loaded", docs?.loaded ?? false);
+    facts["application.documents.identity_complete"] = fact("application.documents.identity_complete", docs?.identityComplete ?? null);
+    facts["application.documents.income_uploaded"] = fact("application.documents.income_uploaded", docs?.salarySlipUploaded ?? null);
+    facts["application.documents.guarantor_complete"] = fact("application.documents.guarantor_complete", docs?.guarantorDataComplete ?? null);
+    facts["application.documents.payment_receipt_uploaded"] = fact("application.documents.payment_receipt_uploaded", docs?.paymentReceiptUploaded ?? null);
 
     if (input.truth.contactAccess === "full" && app.fullName) {
       facts["application.customer_name"] = fact("application.customer_name", app.fullName);
     }
 
-    // The user-approved commercial funnel exposes tracking only after authoritative
-    // payment confirmation. Before that, V4 should drive the continuation/payment step.
+    // Customer-bound secure document destinations are truth facts. They are only used
+    // when the current turn explicitly asks to upload that document or the authoritative
+    // journey stage requires it.
+    const identity = boundUrl("/identity", input.truth);
+    const income = boundUrl("/salary-slip", input.truth);
+    const guarantor = boundUrl("/guarantor", input.truth);
+    if (identity) facts["application.identity_upload_link"] = fact("application.identity_upload_link", identity, "system");
+    if (income) facts["application.income_upload_link"] = fact("application.income_upload_link", income, "system");
+    if (guarantor) facts["application.guarantor_upload_link"] = fact("application.guarantor_upload_link", guarantor, "system");
+
+    // Tracking becomes visible only after authoritative payment confirmation.
     if (paymentConfirmed) {
       facts["business.tracking_url"] = fact("business.tracking_url", `${official}/track`, "system", true);
       const tracking = boundUrl("/track", input.truth);
       if (tracking) facts["application.tracking_link"] = fact("application.tracking_link", tracking, "system");
     }
 
-    // Sensitive receipt link is visible only after continuation is already recorded and
-    // before authoritative payment confirmation. This preserves the frozen 5 JOD funnel.
+    // Receipt upload is available only after continuation is recorded and before payment confirmation.
     if (stage === "continuation_confirmed_fee_due" && !paymentConfirmed) {
       const receipt = boundUrl("/receipt", input.truth);
       if (receipt) facts["application.receipt_upload_link"] = fact("application.receipt_upload_link", receipt, "system");
