@@ -64,6 +64,9 @@ jobs:
       - name: V4.1 second-pass 24h replay
         run: node scripts/v4-1-second-pass-replay.cjs "$GITHUB_WORKSPACE"
 
+      - name: V4.1 no model providers
+        run: node scripts/v4-1-no-model-provider-selftest.cjs "$GITHUB_WORKSPACE"
+
       - name: TypeScript typecheck
         run: npx tsc --noEmit
 
