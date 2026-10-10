@@ -159,10 +159,12 @@ export function shouldExplainCommercialStep(input: { state: ConversationState; t
 
 export function resemblesFullCommercialDisclosure(value: string | null | undefined) {
   const q = normalizeArabic(String(value || ""));
+  const declineChoice = /لا\s+اريد\s+الاستمرار/.test(q)
+    || /(?:2|٢).{0,24}(?:لا|مش\s+هسا)/.test(q);
   return /موافقه\s+مبدئيه/.test(q)
     && /هل.{0,20}(?:ترغب|بدك|حاب).{0,25}(?:الاستمرار|تكمل)/.test(q)
     && /(?:1|١).{0,18}(?:نعم|استمرار|اكمل|كمل)/.test(q)
-    && /لا\s+اريد\s+الاستمرار/.test(q)
+    && declineChoice
     && /رسوم\s+فتح\s+الملف/.test(q)
     && /مسترد/.test(q);
 }
@@ -182,6 +184,14 @@ export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {
 }
 
 export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: string | null) {
+  const stage = applicationJourneyStage(truth.application);
+  // Hard commercial invariant: payment destinations are never exposed from an
+  // affirmative chat message alone. The continuation decision must first be
+  // durably reflected in authoritative application truth.
+  if (stage !== "continuation_confirmed_fee_due") {
+    return "وصل اختيارك بالاستمرار، لكن القرار لسا ما تثبّت على الطلب بشكل موثوق. لذلك ما رح أعطيك بيانات دفع قبل ما يثبت الاستمرار بالنظام. جرّب معي بعد شوي من نفس المحادثة.";
+  }
+
   const p = truth.policy;
   const upload = receiptUrl
     ? `\nارفع الوصل من الرابط الرسمي:\n${receiptUrl}`
