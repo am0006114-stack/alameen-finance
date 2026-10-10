@@ -140,19 +140,12 @@ function asksFeeReason(turn: InterpretedTurn) {
 export function shouldExplainCommercialStep(input: { state: ConversationState; truth: TruthBundle; turn: InterpretedTurn; explicitContinuationIntent: boolean; observedFullDisclosure?: boolean }) {
   const stage = applicationJourneyStage(input.truth.application);
   if (stage !== "preliminary_approved_waiting_decision") return false;
-
-  // A fee-rationale question must be answered as a fee-rationale question. Do not
-  // replace it with the decision CTA; the customer already knows a fee exists.
   if (asksFeeReason(input.turn)) return false;
 
-  // After preliminary approval, status/next-step questions own a deterministic
-  // conversion decision screen. This is intentionally independent of intent labels
-  // and of whether the CTA was shown earlier: if the customer asks what happens now,
-  // answer that exact commercial decision instead of returning a stale tracking link.
+  // Status / next-step questions after preliminary approval are the decision screen.
+  // They must never decay into a stale status answer + tracking link.
   if (!input.explicitContinuationIntent && asksStatusOrNextStep(input.turn)) return true;
 
-  // First explicit continuation signal opens the short decision disclosure. Once the
-  // same application has already received it, natural confirmation/1 may proceed.
   if (input.observedFullDisclosure || commercialDisclosureDelivered(input.state, input.truth)) return false;
   return input.explicitContinuationIntent || input.turn.topics.includes("continuation");
 }
@@ -162,7 +155,7 @@ export function resemblesFullCommercialDisclosure(value: string | null | undefin
   return /موافقه\s+مبدئيه/.test(q)
     && /هل.{0,20}(?:ترغب|بدك|حاب).{0,25}(?:الاستمرار|تكمل)/.test(q)
     && /(?:1|١).{0,18}(?:نعم|استمرار|اكمل|كمل)/.test(q)
-    && /(?:2|٢).{0,18}(?:لا|مش\s+هسا|لاحقا|لاحق)/.test(q)
+    && /لا\s+اريد\s+الاستمرار/.test(q)
     && /رسوم\s+فتح\s+الملف/.test(q)
     && /مسترد/.test(q);
 }
@@ -178,7 +171,7 @@ export function resemblesPostDisclosurePaymentReply(value: string | null | undef
 
 export function buildInformedCommercialDisclosureReply(truth: TruthBundle) {
   const fee = truth.policy.fileOpeningFeeJod;
-  return `طلبك أخذ موافقة مبدئية ✅\n\nهل ترغب بالاستمرار للدراسة النهائية؟\n1 - نعم، أريد الاستمرار\n2 - لا، مش هسا\n\nعند اختيار 1، رسوم فتح الملف ${fee} دنانير، وهي مستردة إذا ما صدرت الموافقة النهائية.`;
+  return `طلبك أخذ موافقة مبدئية ✅\n\nهل ترغب بالاستمرار للدراسة النهائية؟\n1 - نعم، أريد الاستمرار\nإذا مش حاب تكمل هسا، اكتب: لا أريد الاستمرار.\n\nعند اختيار 1، رسوم فتح الملف ${fee} دنانير، وهي مستردة إذا ما صدرت الموافقة النهائية.`;
 }
 
 export function buildPostDisclosurePaymentReply(truth: TruthBundle, receiptUrl: string | null) {
