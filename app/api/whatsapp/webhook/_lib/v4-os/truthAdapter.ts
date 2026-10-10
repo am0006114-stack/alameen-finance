@@ -45,7 +45,10 @@ export function toV4TruthBundle(input: { truth: TruthBundle; actions?: ActionRes
   facts["business.commercial_structure"] = fact("business.commercial_structure", policy.commercialStructureRule, "policy");
   facts["business.website"] = fact("business.website", official, "system");
   facts["business.products_url"] = fact("business.products_url", `${official}/products`, "system");
-  facts["business.tracking_url"] = fact("business.tracking_url", `${official}/track`, "system");
+  // Tracking is intentionally hidden from the V4 writer until payment is authoritatively
+  // confirmed. The commercial funnel must not distract a preliminary-approved customer
+  // with a tracking link before the 5 JOD continuation step is completed.
+  facts["business.tracking_url"] = fact("business.tracking_url", `${official}/track`, "system", false);
   facts["fee.opening.amount_jod"] = fact("fee.opening.amount_jod", policy.fileOpeningFeeJod, "policy");
   facts["fee.opening.timing"] = fact("fee.opening.timing", policy.fileOpeningFeeTiming, "policy");
   facts["fee.opening.purpose"] = fact("fee.opening.purpose", policy.fileOpeningFeePurposeRule, "policy");
@@ -89,8 +92,13 @@ export function toV4TruthBundle(input: { truth: TruthBundle; actions?: ActionRes
       facts["application.customer_name"] = fact("application.customer_name", app.fullName);
     }
 
-    const tracking = boundUrl("/track", input.truth);
-    if (tracking) facts["application.tracking_link"] = fact("application.tracking_link", tracking, "system");
+    // The user-approved commercial funnel exposes tracking only after authoritative
+    // payment confirmation. Before that, V4 should drive the continuation/payment step.
+    if (paymentConfirmed) {
+      facts["business.tracking_url"] = fact("business.tracking_url", `${official}/track`, "system", true);
+      const tracking = boundUrl("/track", input.truth);
+      if (tracking) facts["application.tracking_link"] = fact("application.tracking_link", tracking, "system");
+    }
 
     // Sensitive receipt link is visible only after continuation is already recorded and
     // before authoritative payment confirmation. This preserves the frozen 5 JOD funnel.
