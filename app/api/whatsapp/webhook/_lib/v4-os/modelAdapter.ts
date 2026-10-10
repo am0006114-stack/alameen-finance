@@ -1,5 +1,6 @@
 import type { V3TextProvider } from "../v3-os/provider";
 import { HUMAN_BEHAVIOR_PRINCIPLES, PERSONA_NAMES, WHITE_LIE_BOUNDARY, humanStyleInstructions } from "./humanBehaviorPolicy";
+import { buildCommercialFastPathDraft, resolveCommercialFastPathUnderstanding } from "./commercialFunnelPolicy";
 import { lensTruthBundle } from "./truthLens";
 import type {
   V4CriticResult,
@@ -147,6 +148,13 @@ function criticSystem() {
 export function createV4ModelAdapter(input: { understandingProvider: V3TextProvider; writerProvider: V3TextProvider; criticProvider: V3TextProvider }): V4ModelAdapter {
   return {
     async understand(req) {
+      const commercialFastPath = resolveCommercialFastPathUnderstanding({
+        burstText: req.burstText,
+        memory: req.memory,
+        truth: req.truth,
+      });
+      if (commercialFastPath) return commercialFastPath;
+
       const raw = await input.understandingProvider.generate({
         system: understandSystem(),
         user: JSON.stringify({ burst: req.burstText, memory: compactMemory(req.memory), truth: compactTruth(req.truth) }),
@@ -157,6 +165,9 @@ export function createV4ModelAdapter(input: { understandingProvider: V3TextProvi
     },
 
     async compose(req) {
+      const commercialFastDraft = buildCommercialFastPathDraft({ understanding: req.understanding, truth: req.truth });
+      if (commercialFastDraft) return commercialFastDraft;
+
       const writerTruth = lensTruthBundle({ burstText: req.burstText, understanding: req.understanding, truth: req.truth });
       const raw = await input.writerProvider.generate({
         system: composeSystem({ memory: req.memory, understanding: req.understanding, decision: req.decision, repairInstructions: req.repairInstructions }),
@@ -174,6 +185,10 @@ export function createV4ModelAdapter(input: { understandingProvider: V3TextProvi
     },
 
     async critique(req) {
+      if (req.draft.notes.includes("commercial deterministic fastpath")) {
+        return { accepted: true, score: 1, reasons: [], repairInstructions: [] };
+      }
+
       const raw = await input.criticProvider.generate({
         system: criticSystem(),
         user: JSON.stringify({ burst: req.burstText, understanding: req.understanding, memory: compactMemory(req.memory), truth: compactTruth(req.truth), draft: req.draft }),
