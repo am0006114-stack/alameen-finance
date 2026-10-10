@@ -1,0 +1,46 @@
+const fs = require('fs');
+const path = require('path');
+const root = process.argv[2] || process.cwd();
+let passed = 0, failed = 0;
+const ok = (cond, msg) => cond ? (passed++, console.log(`PASS ${passed}: ${msg}`)) : (failed++, console.error(`FAIL: ${msg}`));
+const read = (p) => fs.readFileSync(path.join(root, p), 'utf8');
+
+const director = read('app/api/whatsapp/webhook/_lib/v4-os/journeyDirector.ts');
+const wrapper = read('app/api/whatsapp/webhook/_lib/v4-os/journeyAwareModelAdapter.ts');
+const bridge = read('app/api/whatsapp/webhook/_lib/v4-os/runtimeBridge.ts');
+const procedure = read('app/api/whatsapp/webhook/_lib/v4-os/procedureEngine.ts');
+const truth = read('app/api/whatsapp/webhook/_lib/v4-os/truthAdapter.ts');
+const commercial = read('app/api/whatsapp/webhook/_lib/v4-os/commercialFunnelPolicy.ts');
+
+ok(/createV41JourneyAwareModelAdapter/.test(bridge), 'runtime uses V4.1 journey-aware adapter');
+ok(wrapper.indexOf('confirmsVisiblePrompt') < wrapper.indexOf('resolveJourneyDirectorUnderstanding'), 'visible prior confirmation is recovered before normal routing');
+ok(director.indexOf('pendingConfirmation') < director.indexOf('resolveCommercialFastPathUnderstanding'), 'pending sensitive confirmation outranks commercial funnel');
+ok(director.indexOf('asksHowToUpload') < director.indexOf('asksStatus'), 'exact document upload question outranks generic status');
+ok(director.indexOf('asksWhatIsMissing') < director.indexOf('asksStatus'), 'missing-document question outranks generic status');
+ok(director.indexOf('asksInstallmentArrears') < director.indexOf('asksStatus'), 'contract installment question cannot collapse into payment/status template');
+ok(director.indexOf('asksProduct') < director.indexOf('asksStatus'), 'product question cannot be owned by stale application status');
+ok(/replace\(\/\[٠-٩\]\//.test(commercial) && /q === "1"/.test(commercial), 'Arabic digit ١ normalizes into deterministic CTA 1');
+ok(/تمام\\s\+استمرار|تمام\s+استمرار/.test(commercial), 'natural continuation phrase تمام استمرار is deterministic');
+ok(/1️⃣ نعم، أريد الاستمرار/.test(commercial) && /2️⃣ لا، مش هسا/.test(commercial), 'preliminary approval shows explicit 1/2 decision options');
+ok(/fee rationale intentionally omitted unless asked/.test(commercial), 'initial fee CTA does not dump fee rationale');
+ok(/business\.tracking_url.*false/.test(truth), 'tracking is hidden by default before payment');
+ok(/if \(paymentConfirmed\)/.test(truth) && /application\.tracking_link/.test(truth), 'customer-bound tracking link is exposed only in paid branch');
+ok(/application\.income_upload_link/.test(truth) && /salary-slip/.test(truth), 'secure income upload link is available as authoritative truth');
+ok(/application\.identity_upload_link/.test(truth) && /application\.guarantor_upload_link/.test(truth), 'identity and guarantor secure links are authoritative truth');
+ok(/Raw document-required state outranks the generic paid-review stage/.test(director), 'document-required raw status outranks generic paid-review response');
+ok(/age != null && age >= 7/.test(director) && /ما رح أرجع أحكيلك يومين أو 3/.test(director), 'aged cases never get normal-window boilerplate');
+ok(/visible_prior_confirmation:link_whatsapp_alias/.test(wrapper), 'alias confirmation shown to customer is recoverable');
+ok(/visible_prior_confirmation:cancel_application/.test(wrapper), 'cancel confirmation shown to customer is recoverable');
+ok(/visible_prior_confirmation:request_refund/.test(wrapper), 'refund confirmation shown to customer is recoverable');
+ok(/visible_prior_confirmation:reopen_application/.test(wrapper), 'reopen confirmation shown to customer is recoverable');
+ok(/confirmedAgainstVisiblePrompt/.test(procedure) && /shouldExecute: true/.test(procedure), 'already-shown sensitive confirmation executes without asking again');
+ok(/ما\\s\+بدي\\s\+رد/.test(wrapper) && /explicit_real_human_request:not_silence/.test(wrapper), 'ما بدي رد آلي is human escalation, not silence');
+ok(/tracking blocked before authoritative payment/.test(director), 'explicit tracking request before payment is blocked from receiving a tracking link');
+ok(/never confuse contract installment with opening-fee payment proof/.test(director), 'missed monthly installment is isolated from 5-JOD payment proof');
+ok(/product question isolated from stale application topic/.test(director), 'device availability/price is isolated from stale refund/status context');
+ok(/social closure cannot reopen stale topic/.test(director), 'thanks/تمام closure cannot reopen an old application topic');
+ok(!/0788500337|PAYAMEEEN|AMEEN1ST|AM500337/.test(director), 'V4.1 director contains no hardcoded payment destination');
+ok(!/runtimeLive/.test(director) && !/runtimeLive/.test(wrapper), 'V4.1 journey layer does not import V3 conversational runtime');
+
+console.log(`\nV4.1 DECISIVE JOURNEY SELFTEST: assertions=${passed + failed}; passed=${passed}; failed=${failed}`);
+if (failed) process.exit(1);
