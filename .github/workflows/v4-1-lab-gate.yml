@@ -12,7 +12,7 @@ permissions:
 jobs:
   deterministic-lab-gate:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - name: Checkout exact branch commit
         uses: actions/checkout@v4
@@ -52,6 +52,9 @@ jobs:
       - name: Production runtime safety
         run: node scripts/v4-production-runtime-selftest.cjs "$GITHUB_WORKSPACE"
 
+      - name: Production route ownership
+        run: node scripts/v4-final-cutover-route-selftest.cjs "$GITHUB_WORKSPACE"
+
       - name: Commercial conversion funnel
         run: node scripts/v4-commercial-funnel-fastpath-selftest.cjs "$GITHUB_WORKSPACE"
 
@@ -69,6 +72,9 @@ jobs:
 
       - name: TypeScript typecheck
         run: npx tsc --noEmit
+
+      - name: Full Next production build
+        run: npm run build
 
       - name: Diff whitespace integrity
         run: git diff --check 81d5a72b3052d64d660eccde8f4a0db40739dcd4...HEAD
