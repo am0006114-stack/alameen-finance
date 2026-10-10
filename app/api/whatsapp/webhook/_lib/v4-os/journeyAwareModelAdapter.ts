@@ -89,6 +89,19 @@ function preliminaryDecisionOverride(input: { burstText: string; truth: { facts:
   return null;
 }
 
+function explicitHumanRejectionOfAutomation(burstText: string): V4TurnUnderstanding | null {
+  const q = normalizeArabic(burstText);
+  if (!/(?:ما\s+بدي|مش\s+بدي|لا\s+اريد).{0,15}(?:رد\s+الي|رد\s+آلي|بوت|روبوت)|(?:بدي|اريد).{0,20}(?:موظف|حد\s+حقيقي|انسان)/.test(q)) return null;
+  return directUnderstanding({
+    summary: "العميل يرفض الرد الآلي ويطلب تواصلًا بشريًا حقيقيًا",
+    goal: "request_real_human_contact",
+    action: "record_human_contact_request",
+    disposition: "request",
+    warning: "explicit_real_human_request:not_silence",
+    human: true,
+  });
+}
+
 function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemory }): V4TurnUnderstanding | null {
   const q = normalizeArabic(input.burstText);
   const last = normalizeArabic(input.memory.lastAssistantText);
@@ -135,18 +148,6 @@ function confirmsVisiblePrompt(input: { burstText: string; memory: V4WorkingMemo
     });
   }
 
-  // "ما بدي رد آلي" means real-human contact, not silence.
-  if (/ما\s+بدي\s+رد\s+(?:الي|آلي|الي)/.test(String(input.burstText || ""))) {
-    return directUnderstanding({
-      summary: "العميل يرفض الرد الآلي ويطلب تواصلًا بشريًا حقيقيًا",
-      goal: "request_real_human_contact",
-      action: "record_human_contact_request",
-      disposition: "request",
-      warning: "explicit_real_human_request:not_silence",
-      human: true,
-    });
-  }
-
   return null;
 }
 
@@ -165,6 +166,8 @@ export function createV41JourneyAwareModelAdapter(input: {
 
   return {
     async understand(req) {
+      const explicitHuman = explicitHumanRejectionOfAutomation(req.burstText);
+      if (explicitHuman) return explicitHuman;
       const visibleConfirmation = confirmsVisiblePrompt({ burstText: req.burstText, memory: req.memory });
       if (visibleConfirmation) return visibleConfirmation;
       const preliminaryOverride = preliminaryDecisionOverride({ burstText: req.burstText, truth: req.truth });
