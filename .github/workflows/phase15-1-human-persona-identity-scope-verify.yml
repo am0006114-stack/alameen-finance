@@ -48,6 +48,10 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Production build gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase15-1-ci-inert-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: phase15-1-ci-inert-service-role-key
         run: npm run build
 
       - name: Diff hygiene gate
