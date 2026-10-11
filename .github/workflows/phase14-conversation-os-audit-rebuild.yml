@@ -1,0 +1,77 @@
+name: Phase 14 Conversation OS Audit Rebuild
+
+on:
+  push:
+    branches:
+      - phase14-conversation-os-audit-rebuild
+
+permissions:
+  contents: write
+
+jobs:
+  audit-rebuild:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - name: Checkout exact branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Phase 14 root patch
+        run: node scripts/phase14-audit-rebuild-apply.cjs
+
+      - name: Run Phase 14 architecture regression gate
+        run: node scripts/v3-phase14-conversation-os-audit-selftest.cjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript compile gate
+        run: npx tsc --noEmit
+
+      - name: Next production build gate
+        run: npm run build
+
+      - name: Diff hygiene gate
+        run: git diff --check
+
+      - name: Remove one-time patch machinery
+        run: |
+          git rm .github/workflows/phase14-conversation-os-audit-rebuild.yml
+          git rm scripts/phase14-audit-rebuild-apply.cjs
+
+      - name: Stage exact Phase 14 source files
+        run: |
+          git add app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/freshPublicFacts.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts
+          git add app/api/whatsapp/webhook/route.ts
+          git add scripts/v3-phase14-conversation-os-audit-selftest.cjs
+
+      - name: Verify exact staged scope
+        shell: bash
+        run: |
+          actual="$(git diff --cached --name-only | sort)"
+          expected="$(printf '%s\n' \
+            '.github/workflows/phase14-conversation-os-audit-rebuild.yml' \
+            'app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/freshPublicFacts.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts' \
+            'app/api/whatsapp/webhook/route.ts' \
+            'scripts/phase14-audit-rebuild-apply.cjs' | sort)"
+          echo "STAGED FILES:"
+          echo "$actual"
+          test "$actual" = "$expected"
+
+      - name: Commit and push verified rebuild
+        run: |
+          git config user.name "alameen-phase14-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Phase 14: rebuild conversation authority and public knowledge"
+          git push origin HEAD:phase14-conversation-os-audit-rebuild
