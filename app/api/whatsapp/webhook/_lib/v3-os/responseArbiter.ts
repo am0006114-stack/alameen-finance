@@ -86,7 +86,6 @@ export type ResponseArbitrationResult = {
 // default writer for ordinary human dialogue.
 const MODEL_NATIVE_SOFT_OBLIGATIONS = new Set<ResponseObligation>([
   "current_human_turn",
-  "answer_bundle",
   "human_semantic_care",
   "review_timing",
   "operational_calendar",
