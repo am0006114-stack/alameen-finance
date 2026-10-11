@@ -195,7 +195,7 @@ function paymentAccessProblemPart(truth: TruthBundle) {
   const stage = applicationJourneyStage(truth.application);
   if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) return "رسوم فتح الملف مدفوعة أو قيد المراجعة على طلبك، فلا تدفعها مرة ثانية.";
   if (["refund_requested", "refund_completed", "cancelled"].includes(stage)) return "طلبك مش بمرحلة دفع رسوم فتح الملف الآن؛ حالته " + customerFacingStatusLabel(truth.application!) + ".";
-  return "إذا ما عندك CliQ ولا محفظة، وإذا عندك حساب بنكي وتطبيق البنك احكيلي اسم البنك وبشوف معك إذا CliQ متاح من نفس التطبيق. وإذا ما عندك حساب بنكي ولا محفظة، حاليًا ما في طريقة دفع ثالثة معتمدة لرسوم فتح الملف.";
+  return "إذا ما عندك CliQ ولا محفظة، وإذا عندك حساب بنكي وتطبيق البنك احكيلي اسم البنك وبشوفلك إذا CliQ متاح من نفس التطبيق. وإذا ما عندك حساب بنكي كمان خبرني وبوضحلك شو المتاح عندنا.";
 }
 
 function feePaymentMethodPart(turn: InterpretedTurn, state: ConversationState, truth: TruthBundle) {
