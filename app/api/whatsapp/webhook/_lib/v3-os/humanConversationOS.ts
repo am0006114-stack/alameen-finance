@@ -738,6 +738,51 @@ function explicitTrackingStatusReply(input: { trackingId: string; truth: TruthBu
   return `أكيد، لقيت الطلب ${app.trackingId || input.trackingId}${device}. حالته الحالية: ${status}.${privacy}`;
 }
 
+function normalizeContextFollowupText(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[إأآٱ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function contextualBankCliqFollowup(input: { customerText: string; state: ConversationState }) {
+  const current = normalizeContextFollowupText(input.customerText);
+  const previous = normalizeContextFollowupText(input.state.lastAssistantText);
+  if (!current || current.length > 90) return null;
+  const previousAskedForBank = /(?:اسم\s+البنك|اي\s+بنك|أي\s+بنك|شو\s+البنك)/.test(previous) && /(?:cliq|كليك)/i.test(previous);
+  if (!previousAskedForBank) return null;
+  const looksLikeBankName = /(?:^|\s)(?:البنك|بنك|العربي|الاسلامي|الإسلامي|الاتحاد|الاسكان|الإسكان|الاهلي|الأهلي|القاهرة|عمان|صفوة|كابيتال|الراجحي|الاستثماري|الاستثمار|الاردن|الأردن)(?:\s|$)/.test(current);
+  return looksLikeBankName ? String(input.customerText || "").trim() : null;
+}
+
+function makeContextualBankCliqTurn(turn: InterpretedTurn, bankName: string): InterpretedTurn {
+  const externalFactNeeded = `هل ${bankName} يدعم CliQ في الأردن وكيف يصل العميل للخدمة من تطبيق البنك؟`;
+  return {
+    ...turn,
+    semantic: {
+      ...(turn.semantic || {
+        meaningSummary: `العميل أجاب باسم البنك ${bankName} بعد سؤاله عن الدفع عبر CliQ`,
+        customerGoal: "معرفة هل CliQ متاح من تطبيق البنك وطريقة الوصول له",
+        currentQuestion: externalFactNeeded,
+        answerObligations: [], references: [], entities: [], correctionOfPrevious: false, socialClosure: false,
+        requiresExternalFact: true, externalFactNeeded, answerMode: "direct" as const, confidence: 0.99, warnings: [],
+        decision: { continuation: "unknown" as const, cancellation: "unknown" as const, refund: "unknown" as const, aliasConfirmation: "unknown" as const, condition: null },
+      }),
+      meaningSummary: `العميل أجاب باسم البنك ${bankName} بعد سؤالنا عن البنك بسبب CliQ`,
+      customerGoal: "معرفة هل CliQ متاح من تطبيق البنك وطريقة الوصول له",
+      currentQuestion: externalFactNeeded,
+      requiresExternalFact: true,
+      externalFactNeeded,
+      answerMode: "direct",
+      confidence: Math.max(turn.semantic?.confidence || 0, 0.99),
+    },
+  };
+}
+
 function explicitAssistantIdentityQuestion(value: string | null | undefined) {
   const raw = String(value || "").trim();
   if (!raw) return false;
@@ -1007,6 +1052,11 @@ export async function runHumanConversationOS(input: {
 
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
   turn = preserveDeterministicCurrentQuestionAuthority(deterministicAnchor, turn);
+  // Phase 14.3.1: a short bank-name reply is an answer to our immediately preceding
+  // CliQ follow-up question, not a brand-new payment question. Make this deterministic
+  // so the web-knowledge path does not depend on the model remembering to set a flag.
+  const contextualCliqBank = contextualBankCliqFollowup({ customerText: input.customerText, state: stateWorking });
+  if (contextualCliqBank) turn = makeContextualBankCliqTurn(turn, contextualCliqBank);
   // Phase 11.5 semantic obligation guard: payment timing relative to receiving
   // the device is not automatically a delivery/pickup-mechanics question. Apply
   // the same deterministic distinction after the model so it cannot reintroduce
