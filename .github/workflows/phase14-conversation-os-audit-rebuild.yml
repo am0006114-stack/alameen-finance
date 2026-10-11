@@ -19,6 +19,9 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Repair one-time patcher quoting
+        run: node scripts/phase14-patcher-repair.cjs
+
       - name: Apply Phase 14 root patch
         run: node scripts/phase14-audit-rebuild-apply.cjs
 
@@ -41,6 +44,7 @@ jobs:
         run: |
           git rm .github/workflows/phase14-conversation-os-audit-rebuild.yml
           git rm scripts/phase14-audit-rebuild-apply.cjs
+          git rm scripts/phase14-patcher-repair.cjs
 
       - name: Stage exact Phase 14 source files
         run: |
@@ -64,7 +68,8 @@ jobs:
             'app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts' \
             'app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts' \
             'app/api/whatsapp/webhook/route.ts' \
-            'scripts/phase14-audit-rebuild-apply.cjs' | sort)"
+            'scripts/phase14-audit-rebuild-apply.cjs' \
+            'scripts/phase14-patcher-repair.cjs' | sort)"
           echo "STAGED FILES:"
           echo "$actual"
           test "$actual" = "$expected"
