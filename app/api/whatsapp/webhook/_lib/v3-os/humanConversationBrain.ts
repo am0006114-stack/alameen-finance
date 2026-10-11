@@ -36,6 +36,8 @@ export type HumanBrainMeaning = {
   condition: string | null;
   correctionOfPrevious: boolean;
   socialClosure: boolean;
+  requiresExternalFact: boolean;
+  externalFactNeeded: string | null;
   requiresHumanReview: boolean;
   humanReviewReason: string | null;
   reply: string | null;
@@ -164,6 +166,8 @@ function fallbackMeaning(anchor: InterpretedTurn): HumanBrainMeaning {
     condition: anchor.semantic?.decision.condition || null,
     correctionOfPrevious: Boolean(anchor.semantic?.correctionOfPrevious),
     socialClosure: Boolean(anchor.semantic?.socialClosure),
+    requiresExternalFact: Boolean(anchor.semantic?.requiresExternalFact),
+    externalFactNeeded: anchor.semantic?.externalFactNeeded || null,
     requiresHumanReview: false,
     humanReviewReason: null,
     reply: null,
@@ -191,6 +195,8 @@ function toMeaning(payload: Record<string, unknown>, anchor: InterpretedTurn): H
     condition: safeString(payload.condition),
     correctionOfPrevious: payload.correctionOfPrevious === true,
     socialClosure: payload.socialClosure === true,
+    requiresExternalFact: payload.requiresExternalFact === true,
+    externalFactNeeded: safeString(payload.externalFactNeeded),
     requiresHumanReview: payload.requiresHumanReview === true,
     humanReviewReason: safeString(payload.humanReviewReason),
     reply: safeString(payload.reply),
@@ -215,8 +221,8 @@ function semanticFrame(meaning: HumanBrainMeaning): SemanticTurnFrame {
     },
     correctionOfPrevious: meaning.correctionOfPrevious,
     socialClosure: meaning.socialClosure,
-    requiresExternalFact: false,
-    externalFactNeeded: null,
+    requiresExternalFact: meaning.requiresExternalFact,
+    externalFactNeeded: meaning.externalFactNeeded,
     answerMode: meaning.currentQuestion ? "direct" : meaning.socialClosure ? "social" : "grounded_reasoning",
     confidence: meaning.confidence,
     warnings: [],
@@ -306,8 +312,9 @@ ${humanCarePromptContract({ turn: input.anchor, state: input.state, truth: input
 - رسوم فتح الملف 5 دنانير لا تُذكر إلا إذا السؤال/المرحلة تخص الاستمرار أو الرسوم أو الدفع.
 - لا تطلب مستندات حساسة على واتساب. لا تدّعِ تحويلًا لموظف بشري أو تصعيدًا بشريًا؛ أدوار فدوة/تالا/عبدالله/عبدالرحمن/عمران هي فريق النظام نفسه ويتابع العميل مباشرة.
 - إذا العميل طلب موظفًا أو مديرًا، لا توقف المحادثة ولا تعده باتصال بشري؛ النظام يحدد الدور المناسب داخليًا وتكمل معه بالشخصية الحالية. لا تقل «الفريق كله موجود وبيرد عليك»، ولا «أنا متابع طلبك مباشرة» كادعاء وجود موظف بشري أو متابعة خارج ما تثبته حالة الطلب.
-- إذا سأل العميل عن اسمك أو طبيعتك، عرّف بنفسك باسم الموظف الحالي فقط مثل «معك ${employeeName} من الأمين» وارجع للموضوع. لا تقل «أنا مساعد آلي»، ولا تدخل في شرح AI/بوت/نموذج، ولا تقل صراحة إنك إنسان حقيقي.
-- لا تذكر أسماء النماذج أو المزوّدين أو المصطلحات الداخلية مثل AI أو prompt أو guard أو routing أو Human Company OS.
+- إذا سأل العميل هل أنت إنسان/موظف/بوت/ذكاء اصطناعي، كن شفافًا: قل إنك مساعد ذكاء اصطناعي تابع للأمين ومش موظف بشري، ثم جاوب بقية سؤاله. لا تمثل إنك إنسان.
+- لا تذكر أسماء النماذج أو المزوّدين أو المصطلحات الداخلية مثل prompt أو guard أو routing أو Human Company OS إلا إذا كان ذلك مطلوبًا لأمن النظام؛ الشفافية عن كونك ذكاء اصطناعي مسموحة ومطلوبة عند السؤال.
+- إذا احتاج سؤال عام معلومة خارجية حديثة أو محلية عامة (مثال: ما هو CliQ، كيف تعمل خدمة دفع أردنية، معلومة عامة متغيرة عن بنك/شركة/جهاز) عيّن requiresExternalFact=true واكتب externalFactNeeded بشكل مختصر. لا تستخدم ذلك لحالة طلب العميل أو دفعه أو المستفيد أو الرسوم أو أي حقيقة داخلية؛ هذه تبقى من truth فقط.
 - requiresHumanReview يجب أن يبقى false؛ لا تطلب تدخلًا بشريًا من المحادثة. تأكيد وصل الدفع تحكمه الحقيقة التشغيلية خارج قرارك.
 
 أخرج JSON فقط بالشكل:
@@ -326,6 +333,8 @@ ${humanCarePromptContract({ turn: input.anchor, state: input.state, truth: input
 "condition":null,
 "correctionOfPrevious":false,
 "socialClosure":false,
+"requiresExternalFact":false,
+"externalFactNeeded":null,
 "requiresHumanReview":false,
 "humanReviewReason":null,
 "confidence":0.9,

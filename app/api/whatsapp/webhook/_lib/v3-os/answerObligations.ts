@@ -36,6 +36,8 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const interest = /(?:الفائده|الفائدة|فايده|فائدة|مرابحه|مرابحة|نسبه\s+الربح|نسبة\s+الربح|نسب\s+الفايده|نسب\s+الفائدة)/.test(q);
   const downPayment = /(?:دفعه|دفعة).{0,12}(?:اولي|اولى|اولا)|(?:بدون|ما\s+في|مفيش|هل).{0,18}(?:دفعه|دفعة).{0,10}(?:اولي|اولى|اولا)/.test(q);
   const feePaymentMethod = /(?:كيف|وين|اين|أين).{0,26}(?:تستلمو|تستلموا|استلام|ادفع|أدفع|احول|أحول|تحويل).{0,26}(?:الرسوم|5|٥|الخمس|الخمسه)?|(?:الرسوم|5|٥|الخمس|الخمسه).{0,26}(?:كيف|وين|احول|أحول|ادفع|أدفع)|(?:الرسوم|الخمس|الخمسه|5|٥).{0,18}(?:بدفعها|بدفع|بادفع|رح\s+ادفع|راح\s+ادفع)/.test(q);
+  const paymentAccessProblem = /(?:ما\s+عندي|معنديش|بدون).{0,24}(?:كليك|cliq|محفظه|محفظة|orange\s+money|اورنج\s+موني|أورنج\s+موني)|(?:لا\s+محفظه|لا\s+محفظة).{0,20}(?:ولا\s+كليك|ولا\s+cliq)|(?:لا\s+كليك|لا\s+cliq).{0,20}(?:ولا\s+محفظه|ولا\s+محفظة)/i.test(q);
+  const assistantIdentity = /(?:انت|انتي|إنت|إنتي).{0,24}(?:ذكاء\s*اصطناعي|ai|بوت|روبوت|انسان|إنسان|موظف)|(?:ذكاء\s*اصطناعي|ai|بوت|روبوت).{0,24}(?:ولا|او|أو).{0,24}(?:انسان|إنسان|موظف)|(?:مين\s+انت|مين\s+انتي|مين\s+إنت|شو\s+انت|شو\s+إنت|مين\s+بيحكي\s+معي)/i.test(q);
   const feeDueNow = /(?:بدك|بدكم|مطلوب|لازم).{0,24}(?:مني\s*)?(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,18}(?:هسا|هسه|الان|الآن)?|(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,24}(?:هسا|هسه|الان|الآن).{0,18}(?:مطلوب|ادفع|أدفع)?/.test(q);
   const feeRefundability = /(?:هاض|هاد|هذا|المبلغ|الرسوم|5|٥|الخمس|الخمسه).{0,32}(?:مسترد|مسترده|مستردة|بترجع|برجع|بترجعو|برجعو)|(?:مسترد|مسترده|مستردة|بترجع).{0,30}(?:الرسوم|المبلغ|5|٥)/.test(q);
   const officeLocation = /(?:وين|اين|أين).{0,24}(?:موقعكم|المكتب|المحل|العنوان|الشركه|الشركة|الفرع|فرع|فروعكم|افرعكم|أفرعكم)|(?:موقعكم|المكتب|المحل|الشركه|الشركة|الفرع|فرع|فروعكم|افرعكم|أفرعكم).{0,22}(?:وين|بالزبط|بالضبط)|^(?:اين|أين|وين)\s+(?:افرعكم|أفرعكم|فروعكم)$|^بدي\s+فرع$/.test(q);
@@ -65,7 +67,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const continuationDecision = !["cancelled", "refund_requested", "refund_completed"].includes(stage) && explicitContinuation(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, paymentAccessProblem, assistantIdentity, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -168,6 +170,17 @@ function paymentDetails(turn: InterpretedTurn, truth: TruthBundle) {
   const links = buildOfficialLinkContext({ ...turn, topics: Array.from(new Set([...turn.topics, "payment_fee", "payment_method", "receipt_upload"])) as InterpretedTurn["topics"] }, truth);
   const receipt = links.relevant.receipt;
   return `${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}`;
+}
+
+function assistantIdentityPart() {
+  return "أنا مساعد ذكاء اصطناعي تابع للأمين للأقساط، مش موظف بشري. بقدر أفهم رسالتك وأتابع حالة الطلب وأنفذ فقط الإجراءات المسموحة بالنظام، وإذا سألتني عن طبيعتي بحكيلك إياها بصراحة بدون ما أمثل إني إنسان.";
+}
+
+function paymentAccessProblemPart(truth: TruthBundle) {
+  const stage = applicationJourneyStage(truth.application);
+  if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) return "ما في داعي تدور على وسيلة دفع ثانية؛ خطوة رسوم فتح الملف موجودة أصلًا على طلبك حسب الحالة الحالية.";
+  if (["refund_requested", "refund_completed", "cancelled"].includes(stage)) return "طلبك الحالي مش بمرحلة دفع رسوم فتح الملف؛ حالته الآن " + customerFacingStatusLabel(truth.application!) + ".";
+  return "فاهم عليك: إذا ما عندك لا CliQ ولا محفظة، تكرار نفس بيانات التحويل ما بحل المشكلة. القنوات المعتمدة عندنا حاليًا لرسوم فتح الملف هي CliQ أو Orange Money فقط. إذا عندك حساب بنكي وتطبيق بنك، ممكن تكون خدمة CliQ متاحة من تطبيق البنك بدون ما تحتاج محفظة منفصلة؛ احكيلي اسم البنك وبوضحلك الطريقة. وإذا ما عندك حساب بنكي ولا محفظة، ما عندي قناة ثالثة معتمدة أقدر أخترعها.";
 }
 
 function feePaymentMethodPart(turn: InterpretedTurn, state: ConversationState, truth: TruthBundle) {
@@ -326,7 +339,8 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.multipleDevices) parts.push(multipleDevicesPart());
   if (f.interest) parts.push(interestPart(input.truth));
   if (f.downPayment) parts.push(downPaymentPart(input.truth));
-  if (f.feePaymentMethod) parts.push(feePaymentMethodPart(input.turn, input.state, input.truth));
+  if (f.paymentAccessProblem) parts.push(paymentAccessProblemPart(input.truth));
+  if (f.feePaymentMethod && !f.paymentAccessProblem) parts.push(feePaymentMethodPart(input.turn, input.state, input.truth));
   if (f.feeDueNow) parts.push(feeDueNowPart(input.state, input.truth));
   if (f.feeRefundability) parts.push(feeRefundabilityPart(input.truth));
   if (f.bankInstallmentChannel) parts.push(bankInstallmentChannelPart());
@@ -342,5 +356,6 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.remoteProcess) parts.push(remoteProcessPart());
   if (f.officeLocation) parts.push(officeLocationPart(input.truth));
   if (f.applicationStart) parts.push(applicationStartPart(input.turn, input.truth));
+  if (f.assistantIdentity) parts.push(assistantIdentityPart());
   return Array.from(new Set(parts.filter(Boolean))).join("\n\n") || null;
 }
