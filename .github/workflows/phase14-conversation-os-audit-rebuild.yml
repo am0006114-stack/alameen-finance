@@ -47,7 +47,7 @@ jobs:
       - name: Remove one-time patch machinery
         run: |
           git rm .github/workflows/phase14-conversation-os-audit-rebuild.yml
-          git rm scripts/phase14-audit-rebuild-apply.cjs
+          git rm -f scripts/phase14-audit-rebuild-apply.cjs
           git rm scripts/phase14-patcher-repair.cjs
 
       - name: Stage exact Phase 14 source files
