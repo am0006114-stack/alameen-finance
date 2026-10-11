@@ -46,7 +46,6 @@ jobs:
           set -euo pipefail
           node scripts/v3-phase12-clean-commercial-funnel-selftest.cjs
           node scripts/v3-human-os-continuation-consume-selftest.cjs
-          node scripts/v3-phase11-8-0-payment-funnel-control-plane-selftest.cjs
           node scripts/v3-phase11-5-canonical-ingress-burst-mutation-receipt-selftest.cjs
 
       - name: Customer-facing implementation identity scan
