@@ -1,0 +1,48 @@
+name: Phase 14 Follow-up Verify
+
+on:
+  push:
+    branches:
+      - phase14-conversation-os-audit-rebuild
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Architecture regression gate
+        run: node scripts/v3-phase14-conversation-os-audit-selftest.cjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript compile gate
+        run: npx tsc --noEmit
+
+      - name: Production build gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase14-ci-inert-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: phase14-ci-inert-service-role-key
+        run: npm run build
+
+      - name: Diff hygiene gate
+        run: git diff --check
+
+      - name: Remove one-time verification workflow
+        run: git rm .github/workflows/phase14-followup-verify.yml
+
+      - name: Commit exact cleanup
+        run: |
+          git config user.name "alameen-phase14-verify-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git commit -m "Remove Phase 14 one-time verification workflow"
+          git push origin HEAD:phase14-conversation-os-audit-rebuild
