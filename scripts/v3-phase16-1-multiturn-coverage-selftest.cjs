@@ -1,0 +1,16 @@
+const fs=require('fs');
+const arb=fs.readFileSync('app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts','utf8');
+const ans=fs.readFileSync('app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts','utf8');
+let p=0,f=0; const ok=(c,m)=>{if(c){p++;console.log('PASS '+p+': '+m)}else{f++;console.error('FAIL: '+m)}};
+const soft = arb.match(/const MODEL_NATIVE_SOFT_OBLIGATIONS = new Set<ResponseObligation>\(\[([\s\S]*?)\]\);/);
+ok(Boolean(soft),'soft-obligation set exists');
+ok(soft && !soft[1].includes('"answer_bundle"'),'multi-question answer bundle cannot preserve an incomplete model-native candidate');
+ok(/if \(answerBundle\.kind === "multi_question"\) return "answer_bundle";/.test(arb),'multi-question turn owns response obligation before single-topic routes');
+ok(/case "answer_bundle": return false;/.test(arb),'answer-bundle candidate is not accepted without deterministic obligation coverage');
+const staffPos=ans.indexOf('if (f.staffIdentity) parts.push(staffIdentityPart(input.turn, input.state));');
+const accessPos=ans.indexOf('if (f.paymentAccessProblem) parts.push(paymentAccessProblemPart(input.truth));');
+ok(staffPos>=0 && accessPos>staffPos,'mixed identity/payment-access reply introduces staff then answers payment-access problem');
+ok(/return `معك \$\{name\} من فريق الأمين\.`;/.test(ans),'staff identity remains concise and persona-first');
+ok(/إذا ما عندك CliQ ولا محفظة/.test(ans) && /احكيلي اسم البنك/.test(ans),'payment-access problem has a concrete next step instead of full payment dump');
+ok(!/المساعد الرقمي التابع للأمين|والرد هون آلي من نظام الأمين/.test(ans+arb),'forbidden customer-facing implementation identity text absent from touched egress files');
+console.log(`PHASE 16.1 MULTITURN COVERAGE SELFTEST: assertions=${p+f}; passed=${p}; failed=${f}`); if(f)process.exit(1);

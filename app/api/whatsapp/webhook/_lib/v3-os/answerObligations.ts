@@ -336,6 +336,9 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   const f: QuestionFlags = qFlags(input.turn, input.truth);
   const parts: string[] = [];
   const empathy = empathyPrefix(input.turn); if (empathy && input.bundle.kind === "multi_question") parts.push(empathy);
+  // Phase 16.1: identify the current staff persona first on mixed identity turns,
+  // then answer every material sibling obligation in the same reply.
+  if (f.staffIdentity) parts.push(staffIdentityPart(input.turn, input.state));
   if (f.continuationDecision) parts.push(continuationPart(input.turn, input.state, input.truth));
   if (f.reopenCancelled) parts.push(reopenCancelledPart(input.truth));
   if (f.statusConflict) parts.push(statusConflictPart(input.truth));
@@ -369,6 +372,5 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.remoteProcess) parts.push(remoteProcessPart());
   if (f.officeLocation) parts.push(officeLocationPart(input.truth));
   if (f.applicationStart) parts.push(applicationStartPart(input.turn, input.truth));
-  if (f.staffIdentity) parts.push(staffIdentityPart(input.turn, input.state));
   return Array.from(new Set(parts.filter(Boolean))).join("\n\n") || null;
 }
