@@ -19,7 +19,7 @@ jobs:
           fetch-depth: 0
 
       - name: Apply Phase 13.1 root patch
-        run: node scripts/phase13-1-apply-patch.cjs
+        run: node scripts/phase13-1-apply-patch-v2.cjs
 
       - name: Run Phase 13.1 regression gate
         run: node scripts/v3-phase13-1-root-current-turn-supremacy-selftest.cjs
@@ -28,15 +28,17 @@ jobs:
         run: |
           git rm .github/workflows/phase13-1-current-turn-supremacy.yml
           git rm scripts/phase13-1-apply-patch.cjs
+          git rm scripts/phase13-1-apply-patch-v2.cjs
 
       - name: Commit exact Phase 13.1 files
         run: |
           git config user.name "alameen-phase13-1-bot"
           git config user.email "actions@users.noreply.github.com"
+          git add app/api/whatsapp/webhook/_lib/v3-os/currentTurnSupremacy.ts
           git add app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts
           git add app/api/whatsapp/webhook/_lib/v3-os/mutationConfirmationGate.ts
           git add app/api/whatsapp/webhook/_lib/v3-os/continuationPersistence.ts
           git add scripts/v3-phase13-1-root-current-turn-supremacy-selftest.cjs
-          git add -u .github/workflows/phase13-1-current-turn-supremacy.yml scripts/phase13-1-apply-patch.cjs
+          git add -u .github/workflows/phase13-1-current-turn-supremacy.yml scripts/phase13-1-apply-patch.cjs scripts/phase13-1-apply-patch-v2.cjs
           git commit -m "Phase 13.1: enforce current-turn supremacy and mutation safety"
           git push origin HEAD:phase13-1-current-turn-supremacy
