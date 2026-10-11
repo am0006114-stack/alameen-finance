@@ -14,6 +14,11 @@ const goodDuration = "assert(!human.includes('المدة اللي ذكرتها')
 if (!src.includes(badDuration)) throw new Error('Phase 13 duration selftest repair target not found');
 src = src.replace(badDuration, goodDuration);
 
+const badReviewAssertion = "assert(arbiter.includes('خلال\\\\s+كم'));";
+const goodReviewAssertion = "assert(arbiter.includes('خلال') && arbiter.includes('كم'));";
+if (!src.includes(badReviewAssertion)) throw new Error('Phase 13 review-duration selftest repair target not found');
+src = src.replace(badReviewAssertion, goodReviewAssertion);
+
 fs.writeFileSync(path, src, 'utf8');
 const check = spawnSync(process.execPath, ['--check', path], { stdio: 'inherit' });
 if (check.status !== 0) process.exit(check.status || 1);
