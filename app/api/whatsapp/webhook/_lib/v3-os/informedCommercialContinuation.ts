@@ -51,13 +51,25 @@ export function numericCommercialContinueText(value: string | null | undefined) 
   return /^(?:1|١)$/.test(normalizedCommercialDecisionText(value));
 }
 
+// Strong standalone continuation commands are sufficient decision authority even
+// when the preceding preliminary-approval template was delivered outside the
+// Human OS state store. Bare acknowledgements such as نعم/اه/تمام are deliberately
+// excluded here and still require scoped disclosure context.
+export function strongCommercialContinuationDecisionText(value: string | null | undefined) {
+  const q = normalizedCommercialDecisionText(value);
+  if (!q) return false;
+  if (numericCommercialContinueText(q)) return true;
+  if (/(?:اود|ارغب|اريد|بدي|حاب|حابب|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)/.test(q)) return true;
+  return /^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q);
+}
+
 export function commercialContinuationAffirmativeText(value: string | null | undefined) {
   const q = normalizedCommercialDecisionText(value);
   if (!q) return false;
   const declines = /(?:لا\s+(?:ارغب|اريد)|مش\s+(?:حاب|حابب|راغب|مكمل)|ما\s+بدي|بديش).{0,30}(?:الاستمرار|استمر|اكمل|كمل|نكمل)/.test(q);
   if (declines) return false;
-  if (numericCommercialContinueText(q)) return true;
-  if (/(?:اود|ارغب|اريد|بدي|حاب|حابب|موافق|اوافق|خلينا|يلا).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)|^(?:استمرار|اكمل|كمل|نكمل|نستمر|استمر|كملو|كملوا|استمروا)$/.test(q)) return true;
+  if (strongCommercialContinuationDecisionText(q)) return true;
+  if (/(?:موافق|اوافق).{0,24}(?:الاستمرار|استمر|اكمل|كمل|نكمل|نستمر)/.test(q)) return true;
   if (/^(?:تمام|خلص)\s+(?:بدي|حاب|حابب|موافق|خلينا|استمرار).{0,18}(?:استمر|اكمل|كمل|نكمل|الاستمرار)?$/.test(q)) return true;
   if (/^(?:نعم|اه|ايوه|yes|ok|اوك|موافق|موافقه|اوافق|اكيد)$/.test(q)) return true;
   const affirmativeLead = /^(?:نعم|اه|ايوه|yes)(?:\s|$)/.test(q);

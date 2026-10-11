@@ -18,6 +18,27 @@ const PRELIMINARY_DECISION_STATUSES = new Set([
 ]);
 const PAYMENT_CONFIRMED_STATUSES = new Set(["confirmed", "paid", "payment_confirmed"]);
 const PAYMENT_PROOF_PENDING_STATUSES = new Set(["customer_claimed_paid", "pending_payment_confirmation"]);
+const CONTINUATION_VISIBILITY_DELAYS_MS = [0, 90, 240, 600];
+
+function sleep(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForContinuationVisibility(applicationId: string) {
+  for (const delay of CONTINUATION_VISIBILITY_DELAYS_MS) {
+    if (delay) await sleep(delay);
+    const { data, error } = await supabaseAdmin
+      .from("applications")
+      .select("status,payment_status")
+      .eq("id", applicationId)
+      .maybeSingle();
+    if (error) continue;
+    const status = String(data?.status || "").trim().toLowerCase();
+    const payment = String(data?.payment_status || "").trim().toLowerCase();
+    if (status === "customer_confirmed_continue" && ["pending_payment", "payment_info_sent"].includes(payment)) return true;
+  }
+  return false;
+}
 
 function low(value: string | null | undefined) {
   return String(value || "").trim().toLowerCase();
@@ -134,6 +155,14 @@ export async function persistExplicitContinuation(input: {
   }
   if (!data) {
     return { attempted: true, updated: false, alreadyRecorded: false, blocker: "continuation_persistence_stale_truth" };
+  }
+
+  const visible = await waitForContinuationVisibility(app.id);
+  if (!visible) {
+    // The update response itself is authoritative. Do not roll back a successful
+    // commercial decision because a follow-up read is temporarily lagging; the
+    // Human OS monotonic continuation fact bridges that visibility window.
+    console.warn("continuation_read_after_write_visibility_lag", { applicationId: app.id });
   }
 
   return { attempted: true, updated: true, alreadyRecorded: false, blocker: null };

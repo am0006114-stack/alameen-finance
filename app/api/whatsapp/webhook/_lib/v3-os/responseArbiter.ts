@@ -326,7 +326,7 @@ function asksReviewTiming(value: string | null | undefined, turn: InterpretedTur
   const q = n(value);
   if (explicitExpediteRequestTextForArbiter(value)) return true;
   if (turn.topics.includes("review_timing") || turn.topics.includes("operational_pressure")) return true;
-  return /(?:متى|امتى|قديش|كم|تاريخ).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:ممكن|بزبط|هل).{0,22}(?:تصدر|تطلع|يطلع).{0,24}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار).{0,24}(?:بنفس|نفس)\s+اليوم|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
+  return /(?:متى|امتى|قديش|كم|تاريخ).{0,35}(?:وقت|بتاخد|بتطول|الموافقه|النتيجه|القرار)|(?:خلال\s+كم|المده\s+كم|المدة\s+كم|كم\s+المده|كم\s+المدة)(?:\s+يوم)?|(?:ممكن|بزبط|هل).{0,22}(?:تصدر|تطلع|يطلع).{0,24}(?:الموافقه|الموافقة|النتيجه|النتيجة|القرار).{0,24}(?:بنفس|نفس)\s+اليوم|(?:صارلي|صارله|الها|الو).{0,24}(?:يوم|ايام|اسبوع|اسابيع)|(?:طولت|طوّلت|تاخرت|تأخرت|ليش\s+طولت|مش\s+ناوين\s+يخلصو|ناوين\s+يخلصو|معلق).{0,35}(?:الطلب|الملف|الدراسه|الموافقه)?/.test(q);
 }
 
 function asksRefundMeaning(value: string | null | undefined) {
@@ -511,6 +511,7 @@ export function resolveResponseObligation(input: {
   if (currentHumanTurn.kind === "contact_isolation_continuation") return "current_human_turn";
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
   if (hasAuthoritativeMutationResult(input.actions, input.turn)) return "mutation_truth";
+  if (currentHumanTurn.kind === "preliminary_decision_due") return "current_human_turn";
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
   if (pureGreetingTurnForArbiter(input.turn)) return "social_greeting";
   if (pureSocialClosureTurnForArbiter(input.turn)) return "social_closure";
