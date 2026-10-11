@@ -3,6 +3,7 @@ import { hasPaymentRefundIntegrityConflict, truthHasAuthoritativePaymentConfirma
 import { applicationJourneyStage } from "./applicationJourney";
 import { commercialContinuationAffirmativeText, commercialDisclosureDelivered } from "./informedCommercialContinuation";
 import { persistExplicitContinuation } from "./continuationPersistence";
+import { notifyV3Discord } from "./discordNotifier";
 import type { ActionKey, ActionResult, ConversationState, PlannedAction, TruthBundle } from "./types";
 
 export type ActionExecutorAdapter = {
@@ -83,6 +84,40 @@ function deterministicCommercialContinuationAction(state: ConversationState, tru
   };
 }
 
+async function notifyCommercialContinuationPersisted(input: {
+  state: ConversationState;
+  truth: TruthBundle;
+  updated: boolean;
+  alreadyRecorded: boolean;
+}) {
+  const app = input.truth.application;
+  if (!app) return;
+  try {
+    await notifyV3Discord({
+      event: "customer_continue_payment_ready",
+      applicationId: app.id,
+      trackingId: app.trackingId || null,
+      waId: input.state.waId,
+      title: "✅ العميل اختار الاستمرار — خطوة الدفع مفتوحة",
+      description: input.updated
+        ? "تم تثبيت قرار الاستمرار من واتساب وتحديث الطلب إلى خطوة رسوم فتح الملف."
+        : "قرار الاستمرار مثبت مسبقًا، وتم التأكد أن خطوة رسوم فتح الملف مفتوحة.",
+      details: {
+        action: "continue_application",
+        status: "customer_confirmed_continue",
+        paymentStatus: "pending_payment",
+        source: "whatsapp_human_os",
+        updated: input.updated,
+        alreadyRecorded: input.alreadyRecorded,
+      },
+    });
+  } catch (error) {
+    // Discord is observability. A successful authoritative application write must
+    // never be rolled back or reported as failed because notification delivery failed.
+    console.error("V3 continuation success Discord notification failed", error);
+  }
+}
+
 export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean }): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
   const commercialContinuation = deterministicCommercialContinuationAction(input.state, input.truth);
@@ -120,6 +155,14 @@ export async function executeActions(input: { actions: PlannedAction[]; state: C
           alreadyRecorded: persisted.alreadyRecorded,
         },
       });
+      if (success) {
+        await notifyCommercialContinuationPersisted({
+          state: input.state,
+          truth: input.truth,
+          updated: persisted.updated,
+          alreadyRecorded: persisted.alreadyRecorded,
+        });
+      }
       continue;
     }
 
