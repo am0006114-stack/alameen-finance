@@ -9,6 +9,7 @@ import { buildHumanSemanticCareReply, composeHumanSemanticCareAroundAnswer, huma
 import { buildSemanticQuestionLockReply, resolveSemanticQuestionLock, semanticQuestionCandidateAligned } from "./semanticQuestionLocks";
 import { buildAnswerBundleReply, resolveAnswerBundle } from "./answerObligations";
 import { buildCurrentHumanTurnReply, currentHumanTurnCandidateAligned, resolveCurrentHumanTurnAuthority } from "./currentHumanTurnAuthority";
+import { buildCurrentTurnSupremacyReply, resolveCurrentTurnSupremacy } from "./currentTurnSupremacy";
 import type { ActionResult, ConversationState, InterpretedTurn, TruthBundle } from "./types";
 import { buildHumanCompanyOverrideReply, resolveHumanCompanyOverride } from "./humanCompanyRuntime";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
@@ -20,6 +21,7 @@ export type ResponseObligation =
   | "undo_cancel_or_refund"
   | "cancel_confirmation_declined"
   | "contact_identity_mismatch"
+  | "current_turn_supremacy"
   | "down_payment"
   | "office_payment"
   | "monthly_payment_mechanism"
@@ -507,10 +509,12 @@ export function resolveResponseObligation(input: {
   const meaningLock = resolveUnifiedMeaningLock({ turn: input.turn, state: input.state, truth: input.truth });
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
+  const currentTurnSupremacy = resolveCurrentTurnSupremacy({ turn: input.turn, state: input.state, truth: input.truth });
 
   if (currentHumanTurn.kind === "contact_isolation_continuation") return "current_human_turn";
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
   if (hasAuthoritativeMutationResult(input.actions, input.turn)) return "mutation_truth";
+  if (currentTurnSupremacy.kind !== "none") return "current_turn_supremacy";
   if (currentHumanTurn.kind === "preliminary_decision_due") return "current_human_turn";
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
   if (pureGreetingTurnForArbiter(input.turn)) return "social_greeting";
@@ -924,7 +928,7 @@ export function arbitrateProductionReply(input: {
   }
 
   const currentQuestionFirst = new Set<ResponseObligation>([
-    "current_human_turn", "answer_bundle", "refund_human_care", "refund_timing", "refund_process_problem",
+    "current_turn_supremacy", "current_human_turn", "answer_bundle", "refund_human_care", "refund_timing", "refund_process_problem",
     "operational_calendar", "fee_document_question", "fee_question", "pickup_delivery", "approval_status",
     "review_timing", "conditional_future_mutation", "requirements_question", "contract_terms_question", "current_question_contract", "application_status",
   ]);
@@ -946,6 +950,12 @@ export function arbitrateProductionReply(input: {
   if (obligation === "contact_identity_mismatch") {
     const repair = contactIdentityMismatchReply({ truth: input.truth, state: input.state });
     return { reply: sanitizeUnifiedEgressReply(repair), obligation, repaired: repair !== candidate, reason: "contact isolation blocked cross-number application disclosure" };
+  }
+
+  if (obligation === "current_turn_supremacy") {
+    const supremacy = resolveCurrentTurnSupremacy({ turn: input.turn, state: input.state, truth: input.truth });
+    const repair = buildCurrentTurnSupremacyReply({ supremacy, turn: input.turn, state: input.state, truth: input.truth });
+    if (repair) return { reply: sanitizeUnifiedEgressReply(repair), obligation, repaired: repair !== candidate, reason: `literal current-turn supremacy: ${supremacy.reason}` };
   }
 
   if (obligation === "protected_business_registration" && shouldSuppressRepeatedProtectedRegistration({ turn: input.turn, state: input.state })) {

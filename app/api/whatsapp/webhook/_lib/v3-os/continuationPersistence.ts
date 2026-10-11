@@ -18,6 +18,25 @@ const PRELIMINARY_DECISION_STATUSES = new Set([
 ]);
 const PAYMENT_CONFIRMED_STATUSES = new Set(["confirmed", "paid", "payment_confirmed"]);
 const PAYMENT_PROOF_PENDING_STATUSES = new Set(["customer_claimed_paid", "pending_payment_confirmation"]);
+const CONTINUATION_PROTECTED_STATUSES = new Set([
+  "customer_confirmed_continue",
+  "customer_declined_continue",
+  "cancelled",
+  "rejected",
+  "refund_requested",
+  "refund_completed",
+  "refunded",
+  "approved",
+  "final_approved",
+  "ready_for_pickup",
+  "ready_for_contract",
+  "delivery_ready",
+  "needs_identity",
+  "identity_requested",
+  "needs_salary_slip",
+  "salary_slip_link_sent",
+  "needs_guarantor",
+]);
 const CONTINUATION_VISIBILITY_DELAYS_MS = [0, 90, 240, 600];
 
 function sleep(ms: number) {
@@ -47,8 +66,11 @@ function low(value: string | null | undefined) {
 function preliminaryDecisionAuthority(app: ApplicationTruth | null | undefined) {
   if (!app) return false;
   const status = low(app.status);
-  return PRELIMINARY_DECISION_STATUSES.has(status)
-    && (status === "preliminary_qualified" || Boolean(app.preliminaryQualifiedAt));
+  if (CONTINUATION_PROTECTED_STATUSES.has(status)) return false;
+  // Canonical invariant: preliminary_qualified_at is authoritative approval truth.
+  // Legacy rows may carry an older status string; if the marker is present and no
+  // protected later state exists, persistence must agree with the journey classifier.
+  return status === "preliminary_qualified" || Boolean(app.preliminaryQualifiedAt);
 }
 
 /**
@@ -128,7 +150,7 @@ export async function persistExplicitContinuation(input: {
   }
 
   const currentPreliminaryApproved = currentStatus === "preliminary_qualified" || Boolean(current.preliminary_qualified_at);
-  if (!currentPreliminaryApproved || !PRELIMINARY_DECISION_STATUSES.has(currentStatus)) {
+  if (!currentPreliminaryApproved || CONTINUATION_PROTECTED_STATUSES.has(currentStatus)) {
     return { attempted: true, updated: false, alreadyRecorded: false, blocker: `application_status:${currentStatus || "empty"}` };
   }
 
