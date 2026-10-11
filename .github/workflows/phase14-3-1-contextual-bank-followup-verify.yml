@@ -48,7 +48,6 @@ jobs:
         run: |
           git add app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts
           git add app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts
-          git add scripts/v3-phase14-3-1-contextual-bank-followup-selftest.cjs
           git add -u scripts/apply-phase14-3-1-contextual-bank-followup.py .github/workflows/phase14-3-1-contextual-bank-followup-verify.yml
 
       - name: Verify exact staged scope
@@ -57,9 +56,10 @@ jobs:
           set -euo pipefail
           actual="$(git diff --cached --name-only | sort)"
           expected="$(printf '%s\n' \
+            .github/workflows/phase14-3-1-contextual-bank-followup-verify.yml \
             app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts \
             app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts \
-            scripts/v3-phase14-3-1-contextual-bank-followup-selftest.cjs | sort)"
+            scripts/apply-phase14-3-1-contextual-bank-followup.py | sort)"
           echo "ACTUAL:"
           printf '%s\n' "$actual"
           echo "EXPECTED:"
