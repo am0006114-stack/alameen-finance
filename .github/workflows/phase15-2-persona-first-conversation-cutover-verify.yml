@@ -1,0 +1,104 @@
+name: Phase 15.2 Persona-First Conversation Cutover Verify
+
+on:
+  push:
+    branches:
+      - phase15-2-persona-first-conversation-cutover
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase15-2-persona-first-conversation-cutover
+          fetch-depth: 0
+
+      - name: Apply Phase 15.2 persona-first patch
+        run: python3 scripts/apply-phase15-2-persona-first-conversation-cutover.py
+
+      - name: Root conversation regression gate
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          continuity = Path('app/api/whatsapp/webhook/_lib/v3-os/conversationContinuityAuthority.ts').read_text(encoding='utf-8')
+          locks = Path('app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts').read_text(encoding='utf-8')
+          brain = Path('app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts').read_text(encoding='utf-8')
+          os = Path('app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts').read_text(encoding='utf-8')
+
+          assert 'export function paymentAccessProblemText' in continuity
+          assert 'if (!q || paymentAccessProblemText(value)) return false;' in continuity
+          assert 'if (!q || paymentAccessProblemText(turn.rawText)) return false;' in locks
+          assert 'cliqUnavailableQuestionText(turn.rawText)' not in locks
+
+          assert 'مشكلة وصول لطريقة الدفع وليست طلبًا لإعادة بيانات الدفع' in brain
+          assert 'لا ترسل قائمة Orange Money/CliQ ولا رابط الوصل تلقائيًا' in brain
+          assert 'بيانات الدفع الكاملة تُعرض فقط عندما الرسالة الحالية تطلبها فعلًا' in brain
+          assert 'المساعد الرقمي التابع للأمين' not in brain
+
+          assert 'const paymentAccessProblem = paymentAccessProblemText(input.customerText);' in os
+          assert 'const paymentExecutionRequired = !paymentAccessProblem' in os
+          assert 'أنا المساعد الرقمي التابع للأمين' not in os
+          assert 'والرد هون آلي من نظام الأمين' in os
+
+          start = os.index('function explicitAssistantIdentityQuestion')
+          end = os.index('function explicitAssistantIdentityReply', start)
+          detector = os[start:end]
+          assert 'شو|ما)\\s+اسمك' not in detector
+          assert 'مين\\s+انت' not in detector
+
+          print('PHASE 15.2 ROOT CONVERSATION REGRESSION GATE PASS')
+          PY
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript compile gate
+        run: npx tsc --noEmit
+
+      - name: Production build gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase15-2-ci-inert-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: phase15-2-ci-inert-service-role-key
+        run: npm run build
+
+      - name: Diff hygiene gate
+        run: git diff --check
+
+      - name: Remove one-time verification machinery
+        run: |
+          rm -f scripts/apply-phase15-2-persona-first-conversation-cutover.py
+          rm -f .github/workflows/phase15-2-persona-first-conversation-cutover-verify.yml
+
+      - name: Stage exact runtime scope
+        run: |
+          git add app/api/whatsapp/webhook/_lib/v3-os/conversationContinuityAuthority.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts
+          git add -u scripts/apply-phase15-2-persona-first-conversation-cutover.py .github/workflows/phase15-2-persona-first-conversation-cutover-verify.yml
+
+      - name: Verify final branch scope versus main and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --cached --check
+          git config user.name 'alameen-phase15-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'Phase 15.2: persona-first conversation and payment-access routing'
+          git push origin HEAD:phase15-2-persona-first-conversation-cutover
+          git fetch origin main --quiet
+          actual="$(git diff --name-only origin/main...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            'app/api/whatsapp/webhook/_lib/v3-os/conversationContinuityAuthority.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts' | sort)"
+          echo 'FINAL DIFF VS MAIN:'
+          printf '%s\n' "$actual"
+          test "$actual" = "$expected"
