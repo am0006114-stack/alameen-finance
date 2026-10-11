@@ -3,7 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { resolveV3ProductionTruth } from "./productionTruth";
 import { emptyState, reduceState, finalizeStateSemanticMemory, markRoleIntroducedFromReply } from "./state";
 import { loadV3ConversationState } from "./stateStore";
-import { explicitCurrentTurnPaymentExecution, likelyContextualAnswerToAssistantPrompt } from "./conversationContinuityAuthority";
+import { explicitCurrentTurnPaymentExecution, likelyContextualAnswerToAssistantPrompt, paymentAccessProblemText } from "./conversationContinuityAuthority";
 import { enforcePaymentReceiptSemantics, interpretTurn, isPaymentRelativeToReceiptText, syntheticMediaNoticeKind, syntheticMediaSemanticText } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
@@ -160,8 +160,9 @@ function sanitizeCustomerFacingStatusTokens(value: string | null | undefined) {
 
 function paymentQuestionAfterDisclosure(turn: InterpretedTurn, truth: TruthBundle) {
   if (applicationJourneyStage(truth.application) !== "continuation_confirmed_fee_due") return false;
-  // Phase 15: a semantic payment_method label is not permission to advance the
-  // commercial funnel. Only explicit current-turn payment execution language is.
+  // Phase 15.2: inability to access CliQ/a wallet is a conversational problem to
+  // solve first, not authorization to dump the protected payment payload.
+  if (paymentAccessProblemText(turn.rawText)) return false;
   return explicitCurrentTurnPaymentExecution(turn.rawText);
 }
 
@@ -766,7 +767,7 @@ function explicitAssistantIdentityReply(input: { customerText: string; state: Co
   const asksNature = /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?)/i.test(normalized);
   const asksResponsible = /(?:المسؤول|المسوول|المدير|الاداره|الإدارة)/.test(normalized);
   if (asksNature) {
-    return `معك ${name} من فريق الأمين، وبالمحادثة هاي أنا المساعد الرقمي التابع للأمين. خليني أكمل معك على نفس موضوعك.`;
+    return `معك ${name} من فريق الأمين، والرد هون آلي من نظام الأمين. خليني أكمل معك على نفس موضوعك.`;
   }
   if (asksResponsible) {
     return `معك ${name} من فريق الأمين، وأنا بكمل معك بهالموضوع هون. احكيلي شو المطلوب وبمشيه معك حسب حالة الطلب الفعلية.`;
@@ -1219,7 +1220,8 @@ export async function runHumanConversationOS(input: {
   const continuationIntent = !contextualAnswerOwnsTurn && (contextualContinuation || explicitContinuationText(input.customerText) || turn.semantic?.decision.continuation === "confirmed" || informedCommercialContinuationConfirmed({ state: reduced, truth: truthAfterActions, turn, customerText: input.customerText }));
   const disclosureRequired = !contextualAnswerOwnsTurn && shouldExplainCommercialStep({ state: reduced, truth: truthAfterActions, turn, explicitContinuationIntent: Boolean(continuationIntent) });
   const alreadyDisclosed = commercialDisclosureDelivered(reduced, truthAfterActions);
-  const paymentExecutionRequired = !contextualAnswerOwnsTurn && !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
+  const paymentAccessProblem = paymentAccessProblemText(input.customerText);
+  const paymentExecutionRequired = !paymentAccessProblem && !contextualAnswerOwnsTurn && !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
 
   const authoritativePublicKnowledgeReply = await resolveSafePublicKnowledgeReply({ turn, truth: truthAfterActions });
 

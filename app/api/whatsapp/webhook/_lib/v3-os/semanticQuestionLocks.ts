@@ -1,6 +1,7 @@
 import { applicationJourneyStage } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { currentFileOpeningPaymentRule, FILE_OPENING_PAYMENT_PHONE, FILE_OPENING_PAYMENT_BENEFICIARY } from "./paymentDestinationOverride";
+import { paymentAccessProblemText } from "./conversationContinuityAuthority";
 import { normalizeArabic } from "./text";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
@@ -64,7 +65,7 @@ function cliqUnavailableQuestionText(value: string | null | undefined) {
 
 export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: TruthBundle) {
   const q = n(turn.rawText);
-  if (!q) return false;
+  if (!q || paymentAccessProblemText(turn.rawText)) return false;
   const feeWord = /(?:5|٥|الخمس|الخمسه|خمسه|خمسة|رسوم\s+فتح\s+الملف|رسوم\s+المعامله|رسوم\s+المعاملة|الرسوم)/.test(q);
   const howWhere = /(?:وين|اين|أين|كيف|على\s+وين|لوين).{0,34}(?:ادفع|أدفع|دفع|احول|أحول|تحويل|حول|حوّل)|(?:ادفع|أدفع|احول|أحول|تحويل).{0,34}(?:وين|اين|أين|كيف|على\s+وين|لوين)/.test(q);
   const explicitPay = /(?:بدي|اريد|أريد|حاب|جاهز).{0,22}(?:ادفع|أدفع|احول|أحول).{0,24}(?:الرسوم|الخمس|الخمسه|5|٥)?/.test(q);
@@ -78,7 +79,7 @@ export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: 
     /^(?:طيب\s+)?(?:شو|ايش|اش)\s+(?:اعمل|أعمل|المطلوب\s+مني|الخطوه\s+الجايه|الخطوة\s+الجاية|الخطوه\s+التاليه|الخطوة\s+التالية)(?:\s+هسا|\s+الان|\s+الآن)?$/.test(q)
     || /(?:ساعدني|ساعدوني|مساعده|مساعدة).{0,30}(?:الخطوات|شو\s+اعمل|إيش\s+اعمل|ايش\s+اعمل)|(?:مش|مو)\s+فاهم.{0,35}(?:الخطوات|شو\s+اعمل|ايش\s+اعمل|المطلوب)/.test(q)
   );
-  return asksPaymentData || feeCommitment || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || cliqUnavailableQuestionText(turn.rawText) || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
+  return asksPaymentData || feeCommitment || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
 }
 
 export function officeLocationQuestion(turn: InterpretedTurn) {

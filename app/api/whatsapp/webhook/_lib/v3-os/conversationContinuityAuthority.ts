@@ -32,9 +32,17 @@ export function reconcileDeliveredConversationState(input: {
   return deliveredStateAt >= persistedAt ? delivered : persisted;
 }
 
-export function explicitCurrentTurnPaymentExecution(value: string | null | undefined) {
+export function paymentAccessProblemText(value: string | null | undefined) {
   const q = normalize(value);
   if (!q) return false;
+  const missingRail = /(?:ما\s*عندي|مش\s*عندي|بدون|مش\s*مفعل(?:ه)?|ما\s*بقدر\s*استخدم).{0,36}(?:كليك|cliq|محفظه|محفظة)|(?:كليك|cliq|محفظه|محفظة).{0,36}(?:ما\s*عندي|مش\s*عندي|مش\s*مفعل(?:ه)?|ما\s*بقدر)/i.test(q);
+  const asksForWay = /(?:كيف|شو|ايش|إيش|وين|طيب|الحل|طريقه|طريقة).{0,34}(?:ادفع|دفع|احول|تحويل)|(?:ادفع|احول|دفع|تحويل).{0,34}(?:كيف|شو|وين|الحل|طريقه|طريقة)/.test(q);
+  return missingRail && asksForWay;
+}
+
+export function explicitCurrentTurnPaymentExecution(value: string | null | undefined) {
+  const q = normalize(value);
+  if (!q || paymentAccessProblemText(value)) return false;
   return /(?:كيف|وين|بدي|اريد|حاب|ممكن).{0,24}(?:ادفع|دفع|احول|تحويل)|(?:ادفع|احول|حول|تحويل)(?:\s|$)|(?:بيانات|رقم|اسم).{0,18}(?:الدفع|التحويل|المستفيد)|(?:وين|شو).{0,18}(?:رقم\s+كليك|cliq|كليك).{0,18}(?:احول|تحويل|ادفع)?/.test(q);
 }
 
