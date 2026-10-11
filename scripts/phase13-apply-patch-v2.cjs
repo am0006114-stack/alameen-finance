@@ -10,7 +10,7 @@ if (!src.includes(badReceipt)) throw new Error('Phase 13 receipt runner repair t
 src = src.replace(badReceipt, goodReceipt);
 
 const badDuration = "assert(!human.includes('المدة اللي ذكرتها (${duration}) متجاوزة'));";
-const goodDuration = "assert(!human.includes('المدة اللي ذكرتها (' + '$' + '{duration}) متجاوزة'));";
+const goodDuration = "assert(!human.includes('المدة اللي ذكرتها'));";
 if (!src.includes(badDuration)) throw new Error('Phase 13 duration selftest repair target not found');
 src = src.replace(badDuration, goodDuration);
 
