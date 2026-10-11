@@ -32,7 +32,8 @@ jobs:
       - name: Production build gate
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
-          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase14-3-ci-inert-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: phase14-3-ci-inert-service-role-key
         run: npm run build
 
       - name: Diff hygiene gate
