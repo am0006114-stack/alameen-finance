@@ -11471,26 +11471,6 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                 providerMessageId: outgoingMessageId,
               });
 
-              await logMessage({
-                waId: from,
-                direction: "outgoing",
-                body: replyActuallySent,
-                messageId: outgoingMessageId,
-                intent: processingIntent,
-                trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
-                needsHumanReview: Boolean(v3Run?.humanOs?.needsHumanReview),
-                handledByAi: true,
-                rawPayload: {
-                  source_incoming_message_id: String(burstLeaderMessageId || message.id || ""),
-                  source_burst_key: activeBurstKey,
-                  source_burst_message_ids: burstMessageIds,
-                  v3_turn_id: v3TurnId,
-                  provider_message_id: outgoingMessageId,
-                  egress_version: "phase9.0-single-conversation-os",
-                  degraded_turn: Boolean(degradedStateAfter),
-                },
-              });
-
               const durableAfterSend = await durableOutgoingDeliveryForIncoming({
                 waId: from,
                 incomingMessageId: burstLeaderMessageId || message.id,
@@ -11525,6 +11505,26 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                   throw new Error("V3_RETRYABLE_HUMAN_OS_DELIVERY_COMMIT_FAILURE");
                 }
               }
+
+              await logMessage({
+                waId: from,
+                direction: "outgoing",
+                body: replyActuallySent,
+                messageId: outgoingMessageId,
+                intent: processingIntent,
+                trackingId: v3Run?.truthAfterActions.application?.trackingId || extractTracking(replyInputText) || incomingTracking || null,
+                needsHumanReview: Boolean(v3Run?.humanOs?.needsHumanReview),
+                handledByAi: true,
+                rawPayload: {
+                  source_incoming_message_id: String(burstLeaderMessageId || message.id || ""),
+                  source_burst_key: activeBurstKey,
+                  source_burst_message_ids: burstMessageIds,
+                  v3_turn_id: v3TurnId,
+                  provider_message_id: outgoingMessageId,
+                  egress_version: "phase9.0-single-conversation-os",
+                  degraded_turn: Boolean(degradedStateAfter),
+                },
+              });
 
               await logAiConversation({
                 phone: from,

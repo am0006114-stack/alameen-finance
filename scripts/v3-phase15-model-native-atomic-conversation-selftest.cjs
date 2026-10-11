@@ -18,12 +18,17 @@ assert(!continuity.includes('العربي الاسلامي') && !continuity.incl
 assert(stateStore.includes('whatsapp_turn_journal'), 'state store does not recover from durable turn journal');
 assert(stateStore.includes('.eq("status", "completed")'), 'state recovery is not restricted to completed delivered turns');
 assert(stateStore.includes('reconcileDeliveredConversationState'), 'state store does not reconcile durable delivered state');
+assert(stateStore.includes('.limit(8)'), 'state store does not inspect multiple completed turns for out-of-order completion safety');
+assert(stateStore.includes('if (delivered?.state) return delivered.state'), 'journal is not a fallback when the projection read fails');
+assert(continuity.includes('time(delivered.updatedAt) || time(input.deliveredAt)'), 'reconciliation can still prefer late completion time over newer semantic state time');
 
 const completeIndex = route.indexOf('Phase 15 atomic conversation continuity');
 const stateSaveIndex = route.indexOf('await saveV3ConversationState(stateToPersist)');
 assert(completeIndex >= 0 && stateSaveIndex >= 0 && completeIndex < stateSaveIndex, 'delivered journal must commit before slower conversation-state save');
+const outgoingLogIndex = route.indexOf('await logMessage({', completeIndex);
+assert(outgoingLogIndex < 0 || completeIndex < outgoingLogIndex, 'delivered journal must commit before outgoing message analytics/log persistence');
 const logAiIndex = route.indexOf('await logAiConversation({', completeIndex);
-assert(logAiIndex < 0 || completeIndex < logAiIndex, 'delivered journal must commit before analytics logging');
+assert(logAiIndex < 0 || completeIndex < logAiIndex, 'delivered journal must commit before AI analytics logging');
 
 assert(os.includes('likelyContextualAnswerToAssistantPrompt'), 'Human OS does not use generic contextual answer authority');
 assert(os.includes('contextualAnswerOwnsTurn'), 'contextual answer ownership guard missing');

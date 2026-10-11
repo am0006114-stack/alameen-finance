@@ -42,18 +42,22 @@ async function loadLatestCompletedDeliveredState(waId: string) {
       .eq("status", "completed")
       .not("provider_message_id", "is", null)
       .order("completed_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(8);
     if (error) {
       console.error("v3_delivered_state_recovery_read_failed", { waId, error: error.message });
       return null;
     }
-    const state = hydrateConversationState(data?.state_after_json as ConversationState | null | undefined);
-    if (!state) return null;
-    return {
-      state,
-      deliveredAt: String(data?.completed_at || data?.delivered_at || data?.updated_at || state.updatedAt || ""),
-    };
+    const candidates = (Array.isArray(data) ? data : [])
+      .map((row) => {
+        const state = hydrateConversationState(row?.state_after_json as ConversationState | null | undefined);
+        return state ? {
+          state,
+          deliveredAt: String(row?.completed_at || row?.delivered_at || row?.updated_at || state.updatedAt || ""),
+        } : null;
+      })
+      .filter((item): item is { state: ConversationState; deliveredAt: string } => Boolean(item))
+      .sort((a, b) => Date.parse(b.state.updatedAt || "") - Date.parse(a.state.updatedAt || ""));
+    return candidates[0] || null;
   } catch (error) {
     console.error("v3_delivered_state_recovery_failed", { waId, error: error instanceof Error ? error.message : String(error) });
     return null;
@@ -73,10 +77,14 @@ export async function loadV3ConversationState(waId: string): Promise<Conversatio
         .select("state")
         .eq("wa_id", clean)
         .maybeSingle();
-      if (error) { lastError = error.message; continue; }
+      const delivered = await loadLatestCompletedDeliveredState(clean);
+      if (error) {
+        lastError = error.message;
+        if (delivered?.state) return delivered.state;
+        continue;
+      }
 
       const persisted = hydrateConversationState(data?.state as ConversationState | null | undefined);
-      const delivered = await loadLatestCompletedDeliveredState(clean);
       return reconcileDeliveredConversationState({
         persisted,
         deliveredState: delivered?.state || null,

@@ -27,9 +27,9 @@ export function reconcileDeliveredConversationState(input: {
   if (persisted.waId !== delivered.waId) return persisted;
   if (persisted.lastTurnId === delivered.lastTurnId) return persisted;
 
-  const deliveredAt = time(input.deliveredAt) || time(delivered.updatedAt);
+  const deliveredStateAt = time(delivered.updatedAt) || time(input.deliveredAt);
   const persistedAt = time(persisted.updatedAt);
-  return deliveredAt >= persistedAt ? delivered : persisted;
+  return deliveredStateAt >= persistedAt ? delivered : persisted;
 }
 
 export function explicitCurrentTurnPaymentExecution(value: string | null | undefined) {
@@ -62,6 +62,6 @@ export function likelyContextualAnswerToAssistantPrompt(input: {
     || /(?:احكيلي|اكتبلي|ابعثلي|خبرني|اعطيني|حددلي|اختار|اختاري|اكدلي|أكدلي|شو\s+اسم|اي\s+واحد|أي\s+واحد|اسم\s+ال)/.test(previous);
   if (!assistantAsked) return false;
 
-  const socialOnly = /^(?:تمام|اوك|اوكي|شكرا|يسلمو|العفو|اه|نعم|ايوه|موافق|اكيد)$/.test(current);
+  const socialOnly = /^(?:تمام|اوك|اوكي|شكرا|يسلمو|العفو)$/.test(current);
   return !socialOnly;
 }
