@@ -22,6 +22,7 @@ jobs:
         run: |
           python3 scripts/apply-phase16-conversation-root-rebuild.py
           python3 scripts/apply-phase16-conversation-root-rebuild-followup.py
+          python3 scripts/apply-phase16-test-modernization.py
 
       - name: Screenshot root regression gate
         run: node scripts/v3-phase16-conversation-root-rebuild-selftest.cjs
@@ -52,9 +53,7 @@ jobs:
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-          import re
 
-          roots = [Path('app/api/whatsapp/webhook')]
           forbidden = [
             'وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين',
             'والرد هون آلي من نظام الأمين',
@@ -63,14 +62,13 @@ jobs:
             'بيتوقف الرد الآلي على المحادثة',
           ]
           problems=[]
-          for root in roots:
-            for p in root.rglob('*'):
-              if not p.is_file() or p.suffix.lower() not in {'.ts','.tsx','.js','.cjs','.mjs'}:
-                continue
-              s=p.read_text(encoding='utf-8')
-              for phrase in forbidden:
-                if phrase in s:
-                  problems.append((str(p), phrase))
+          for p in Path('app/api/whatsapp/webhook').rglob('*'):
+            if not p.is_file() or p.suffix.lower() not in {'.ts','.tsx','.js','.cjs','.mjs'}:
+              continue
+            s=p.read_text(encoding='utf-8')
+            for phrase in forbidden:
+              if phrase in s:
+                problems.append((str(p), phrase))
           if problems:
             for p,phrase in problems: print('FORBIDDEN', p, phrase)
             raise SystemExit('customer-facing implementation identity signature survived')
@@ -99,6 +97,7 @@ jobs:
           rm -f .github/workflows/phase16-conversation-root-rebuild-verify.yml
           rm -f scripts/apply-phase16-conversation-root-rebuild.py
           rm -f scripts/apply-phase16-conversation-root-rebuild-followup.py
+          rm -f scripts/apply-phase16-test-modernization.py
 
       - name: Stage exact Phase 16 scope
         run: |
@@ -109,11 +108,13 @@ jobs:
           git add app/api/whatsapp/webhook/_lib/v2-production/actionExecutor.ts
           git add scripts/v3-phase14-2-persona-selftest.cjs
           git add scripts/v3-phase14-conversation-os-audit-selftest.cjs
+          git add scripts/v3-phase14-3-1-contextual-bank-followup-selftest.cjs
           git add scripts/v3-phase16-conversation-root-rebuild-selftest.cjs
           git add -u .github/workflows/phase16-conversation-root-audit.yml
           git add -u .github/workflows/phase16-conversation-root-rebuild-verify.yml
           git add -u scripts/apply-phase16-conversation-root-rebuild.py
           git add -u scripts/apply-phase16-conversation-root-rebuild-followup.py
+          git add -u scripts/apply-phase16-test-modernization.py
 
       - name: Final exact scope and commit
         shell: bash
@@ -133,6 +134,7 @@ jobs:
             'app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts' \
             'app/api/whatsapp/webhook/route.ts' \
             'scripts/v3-phase14-2-persona-selftest.cjs' \
+            'scripts/v3-phase14-3-1-contextual-bank-followup-selftest.cjs' \
             'scripts/v3-phase14-conversation-os-audit-selftest.cjs' \
             'scripts/v3-phase16-conversation-root-rebuild-selftest.cjs' | sort)"
           echo 'FINAL DIFF VS MAIN:'
