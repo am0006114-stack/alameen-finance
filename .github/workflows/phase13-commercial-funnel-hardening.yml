@@ -41,9 +41,6 @@ jobs:
             app/api/whatsapp/webhook/_lib/v3-os/currentHumanTurnAuthority.ts \
             app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts \
             app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts \
-            scripts/v3-phase13-commercial-funnel-hardening-selftest.cjs \
-            .github/workflows/phase13-commercial-funnel-hardening.yml \
-            scripts/phase13-apply-patch.cjs \
-            scripts/phase13-apply-patch-v2.cjs
+            scripts/v3-phase13-commercial-funnel-hardening-selftest.cjs
           git commit -m "Phase 13: harden commercial funnel and payment recovery"
           git push origin HEAD:phase13-commercial-funnel-hardening
