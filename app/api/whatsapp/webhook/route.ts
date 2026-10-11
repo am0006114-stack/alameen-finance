@@ -4201,7 +4201,7 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   const text = normalizeArabicText(customerText);
 
   if (String(intent) === "staff_identity" || isStaffIdentityText(customerText)) {
-    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app);
+    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app, customerText);
   }
 
   if (String(intent) === "call_request") {
@@ -4218,7 +4218,7 @@ function conversationalDirectReply(app: ApplicationRecord, baseUrl: string, cust
   }
 
   if (String(intent) === "human_agent") {
-    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app);
+    return employeeIdentityReply(app.phone || app.tracking_id || app.id, app, customerText);
   }
 
   if (String(intent) === "keep_request") {
@@ -4580,13 +4580,17 @@ function systemPromptRequestReply() {
 بقدر أساعدك فقط بخصوص خدمات الأمين أو حالة طلبك.`;
 }
 
-function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
+function employeeIdentityReply(from: string, app?: ApplicationRecord | null, customerText = "") {
   const staffName = assignedStaffName(from);
   const requestLine = app
     ? `طلبك ${app.tracking_id || app.id} ظاهر بالسياق، وبقدر أتابعه معك هون.`
     : "إذا سؤالك عن طلب محدد ابعث رقم الطلب أو رقم التتبع.";
 
-  return `أنا مساعد ذكاء اصطناعي تابع للأمين، مش موظف بشري. الاسم التشغيلي داخل المحادثة ${staffName}. ${requestLine}`;
+  if (isBotIdentityChallengeText(customerText)) {
+    return `معك ${staffName} من فريق الأمين. وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري. ${requestLine}`;
+  }
+
+  return `معك ${staffName} من فريق الأمين، وأنا اللي بكمل معك هون. ${requestLine}`;
 }
 
 function callRequestReply(from: string, app?: ApplicationRecord | null) {
@@ -9542,12 +9546,12 @@ async function buildReply(request: Request, from: string, text: string, messageT
   }
 
   if (String(intent) === "staff_identity") {
-    return employeeIdentityReply(from, app);
+    return employeeIdentityReply(from, app, rawCustomerText);
   }
 
   if (String(intent) === "human_agent") {
     // Human-contact requests are operational, not creative: keep them deterministic and complete.
-    return employeeIdentityReply(from, app);
+    return employeeIdentityReply(from, app, rawCustomerText);
   }
 
   if (messageHasReviewAndLocationTopics(rawCustomerText)) {

@@ -3,6 +3,7 @@ import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
 import { normalizeArabic } from "./text";
+import { roleDisplayName } from "./hierarchy";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type AnswerBundleKind = "single_question" | "multi_question" | "application_start" | "repeat_repair" | "legal_notice" | "none";
@@ -172,8 +173,17 @@ function paymentDetails(turn: InterpretedTurn, truth: TruthBundle) {
   return `${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}`;
 }
 
-function assistantIdentityPart() {
-  return "أنا مساعد ذكاء اصطناعي تابع للأمين للأقساط، مش موظف بشري. بقدر أفهم رسالتك وأتابع حالة الطلب وأنفذ فقط الإجراءات المسموحة بالنظام، وإذا سألتني عن طبيعتي بحكيلك إياها بصراحة بدون ما أمثل إني إنسان.";
+function explicitAssistantNatureQuestion(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?)/i.test(q);
+}
+
+function assistantIdentityPart(turn: InterpretedTurn, state: ConversationState) {
+  const name = roleDisplayName(state.role.currentRole);
+  if (explicitAssistantNatureQuestion(turn.rawText)) {
+    return `معك ${name} من فريق الأمين. وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري. بقدر أفهم رسالتك وأتابع حالة الطلب وأنفذ فقط الإجراءات المسموحة بالنظام.`;
+  }
+  return `معك ${name} من فريق الأمين، وأنا اللي بكمل معك هون. احكيلي شو بدك وبجاوبك حسب حالة طلبك الفعلية.`;
 }
 
 function paymentAccessProblemPart(truth: TruthBundle) {
@@ -356,6 +366,6 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.remoteProcess) parts.push(remoteProcessPart());
   if (f.officeLocation) parts.push(officeLocationPart(input.truth));
   if (f.applicationStart) parts.push(applicationStartPart(input.turn, input.truth));
-  if (f.assistantIdentity) parts.push(assistantIdentityPart());
+  if (f.assistantIdentity) parts.push(assistantIdentityPart(input.turn, input.state));
   return Array.from(new Set(parts.filter(Boolean))).join("\n\n") || null;
 }
