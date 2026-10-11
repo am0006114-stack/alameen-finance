@@ -39,6 +39,5 @@ jobs:
           git add app/api/whatsapp/webhook/_lib/v3-os/mutationConfirmationGate.ts
           git add app/api/whatsapp/webhook/_lib/v3-os/continuationPersistence.ts
           git add scripts/v3-phase13-1-root-current-turn-supremacy-selftest.cjs
-          git add -u .github/workflows/phase13-1-current-turn-supremacy.yml scripts/phase13-1-apply-patch.cjs scripts/phase13-1-apply-patch-v2.cjs
           git commit -m "Phase 13.1: enforce current-turn supremacy and mutation safety"
           git push origin HEAD:phase13-1-current-turn-supremacy
