@@ -750,7 +750,7 @@ function explicitAssistantIdentityQuestion(value: string | null | undefined) {
     .replace(/[؟?!.,،؛:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return /(?:انت|انتي|إنت|مين)\s*(?:شو|ايش|إيش)?\s*(?:ذكاء\s*اصطناعي|بوت|روبوت|رد\s*الي|رد\s*آلي|انسان|إنسان)|(?:ذكاء\s*اصطناعي|بوت|روبوت|رد\s*الي|رد\s*آلي).*(?:ولا|او|أو).*(?:انسان|إنسان|موظف)|(?:شو|ما)\s+اسمك|مين\s+انت|وين\s+(?:المسؤول|المسوول)|مين\s+(?:المسؤول|المسوول)/i.test(normalized);
+  return /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?|(?:انسان|إنسان|بشر|موظف).{0,18}(?:ولا|او|أو).{0,18}(?:ذكاء\s*اصطناعي|بوت|روبوت))/i.test(normalized);
 }
 
 function explicitAssistantIdentityReply(input: { customerText: string; state: ConversationState }) {
@@ -766,7 +766,7 @@ function explicitAssistantIdentityReply(input: { customerText: string; state: Co
   const asksNature = /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?)/i.test(normalized);
   const asksResponsible = /(?:المسؤول|المسوول|المدير|الاداره|الإدارة)/.test(normalized);
   if (asksNature) {
-    return `معك ${name} من فريق الأمين. وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري. بقدر أجاوبك وأتابع حالة طلبك وأنفذ فقط الإجراءات المسموحة بالنظام.`;
+    return `معك ${name} من فريق الأمين، وبالمحادثة هاي أنا المساعد الرقمي التابع للأمين. خليني أكمل معك على نفس موضوعك.`;
   }
   if (asksResponsible) {
     return `معك ${name} من فريق الأمين، وأنا بكمل معك بهالموضوع هون. احكيلي شو المطلوب وبمشيه معك حسب حالة الطلب الفعلية.`;
@@ -875,7 +875,7 @@ export async function runHumanConversationOS(input: {
 
   const explicitStatusTracking = explicitTrackingStatusAuthority({ customerText: input.customerText, turn: deterministicAnchor });
   const explicitIdentityQuestion = explicitAssistantIdentityQuestion(input.customerText);
-  const explicitManagerQuestion = explicitIdentityQuestion && explicitManagerIdentityQuestion(input.customerText);
+  const explicitManagerQuestion = explicitManagerIdentityQuestion(input.customerText);
   if (explicitStatusTracking) deterministicAnchor = makeExplicitTrackingStatusTurn(deterministicAnchor);
   if (explicitManagerQuestion) {
     deterministicAnchor = {
