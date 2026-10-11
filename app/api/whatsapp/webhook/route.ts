@@ -5499,7 +5499,22 @@ async function sendWhatsAppTypingIndicator(incomingMessageId?: string | null) {
 
   const token = process.env.WHATSAPP_TOKEN;
   const phoneNumberId = process.env.WHATSAPP_PHONE_NUMBER_ID;
-  const graphVersion = process.env.GRAPH_API_VERSION || "v20.0";
+  // Typing indicators were added after the old v20 integration baseline.
+  // v20 is retired; keep this UX call on a currently supported API even if an
+  // old shared GRAPH_API_VERSION value is still present in the environment.
+  const configuredTypingGraphVersion = String(
+    process.env.WHATSAPP_TYPING_GRAPH_API_VERSION || process.env.GRAPH_API_VERSION || ""
+  ).trim();
+  const normalizedTypingGraphVersion = configuredTypingGraphVersion
+    ? (configuredTypingGraphVersion.startsWith("v") ? configuredTypingGraphVersion : `v${configuredTypingGraphVersion}`)
+    : "";
+  const configuredTypingGraphMajor = Number.parseInt(
+    normalizedTypingGraphVersion.replace(/^v/i, "").split(".")[0] || "",
+    10
+  );
+  const graphVersion = Number.isFinite(configuredTypingGraphMajor) && configuredTypingGraphMajor >= 25
+    ? normalizedTypingGraphVersion
+    : "v25.0";
   const cleanMessageId = String(incomingMessageId || "").trim();
 
   if (!token || !phoneNumberId || !cleanMessageId) return false;
