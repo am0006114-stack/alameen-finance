@@ -4583,14 +4583,10 @@ function systemPromptRequestReply() {
 function employeeIdentityReply(from: string, app?: ApplicationRecord | null) {
   const staffName = assignedStaffName(from);
   const requestLine = app
-    ? `اكتب رسالتك ورقم طلبك ${app.tracking_id || app.id}.`
-    : "اكتب رسالتك ورقم الطلب أو رقم التتبع.";
+    ? `طلبك ${app.tracking_id || app.id} ظاهر بالسياق، وبقدر أتابعه معك هون.`
+    : "إذا سؤالك عن طلب محدد ابعث رقم الطلب أو رقم التتبع.";
 
-  return `معك ${staffName} من فريق الأمين.
-
-التواصل الأساسي للطلبات والمتابعة عبر واتساب. ${requestLine}
-
-يتم الرد حسب الدور وضغط المراجعات أو الظروف التشغيلية الاستثنائية.`;
+  return `أنا مساعد ذكاء اصطناعي تابع للأمين، مش موظف بشري. الاسم التشغيلي داخل المحادثة ${staffName}. ${requestLine}`;
 }
 
 function callRequestReply(from: string, app?: ApplicationRecord | null) {

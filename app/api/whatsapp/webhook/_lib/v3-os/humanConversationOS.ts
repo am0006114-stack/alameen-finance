@@ -28,6 +28,7 @@ import { durableIngressTurnFreshness } from "./durableIngress";
 import { manualMutationReceiptReply, recordManualMutationReceipt, type ManualMutationReceipt } from "./manualMutationReceipt";
 import { notifyV3Discord } from "./discordNotifier";
 import { applyHumanCareEgress } from "./humanCarePolicy";
+import { resolveSafePublicKnowledgeReply } from "./freshPublicFacts";
 import { arbitrateProductionReply } from "./responseArbiter";
 import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
 import { V3_OS_VERSION } from "./types";
@@ -440,7 +441,7 @@ function simpleSocialClosureReply(turn: InterpretedTurn, customerText: string) {
   return null;
 }
 
-type HumanEscalationReceipt = "recorded" | "already_recorded" | "failed" | "not_applicable" | null;
+type HumanEscalationReceipt = "recorded" | "already_recorded" | "autonomous" | "failed" | "not_applicable" | null;
 
 function explicitHumanEscalationRequest(turn: InterpretedTurn) {
   const q = normalizeActionConfirmationText(turn.rawText);
@@ -468,6 +469,7 @@ async function recordHumanEscalationReceipt(input: { turn: InterpretedTurn; trut
     });
     if (notification.sent) return "recorded";
     if (notification.reason === "duplicate_actionable_notification") return "already_recorded";
+    if (notification.reason === "autonomous_conversation_request_does_not_require_human_intervention") return "autonomous";
     return "failed";
   } catch (error) {
     console.error("human escalation durable receipt failed", { turnId: input.turnId, error });
@@ -484,6 +486,9 @@ function humanRequestGroundedReply(input: { turn: InterpretedTurn; state: Conver
     : "";
   if (input.receipt === "recorded" || input.receipt === "already_recorded") {
     return `معك ${name} من الأمين، وأنا مكمل معك هون.${status} طلبك للتواصل المباشر اتسجل للإدارة${tracking}. هذا تسجيل طلب تواصل فعلي، مش وعد بموعد مكالمة؛ ما رح أقول إن حدا اتصل أو تم تحويلك قبل ما يصير ذلك فعليًا.`;
+  }
+  if (input.receipt === "autonomous") {
+    return `أنا مساعد ذكاء اصطناعي تابع للأمين، وبكمل معك هون مباشرة.${status} طلب موظف أو مكالمة ما بعمل تحويل بشري تلقائي ولا بدي أوهمك إنه انحجز اتصال. احكيلي المشكلة وبعالج اللي بقدر عليه حسب حالة الطلب الفعلية.`;
   }
   if (input.receipt === "failed") {
     return `معك ${name} من الأمين.${status} طلبك للتواصل واضح، لكن ما قدرت أثبت تسجيله تشغيليًا الآن، لذلك ما رح أقول لك إنه اتسجل. احكيلي المشكلة نفسها وبكمل معك هون بدون ما أعيد عليك معلومات معروفة.`;
@@ -761,7 +766,7 @@ function explicitAssistantIdentityReply(input: { customerText: string; state: Co
   if (asksResponsible) {
     return `معك ${name} من الأمين، وأنا بكمل معك بهالموضوع هون. احكيلي شو المطلوب وبمشيه معك حسب حالة الطلب الفعلية.`;
   }
-  return `معك ${name} من الأمين. أنا مكمل معك على نفس المحادثة؛ احكيلي شو بدك وبجاوبك أو بنفذ الإجراء المسموح حسب حالة طلبك.`;
+  return `أنا مساعد ذكاء اصطناعي تابع للأمين، مش موظف بشري. الاسم التشغيلي داخل المحادثة ${name}. بقدر أجاوبك وأتابع حالة طلبك وأنفذ فقط الإجراءات المسموحة بالنظام.`;
 }
 
 function explicitManagerIdentityQuestion(value: string | null | undefined) {
@@ -1089,7 +1094,7 @@ export async function runHumanConversationOS(input: {
     turnId: input.turnId,
     customerText: input.customerText,
   });
-  if (humanEscalationReceipt) {
+  if (humanEscalationReceipt && humanEscalationReceipt !== "autonomous") {
     const durable = humanEscalationReceipt === "recorded" || humanEscalationReceipt === "already_recorded";
     const receiptResult: ActionResult = {
       action: "record_call_preference",
@@ -1200,6 +1205,8 @@ export async function runHumanConversationOS(input: {
   const alreadyDisclosed = commercialDisclosureDelivered(reduced, truthAfterActions);
   const paymentExecutionRequired = !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
 
+  const authoritativePublicKnowledgeReply = await resolveSafePublicKnowledgeReply({ turn, truth: truthAfterActions });
+
   const authoritativeTrackingReply = explicitStatusTracking
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
     : null;
@@ -1237,7 +1244,7 @@ export async function runHumanConversationOS(input: {
       }
     }
   }
-  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativeSocialReply;
+  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply;
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -1257,7 +1264,7 @@ export async function runHumanConversationOS(input: {
     truth: truthAfterActions,
     actions: actionResults,
   });
-  reply = arbitration.reply;
+  reply = authoritativePublicKnowledgeReply || arbitration.reply;
 
   // Phase 11.7.1: commercial consent state follows the reply that actually wins
   // final egress arbitration. A correct payment/disclosure repair must persist its
@@ -1285,7 +1292,7 @@ export async function runHumanConversationOS(input: {
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
   const authoritativeArbiterReply = Boolean(arbitration.repaired || arbitration.suppressed);
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || authoritativeGateReply || authoritativeArbiterReply);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply || authoritativeGateReply || authoritativeArbiterReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -1316,7 +1323,7 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativeSocialReply || finalAuthoritativeGateReply || authoritativeArbiterReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply || finalAuthoritativeGateReply || authoritativeArbiterReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,

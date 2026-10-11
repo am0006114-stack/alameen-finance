@@ -510,10 +510,14 @@ export function resolveResponseObligation(input: {
   const semanticQuestionLock = resolveSemanticQuestionLock({ turn: input.turn, truth: input.truth });
   const currentHumanTurn = resolveCurrentHumanTurnAuthority({ turn: input.turn, state: input.state, truth: input.truth });
   const currentTurnSupremacy = resolveCurrentTurnSupremacy({ turn: input.turn, state: input.state, truth: input.truth });
+  const answerBundle = resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth });
 
   if (currentHumanTurn.kind === "contact_isolation_continuation") return "current_human_turn";
   if (contactIdentityMismatch(input.truth)) return "contact_identity_mismatch";
   if (hasAuthoritativeMutationResult(input.actions, input.turn)) return "mutation_truth";
+  // A message containing several material questions is one conversational turn.
+  // Never let a single specialized rule erase sibling questions from that turn.
+  if (answerBundle.kind === "multi_question") return "answer_bundle";
   if (currentTurnSupremacy.kind !== "none") return "current_turn_supremacy";
   if (currentHumanTurn.kind === "preliminary_decision_due") return "current_human_turn";
   if (structuredApplicationStatusRequest(input.turn)) return "application_status";
@@ -523,7 +527,6 @@ export function resolveResponseObligation(input: {
   // Phase 11.7 precedence: the literal current customer question owns the answer
   // before journey-stage, media, delivery, or stale commercial context.
   if (currentHumanTurn.kind !== "none") return "current_human_turn";
-  const answerBundle = resolveAnswerBundle({ turn: input.turn, state: input.state, truth: input.truth });
   if (answerBundle.kind !== "none") return "answer_bundle";
   if (asksOperationalCalendarQuestion(input.turn.rawText)) return "operational_calendar";
   if (asksFeeDocumentQuestion(input.turn.rawText)) return "fee_document_question";
