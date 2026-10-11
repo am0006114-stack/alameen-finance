@@ -7,6 +7,7 @@ export type CurrentTurnSupremacyKind =
   | "none"
   | "mutation_decline"
   | "mutation_hypothetical"
+  | "social_closure"
   | "website_url"
   | "down_payment"
   | "trust_verification"
@@ -37,6 +38,8 @@ export function resolveCurrentTurnSupremacy(input: { turn: InterpretedTurn; stat
   const hypothetical = /(?:^|\s)(?:لو|اذا|إذا|ادا|فرض|افتراض)(?:\s|$)/.test(q)
     || /(?:هذا|هاد|هاذ|هاض).{0,14}(?:سؤال|سوال)|(?:بس).{0,12}(?:سؤال|سوال)|(?:بدي|حاب|اريد|أريد).{0,20}(?:اعرف|أعرف).{0,40}(?:لو|اذا|إذا)/.test(q);
   if (mutationMention && hypothetical) return { kind: "mutation_hypothetical", reason: "hypothetical mutation question is informational, never executable consent" };
+
+  if (/^(?:تمام\s+)?(?:شكرا(?:\s+الك)?|شكراً(?:\s+الك)?|مشكور(?:\s+يا\s+صديقي)?|الله\s+يعطيك\s+العافيه|يعطيك\s+العافيه|اوك\s+ان\s+شاء\s+الله|اوكي\s+ان\s+شاء\s+الله|لا\s+شكرا|لا\s+شكراً)$/.test(q)) return { kind: "social_closure", reason: "literal thanks or conversational closure outranks stale topic labels" };
 
   if (/(?:رابط|لينك).{0,24}(?:الموقع\s+الالكتروني|الموقع\s+الإلكتروني|موقعكم|الويبسايت|website)|(?:الموقع\s+الالكتروني|الموقع\s+الإلكتروني|موقعكم\s+الالكتروني|موقعكم\s+الإلكتروني|الويبسايت|website).{0,18}(?:رابط|لينك)?/i.test(q)) return { kind: "website_url", reason: "customer explicitly asked for the official website URL" };
 
@@ -72,6 +75,8 @@ export function buildCurrentTurnSupremacyReply(input: { supremacy: CurrentTurnSu
     if (refund) return `فهمت إنك بتسأل افتراضيًا، مش طالب استرداد الآن.${appStatus} إذا قررت تطلب الاسترداد فعلًا لاحقًا بنطلب منك تأكيد مستقل قبل أي إجراء، وما عندي مدة تحويل ثابتة أقدر أضمنها قبل ما يفتح مسار الاسترداد فعليًا.`;
     return `فهمت إنك بتسأل افتراضيًا، مش طالب إلغاء الآن.${appStatus} ما رح أسجل إلغاء من سؤال لو بدي. إذا قررت الإلغاء فعلًا لاحقًا بطلب منك تأكيد مستقل قبل التنفيذ، وإذا كان في دفع مؤكد بيدخل الطلب بمسار الاسترداد الرسمي.`;
   }
+
+  if (kind === "social_closure") return /ان\s+شاء\s+الله/.test(q) ? "إن شاء الله، الله ييسر أمورك." : "العفو، الله يعافيك.";
 
   if (kind === "website_url") {
     const links = buildOfficialLinkContext(input.turn, input.truth);
