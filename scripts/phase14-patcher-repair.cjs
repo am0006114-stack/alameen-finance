@@ -21,6 +21,12 @@ fix(
 );
 
 fix(
+  'headers:{"content-type":"application/json",authorization:`Bearer ${apiKey}`},',
+  'headers:{"content-type":"application/json",authorization:"Bearer "+apiKey},',
+  'nested authorization template'
+);
+
+fix(
   'input:`التاريخ: ${today}\\nالسؤال العام المنقح: ${clean}`',
   'input:"التاريخ: "+today+"\\nالسؤال العام المنقح: "+clean',
   'nested public input template'
