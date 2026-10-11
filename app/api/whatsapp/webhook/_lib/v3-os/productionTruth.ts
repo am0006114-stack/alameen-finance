@@ -14,6 +14,28 @@ const PAYMENT_CONFIRMED = new Set(["confirmed", "paid", "payment_confirmed"]);
 const PAYMENT_PENDING = new Set(["customer_claimed_paid", "pending_payment_confirmation"]);
 const TERMINAL_STATUSES = new Set(["rejected", "cancelled", "refund_completed"]);
 const PAYMENT_TOPICS = new Set<TopicKey>(["payment_status", "payment_confirmation", "receipt_upload", "refund"]);
+const CONTINUATION_AUTHORITY_TTL_MS = 5 * 60 * 1000;
+
+function recentContinuationAuthority(state: ConversationState, applicationId: string) {
+  const fact = [...(state.facts || [])].reverse().find((item) =>
+    item.key === "authoritative_continuation_persisted" && String(item.value || "") === applicationId
+  );
+  if (!fact?.updatedAt) return false;
+  const age = Date.now() - Date.parse(fact.updatedAt);
+  return Number.isFinite(age) && age >= 0 && age <= CONTINUATION_AUTHORITY_TTL_MS;
+}
+
+function applyMonotonicContinuationAuthority(app: ApplicationTruth, state: ConversationState): ApplicationTruth {
+  if (!recentContinuationAuthority(state, app.id)) return app;
+  const status = String(app.status || "").trim().toLowerCase();
+  const payment = String(app.paymentStatus || "").trim().toLowerCase();
+  const stillLaggingAtPreliminary = ["", "preliminary_application", "submitted", "preliminary_qualified"].includes(status)
+    && !PAYMENT_CONFIRMED.has(payment)
+    && !PAYMENT_PENDING.has(payment)
+    && !app.paymentConfirmedAt;
+  if (!stillLaggingAtPreliminary) return app;
+  return { ...app, status: "customer_confirmed_continue", paymentStatus: "pending_payment" };
+}
 
 type ApplicationRow = {
   id: string;
@@ -300,8 +322,9 @@ function ambiguousRows(candidates: ApplicationRow[]): TruthBundle["ambiguousAppl
 }
 
 async function authoritativeBundle(source: TruthBundle["source"], app: ApplicationRow, state: ConversationState, contactAccess: TruthBundle["contactAccess"] = "full"): Promise<TruthBundle> {
-  const truth = await toTruth(app);
-  if (!truth) return resolveTruth({ state });
+  const rawTruth = await toTruth(app);
+  if (!rawTruth) return resolveTruth({ state });
+  const truth = applyMonotonicContinuationAuthority(rawTruth, state);
   return {
     confidence: source === "current_message_tracking" ? "authoritative" : "high",
     source,

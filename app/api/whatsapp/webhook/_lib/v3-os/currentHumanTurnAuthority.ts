@@ -1,4 +1,5 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
+import { buildInformedCommercialDisclosureReply } from "./informedCommercialContinuation";
 import { explicitContactRequestText } from "./currentTurnAuthority";
 import { normalizeArabic } from "./text";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
@@ -11,6 +12,7 @@ export type CurrentHumanTurnKind =
   | "verified_contact_alias_conflict"
   | "direct_call_request"
   | "whatsapp_link_routing_issue"
+  | "preliminary_decision_due"
   | "long_delay_anomaly"
   | "social_security_income"
   | "website_upload_error"
@@ -71,7 +73,26 @@ function contactIsolationContinuation(q: string, state: ConversationState) {
 function directCallRequest(turn: InterpretedTurn) {
   const q = n(turn.rawText);
   return explicitContactRequestText(turn.rawText)
-    || /(?:تواصل|احكي|رن|اتصل).{0,22}(?:معي|فيي|علي).{0,24}(?:اتصال|تلفون|مكالمه|مكالمة)|(?:بدي|اريد|أريد|ممكن).{0,24}(?:موظف|موضف|بني\s+ادم|بني\s+آدم|شخص\s+حقيقي|انسان|إنسان).{0,32}(?:احكي|اتفاهم|اتواصل|اتصل|يرد|معه|معها)?|(?:موظف|موضف|بني\s+ادم|بني\s+آدم|شخص\s+حقيقي).{0,28}(?:احكي|اتفاهم|اتواصل|اتصل|معه|معها)|(?:رن|اتصل).{0,16}(?:علي|فيي).{0,20}(?:الساعه|الساعة|على\s+\d+)/.test(q);
+    || /(?:تواصل|احكي|رن|اتصل).{0,22}(?:معي|فيي|علي).{0,24}(?:اتصال|تلفون|مكالمه|مكالمة)|(?:بدي|اريد|أريد|ممكن).{0,24}(?:موظف|موضف|بني\s+ادم|بني\s+آدم|شخص\s+حقيقي|انسان|إنسان).{0,32}(?:احكي|اتفاهم|اتواصل|اتصل|يرد|معه|معها)?|(?:موظف|موضف|بني\s+ادم|بني\s+آدم|شخص\s+حقيقي).{0,28}(?:احكي|اتفاهم|اتواصل|اتصل|معه|معها)|(?:رن|اتصل).{0,16}(?:علي|فيي).{0,20}(?:الساعه|الساعة|على\s+\d+)/.test(q)
+    || /(?:ممكن|بدي|اعطيني|أعطيني).{0,18}(?:رقم).{0,22}(?:اتواصل|تواصل|اتصل|احكي)|(?:كيف|وين).{0,20}(?:اتواصل|تواصل)(?:.{0,18}(?:معكم|معك|موظف))?/.test(q);
+}
+
+function preliminaryDecisionDue(turn: InterpretedTurn, currentStage: string) {
+  if (currentStage !== "preliminary_approved_waiting_decision") return false;
+  const q = n(turn.rawText);
+  if (!q) return false;
+  if (/(?:الغي|إلغاء|الغاء|استرداد|استرجاع|دفع|ادفع|أدفع|احول|أحول|كليك|cliq|اورنج|orange|موظف|مدير|اتصال|مكالمه|مكالمة)/i.test(q)) return false;
+  if (turn.requestedActions.length > 0 && !turn.requestedActions.includes("continue_application")) return false;
+  if (turn.topics.some((topic) => ["application_status", "tracking", "review_timing"].includes(topic))) return true;
+  return /(?:شو|ايش|اش|وين).{0,22}(?:صار|وصل|وضع|تطور).{0,22}(?:طلبي|الطلب|الملف)?|(?:في).{0,18}(?:تطورات|تحديث).{0,18}(?:الطلب|طلبي)?|(?:طلبي|الطلب).{0,25}(?:من\s+يوم|صارله|صارلي|متى|امتى)|(?:متى|امتى|قديش|كم).{0,30}(?:الموافقه|الموافقة|القرار|النتيجه|النتيجة)|(?:شو\s+العمل|شو\s+الخطوه|شو\s+الخطوة|شو\s+اعمل|شو\s+أعمل)/.test(q);
+}
+
+function calendarAgeDays(value: string | null | undefined) {
+  const started = Date.parse(String(value || ""));
+  if (!Number.isFinite(started)) return null;
+  const age = Date.now() - started;
+  if (!Number.isFinite(age) || age < 0) return null;
+  return Math.floor(age / 86_400_000);
 }
 
 function longDelayAnomaly(q: string, currentStage: string) {
@@ -140,6 +161,7 @@ export function resolveCurrentHumanTurnAuthority(input: { turn: InterpretedTurn;
   if (contactIsolationContinuation(q, input.state)) return { kind: "contact_isolation_continuation", hard: true, reason: "customer is explaining a legitimate phone/channel mismatch after contact-isolation guard; continue the conversation without disclosing the foreign application" };
   if (whatsappLinkRoutingIssue(q)) return { kind: "whatsapp_link_routing_issue", hard: true, reason: "customer is reporting that a WhatsApp link opens the wrong number; this is a routing/link question, not a request for a human call" };
   if (directCallRequest(input.turn)) return { kind: "direct_call_request", hard: true, reason: "explicit current-turn call/contact request outranks refund/delay state" };
+  if (preliminaryDecisionDue(input.turn, currentStage)) return { kind: "preliminary_decision_due", hard: true, reason: "authoritative preliminary approval is waiting for the customer continuation decision; generic status/timing must route to the commercial decision screen" };
   if (websiteUploadError(q)) return { kind: "website_upload_error", hard: true, reason: "customer supplied a concrete website/upload error" };
   if (socialSecurityIncome(q)) return { kind: "social_security_income", hard: true, reason: "income + social-security context; ضمان means social security, not trust guarantee" };
   if (longDelayAnomaly(q, currentStage)) return { kind: "long_delay_anomaly", hard: true, reason: "customer reports delay far beyond normal 2-3 business-day baseline" };
@@ -184,7 +206,9 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
       return `${reason} إذا عندك رقم التتبع ابعثه مرة واحدة؛ بقدر أطلع لك معلومات الطلب التشغيلية الآمنة، وبعدها إذا بدك تعتمد رقم الواتساب الحالي على نفس الطلب بطلب منك تأكيد واضح وبنفذه مباشرة.`;
     }
     case "direct_call_request":
-      return `فاهم إنك بدك نحكي باتصال عشان توضح الصورة. المتابعة الرسمية للطلبات من نفس واتساب، وما عندي مكالمة فعلية أرتبها من هون. احكيلي النقطة اللي بدك تفهمها وأنا معك فيها مباشرة.`;
+      return `فاهم إنك بدك وسيلة تواصل مباشرة. المتابعة الرسمية للطلبات من نفس واتساب الحالي، وما عندي رقم إضافي أو مكالمة فعلية أرتبها من هون. احكيلي النقطة اللي بدك تفهمها وأنا معك فيها مباشرة.`;
+    case "preliminary_decision_due":
+      return buildInformedCommercialDisclosureReply(input.truth);
     case "whatsapp_link_routing_issue":
       return `فهمت المشكلة: رابط واتساب عم يفتح لك الرقم الثاني بدل الرقم اللي بدك تستخدمه. ما رح أعتبر هذا طلب تغيير لبيانات المعاملة ولا طلب موظف. كمل معي من رقم واتساب الحالي، وإذا بدك تعتمد هذا الرقم كرقم متابعة تابع لنفس الطلب بنعملها فقط بعد ربط موثوق وتأكيد واضح منك.`;
     case "website_upload_error":
@@ -192,13 +216,12 @@ export function buildCurrentHumanTurnReply(input: { authority: CurrentHumanTurnA
     case "social_security_income":
       return `تمام، نزول راتبك على البنك الإسلامي وتسجيلك بالضمان معلومات بتفيد دراسة الدخل والملف، بس ما بتضمن الموافقة لحالها. الهوية وإثبات الدخل من الأساسيات، والدراسة هي اللي بتحسم القرار النهائي حسب الملف.`;
     case "long_delay_anomaly": {
-      const q = n(input.turn.rawText);
-      const duration = /(?:شهر\s*(?:8|٨)|اغسطس|آب)/.test(q)
-        ? "من شهر 8"
-        : /(?:1[0-9]|2[0-9]|3[0-9]|[١٢٣][٠-٩])\s*(?:يوم|ايام|أيام)/.exec(q)?.[0]
-          || /(?:اسبوعين|أسبوعين|ثلاث\s+اسابيع|3\s+اسابيع|٣\s+اسابيع|اكثر\s+من\s+اسبوع|أكثر\s+من\s+أسبوع|اكثر\s+من\s+شهر|أكثر\s+من\s+شهر|شهر)/.exec(q)?.[0]
-          || "مدة طويلة";
-      return `معك حق تعترض؛ المدة اللي ذكرتها (${duration}) متجاوزة المعدل الطبيعي للمراجعة بشكل واضح، فمش رح أتعامل معها كأنها مجرد انتظار عادي يومين أو 3. ${appLine(input)} ما عندي سبب موثق أختلقه إلك ولا موعد وهمي أوعدك فيه، وأي تحديث لازم يكون مبني على حركة فعلية بالملف.`;
+      const app = input.truth.application || input.state.lastVerifiedApplication?.application || null;
+      const ageDays = calendarAgeDays(app?.createdAt);
+      const ageLine = ageDays == null
+        ? "ذكرت إن الانتظار طال، لكن ما رح أثبت عدد أيام من الرسالة وحدها إذا ما قدرت أراجعه من سجل الطلب."
+        : `حسب تاريخ إنشاء الطلب المسجل عندي، عمر الطلب تقريبًا ${ageDays} يوم تقويمي. هذا هو الرقم اللي بعتمد عليه بدل ما أكرر مدة غير متحققة من المحادثة.`;
+      return `${ageLine} ${appLine(input)} المعدل الطبيعي للمراجعة من يومين إلى 3 أيام تشغيلية، والجمعة والسبت لا تُحتسبان. ما عندي سبب موثق أختلقه إلك ولا موعد وهمي أوعدك فيه، وأي تحديث لازم يكون مبني على حركة فعلية بالملف.`;
     }
     case "explicit_no_repeat":
       return `معك حق، وما رح أعيد عليك نفس قالب المدة. ${appLine(input)} إذا ما في تحديث جديد فعلي ما بدي ألبّس نفس الجواب بصياغة ثانية؛ من جهتك ما بطلب منك تعيد خطوة سبق وعملتها، وأي شيء ناقص فعليًا بحكيلك عنه مباشرة.`;
@@ -238,6 +261,7 @@ export function currentHumanTurnCandidateAligned(input: { authority: CurrentHuma
     case "contact_isolation_continuation": return /(?:لقيت\s+الطلب|رقم\s+واتساب|الواتساب\s+الحالي|اعتماد|الإدارة|الاداره)/.test(q) && !/(?:تم\s+تغيير\s+رقم\s+الهاتف|تم\s+اعتماد).{0,20}(?:بدون|تلقائ)/.test(q);
     case "direct_call_request": return /(?:اتصال|مكالمه|مكالمة|واتساب).{0,80}(?:ما\s+عندي|المتابعه|المتابعة|احكيلي)/.test(q);
     case "whatsapp_link_routing_issue": return /(?:رابط|واتساب|الرقم).{0,120}(?:رقم\s+المتابعه|رقم\s+المتابعة|نفس\s+الطلب|الرقم\s+الحالي|ما\s+رح\s+اعتبر)/.test(q) && !/(?:موظف|مكالمة|اتصال)/.test(q);
+    case "preliminary_decision_due": return false;
     case "website_upload_error": return /(?:حجم|كبير).{0,70}(?:الملف|صغر|صغ ر|ارفع|الرابط\s+الرسمي)/.test(q) && !/شارع\s+المدينه|شارع\s+المدينة/.test(q);
     case "social_security_income": return /(?:راتب|البنك|الضمان).{0,120}(?:الدراسه|الدراسة|الدخل|الموافقه|الموافقة)/.test(q) && !/(?:الضمان\s+العملي|ثق\s+بكلام)/.test(q);
     case "long_delay_anomaly": return /(?:المده|المدة).{0,100}(?:متجاوز|تجاوز)|(?:متجاوز|تجاوز).{0,100}(?:المعدل|المراجعه|المراجعة)|(?:مش\s+رح\s+اتعامل|مش\s+رح\s+أتعامل).{0,90}(?:انتظار\s+عادي|يومين|3\s+ايام|3\s+أيام)/.test(q);

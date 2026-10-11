@@ -1,6 +1,6 @@
 import { applicationJourneyStage } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
-import { currentFileOpeningPaymentRule } from "./paymentDestinationOverride";
+import { currentFileOpeningPaymentRule, FILE_OPENING_PAYMENT_PHONE, FILE_OPENING_PAYMENT_BENEFICIARY } from "./paymentDestinationOverride";
 import { normalizeArabic } from "./text";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
@@ -57,6 +57,11 @@ function n(value: string | null | undefined) {
     .trim();
 }
 
+function cliqUnavailableQuestionText(value: string | null | undefined) {
+  const q = n(value);
+  return /(?:ما\s*عندي|مش\s*عندي|بدون|ما\s*بزبط|مابزبط|ما\s*بقدر|مش\s*مفعل|مش\s*مفعله).{0,28}(?:كليك|cliq)|(?:كليك|cliq).{0,28}(?:ما\s*عندي|مش\s*عندي|ما\s*بزبط|مابزبط|مش\s*مفعل)/i.test(q);
+}
+
 export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: TruthBundle) {
   const q = n(turn.rawText);
   if (!q) return false;
@@ -73,7 +78,7 @@ export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: 
     /^(?:طيب\s+)?(?:شو|ايش|اش)\s+(?:اعمل|أعمل|المطلوب\s+مني|الخطوه\s+الجايه|الخطوة\s+الجاية|الخطوه\s+التاليه|الخطوة\s+التالية)(?:\s+هسا|\s+الان|\s+الآن)?$/.test(q)
     || /(?:ساعدني|ساعدوني|مساعده|مساعدة).{0,30}(?:الخطوات|شو\s+اعمل|إيش\s+اعمل|ايش\s+اعمل)|(?:مش|مو)\s+فاهم.{0,35}(?:الخطوات|شو\s+اعمل|ايش\s+اعمل|المطلوب)/.test(q)
   );
-  return asksPaymentData || feeCommitment || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
+  return asksPaymentData || feeCommitment || (feeWord && howWhere) || explicitPay || directTransferWhere || destinationConfirmation || sourceCompatibility || cliqUnavailableQuestionText(turn.rawText) || feeDueNextStep || (turn.topics.includes("payment_method") && /(?:ادفع|أدفع|احول|أحول|تحويل|بيانات\s+الدفع)/.test(q));
 }
 
 export function officeLocationQuestion(turn: InterpretedTurn) {
@@ -143,6 +148,9 @@ ${receipt}` : ""}`;
     const links = buildOfficialLinkContext(input.turn, input.truth);
     const receipt = links.relevant.receipt;
     const q = n(input.turn.rawText);
+    if (cliqUnavailableQuestionText(input.turn.rawText)) {
+      return `ولا يهمك، مش لازم يكون عندك CliQ. استخدم Orange Money لرسوم فتح الملف على الرقم ${FILE_OPENING_PAYMENT_PHONE}. قبل تأكيد الحوالة تأكد إن اسم المستفيد ظاهر: ${FILE_OPENING_PAYMENT_BENEFICIARY}.${receipt ? "\n\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n" + receipt : ""}`;
+    }
     const sourceCompatibility = /(?:بزبط|بقدر|اقدر|أقدر|ممكن|بنفع|بصير|ينفع).{0,28}(?:احول|أحول|ادفع|أدفع|تحويل).{0,34}(?:من).{0,22}(?:بنك|محفظه|محفظة)|(?:احول|أحول|ادفع|أدفع).{0,28}(?:من).{0,22}(?:بنك|محفظه|محفظة)/.test(q);
     if (sourceCompatibility) {
       return `المعتمد عندنا هو قنوات الاستلام الرسمية نفسها، مش اسم البنك اللي بتحول منه. إذا تطبيق البنك/المحفظة عندك بيدعم CliQ، استخدم أحد معرفات CliQ الرسمية وتأكد قبل التأكيد إن اسم المستفيد مطابق. ما عندي توثيق يخليني أضمن توافق بنك بعينه، لذلك لا تكمل إذا التطبيق ما أظهر المستفيد الصحيح.\n\n${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `\n\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}`;

@@ -1,7 +1,7 @@
 import { actionRequiresOmran } from "./hierarchy";
 import { hasPaymentRefundIntegrityConflict, truthHasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { applicationJourneyStage } from "./applicationJourney";
-import { commercialContinuationAffirmativeText, commercialDisclosureDelivered } from "./informedCommercialContinuation";
+import { commercialContinuationAffirmativeText, commercialDisclosureDelivered, strongCommercialContinuationDecisionText } from "./informedCommercialContinuation";
 import { persistExplicitContinuation } from "./continuationPersistence";
 import { notifyV3Discord } from "./discordNotifier";
 import type { ActionKey, ActionResult, ConversationState, PlannedAction, TruthBundle } from "./types";
@@ -66,8 +66,15 @@ function deterministicCommercialContinuationAction(state: ConversationState, tru
   const app = truth.application;
   if (!app || String(truth.contactAccess || "") !== "full") return null;
   if (applicationJourneyStage(app) !== "preliminary_approved_waiting_decision") return null;
-  if (!commercialDisclosureDelivered(state, truth)) return null;
   if (!commercialContinuationAffirmativeText(state.lastCustomerText)) return null;
+
+  // The canonical preliminary-approval template can be delivered by the template
+  // pipeline outside Human OS state persistence. A strong standalone command such
+  // as "اود الاستمرار" or menu choice 1 therefore carries its own deterministic
+  // decision authority. Bare نعم/اه/تمام still require the scoped disclosure state.
+  const disclosureSatisfied = commercialDisclosureDelivered(state, truth);
+  const strongDecision = strongCommercialContinuationDecisionText(state.lastCustomerText);
+  if (!disclosureSatisfied && !strongDecision) return null;
 
   return {
     action: "continue_application",
@@ -128,8 +135,9 @@ export async function executeActions(input: { actions: PlannedAction[]; state: C
   for (const action of actions) {
     // Commercial continuation is intentionally not a broad Real Action. It is a
     // narrow, idempotent state transition that may run even while general real
-    // mutations are disabled. The decision screen must have been delivered for
-    // this exact application and the current customer turn must be affirmative.
+    // mutations are disabled. Scoped disclosure is required for ambiguous/bare
+    // acknowledgements; a strong standalone continuation command is independently
+    // authoritative for the exact preliminary-approved application.
     if (action.action === "continue_application" && action.payload?._commercialDecision === true) {
       const persisted = await persistExplicitContinuation({
         application: input.truth.application,
@@ -155,7 +163,25 @@ export async function executeActions(input: { actions: PlannedAction[]; state: C
           alreadyRecorded: persisted.alreadyRecorded,
         },
       });
-      if (success) {
+      if (success && input.truth.application) {
+        // Monotonic read-your-write bridge: this fact is written only after the
+        // authoritative application mutation succeeds. Production truth may use it
+        // briefly if a subsequent database read is lagging behind the committed row.
+        const stamp = new Date().toISOString();
+        const fact = {
+          key: "authoritative_continuation_persisted",
+          value: input.truth.application.id,
+          topic: "continuation" as const,
+          source: "system" as const,
+          confidence: 1,
+          turnId: input.state.lastTurnId || action.sourceActId || "commercial-continuation",
+          updatedAt: stamp,
+        };
+        const existingFact = input.state.facts.findIndex((item) => item.key === fact.key);
+        if (existingFact >= 0) input.state.facts[existingFact] = fact;
+        else input.state.facts.push(fact);
+        input.state.updatedAt = stamp;
+
         await notifyCommercialContinuationPersisted({
           state: input.state,
           truth: input.truth,

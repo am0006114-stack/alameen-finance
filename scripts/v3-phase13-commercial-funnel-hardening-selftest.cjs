@@ -1,0 +1,27 @@
+const fs = require('fs');
+const assert = require('assert');
+function src(p){ return fs.readFileSync(p,'utf8'); }
+const informed = src('app/api/whatsapp/webhook/_lib/v3-os/informedCommercialContinuation.ts');
+const action = src('app/api/whatsapp/webhook/_lib/v3-os/actionPlane.ts');
+const persistence = src('app/api/whatsapp/webhook/_lib/v3-os/continuationPersistence.ts');
+const truth = src('app/api/whatsapp/webhook/_lib/v3-os/productionTruth.ts');
+const human = src('app/api/whatsapp/webhook/_lib/v3-os/currentHumanTurnAuthority.ts');
+const arbiter = src('app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts');
+const semantic = src('app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts');
+assert(informed.includes('strongCommercialContinuationDecisionText'));
+assert(action.includes('!disclosureSatisfied && !strongDecision'));
+assert(action.includes('authoritative_continuation_persisted'));
+assert(persistence.includes('CONTINUATION_VISIBILITY_DELAYS_MS'));
+assert(persistence.includes('continuation_read_after_write_visibility_lag'));
+assert(truth.includes('applyMonotonicContinuationAuthority'));
+assert(truth.includes('CONTINUATION_AUTHORITY_TTL_MS'));
+assert(human.includes('preliminary_decision_due'));
+assert(human.includes('buildInformedCommercialDisclosureReply(input.truth)'));
+assert(human.includes('calendarAgeDays(app?.createdAt)'));
+assert(!human.includes('المدة اللي ذكرتها'));
+assert(arbiter.includes('currentHumanTurn.kind === "preliminary_decision_due"'));
+assert(arbiter.includes('خلال') && arbiter.includes('كم'));
+assert(semantic.includes('cliqUnavailableQuestionText'));
+assert(semantic.includes('FILE_OPENING_PAYMENT_PHONE'));
+assert(semantic.includes('مش لازم يكون عندك CliQ'));
+console.log('PASS v3 Phase 13 commercial funnel hardening selftest');
