@@ -3,6 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { resolveV3ProductionTruth } from "./productionTruth";
 import { emptyState, reduceState, finalizeStateSemanticMemory, markRoleIntroducedFromReply } from "./state";
 import { loadV3ConversationState } from "./stateStore";
+import { explicitCurrentTurnPaymentExecution, likelyContextualAnswerToAssistantPrompt } from "./conversationContinuityAuthority";
 import { enforcePaymentReceiptSemantics, interpretTurn, isPaymentRelativeToReceiptText, syntheticMediaNoticeKind, syntheticMediaSemanticText } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { v3TransactionalActionAdapter } from "./transactionalActionAdapter";
@@ -159,9 +160,9 @@ function sanitizeCustomerFacingStatusTokens(value: string | null | undefined) {
 
 function paymentQuestionAfterDisclosure(turn: InterpretedTurn, truth: TruthBundle) {
   if (applicationJourneyStage(truth.application) !== "continuation_confirmed_fee_due") return false;
-  if (turn.topics.some((topic) => ["payment_fee","payment_method","payment_timing","payment_recipient","receipt_upload"].includes(topic))) return true;
-  const text = String(turn.rawText || "");
-  return /(?:دفع|ادفع|أدفع|احول|أحول|تحويل|وين\s+احول|كيف\s+ادفع|بيانات\s+الدفع)/i.test(text);
+  // Phase 15: a semantic payment_method label is not permission to advance the
+  // commercial funnel. Only explicit current-turn payment execution language is.
+  return explicitCurrentTurnPaymentExecution(turn.rawText);
 }
 
 function officeGroundedReply(truth: TruthBundle) {
@@ -738,51 +739,6 @@ function explicitTrackingStatusReply(input: { trackingId: string; truth: TruthBu
   return `أكيد، لقيت الطلب ${app.trackingId || input.trackingId}${device}. حالته الحالية: ${status}.${privacy}`;
 }
 
-function normalizeContextFollowupText(value: string | null | undefined) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[إأآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/[ًٌٍَُِّْـ]/g, "")
-    .replace(/[؟?!.,،؛:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function contextualBankCliqFollowup(input: { customerText: string; state: ConversationState }) {
-  const current = normalizeContextFollowupText(input.customerText);
-  const previous = normalizeContextFollowupText(input.state.lastAssistantText);
-  if (!current || current.length > 90) return null;
-  const previousAskedForBank = /(?:اسم\s+البنك|اي\s+بنك|أي\s+بنك|شو\s+البنك)/.test(previous) && /(?:cliq|كليك)/i.test(previous);
-  if (!previousAskedForBank) return null;
-  const looksLikeBankName = /(?:^|\s)(?:البنك|بنك|العربي|الاسلامي|الإسلامي|الاتحاد|الاسكان|الإسكان|الاهلي|الأهلي|القاهرة|عمان|صفوة|كابيتال|الراجحي|الاستثماري|الاستثمار|الاردن|الأردن)(?:\s|$)/.test(current);
-  return looksLikeBankName ? String(input.customerText || "").trim() : null;
-}
-
-function makeContextualBankCliqTurn(turn: InterpretedTurn, bankName: string): InterpretedTurn {
-  const externalFactNeeded = `هل ${bankName} يدعم CliQ في الأردن وكيف يصل العميل للخدمة من تطبيق البنك؟`;
-  return {
-    ...turn,
-    semantic: {
-      ...(turn.semantic || {
-        meaningSummary: `العميل أجاب باسم البنك ${bankName} بعد سؤاله عن الدفع عبر CliQ`,
-        customerGoal: "معرفة هل CliQ متاح من تطبيق البنك وطريقة الوصول له",
-        currentQuestion: externalFactNeeded,
-        answerObligations: [], references: [], entities: [], correctionOfPrevious: false, socialClosure: false,
-        requiresExternalFact: true, externalFactNeeded, answerMode: "direct" as const, confidence: 0.99, warnings: [],
-        decision: { continuation: "unknown" as const, cancellation: "unknown" as const, refund: "unknown" as const, aliasConfirmation: "unknown" as const, condition: null },
-      }),
-      meaningSummary: `العميل أجاب باسم البنك ${bankName} بعد سؤالنا عن البنك بسبب CliQ`,
-      customerGoal: "معرفة هل CliQ متاح من تطبيق البنك وطريقة الوصول له",
-      currentQuestion: externalFactNeeded,
-      requiresExternalFact: true,
-      externalFactNeeded,
-      answerMode: "direct",
-      confidence: Math.max(turn.semantic?.confidence || 0, 0.99),
-    },
-  };
-}
-
 function explicitAssistantIdentityQuestion(value: string | null | undefined) {
   const raw = String(value || "").trim();
   if (!raw) return false;
@@ -950,6 +906,10 @@ export async function runHumanConversationOS(input: {
   deterministicAnchor = scopeTurnToCurrentApplication({ turn: deterministicAnchor, applicationChanged: scopedBefore.applicationChanged });
 
   const contextualContinuation = obviousContextualContinuation({ customerText: input.customerText, state: stateWorking });
+  const contextualAnswerToAssistantPrompt = !contextualContinuation && likelyContextualAnswerToAssistantPrompt({
+    customerText: input.customerText,
+    lastAssistantText: stateWorking.lastAssistantText,
+  });
   if (contextualContinuation) deterministicAnchor = makeDeterministicContinuationTurn(deterministicAnchor);
   const confirmedPendingMutation = explicitPendingMutationConfirmation({ customerText: input.customerText, state: stateWorking, turn: deterministicAnchor });
   if (confirmedPendingMutation) deterministicAnchor = makeDeterministicPendingMutationTurn(deterministicAnchor, confirmedPendingMutation);
@@ -1051,12 +1011,13 @@ export async function runHumanConversationOS(input: {
   }
 
   if (contextualContinuation) turn = makeDeterministicContinuationTurn(turn);
-  turn = preserveDeterministicCurrentQuestionAuthority(deterministicAnchor, turn);
-  // Phase 14.3.1: a short bank-name reply is an answer to our immediately preceding
-  // CliQ follow-up question, not a brand-new payment question. Make this deterministic
-  // so the web-knowledge path does not depend on the model remembering to set a flag.
-  const contextualCliqBank = contextualBankCliqFollowup({ customerText: input.customerText, state: stateWorking });
-  if (contextualCliqBank) turn = makeContextualBankCliqTurn(turn, contextualCliqBank);
+  // Phase 15: when the previous assistant explicitly requested a value and the
+  // customer supplies a short answer, the conversational brain owns meaning.
+  // Lexical deterministic ASK labels from the short answer may not drag the turn
+  // back into an unrelated legacy/payment template.
+  if (!contextualAnswerToAssistantPrompt) {
+    turn = preserveDeterministicCurrentQuestionAuthority(deterministicAnchor, turn);
+  }
   // Phase 11.5 semantic obligation guard: payment timing relative to receiving
   // the device is not automatically a delivery/pickup-mechanics question. Apply
   // the same deterministic distinction after the model so it cannot reintroduce
@@ -1254,10 +1215,11 @@ export async function runHumanConversationOS(input: {
     });
   }
 
-  const continuationIntent = contextualContinuation || explicitContinuationText(input.customerText) || turn.semantic?.decision.continuation === "confirmed" || informedCommercialContinuationConfirmed({ state: reduced, truth: truthAfterActions, turn, customerText: input.customerText });
-  const disclosureRequired = shouldExplainCommercialStep({ state: reduced, truth: truthAfterActions, turn, explicitContinuationIntent: Boolean(continuationIntent) });
+  const contextualAnswerOwnsTurn = contextualAnswerToAssistantPrompt && !contextualContinuation;
+  const continuationIntent = !contextualAnswerOwnsTurn && (contextualContinuation || explicitContinuationText(input.customerText) || turn.semantic?.decision.continuation === "confirmed" || informedCommercialContinuationConfirmed({ state: reduced, truth: truthAfterActions, turn, customerText: input.customerText }));
+  const disclosureRequired = !contextualAnswerOwnsTurn && shouldExplainCommercialStep({ state: reduced, truth: truthAfterActions, turn, explicitContinuationIntent: Boolean(continuationIntent) });
   const alreadyDisclosed = commercialDisclosureDelivered(reduced, truthAfterActions);
-  const paymentExecutionRequired = !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
+  const paymentExecutionRequired = !contextualAnswerOwnsTurn && !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
 
   const authoritativePublicKnowledgeReply = await resolveSafePublicKnowledgeReply({ turn, truth: truthAfterActions });
 

@@ -2,6 +2,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { V3_OS_VERSION, type ConversationState } from "./types";
 import { emptySemanticMemory } from "./semanticMemory";
 import { emptyCommercialDisclosure } from "./informedCommercialContinuation";
+import { reconcileDeliveredConversationState } from "./conversationContinuityAuthority";
 
 const TABLE = "whatsapp_v3_conversation_state";
 const STATE_READ_DELAYS_MS = [0, 120, 360];
@@ -15,6 +16,48 @@ function compactState(state: ConversationState): ConversationState {
     facts: state.facts.slice(-120),
     semanticMemory: state.semanticMemory ? { ...state.semanticMemory, entries: state.semanticMemory.entries.slice(-80), episodes: state.semanticMemory.episodes.slice(-24) } : emptySemanticMemory(),
   };
+}
+
+function hydrateConversationState(state: ConversationState | null | undefined): ConversationState | null {
+  if (!state?.waId) return null;
+  return {
+    ...state,
+    pendingAction: state.pendingAction || null,
+    pendingActionPayload: state.pendingActionPayload || null,
+    lastVerifiedApplication: state.lastVerifiedApplication || null,
+    verifiedContactBinding: state.verifiedContactBinding || null,
+    contactResolution: state.contactResolution || null,
+    conversationConstraints: state.conversationConstraints || { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
+    semanticMemory: state.semanticMemory || emptySemanticMemory(),
+    commercialDisclosure: state.commercialDisclosure || emptyCommercialDisclosure(),
+  };
+}
+
+async function loadLatestCompletedDeliveredState(waId: string) {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from("whatsapp_turn_journal")
+      .select("turn_id,status,state_after_json,provider_message_id,delivered_at,completed_at,updated_at")
+      .eq("wa_id", waId)
+      .eq("status", "completed")
+      .not("provider_message_id", "is", null)
+      .order("completed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      console.error("v3_delivered_state_recovery_read_failed", { waId, error: error.message });
+      return null;
+    }
+    const state = hydrateConversationState(data?.state_after_json as ConversationState | null | undefined);
+    if (!state) return null;
+    return {
+      state,
+      deliveredAt: String(data?.completed_at || data?.delivered_at || data?.updated_at || state.updatedAt || ""),
+    };
+  } catch (error) {
+    console.error("v3_delivered_state_recovery_failed", { waId, error: error instanceof Error ? error.message : String(error) });
+    return null;
+  }
 }
 
 export async function loadV3ConversationState(waId: string): Promise<ConversationState | null> {
@@ -31,25 +74,18 @@ export async function loadV3ConversationState(waId: string): Promise<Conversatio
         .eq("wa_id", clean)
         .maybeSingle();
       if (error) { lastError = error.message; continue; }
-      const state = data?.state as ConversationState | null | undefined;
-      if (!state?.waId) return null;
-      return {
-        ...state,
-        pendingAction: state.pendingAction || null,
-        pendingActionPayload: state.pendingActionPayload || null,
-        lastVerifiedApplication: state.lastVerifiedApplication || null,
-        verifiedContactBinding: state.verifiedContactBinding || null,
-        contactResolution: state.contactResolution || null,
-        conversationConstraints: state.conversationConstraints || { noLinks: false, whatsappOnly: false, avoidRepetition: false, sourceTurnId: null, updatedAt: null },
-        semanticMemory: state.semanticMemory || emptySemanticMemory(),
-        commercialDisclosure: state.commercialDisclosure || emptyCommercialDisclosure(),
-      };
+
+      const persisted = hydrateConversationState(data?.state as ConversationState | null | undefined);
+      const delivered = await loadLatestCompletedDeliveredState(clean);
+      return reconcileDeliveredConversationState({
+        persisted,
+        deliveredState: delivered?.state || null,
+        deliveredAt: delivered?.deliveredAt || null,
+      });
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
     }
   }
-  // A transient state-store problem must not kill the whole customer turn.
-  // Truth resolution can still recover from recent tracking context and phone binding.
   console.error("v3_state_load_failed_after_retry", { waId: clean, error: lastError });
   return null;
 }

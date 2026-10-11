@@ -80,6 +80,34 @@ export type ResponseArbitrationResult = {
   suppressed?: boolean;
 };
 
+// Phase 15 MODEL-NATIVE BOUNDARY: these are conversational/informational shapes,
+// not irreversible business actions. A valid model answer survives; deterministic
+// code remains a veto for hard money/action/privacy truth instead of becoming the
+// default writer for ordinary human dialogue.
+const MODEL_NATIVE_SOFT_OBLIGATIONS = new Set<ResponseObligation>([
+  "current_human_turn",
+  "answer_bundle",
+  "human_semantic_care",
+  "review_timing",
+  "operational_calendar",
+  "requirements_question",
+  "contract_terms_question",
+  "product_availability",
+  "pickup_delivery",
+  "external_system_question",
+  "general_eligibility",
+  "application_start",
+  "installment_service_overview",
+  "document_upload_guidance",
+  "current_question_contract",
+  "identity",
+  "media",
+  "foreign_content_clarification",
+  "social_greeting",
+  "social_closure",
+  "none",
+]);
+
 function n(value: string | null | undefined) {
   return normalizeArabic(String(value || ""))
     .replace(/[؟?!.,،؛:()[\]{}"'`~*_#<>+=|\\/\-]+/g, " ")
@@ -975,6 +1003,17 @@ export function arbitrateProductionReply(input: {
   if (meaningLock.kind !== "none" && !currentQuestionFirst.has(obligation) && !candidateAlignedWithLockedMeaning({ meaning: meaningLock, candidate })) {
     const lockedReply = lockedMeaningReply({ meaning: meaningLock, turn: input.turn, truth: input.truth });
     return { reply: sanitizeUnifiedEgressReply(lockedReply), obligation, repaired: lockedReply !== candidate, reason: `current meaning lock repaired cross-domain candidate: ${meaningLock.reason}` };
+  }
+
+  const modelNativeCandidate = sanitizeUnifiedEgressReply(candidate);
+  if (
+    !input.forceRepair
+    && modelNativeCandidate
+    && MODEL_NATIVE_SOFT_OBLIGATIONS.has(obligation)
+    && !responseHasKnownBadFallbackSignature(modelNativeCandidate)
+    && !repeatedQuestionNeedsRepair({ turn: input.turn, state: input.state, candidate: modelNativeCandidate })
+  ) {
+    return { reply: modelNativeCandidate, obligation, repaired: modelNativeCandidate !== candidate, reason: "model-native conversational answer preserved; deterministic arbiter remains safety/truth veto" };
   }
 
   // 7.5.8 FINAL CURRENT HUMAN TURN AUTHORITY: legacy refund/delay/contact
