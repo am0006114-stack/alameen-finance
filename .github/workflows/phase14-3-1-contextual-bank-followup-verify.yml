@@ -30,6 +30,9 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Production build gate
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder
         run: npm run build
 
       - name: Diff hygiene gate
