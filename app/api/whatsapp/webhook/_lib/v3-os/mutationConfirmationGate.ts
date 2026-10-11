@@ -47,6 +47,8 @@ export function mutationQuestion(action: ActionKey, value: string | null | undef
   const hasAction = actionWords(action, q);
   if (!hasAction) return false;
   if (action === "link_whatsapp_alias") return /^(?:طيب\s+)?(?:بزبط|ممكن|هل|بقدر|اقدر|كيف)/.test(q) || /(?:ممكن|بقدر|هل).{0,32}(?:اعتمد|اربط|ضيف|اضف|ثبت|سجل)/.test(q);
+  const explicitHypothetical = /(?:^|\s)(?:لو|اذا|إذا|ادا|فرض|افتراض)(?:\s|$)/.test(q) || /(?:هذا|هاد|هاذ|هاض).{0,14}(?:سؤال|سوال)|(?:بس).{0,12}(?:سؤال|سوال)/.test(q);
+  if (explicitHypothetical) return true;
   return /^(?:طيب\s+)?(?:بزبط|ممكن|هل|بقدر|اقدر|اقدرش|لو|اذا|ادا|كيف|شو\s+بصير|شو\s+يصير|وش\s+يصير|قديش|كم)/.test(q)
     || /(?:لو|اذا|ادا).{0,60}(?:الغ|استرد|استرجع)/.test(q)
     || /(?:بزبط|ممكن|بقدر|هل).{0,30}(?:الغ|استرد|استرجع)/.test(q)
@@ -56,7 +58,7 @@ export function mutationQuestion(action: ActionKey, value: string | null | undef
 export function mutationDecline(action: ActionKey, value: string | null | undefined) {
   const q = normalized(value);
   if (action === "cancel_application") {
-    return /(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+ارغب).{0,24}(?:الغ|الغاء)|(?:بطلت|تراجعت).{0,18}(?:الغي|الغاء)|(?:الغاء).{0,12}(?:طلب\s+)?(?:الالغاء)|(?:سالتك|سألتك|بس\s+سوال|بس\s+سؤال).{0,28}(?:الغ|الغاء)|(?:ما\s+حكيتلك|ما\s+طلبت).{0,24}(?:تلغي|الغاء)|(?:كمل|اكمل|استمر).{0,28}(?:الطلب|الجهاز)/.test(q);
+    return /(?:لا|ما)\s*(?:تلغي|الغي|الغاء|إلغاء)|(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+أريد|لا\s+ارغب).{0,24}(?:الغ|الغاء)|(?:بطلت|تراجعت).{0,18}(?:الغي|الغاء)|(?:الغاء).{0,12}(?:طلب\s+)?(?:الالغاء)|(?:سالتك|سألتك|بس\s+سوال|بس\s+سؤال|هذا\s+سؤال|هاد\s+سؤال).{0,28}(?:الغ|الغاء)|(?:ما\s+حكيتلك|ما\s+طلبت).{0,24}(?:تلغي|الغاء)|(?:لا\s+لا).{0,20}(?:الغ|الطلب)|(?:كمل|اكمل|أكمل|استمر).{0,28}(?:الطلب|الجهاز|الملف)/.test(q);
   }
   if (action === "request_refund") {
     return /(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+ارغب).{0,24}(?:استرد|استرجع|الاسترداد)|(?:ما\s+طلبت).{0,24}(?:استرداد|استرجاع)/.test(q);
@@ -237,6 +239,19 @@ export function enforceMutationConfirmationGate(input: {
 }): MutationConfirmationGateResult {
   const authoritativeStage = applicationJourneyStage(input.truth.application);
   const currentQ = normalized(input.turn.rawText);
+
+  if (input.state.pendingAction === "cancel_application" && mutationDecline("cancel_application", input.turn.rawText)) {
+    const app = input.truth.application;
+    const status = app ? ` طلبك${app.trackingId ? ` ${app.trackingId}` : ""} مستمر وحالته الحالية: ${customerFacingStatusLabel(app)}.` : "";
+    return {
+      actions: input.actions.filter((action) => action.action !== "cancel_application"),
+      confirmationPrompt: null,
+      informationalReply: `تمام، ما في إلغاء وما رح أنفذ الإلغاء.${status}`.trim(),
+      clearPendingConfirmation: true,
+      confirmedAction: null,
+      blockedQuestionAction: "cancel_application",
+    };
+  }
 
   const stopRefundContinuationRequest = stopRefundKeepRequest(input.turn.rawText);
   const candidateActions: PlannedAction[] = stopRefundContinuationRequest
