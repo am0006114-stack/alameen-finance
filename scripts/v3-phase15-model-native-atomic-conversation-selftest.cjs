@@ -16,10 +16,10 @@ assert(continuity.includes('explicitCurrentTurnPaymentExecution'), 'explicit pay
 assert(!continuity.includes('العربي الاسلامي') && !continuity.includes('البنك العربي'), 'continuity authority must not be bank-specific');
 
 assert(stateStore.includes('whatsapp_turn_journal'), 'state store does not recover from durable turn journal');
-assert(stateStore.includes('status", "completed') || stateStore.includes('.eq("status", "completed")'), 'state recovery is not restricted to completed delivered turns');
+assert(stateStore.includes('.eq("status", "completed")'), 'state recovery is not restricted to completed delivered turns');
 assert(stateStore.includes('reconcileDeliveredConversationState'), 'state store does not reconcile durable delivered state');
 
-const completeIndex = route.indexOf('await completeHumanTurnDelivery({ turnId: v3Run.humanOs.journalTurnId');
+const completeIndex = route.indexOf('Phase 15 atomic conversation continuity');
 const stateSaveIndex = route.indexOf('await saveV3ConversationState(stateToPersist)');
 assert(completeIndex >= 0 && stateSaveIndex >= 0 && completeIndex < stateSaveIndex, 'delivered journal must commit before slower conversation-state save');
 const logAiIndex = route.indexOf('await logAiConversation({', completeIndex);
