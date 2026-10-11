@@ -37,6 +37,7 @@ jobs:
       - name: Next production build gate
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase14-ci-inert-anon-key
           SUPABASE_SERVICE_ROLE_KEY: phase14-ci-inert-service-role-key
         run: npm run build
 
