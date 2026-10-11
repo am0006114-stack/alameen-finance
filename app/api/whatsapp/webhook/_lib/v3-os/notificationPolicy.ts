@@ -36,6 +36,11 @@ const QUIET_EVENTS = new Set<V3NotificationEvent>([
   "final_safety_fail_closed",
 ]);
 
+const AUTONOMOUS_MANUAL_ACTION_KEYS = new Set([
+  "record_call_preference",
+  "expedite_review",
+]);
+
 export function decideV3DiscordNotification(input: {
   event: V3NotificationEvent;
   applicationId?: string | null;
@@ -58,6 +63,16 @@ export function decideV3DiscordNotification(input: {
   }
 
   if (input.event === "manual_action_required") {
+    const actionKey = String(input.actionKey || "").split(":")[0];
+    if (AUTONOMOUS_MANUAL_ACTION_KEYS.has(actionKey)) {
+      return {
+        notify: false,
+        severity: "none",
+        mentionAdmin: false,
+        dedupeKey: null,
+        reason: "autonomous_conversation_request_does_not_require_human_intervention",
+      };
+    }
     return {
       notify: true,
       severity: "important",
