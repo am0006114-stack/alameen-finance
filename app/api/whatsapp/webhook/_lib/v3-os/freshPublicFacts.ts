@@ -77,10 +77,13 @@ function redactPublicQuestion(value:string){
 }
 
 export function safePublicKnowledgeQuestion(turn:InterpretedTurn){
-  const q=n(turn.rawText);
+  const raw=String(turn.rawText||"");
+  const q=n(raw);
   if(!q) return false;
+  const internalPaymentOrIdentity = /(?:ما\s+عندي|معنديش|بدون).{0,30}(?:كليك|cliq|محفظه|محفظة)|(?:كيف|شو).{0,28}(?:احول|أحول|ادفع|أدفع).{0,28}(?:الفلوس|المصاري|المبلغ|الرسوم)|(?:انت|انتي|إنت|إنتي).{0,28}(?:انسان|إنسان|موظف|بوت|روبوت|ذكاء\s*اصطناعي|ai)|(?:مين\s+انت|مين\s+انتي|مين\s+إنت|مين\s+بيحكي\s+معي)/i.test(q);
   const sensitive = turn.requestedActions.length>0
-    || /(?:AM-\d{8,}|رقم\s+التتبع|حاله\s+طلبي|حالة\s+طلبي|وصل\s+الدفع|اثبات\s+الدفع|إثبات\s+الدفع|رسوم\s+فتح\s+الملف|اسم\s+المستفيد|وين\s+احول\s+الرسوم|أحول\s+الرسوم)/i.test(String(turn.rawText||""));
+    || internalPaymentOrIdentity
+    || /(?:AM-\d{8,}|رقم\s+التتبع|حاله\s+طلبي|حالة\s+طلبي|وصل\s+الدفع|اثبات\s+الدفع|إثبات\s+الدفع|رسوم\s+فتح\s+الملف|اسم\s+المستفيد|وين\s+احول\s+الرسوم|أحول\s+الرسوم)/i.test(raw);
   if(sensitive) return false;
   if(turn.semantic?.requiresExternalFact===true && Boolean(turn.semantic.externalFactNeeded)) return true;
   const jordanPublic=/(?:كليك|cliq|جوباك|jopacc|البنك\s+المركزي|central\s+bank|اي\s*فواتيركم|efawateercom|محفظه\s+الكترونيه|محفظة\s+إلكترونية|orange\s+money|اورنج\s+موني|أورنج\s+موني|زين\s+كاش|u\s*wallet|دينارك|بنك\s+الاتحاد|البنك\s+العربي|بنك\s+الاسكان|بنك\s+الإسكان)/i.test(q);
