@@ -34,19 +34,22 @@ before(
 // destinations. The system must explain options rather than dump the full block.
 assert(answer.includes('const paymentAccessProblem ='));
 assert(answer.includes('function paymentAccessProblemPart'));
-assert(answer.includes('إذا ما عندك لا CliQ ولا محفظة'));
-assert(answer.includes('خدمة CliQ متاحة من تطبيق البنك'));
+assert(answer.includes('إذا ما عندك CliQ ولا محفظة'));
+assert(answer.includes('إذا عندك حساب بنكي وتطبيق البنك احكيلي اسم البنك'));
 assert(answer.includes('if (f.paymentAccessProblem) parts.push(paymentAccessProblemPart(input.truth));'));
 assert(answer.includes('if (f.feePaymentMethod && !f.paymentAccessProblem)'));
 
-// 3) Direct identity challenge must be answered truthfully; never impersonate a
-// human employee or suppress the fact that the responder is AI.
-assert(answer.includes('const assistantIdentity ='));
-assert(answer.includes('أنا مساعد ذكاء اصطناعي تابع للأمين للأقساط، مش موظف بشري'));
-assert(human.includes('أنا مساعد ذكاء اصطناعي تابع للأمين، مش موظف بشري'));
-assert(route.includes('أنا مساعد ذكاء اصطناعي تابع للأمين، مش موظف بشري'));
-assert(!brain.includes('لا تقل «أنا مساعد آلي»'));
-assert(brain.includes('كن شفافًا: قل إنك مساعد ذكاء اصطناعي تابع للأمين ومش موظف بشري'));
+// 3) Identity/nature wording is never allowed to seize the whole turn or expose
+// implementation labels. The visible identity is the current Alameen staff role;
+// false literal claims of being a real human remain forbidden by the safety layer.
+assert(answer.includes('const staffIdentity ='));
+assert(answer.includes('return `معك ${name} من فريق الأمين.`;'));
+assert(!answer.includes('مساعد ذكاء اصطناعي تابع للأمين'));
+assert(!human.includes('function explicitStaffNatureQuestion'));
+assert(!human.includes('authoritativeIdentityReply'));
+assert(!human.includes('والرد هون آلي من نظام الأمين'));
+assert(!route.includes('مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري'));
+assert(brain.includes('سؤال العميل عن طبيعة المجيب أو عن هويته ما بصير يملك الرسالة كلها'));
 
 // 4) The AI must be able to explicitly request public/current knowledge instead
 // of pretending every answer is closed-book.

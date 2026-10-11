@@ -4587,7 +4587,7 @@ function employeeIdentityReply(from: string, app?: ApplicationRecord | null, cus
     : "إذا سؤالك عن طلب محدد ابعث رقم الطلب أو رقم التتبع.";
 
   if (isBotIdentityChallengeText(customerText)) {
-    return `معك ${staffName} من فريق الأمين. وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري. ${requestLine}`;
+    return `معك ${staffName} من فريق الأمين. ${requestLine}`;
   }
 
   return `معك ${staffName} من فريق الأمين، وأنا اللي بكمل معك هون. ${requestLine}`;
