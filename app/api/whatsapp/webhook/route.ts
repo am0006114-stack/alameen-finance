@@ -11471,6 +11471,41 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                 providerMessageId: outgoingMessageId,
               });
 
+              const durableAfterSend = await durableOutgoingDeliveryForIncoming({
+                waId: from,
+                incomingMessageId: burstLeaderMessageId || message.id,
+                burstKey: activeBurstKey,
+              });
+              if (!markerRecorded && !durableAfterSend.delivered) {
+                console.error("V3 delivery succeeded at Meta but durable completion evidence could not be persisted", {
+                  waId: from,
+                  messageId: message.id || null,
+                  providerMessageId: outgoingMessageId,
+                });
+                throw new Error("V3_RETRYABLE_DELIVERY_NOT_DURABLE");
+              }
+
+              // Phase 15 atomic conversation continuity: publish the already-checkpointed
+              // Human OS state as DELIVERED immediately after transport durability. A fast
+              // customer reply can now recover the exact assistant context from the journal
+              // even if the projection table or analytics write has not finished yet.
+              if (v3Run?.humanOs) {
+                try {
+                  await completeHumanTurnDelivery({
+                    turnId: v3Run.humanOs.journalTurnId,
+                    providerMessageId: outgoingMessageId,
+                    memoryAfter: v3Run.humanOs.memoryAfter,
+                  });
+                } catch (humanOsDeliveryCommitError) {
+                  console.error("Human Conversation OS delivery commit failed immediately after Meta delivery", {
+                    waId: from,
+                    messageId: message.id || null,
+                    error: humanOsDeliveryCommitError,
+                  });
+                  throw new Error("V3_RETRYABLE_HUMAN_OS_DELIVERY_COMMIT_FAILURE");
+                }
+              }
+
               await logMessage({
                 waId: from,
                 direction: "outgoing",
@@ -11490,20 +11525,6 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
                   degraded_turn: Boolean(degradedStateAfter),
                 },
               });
-
-              const durableAfterSend = await durableOutgoingDeliveryForIncoming({
-                waId: from,
-                incomingMessageId: burstLeaderMessageId || message.id,
-                burstKey: activeBurstKey,
-              });
-              if (!markerRecorded && !durableAfterSend.delivered) {
-                console.error("V3 delivery succeeded at Meta but durable completion evidence could not be persisted", {
-                  waId: from,
-                  messageId: message.id || null,
-                  providerMessageId: outgoingMessageId,
-                });
-                throw new Error("V3_RETRYABLE_DELIVERY_NOT_DURABLE");
-              }
 
               await logAiConversation({
                 phone: from,
@@ -11543,10 +11564,9 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
               if (v3Run?.humanOs && outgoingMessageId) {
                 try {
                   if (v3Run.humanOs.memoryAfter) await saveCompactHumanMemory(from, v3Run.humanOs.memoryAfter);
-                  await completeHumanTurnDelivery({ turnId: v3Run.humanOs.journalTurnId, providerMessageId: outgoingMessageId, memoryAfter: v3Run.humanOs.memoryAfter });
-                } catch (humanOsFinalizeError) {
-                  console.error("Human Conversation OS durable completion failed after delivery", { waId: from, messageId: message.id || null, error: humanOsFinalizeError });
-                  throw new Error("V3_RETRYABLE_HUMAN_OS_COMPLETION_FAILURE");
+                } catch (humanOsMemoryError) {
+                  console.error("Human Conversation OS compact memory persistence failed after delivery", { waId: from, messageId: message.id || null, error: humanOsMemoryError });
+                  throw new Error("V3_RETRYABLE_HUMAN_OS_MEMORY_PERSISTENCE_FAILURE");
                 }
               }
             }
