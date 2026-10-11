@@ -8,6 +8,8 @@ assert(arbiter.includes('current_turn_supremacy'));
 assert(arbiter.includes('literal current-turn supremacy'));
 assert(arbiter.indexOf('if (currentTurnSupremacy.kind !== "none") return "current_turn_supremacy";') < arbiter.indexOf('if (structuredApplicationStatusRequest(input.turn)) return "application_status";'));
 assert(supremacy.includes('mutation_hypothetical'));
+assert(supremacy.includes('social_closure'));
+assert(supremacy.includes('literal thanks or conversational closure outranks stale topic labels'));
 assert(supremacy.includes('website_url'));
 assert(supremacy.includes('down_payment'));
 assert(supremacy.includes('trust_verification'));
