@@ -37,6 +37,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const interest = /(?:الفائده|الفائدة|فايده|فائدة|مرابحه|مرابحة|نسبه\s+الربح|نسبة\s+الربح|نسب\s+الفايده|نسب\s+الفائدة)/.test(q);
   const downPayment = /(?:دفعه|دفعة).{0,12}(?:اولي|اولى|اولا)|(?:بدون|ما\s+في|مفيش|هل).{0,18}(?:دفعه|دفعة).{0,10}(?:اولي|اولى|اولا)/.test(q);
   const feePaymentMethod = /(?:كيف|وين|اين|أين).{0,26}(?:تستلمو|تستلموا|استلام|ادفع|أدفع|احول|أحول|تحويل).{0,26}(?:الرسوم|5|٥|الخمس|الخمسه)?|(?:الرسوم|5|٥|الخمس|الخمسه).{0,26}(?:كيف|وين|احول|أحول|ادفع|أدفع)|(?:الرسوم|الخمس|الخمسه|5|٥).{0,18}(?:بدفعها|بدفع|بادفع|رح\s+ادفع|راح\s+ادفع)/.test(q);
+  const feeReason = /(?:ليش|لماذا|شو\s+سبب|ما\s+سبب).{0,24}(?:5|٥|خمس|خمسه|خمسة|رسوم\s+فتح\s+الملف|رسوم\s+الملف)|(?:رسوم\s+فتح\s+الملف|رسوم\s+الملف|5|٥).{0,24}(?:ليش|لماذا|شو\s+سبب|ما\s+سبب)/.test(q);
   const paymentAccessProblem = /(?:ما\s+عندي|معنديش|بدون).{0,24}(?:كليك|cliq|محفظه|محفظة|orange\s+money|اورنج\s+موني|أورنج\s+موني)|(?:لا\s+محفظه|لا\s+محفظة).{0,20}(?:ولا\s+كليك|ولا\s+cliq)|(?:لا\s+كليك|لا\s+cliq).{0,20}(?:ولا\s+محفظه|ولا\s+محفظة)/i.test(q);
   const assistantIdentity = /(?:انت|انتي|إنت|إنتي).{0,24}(?:ذكاء\s*اصطناعي|ai|بوت|روبوت|انسان|إنسان|موظف)|(?:ذكاء\s*اصطناعي|ai|بوت|روبوت).{0,24}(?:ولا|او|أو).{0,24}(?:انسان|إنسان|موظف)|(?:مين\s+انت|مين\s+انتي|مين\s+إنت|شو\s+انت|شو\s+إنت|مين\s+بيحكي\s+معي)/i.test(q);
   const feeDueNow = /(?:بدك|بدكم|مطلوب|لازم).{0,24}(?:مني\s*)?(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,18}(?:هسا|هسه|الان|الآن)?|(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,24}(?:هسا|هسه|الان|الآن).{0,18}(?:مطلوب|ادفع|أدفع)?/.test(q);
@@ -68,7 +69,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const continuationDecision = !["cancelled", "refund_requested", "refund_completed"].includes(stage) && explicitContinuation(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, paymentAccessProblem, assistantIdentity, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeReason, paymentAccessProblem, assistantIdentity, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -186,11 +187,15 @@ function assistantIdentityPart(turn: InterpretedTurn, state: ConversationState) 
   return `معك ${name} من فريق الأمين، وأنا اللي بكمل معك هون. احكيلي شو بدك وبجاوبك حسب حالة طلبك الفعلية.`;
 }
 
+function feeReasonPart() {
+  return "رسوم فتح الملف 5 دنانير هي خطوة فتح الملف واستكماله للدراسة النهائية. هدفها تنظيم الدخول لهالمرحلة وقياس جدية الطلب والاستعداد المبدئي لإكمال الالتزامات المالية؛ لأن حجم الطلبات كبير جدًا وما بنقدر ندخل كل الطلبات غير الجادة في المراجعة التفصيلية ونأخر أصحاب الطلبات الجادة. هي مؤشر أولي فقط، ومش تقييم نهائي للقدرة الائتمانية ولا ضمان للموافقة، ومش ثمن الجهاز ولا قسط مقدم ولا القسط الأول. وإذا ما صدرت الموافقة النهائية بعد دفع مؤكد فهي مستردة بالكامل عبر المسار الرسمي، وإذا تم دفعها وبعدها قررت تلغي بتدخل ضمن مسار الاسترداد الرسمي بعد تأكيد الدفع إداريًا.";
+}
+
 function paymentAccessProblemPart(truth: TruthBundle) {
   const stage = applicationJourneyStage(truth.application);
-  if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) return "ما في داعي تدور على وسيلة دفع ثانية؛ خطوة رسوم فتح الملف موجودة أصلًا على طلبك حسب الحالة الحالية.";
-  if (["refund_requested", "refund_completed", "cancelled"].includes(stage)) return "طلبك الحالي مش بمرحلة دفع رسوم فتح الملف؛ حالته الآن " + customerFacingStatusLabel(truth.application!) + ".";
-  return "فاهم عليك: إذا ما عندك لا CliQ ولا محفظة، تكرار نفس بيانات التحويل ما بحل المشكلة. القنوات المعتمدة عندنا حاليًا لرسوم فتح الملف هي CliQ أو Orange Money فقط. إذا عندك حساب بنكي وتطبيق بنك، ممكن تكون خدمة CliQ متاحة من تطبيق البنك بدون ما تحتاج محفظة منفصلة؛ احكيلي اسم البنك وبوضحلك الطريقة. وإذا ما عندك حساب بنكي ولا محفظة، ما عندي قناة ثالثة معتمدة أقدر أخترعها.";
+  if (["payment_proof_pending_admin", "payment_confirmed_under_review", "approved"].includes(stage)) return "رسوم فتح الملف مدفوعة أو قيد المراجعة على طلبك، فلا تدفعها مرة ثانية.";
+  if (["refund_requested", "refund_completed", "cancelled"].includes(stage)) return "طلبك مش بمرحلة دفع رسوم فتح الملف الآن؛ حالته " + customerFacingStatusLabel(truth.application!) + ".";
+  return "إذا ما عندك CliQ ولا محفظة، وإذا عندك حساب بنكي وتطبيق البنك احكيلي اسم البنك وبشوف معك إذا CliQ متاح من نفس التطبيق. وإذا ما عندك حساب بنكي ولا محفظة، حاليًا ما في طريقة دفع ثالثة معتمدة لرسوم فتح الملف.";
 }
 
 function feePaymentMethodPart(turn: InterpretedTurn, state: ConversationState, truth: TruthBundle) {
@@ -349,6 +354,7 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.multipleDevices) parts.push(multipleDevicesPart());
   if (f.interest) parts.push(interestPart(input.truth));
   if (f.downPayment) parts.push(downPaymentPart(input.truth));
+  if (f.feeReason) parts.push(feeReasonPart());
   if (f.paymentAccessProblem) parts.push(paymentAccessProblemPart(input.truth));
   if (f.feePaymentMethod && !f.paymentAccessProblem) parts.push(feePaymentMethodPart(input.turn, input.state, input.truth));
   if (f.feeDueNow) parts.push(feeDueNowPart(input.state, input.truth));
