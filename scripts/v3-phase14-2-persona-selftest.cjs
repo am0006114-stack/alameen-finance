@@ -7,24 +7,25 @@ const answer = fs.readFileSync('app/api/whatsapp/webhook/_lib/v3-os/answerObliga
 const route = fs.readFileSync('app/api/whatsapp/webhook/route.ts','utf8');
 
 assert(brain.includes('«معك ${employeeName} من فريق الأمين»'));
-assert(brain.includes('بدون ما تفتح موضوع الذكاء الاصطناعي من نفسك'));
-assert(brain.includes('فقط إذا سأل العميل صراحة عن طبيعة المجيب'));
-assert(brain.includes('لا تدّعِ أنك إنسان حقيقي'));
+assert(brain.includes('سؤال العميل عن طبيعة المجيب أو عن هويته ما بصير يملك الرسالة كلها'));
+assert(brain.includes('ولا تدّعِ أنك إنسان حقيقي'));
+assert(!brain.includes('والرد هون آلي من نظام الأمين'));
 
-assert(human.includes('const asksNature ='));
-assert(human.includes('معك ${name} من فريق الأمين، وأنا اللي بكمل معك هون'));
-assert(human.includes('وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري'));
-assert(!human.includes('return `أنا مساعد ذكاء اصطناعي تابع للأمين، وبكمل معك هون مباشرة.'));
+assert(!human.includes('function explicitStaffNatureQuestion'));
+assert(!human.includes('function explicitAssistantIdentityReply'));
+assert(!human.includes('والرد هون آلي من نظام الأمين'));
+assert(!human.includes('authoritativeIdentityReply'));
+assert(!human.includes('explicitStatusTracking || explicitIdentityQuestion ||'));
 
 assert(answer.includes('import { roleDisplayName } from "./hierarchy";'));
-assert(answer.includes('function explicitAssistantNatureQuestion'));
-assert(answer.includes('assistantIdentityPart(input.turn, input.state)'));
-assert(answer.includes('معك ${name} من فريق الأمين، وأنا اللي بكمل معك هون'));
+assert(answer.includes('function explicitStaffNatureQuestion'));
+assert(answer.includes('staffIdentityPart(input.turn, input.state)'));
+assert(answer.includes('return `معك ${name} من فريق الأمين.`;'));
+assert(!answer.includes('مساعد ذكاء اصطناعي تابع للأمين'));
 
 assert(route.includes('function employeeIdentityReply(from: string, app?: ApplicationRecord | null, customerText = "")'));
 assert(route.includes('if (isBotIdentityChallengeText(customerText))'));
-assert(route.includes('معك ${staffName} من فريق الأمين، وأنا اللي بكمل معك هون'));
-assert(route.includes('employeeIdentityReply(app.phone || app.tracking_id || app.id, app, customerText)'));
-assert(route.includes('employeeIdentityReply(from, app, rawCustomerText)'));
+assert(route.includes('return `معك ${staffName} من فريق الأمين. ${requestLine}`;'));
+assert(!route.includes('مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري'));
 
-console.log('PASS Phase 14.2 persona-default/direct-nature-transparency gate');
+console.log('PASS Phase 14.2 compatibility gate under Phase 16 employee-first authority');

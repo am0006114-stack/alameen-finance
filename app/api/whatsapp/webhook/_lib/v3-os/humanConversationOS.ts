@@ -12,7 +12,7 @@ import { scopeStateToCurrentApplication, scopeTurnToCurrentApplication, stampAct
 import { enforceMutationConfirmationGate } from "./mutationConfirmationGate";
 import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
-import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, resemblesFullCommercialDisclosure, resemblesPostDisclosurePaymentReply, shouldExplainCommercialStep } from "./informedCommercialContinuation";
+import { buildInformedCommercialDisclosureReply, buildPostDisclosurePaymentReply, commercialContinuationAffirmativeText, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, resemblesFullCommercialDisclosure, resemblesPostDisclosurePaymentReply, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { explicitContinuationText } from "./conversationRecovery";
 import { validateNativeConversationReply } from "./nativeConversationKernel";
 import { loadCompactHumanMemory, nextCompactHumanMemory, type CompactHumanMemory } from "./compactHumanMemory";
@@ -740,40 +740,6 @@ function explicitTrackingStatusReply(input: { trackingId: string; truth: TruthBu
   return `أكيد، لقيت الطلب ${app.trackingId || input.trackingId}${device}. حالته الحالية: ${status}.${privacy}`;
 }
 
-function explicitAssistantIdentityQuestion(value: string | null | undefined) {
-  const raw = String(value || "").trim();
-  if (!raw) return false;
-  const normalized = raw
-    .toLowerCase()
-    .replace(/[إأآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/[ًٌٍَُِّْـ]/g, "")
-    .replace(/[؟?!.,،؛:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?|(?:انسان|إنسان|بشر|موظف).{0,18}(?:ولا|او|أو).{0,18}(?:ذكاء\s*اصطناعي|بوت|روبوت))/i.test(normalized);
-}
-
-function explicitAssistantIdentityReply(input: { customerText: string; state: ConversationState }) {
-  const name = roleDisplayName(input.state.role.currentRole);
-  const normalized = String(input.customerText || "")
-    .toLowerCase()
-    .replace(/[إأآٱ]/g, "ا")
-    .replace(/ى/g, "ي")
-    .replace(/[ًٌٍَُِّْـ]/g, "")
-    .replace(/[؟?!.,،؛:]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  const asksNature = /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?)/i.test(normalized);
-  const asksResponsible = /(?:المسؤول|المسوول|المدير|الاداره|الإدارة)/.test(normalized);
-  if (asksNature) {
-    return `معك ${name} من فريق الأمين، والرد هون آلي من نظام الأمين. خليني أكمل معك على نفس موضوعك.`;
-  }
-  if (asksResponsible) {
-    return `معك ${name} من فريق الأمين، وأنا بكمل معك بهالموضوع هون. احكيلي شو المطلوب وبمشيه معك حسب حالة الطلب الفعلية.`;
-  }
-  return `معك ${name} من فريق الأمين، وأنا اللي بكمل معك هون. احكيلي شو بدك وبجاوبك أو بنفذ الإجراء المسموح حسب حالة طلبك.`;
-}
 
 function explicitManagerIdentityQuestion(value: string | null | undefined) {
   const normalized = String(value || "")
@@ -875,7 +841,6 @@ export async function runHumanConversationOS(input: {
   });
 
   const explicitStatusTracking = explicitTrackingStatusAuthority({ customerText: input.customerText, turn: deterministicAnchor });
-  const explicitIdentityQuestion = explicitAssistantIdentityQuestion(input.customerText);
   const explicitManagerQuestion = explicitManagerIdentityQuestion(input.customerText);
   if (explicitStatusTracking) deterministicAnchor = makeExplicitTrackingStatusTurn(deterministicAnchor);
   if (explicitManagerQuestion) {
@@ -984,7 +949,7 @@ export async function runHumanConversationOS(input: {
   const provisionalRoute = routeHumanModel({ customerText: input.customerText, turn: deterministicAnchor, state: stateWorking, truth: truthBeforeActions, solEnabled: input.solEnabled });
   // Explicit tracking/status and textless media are deterministic work. Do not
   // spend a model call to reinterpret a transport notice such as "تم استلام صورة".
-  const modelTier: HumanModelTier = (explicitStatusTracking || explicitIdentityQuestion || secureDeviceChangeRequested || authoritativeSyntheticMediaReply) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
+  const modelTier: HumanModelTier = (explicitStatusTracking || secureDeviceChangeRequested || authoritativeSyntheticMediaReply) ? "deterministic" : (provisionalRoute.tier === "sol" ? "deepseek" : provisionalRoute.tier);
   const provider = input.writer === undefined ? v3WriterProviderFromEnv() : input.writer;
 
   let brainMeaning: HumanBrainMeaning | null = null;
@@ -1221,14 +1186,18 @@ export async function runHumanConversationOS(input: {
   const disclosureRequired = !contextualAnswerOwnsTurn && shouldExplainCommercialStep({ state: reduced, truth: truthAfterActions, turn, explicitContinuationIntent: Boolean(continuationIntent) });
   const alreadyDisclosed = commercialDisclosureDelivered(reduced, truthAfterActions);
   const paymentAccessProblem = paymentAccessProblemText(input.customerText);
-  const paymentExecutionRequired = !paymentAccessProblem && !contextualAnswerOwnsTurn && !disclosureRequired && alreadyDisclosed && (Boolean(continuationIntent) || paymentQuestionAfterDisclosure(turn, truthAfterActions));
+  // Phase 16 current-turn payment authority: old semantic/state continuation may explain context,
+  // but it can never expose payment destinations by itself. The CURRENT customer message
+  // must explicitly ask/commit to payment or answer the active commercial decision.
+  const currentTurnPaymentIntent = paymentQuestionAfterDisclosure(turn, truthAfterActions)
+    || (alreadyDisclosed && commercialContinuationAffirmativeText(input.customerText));
+  const paymentExecutionRequired = !paymentAccessProblem && !contextualAnswerOwnsTurn && !disclosureRequired && alreadyDisclosed && currentTurnPaymentIntent;
 
   const authoritativePublicKnowledgeReply = await resolveSafePublicKnowledgeReply({ turn, truth: truthAfterActions });
 
   const authoritativeTrackingReply = explicitStatusTracking
     ? explicitTrackingStatusReply({ trackingId: explicitStatusTracking, truth: truthAfterActions })
     : null;
-  const authoritativeIdentityReply = explicitIdentityQuestion ? explicitAssistantIdentityReply({ customerText: input.customerText, state: stateWorking }) : null;
   const authoritativeSocialReply = simpleSocialClosureReply(turn, input.customerText);
   const authoritativeHumanRequestReply = humanRequestGroundedReply({ turn, state: stateWorking, truth: truthAfterActions, receipt: humanEscalationReceipt });
   const authoritativePaymentRelativeReply = paymentRelativeReceiptGroundedReply({ truth: truthAfterActions, customerText: input.customerText });
@@ -1262,7 +1231,7 @@ export async function runHumanConversationOS(input: {
       }
     }
   }
-  let reply = authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply;
+  let reply = authoritativeTrackingReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || gate.confirmationPrompt || gate.informationalReply || actionSuccessReply(truthAfterActions, actionResults) || actionFailureReply(truthAfterActions, actionResults) || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply;
   if (!reply && disclosureRequired) {
     reply = buildInformedCommercialDisclosureReply(truthAfterActions);
     reduced = markCommercialDisclosureDelivered(reduced, truthAfterActions, turn.turnId);
@@ -1310,7 +1279,7 @@ export async function runHumanConversationOS(input: {
 
   const authoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
   const authoritativeArbiterReply = Boolean(arbitration.repaired || arbitration.suppressed);
-  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply || authoritativeGateReply || authoritativeArbiterReply);
+  const authoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply || authoritativeGateReply || authoritativeArbiterReply);
   const safety = authoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,
@@ -1341,7 +1310,7 @@ export async function runHumanConversationOS(input: {
   }
 
   const finalAuthoritativeGateReply = Boolean((gate.confirmationPrompt && reply === gate.confirmationPrompt) || (gate.informationalReply && reply === gate.informationalReply));
-  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply || finalAuthoritativeGateReply || authoritativeArbiterReply);
+  const finalAuthoritativeDeterministicReply = Boolean(authoritativeTrackingReply || authoritativeSyntheticMediaReply || authoritativeDeviceChangeReply || manualChangeScopeBlockedReply || manualChangeConfirmationPrompt || authoritativeManualMutationReply || authoritativePaymentRelativeReply || authoritativeHumanRequestReply || authoritativePublicKnowledgeReply || authoritativeSocialReply || finalAuthoritativeGateReply || authoritativeArbiterReply);
   const finalSafety = finalAuthoritativeDeterministicReply ? AUTHORITATIVE_DETERMINISTIC_SAFETY : validateNativeConversationReply({
     reply,
     turn,

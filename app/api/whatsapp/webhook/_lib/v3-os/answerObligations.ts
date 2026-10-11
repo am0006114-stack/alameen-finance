@@ -39,7 +39,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const feePaymentMethod = /(?:كيف|وين|اين|أين).{0,26}(?:تستلمو|تستلموا|استلام|ادفع|أدفع|احول|أحول|تحويل).{0,26}(?:الرسوم|5|٥|الخمس|الخمسه)?|(?:الرسوم|5|٥|الخمس|الخمسه).{0,26}(?:كيف|وين|احول|أحول|ادفع|أدفع)|(?:الرسوم|الخمس|الخمسه|5|٥).{0,18}(?:بدفعها|بدفع|بادفع|رح\s+ادفع|راح\s+ادفع)/.test(q);
   const feeReason = /(?:ليش|لماذا|شو\s+سبب|ما\s+سبب).{0,24}(?:5|٥|خمس|خمسه|خمسة|رسوم\s+فتح\s+الملف|رسوم\s+الملف)|(?:رسوم\s+فتح\s+الملف|رسوم\s+الملف|5|٥).{0,24}(?:ليش|لماذا|شو\s+سبب|ما\s+سبب)/.test(q);
   const paymentAccessProblem = /(?:ما\s+عندي|معنديش|بدون).{0,24}(?:كليك|cliq|محفظه|محفظة|orange\s+money|اورنج\s+موني|أورنج\s+موني)|(?:لا\s+محفظه|لا\s+محفظة).{0,20}(?:ولا\s+كليك|ولا\s+cliq)|(?:لا\s+كليك|لا\s+cliq).{0,20}(?:ولا\s+محفظه|ولا\s+محفظة)/i.test(q);
-  const assistantIdentity = /(?:انت|انتي|إنت|إنتي).{0,24}(?:ذكاء\s*اصطناعي|ai|بوت|روبوت|انسان|إنسان|موظف)|(?:ذكاء\s*اصطناعي|ai|بوت|روبوت).{0,24}(?:ولا|او|أو).{0,24}(?:انسان|إنسان|موظف)|(?:مين\s+انت|مين\s+انتي|مين\s+إنت|شو\s+انت|شو\s+إنت|مين\s+بيحكي\s+معي)/i.test(q);
+  const staffIdentity = /(?:انت|انتي|إنت|إنتي).{0,24}(?:ذكاء\s*اصطناعي|ai|بوت|روبوت|انسان|إنسان|موظف)|(?:ذكاء\s*اصطناعي|ai|بوت|روبوت).{0,24}(?:ولا|او|أو).{0,24}(?:انسان|إنسان|موظف)|(?:مين\s+انت|مين\s+انتي|مين\s+إنت|شو\s+انت|شو\s+إنت|مين\s+بيحكي\s+معي)/i.test(q);
   const feeDueNow = /(?:بدك|بدكم|مطلوب|لازم).{0,24}(?:مني\s*)?(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,18}(?:هسا|هسه|الان|الآن)?|(?:5|٥|خمس|خمسه|خمسة|الرسوم).{0,24}(?:هسا|هسه|الان|الآن).{0,18}(?:مطلوب|ادفع|أدفع)?/.test(q);
   const feeRefundability = /(?:هاض|هاد|هذا|المبلغ|الرسوم|5|٥|الخمس|الخمسه).{0,32}(?:مسترد|مسترده|مستردة|بترجع|برجع|بترجعو|برجعو)|(?:مسترد|مسترده|مستردة|بترجع).{0,30}(?:الرسوم|المبلغ|5|٥)/.test(q);
   const officeLocation = /(?:وين|اين|أين).{0,24}(?:موقعكم|المكتب|المحل|العنوان|الشركه|الشركة|الفرع|فرع|فروعكم|افرعكم|أفرعكم)|(?:موقعكم|المكتب|المحل|الشركه|الشركة|الفرع|فرع|فروعكم|افرعكم|أفرعكم).{0,22}(?:وين|بالزبط|بالضبط)|^(?:اين|أين|وين)\s+(?:افرعكم|أفرعكم|فروعكم)$|^بدي\s+فرع$/.test(q);
@@ -69,7 +69,7 @@ function qFlags(turn: InterpretedTurn, truth: TruthBundle) {
   const continuationDecision = !["cancelled", "refund_requested", "refund_completed"].includes(stage) && explicitContinuation(q);
   const legalNotice = /(?:دعوى\s+قضائيه|دعوى\s+قضائية|تبليغ\s+قانوني|اشعار\s+قانوني|إشعار\s+قانوني|وكيل\s+قانوني|ذمم|ذمه\s+مستحقه|ذمة\s+مستحقة)/.test(q);
   const repeatRepair = /(?:ما\s+تعيد|لا\s+تعيد|نفس\s+الجمله|نفس\s+الجملة|نفس\s+الرد|جاوبني\s+بدون\s+تكرار)/.test(q);
-  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeReason, paymentAccessProblem, assistantIdentity, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
+  return { requirements, guarantor, multipleDevices, interest, downPayment, feePaymentMethod, feeReason, paymentAccessProblem, staffIdentity, feeDueNow, feeRefundability, officeLocation, officeHours, remoteProcess, supplierAuthorization, bankInstallmentChannel, deliveryTiming, installmentQuote, monthlyTarget, installmentDuration, priceChange, applicationStatus, reviewTiming, acceptanceProbability, accessoriesQuestion, supportComplaint, escalationRequest, contactPhone, applicationStart, businessIdentity, reopenCancelled, statusConflict, continuationDecision, contractTerms, legalNotice, repeatRepair };
 }
 
 export function resolveAnswerBundle(input: { turn: InterpretedTurn; state: ConversationState; truth: TruthBundle }): AnswerBundle {
@@ -174,17 +174,14 @@ function paymentDetails(turn: InterpretedTurn, truth: TruthBundle) {
   return `${currentFileOpeningPaymentRule({ includeApology: false })}${receipt ? `\nبعد التحويل ارفع الوصل مرة واحدة من الرابط الرسمي المرتبط بطلبك:\n${receipt}` : ""}`;
 }
 
-function explicitAssistantNatureQuestion(value: string | null | undefined) {
+function explicitStaffNatureQuestion(value: string | null | undefined) {
   const q = n(value);
   return /(?:ذكاء\s*اصطناعي|\bai\b|بوت|روبوت|رد\s*(?:الي|آلي)|(?:انت|انتي|إنت|إنتي).{0,18}(?:انسان|إنسان|بشر|موظف).{0,12}(?:حقيقي|فعلي)?)/i.test(q);
 }
 
-function assistantIdentityPart(turn: InterpretedTurn, state: ConversationState) {
+function staffIdentityPart(_turn: InterpretedTurn, state: ConversationState) {
   const name = roleDisplayName(state.role.currentRole);
-  if (explicitAssistantNatureQuestion(turn.rawText)) {
-    return `معك ${name} من فريق الأمين. وبالمحادثة هاي أنا مساعد ذكاء اصطناعي تابع للأمين، مش شخص بشري. بقدر أفهم رسالتك وأتابع حالة الطلب وأنفذ فقط الإجراءات المسموحة بالنظام.`;
-  }
-  return `معك ${name} من فريق الأمين، وأنا اللي بكمل معك هون. احكيلي شو بدك وبجاوبك حسب حالة طلبك الفعلية.`;
+  return `معك ${name} من فريق الأمين.`;
 }
 
 function feeReasonPart() {
@@ -372,6 +369,6 @@ export function buildAnswerBundleReply(input: { bundle: AnswerBundle; turn: Inte
   if (f.remoteProcess) parts.push(remoteProcessPart());
   if (f.officeLocation) parts.push(officeLocationPart(input.truth));
   if (f.applicationStart) parts.push(applicationStartPart(input.turn, input.truth));
-  if (f.assistantIdentity) parts.push(assistantIdentityPart(input.turn, input.state));
+  if (f.staffIdentity) parts.push(staffIdentityPart(input.turn, input.state));
   return Array.from(new Set(parts.filter(Boolean))).join("\n\n") || null;
 }

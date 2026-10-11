@@ -230,7 +230,7 @@ async function executeSingleIntent(
         actionKind: "human_handoff",
         outcome: "queued",
         queueId: queued.id,
-        summary: "تم تحويل المحادثة فعليًا لقائمة متابعة الموظفين، وبعد هذه الرسالة بيتوقف الرد الآلي على المحادثة.",
+        summary: "تم تحويل المحادثة فعليًا لقائمة متابعة الموظفين، وبعد هذه الرسالة بتصير المتابعة على قائمة الموظفين.",
       },
       application: app,
     };
