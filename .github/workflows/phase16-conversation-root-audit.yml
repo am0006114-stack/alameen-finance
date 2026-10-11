@@ -1,0 +1,158 @@
+name: Phase 16 Full Conversation Root Audit
+
+on:
+  push:
+    branches:
+      - phase16-conversation-root-audit-rebuild
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase16-conversation-root-audit-rebuild
+          fetch-depth: 1
+
+      - name: Scan every tracked file and map conversation risks
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          import subprocess, re, json
+
+          files = subprocess.check_output(['git','ls-files'], text=True).splitlines()
+          terms = {
+            'assistant_en': re.compile(r'\bassistant\b', re.I),
+            'ai_en': re.compile(r'\bAI\b|artificial\s+intelligence', re.I),
+            'bot_en': re.compile(r'\bbot\b|robot|automated\s+reply|automatic\s+reply', re.I),
+            'helper_ar': re.compile(r'مساعد(?:ة|ي|ك|اً|ا)?|مساعدة'),
+            'ai_ar': re.compile(r'ذكاء\s*اصطناعي|ذكاء\s*صناعي'),
+            'bot_ar': re.compile(r'بوت|روبوت'),
+            'automated_ar': re.compile(r'رد\s*(?:آلي|الي)|آلي|الي\s+من\s+نظام'),
+            'human_claim_ar': re.compile(r'أنا\s+(?:إنسان|انسان|موظف\s+حقيقي)|مش\s+(?:بوت|روبوت|ذكاء\s*اصطناعي)'),
+            'employee_ar': re.compile(r'موظف|فريق\s+الأمين|فريق\s+الامين'),
+            'identity_code': re.compile(r'Identity|identity|explicitAssistant|aiIdentity|staffIdentity|BotIdentity'),
+            'response_writer': re.compile(r'build.*Reply|Reply\(|reply\s*=|return\s+[`\"\']'),
+          }
+
+          text_files=[]; binary_files=[]; decode_fail=[]; hits=[]
+          for f in files:
+            p=Path(f)
+            try:
+              b=p.read_bytes()
+            except Exception as e:
+              decode_fail.append((f, f'read_error:{e}')); continue
+            if b'\x00' in b:
+              binary_files.append(f); continue
+            try:
+              s=b.decode('utf-8')
+            except UnicodeDecodeError:
+              try: s=b.decode('utf-8-sig')
+              except Exception:
+                decode_fail.append((f,'non_utf8')); continue
+            text_files.append(f)
+            for i,line in enumerate(s.splitlines(),1):
+              matched=[]
+              for name,rx in terms.items():
+                if rx.search(line): matched.append(name)
+              if matched:
+                hits.append({'file':f,'line':i,'kinds':matched,'text':line[:600]})
+
+          live_prefix='app/api/whatsapp/webhook/'
+          live_hits=[h for h in hits if h['file'].startswith(live_prefix)]
+          v3_hits=[h for h in hits if '/_lib/v3-os/' in h['file']]
+          scripts_hits=[h for h in hits if h['file'].startswith('scripts/')]
+          route_hits=[h for h in hits if h['file']=='app/api/whatsapp/webhook/route.ts']
+
+          # Explicitly map the production call chain from source text.
+          def read(f):
+            return Path(f).read_text(encoding='utf-8')
+          route=read('app/api/whatsapp/webhook/route.ts')
+          runtime=read('app/api/whatsapp/webhook/_lib/v3-os/runtimeLive.ts')
+          human=read('app/api/whatsapp/webhook/_lib/v3-os/humanConversationOS.ts')
+          brain=read('app/api/whatsapp/webhook/_lib/v3-os/humanConversationBrain.ts')
+          voice=read('app/api/whatsapp/webhook/_lib/v3-os/humanVoice.ts')
+          native=read('app/api/whatsapp/webhook/_lib/v3-os/nativeConversationKernel.ts')
+          arbiter=read('app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts')
+          finalgate=read('app/api/whatsapp/webhook/_lib/v3-os/finalResponseGate.ts')
+          hierarchy=read('app/api/whatsapp/webhook/_lib/v3-os/hierarchy.ts')
+
+          assertions = {
+            'route_imports_v3_live': 'runV3ProductionLive' in route,
+            'runtime_imports_human_os': 'runHumanConversationOS' in runtime,
+            'runtime_human_os_enabled_cutover': 'if (humanOs.enabled)' in runtime and 'runHumanConversationOS' in runtime,
+            'human_os_identity_forces_deterministic': 'explicitIdentityQuestion || secureDeviceChangeRequested' in human,
+            'human_os_identity_precedes_business_reply': 'authoritativeTrackingReply || authoritativeIdentityReply || authoritativeSyntheticMediaReply' in human,
+            'human_os_outputs_automated_phrase': 'والرد هون آلي من نظام الأمين' in human,
+            'brain_outputs_automated_phrase': 'والرد هون آلي من نظام الأمين' in brain,
+            'native_kernel_forbids_ai_leak': 'INTERNAL_LEAKS' in native and 'ذكاء\\s*اصطناعي' in native and '/بوت/i' in native,
+            'human_voice_forbids_ai_disclosure': 'ممنوع كشف كلمات أو أوصاف داخلية' in voice and 'ذكاء اصطناعي' in voice,
+            'arbiter_has_identity_obligation': '| "identity"' in arbiter and 'aiIdentityQuestionText(turn.rawText)' in arbiter,
+            'final_gate_has_staff_identity_repair': 'buildStaffIdentityReply' in finalgate and 'staffIdentityQuestionText' in finalgate,
+            'hierarchy_uses_ai_team_concept': 'AI_TEAM' in hierarchy and 'resolveAiRole' in hierarchy,
+          }
+
+          by_kind={}
+          for h in hits:
+            for k in h['kinds']:
+              by_kind[k]=by_kind.get(k,0)+1
+
+          report=[]
+          report.append('ALAMEEN PHASE 16 FULL REPOSITORY CONVERSATION AUDIT')
+          report.append('='*72)
+          report.append(f'TRACKED_FILES={len(files)}')
+          report.append(f'UTF8_TEXT_FILES_SCANNED={len(text_files)}')
+          report.append(f'BINARY_FILES_INVENTORIED={len(binary_files)}')
+          report.append(f'NON_UTF8_OR_READ_FAILURES={len(decode_fail)}')
+          report.append(f'ALL_TERM_HITS={len(hits)}')
+          report.append(f'WHATSAPP_PATH_HITS={len(live_hits)}')
+          report.append(f'V3_OS_HITS={len(v3_hits)}')
+          report.append(f'ROUTE_TS_HITS={len(route_hits)}')
+          report.append(f'SCRIPTS_HITS={len(scripts_hits)}')
+          report.append('')
+          report.append('PRODUCTION CALL-CHAIN / ROOT ASSERTIONS')
+          for k,v in assertions.items(): report.append(f'{k}={v}')
+          report.append('')
+          report.append('HIT COUNTS BY KIND')
+          for k in sorted(by_kind): report.append(f'{k}={by_kind[k]}')
+          report.append('')
+          report.append('ALL TRACKED FILES')
+          report.extend(files)
+          report.append('')
+          report.append('BINARY FILES (inventoried, not text-decoded)')
+          report.extend(binary_files)
+          report.append('')
+          report.append('NON-UTF8/READ FAILURES')
+          report.extend(f'{a}\t{b}' for a,b in decode_fail)
+          report.append('')
+          report.append('ALL TERM HITS')
+          for h in hits:
+            report.append(f"{h['file']}:{h['line']}\t{','.join(h['kinds'])}\t{h['text']}")
+
+          Path('phase16-full-audit.txt').write_text('\n'.join(report), encoding='utf-8')
+          Path('phase16-full-audit.json').write_text(json.dumps({
+            'counts': {'tracked':len(files),'text':len(text_files),'binary':len(binary_files),'decode_fail':len(decode_fail),'hits':len(hits)},
+            'by_kind':by_kind,'assertions':assertions,'hits':hits,'binary_files':binary_files,'decode_fail':decode_fail
+          },ensure_ascii=False,indent=2),encoding='utf-8')
+
+          print('\n'.join(report[:45]))
+          print('\nTOP LIVE CUSTOMER-SURFACE / IDENTITY HITS:')
+          important=[h for h in live_hits if any(k in h['kinds'] for k in ('helper_ar','ai_ar','bot_ar','automated_ar','assistant_en','identity_code'))]
+          for h in important[:220]:
+            print(f"{h['file']}:{h['line']} [{','.join(h['kinds'])}] {h['text']}")
+          print(f'IMPORTANT_LIVE_HITS_TOTAL={len(important)}')
+          PY
+
+      - name: Upload complete audit artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: phase16-full-conversation-audit
+          path: |
+            phase16-full-audit.txt
+            phase16-full-audit.json
+          retention-days: 7
