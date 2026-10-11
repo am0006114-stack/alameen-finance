@@ -1,0 +1,86 @@
+name: Phase 16.1 Multiturn Coverage Verify
+
+on:
+  push:
+    branches:
+      - phase16-1-multiturn-coverage-gate
+
+permissions:
+  contents: write
+
+jobs:
+  verify:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: phase16-1-multiturn-coverage-gate
+          fetch-depth: 0
+          clean: false
+
+      - name: Apply Phase 16.1 patch
+        run: python3 scripts/apply-phase16-1-multiturn-coverage-gate.py
+
+      - name: Phase 16.1 regression
+        run: node scripts/v3-phase16-1-multiturn-coverage-selftest.cjs
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Existing conversation regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/v3-phase16-conversation-root-rebuild-selftest.cjs
+          node scripts/v3-phase14-2-persona-selftest.cjs
+          node scripts/v3-phase14-conversation-os-audit-selftest.cjs
+          node scripts/v3-phase14-3-1-contextual-bank-followup-selftest.cjs
+          node scripts/v3-phase15-model-native-atomic-conversation-selftest.cjs
+          node scripts/v3-phase13-1-root-current-turn-supremacy-selftest.cjs
+          node scripts/v3-phase12-clean-commercial-funnel-selftest.cjs
+          node scripts/v3-human-os-continuation-consume-selftest.cjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase16-1-ci-anon
+          SUPABASE_SERVICE_ROLE_KEY: phase16-1-ci-service
+        run: npm run build
+
+      - name: Diff hygiene
+        run: git diff --check
+
+      - name: Remove one-time patch machinery
+        run: |
+          rm -f .github/workflows/phase16-1-multiturn-coverage-verify.yml
+          rm -f scripts/apply-phase16-1-multiturn-coverage-gate.py
+
+      - name: Stage exact runtime and regression scope
+        run: |
+          git add app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts
+          git add app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts
+          git add scripts/v3-phase16-1-multiturn-coverage-selftest.cjs
+          git add -u .github/workflows/phase16-1-multiturn-coverage-verify.yml
+          git add -u scripts/apply-phase16-1-multiturn-coverage-gate.py
+
+      - name: Commit verified Phase 16.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --cached --check
+          git config user.name 'alameen-phase16-1-bot'
+          git config user.email 'actions@users.noreply.github.com'
+          git commit -m 'Phase 16.1: enforce complete mixed-turn answer coverage'
+          git push origin HEAD:phase16-1-multiturn-coverage-gate
+          git fetch origin main --quiet
+          actual="$(git diff --name-only origin/main...HEAD | sort)"
+          expected="$(printf '%s\n' \
+            'app/api/whatsapp/webhook/_lib/v3-os/answerObligations.ts' \
+            'app/api/whatsapp/webhook/_lib/v3-os/responseArbiter.ts' \
+            'scripts/v3-phase16-1-multiturn-coverage-selftest.cjs' | sort)"
+          echo 'FINAL DIFF VS MAIN:'
+          printf '%s\n' "$actual"
+          test "$actual" = "$expected"
