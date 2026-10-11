@@ -20,6 +20,26 @@ jobs:
       - name: Apply Phase 15.2 persona-first patch
         run: python3 scripts/apply-phase15-2-persona-first-conversation-cutover.py
 
+      - name: Preserve CliQ helper for reply shaping only
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path('app/api/whatsapp/webhook/_lib/v3-os/semanticQuestionLocks.ts')
+          text = path.read_text(encoding='utf-8')
+          marker = 'export function fileOpeningPaymentMethodQuestion(turn: InterpretedTurn, truth?: TruthBundle) {\n'
+          helper = '''function cliqUnavailableQuestionText(value: string | null | undefined) {
+            const q = n(value);
+            return /(?:ما\\s*عندي|مش\\s*عندي|بدون|ما\\s*بزبط|مابزبط|ما\\s*بقدر|مش\\s*مفعل|مش\\s*مفعله).{0,28}(?:كليك|cliq)|(?:كليك|cliq).{0,28}(?:ما\\s*عندي|مش\\s*عندي|ما\\s*بزبط|مابزبط|مش\\s*مفعل)/i.test(q);
+          }
+
+          '''.replace('          ', '')
+          if 'function cliqUnavailableQuestionText' not in text:
+              if marker not in text:
+                  raise SystemExit('semantic lock marker missing')
+              text = text.replace(marker, helper + marker, 1)
+              path.write_text(text, encoding='utf-8')
+          PY
+
       - name: Root conversation regression gate
         run: |
           python3 - <<'PY'
@@ -33,7 +53,9 @@ jobs:
           assert 'export function paymentAccessProblemText' in continuity
           assert 'if (!q || paymentAccessProblemText(value)) return false;' in continuity
           assert 'if (!q || paymentAccessProblemText(turn.rawText)) return false;' in locks
-          assert 'cliqUnavailableQuestionText(turn.rawText)' not in locks
+          q_start = locks.index('export function fileOpeningPaymentMethodQuestion')
+          q_end = locks.index('export function officeLocationQuestion', q_start)
+          assert 'cliqUnavailableQuestionText(turn.rawText)' not in locks[q_start:q_end]
 
           assert 'مشكلة وصول لطريقة الدفع وليست طلبًا لإعادة بيانات الدفع' in brain
           assert 'لا ترسل قائمة Orange Money/CliQ ولا رابط الوصل تلقائيًا' in brain
