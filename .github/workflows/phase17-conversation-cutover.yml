@@ -1,0 +1,38 @@
+name: Phase 17 Conversation Cutover
+
+on:
+  pull_request:
+    paths:
+      - 'app/api/whatsapp/webhook/**'
+      - 'scripts/v3-phase17-*'
+      - 'scripts/v3-phase8-0-native-conversation-kernel-human-company-os-selftest.cjs'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/phase17-conversation-cutover.yml'
+  workflow_dispatch:
+
+jobs:
+  conversation-cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Phase 17 single-writer gate
+        run: node scripts/v3-phase17-single-writer-conversation-cutover-selftest.cjs
+
+      - name: Native kernel regression
+        run: node scripts/v3-phase8-0-native-conversation-kernel-human-company-os-selftest.cjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
