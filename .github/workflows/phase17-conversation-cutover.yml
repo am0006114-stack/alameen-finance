@@ -1,16 +1,72 @@
-name: Phase 17.1 Bootstrap
+name: Phase 17.1 True Single Writer
 
 on:
   push:
     branches:
       - phase17-1-true-single-writer-semantic-coverage
+  pull_request:
+    paths:
+      - 'app/api/whatsapp/webhook/**'
+      - 'scripts/v3-phase17-*'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/phase17-conversation-cutover.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  bootstrap:
+  conversation-cutover:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - name: Apply patch
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply Phase 17.1 true single-writer patch
+        if: ${{ github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage' }}
         run: node scripts/apply-phase17-1-true-single-writer-semantic-coverage.cjs
-      - name: Verify patch source gate
+
+      - name: Commit Phase 17.1 patch
+        if: ${{ github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage' }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            app/api/whatsapp/webhook/_lib/v3-os/runtimeLive.ts \
+            app/api/whatsapp/webhook/_lib/v3-os/nativeConversationKernel.ts \
+            app/api/whatsapp/webhook/_lib/v3-os/semanticReplyVerifier.ts \
+            app/api/whatsapp/webhook/_lib/v3-os/types.ts
+          if git diff --cached --quiet; then
+            echo "No Phase 17.1 source changes to commit"
+          else
+            git commit -m "Phase 17.1: true single-writer semantic coverage"
+            git push origin HEAD:phase17-1-true-single-writer-semantic-coverage
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Phase 17 single-writer architecture gate
+        run: node scripts/v3-phase17-single-writer-conversation-cutover-selftest.cjs
+
+      - name: Phase 17 native-kernel safety gate
+        run: node scripts/v3-phase17-native-kernel-safety-selftest.cjs
+
+      - name: Phase 17.1 semantic coverage gate
         run: node scripts/v3-phase17-1-true-single-writer-semantic-coverage-selftest.cjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      # Vercel Preview validates the full Next.js production build with the project's
+      # real environment. GitHub CI intentionally does not receive production secrets.
