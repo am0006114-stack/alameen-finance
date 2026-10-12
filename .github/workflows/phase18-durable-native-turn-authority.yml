@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   apply-test-commit:
-    if: startsWith(github.event.head_commit.message, 'Bootstrap Phase 18 patch runner') || startsWith(github.event.head_commit.message, 'Phase 18 CI build env fix')
+    if: startsWith(github.event.head_commit.message, 'Bootstrap Phase 18 patch runner') || startsWith(github.event.head_commit.message, 'Phase 18 CI build env fix') || startsWith(github.event.head_commit.message, 'Phase 18 CI public env fix')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout exact branch head
@@ -46,6 +46,7 @@ jobs:
         run: npm run build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://phase18-ci-placeholder.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: phase18-ci-placeholder-anon-key
           SUPABASE_SERVICE_ROLE_KEY: phase18-ci-placeholder-service-role-key
 
       - name: Diff and protected-path gate
