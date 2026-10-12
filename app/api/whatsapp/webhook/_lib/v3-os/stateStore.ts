@@ -35,25 +35,53 @@ function hydrateConversationState(state: ConversationState | null | undefined): 
 
 async function loadLatestCompletedDeliveredState(waId: string) {
   try {
-    const { data, error } = await supabaseAdmin
-      .from("whatsapp_turn_journal")
-      .select("turn_id,status,state_after_json,provider_message_id,delivered_at,completed_at,updated_at")
-      .eq("wa_id", waId)
-      .eq("status", "completed")
-      .not("provider_message_id", "is", null)
-      .order("completed_at", { ascending: false })
-      .limit(8);
-    if (error) {
-      console.error("v3_delivered_state_recovery_read_failed", { waId, error: error.message });
+    const [journalRead, outgoingRead] = await Promise.all([
+      supabaseAdmin
+        .from("whatsapp_turn_journal")
+        .select("turn_id,status,state_after_json,provider_message_id,delivered_at,completed_at,updated_at")
+        .eq("wa_id", waId)
+        .in("status", ["reply_ready", "delivered", "completed"])
+        .order("updated_at", { ascending: false })
+        .limit(16),
+      supabaseAdmin
+        .from("whatsapp_messages")
+        .select("message_id,raw_payload,created_at")
+        .eq("wa_id", waId)
+        .eq("direction", "outgoing")
+        .order("created_at", { ascending: false })
+        .limit(32),
+    ]);
+
+    if (journalRead.error) {
+      console.error("v3_delivered_state_recovery_read_failed", { waId, error: journalRead.error.message });
       return null;
     }
-    const candidates = (Array.isArray(data) ? data : [])
+    if (outgoingRead.error) {
+      console.error("v3_delivered_state_outgoing_evidence_read_failed", { waId, error: outgoingRead.error.message });
+      return null;
+    }
+
+    const outgoingTurnTimes = new Map();
+    for (const row of (Array.isArray(outgoingRead.data) ? outgoingRead.data : [])) {
+      const turnId = String(row?.raw_payload?.v3_turn_id || "").trim();
+      if (turnId && !outgoingTurnTimes.has(turnId)) outgoingTurnTimes.set(turnId, String(row?.created_at || ""));
+    }
+
+    const candidates = (Array.isArray(journalRead.data) ? journalRead.data : [])
+      .filter((row) => {
+        const turnId = String(row?.turn_id || "").trim();
+        const journalCompleted = row?.status === "completed" && Boolean(row?.provider_message_id);
+        const transportLogged = Boolean(turnId && outgoingTurnTimes.has(turnId));
+        return journalCompleted || transportLogged;
+      })
       .map((row) => {
         const state = hydrateConversationState(row?.state_after_json as ConversationState | null | undefined);
-        return state ? {
+        if (!state) return null;
+        const turnId = String(row?.turn_id || "").trim();
+        return {
           state,
-          deliveredAt: String(row?.completed_at || row?.delivered_at || row?.updated_at || state.updatedAt || ""),
-        } : null;
+          deliveredAt: String(row?.completed_at || row?.delivered_at || outgoingTurnTimes.get(turnId) || row?.updated_at || state.updatedAt || ""),
+        };
       })
       .filter((item): item is { state: ConversationState; deliveredAt: string } => Boolean(item))
       .sort((a, b) => Date.parse(b.state.updatedAt || "") - Date.parse(a.state.updatedAt || ""));

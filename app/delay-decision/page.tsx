@@ -20,6 +20,7 @@ type ApplicationRecord = {
   status?: string | null;
   payment_status?: string | null;
   payment_confirmed_at?: string | null;
+  payment_reference?: string | null;
   delivery_delay_started_at?: string | null;
   delivery_delay_until?: string | null;
 };
@@ -90,7 +91,7 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
   const { data: application } = await supabaseAdmin
     .from("applications")
     .select(
-      "id, tracking_id, full_name, phone, device_name, status, payment_status, payment_confirmed_at, delivery_delay_started_at, delivery_delay_until"
+      "id, tracking_id, full_name, phone, device_name, status, payment_status, payment_confirmed_at, payment_reference, delivery_delay_started_at, delivery_delay_until"
     )
     .eq("tracking_id", tracking)
     .eq("phone", phone)
@@ -121,7 +122,13 @@ export default async function DelayDecisionPage({ searchParams }: PageProps) {
     result === "refund" ||
     app.status === "refund_requested" ||
     app.payment_status === "refund_requested";
-  const refundRequested = rawRefundState && refundPaymentConfirmed;
+  // Phase 18 refund contract: the Real Action may open refund_requested before
+  // the customer has supplied transfer details. Only the persisted detail marker
+  // (or the successful POST result) proves the form was completed.
+  const refundDetailsSubmitted =
+    result === "refund" ||
+    /^Refund requested \| Account:/i.test(String(app.payment_reference || ""));
+  const refundRequested = rawRefundState && refundPaymentConfirmed && refundDetailsSubmitted;
   const refundNotEligible =
     result === "refund-not-eligible" ||
     ((directRefundMode || rawRefundState) && !refundPaymentConfirmed);

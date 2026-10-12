@@ -39,6 +39,7 @@ import { routeSemanticComplexity, type SemanticComplexityDecision } from "./sema
 import { createSolHybridProvider, getSolHybridControl, type SolHybridControl } from "./solHybridRuntime";
 import { getHumanOsControl } from "./humanOsControl";
 import { runHumanConversationOS } from "./humanConversationOS";
+import { beginHumanTurn, checkpointHumanTurn } from "./durableTurnJournal";
 // Phase 7.1.1 compatibility anchor: buildV3LastResortReply({ truth: truthAfterActions, state: boundState
 
 const PASS: VerificationReport = {
@@ -557,6 +558,19 @@ async function runLegacyV3ProductionLive(input: {
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
 }): Promise<V3LiveResult> {
+  // Phase 18 durable native-turn journal. This is transport/conversation continuity only;
+  // it does not alter commercial continuation, fee eligibility, payment destinations, or receipt policy.
+  try {
+    await beginHumanTurn({
+      turnId: input.turnId,
+      waId: input.waId,
+      incomingMessageId: input.turnId,
+      customerText: input.customerText,
+    });
+  } catch (error) {
+    console.error("V3 Phase 18 native turn journal begin failed", { waId: input.waId, turnId: input.turnId, error });
+  }
+
   const truthRecentTurns = input.recentTurns || [];
   const safeRecentTurns = sanitizeRecentTurnsForModel(truthRecentTurns);
   const humanBurst = buildHumanFirstCustomerBurst({ customerText: input.customerText, recentTurns: safeRecentTurns });
@@ -1230,7 +1244,15 @@ async function runLegacyV3ProductionLive(input: {
     turn,
     actions,
   });
-  let reply: string | null = plan.shouldRespond ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply) : null;
+  // Phase 18 TRUE SINGLE WRITER for non-commercial operational turns.
+  // The protected commercial journey keeps its previous precedence byte-for-byte.
+  // For every other turn, the Native Kernel owns the normal wording and the deterministic
+  // critical reply becomes safety fallback only.
+  let reply: string | null = plan.shouldRespond
+    ? (authoritativeCommercialJourneyReply
+        ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply)
+        : (nativeKernelInitial.reply || criticalOperationalReply))
+    : null;
   let verification: VerificationReport = PASS;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
   let replyAttempts = nativeKernelInitial.modelUsed ? 1 : 0;
@@ -1268,7 +1290,7 @@ async function runLegacyV3ProductionLive(input: {
     || continuationPersistence.updated
   );
 
-  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure && !criticalOperationalReply && !authoritativeCommercialJourneyReply) {
+  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure && !authoritativeCommercialJourneyReply) {
     const refreshed = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1304,7 +1326,7 @@ async function runLegacyV3ProductionLive(input: {
 
   // One bounded repair call only. This is not a judge/shadow path: it runs only
   // when deterministic truth/action validation blocks the one candidate reply.
-  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !criticalOperationalReply && !authoritativeCommercialJourneyReply) {
+  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !authoritativeCommercialJourneyReply) {
     const repaired = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1363,6 +1385,25 @@ async function runLegacyV3ProductionLive(input: {
       customerText: effectiveCustomerText,
       disclosureRequiredThisTurn: false,
       protectedFiveJodStep: true,
+    });
+  }
+
+  // Phase 18 deterministic critical-operation fallback: only after the Native Kernel
+  // has had its bounded post-action/confirmation repair opportunity. Protected commercial
+  // replies are excluded so the 5-JOD journey is behaviorally untouched.
+  if (plan.shouldRespond && !nativeValidation.pass && criticalOperationalReply && !authoritativeCommercialJourneyReply) {
+    reply = criticalOperationalReply;
+    fallbackUsed = true;
+    nativeValidation = validateNativeConversationReply({
+      reply,
+      turn,
+      state: conversationState,
+      truth: truthAfterActions,
+      actions,
+      recentTurns: scopedRecentTurns,
+      customerText: effectiveCustomerText,
+      disclosureRequiredThisTurn,
+      protectedFiveJodStep,
     });
   }
 
@@ -1442,6 +1483,23 @@ async function runLegacyV3ProductionLive(input: {
       : answeredState;
   const semanticFinalizedState = finalizeStateSemanticMemory({ state: disclosureAdjustedState, turn, reply, answered: Boolean(reply && verification.pass && semanticCheck.pass) });
   const stateAfter = markRoleIntroducedFromReply(semanticFinalizedState, reply);
+
+  // Snapshot the exact decided reply/state before transport. StateStore will only
+  // recover this snapshot when a matching successfully logged outgoing v3_turn_id exists.
+  // Therefore a failed WhatsApp send can never become conversation truth.
+  try {
+    await checkpointHumanTurn({
+      turnId: input.turnId,
+      status: "reply_ready",
+      meaning: { runtime: "phase18_native_single_writer", shouldRespond: plan.shouldRespond },
+      truth: truthAfterActions,
+      actions,
+      finalReply: reply,
+      stateAfter,
+    });
+  } catch (error) {
+    console.error("V3 Phase 18 native turn journal checkpoint failed", { waId: input.waId, turnId: input.turnId, error });
+  }
 
   return {
     version: stateAfter.version,

@@ -1,4 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { durableIngressTurnFreshness } from "./durableIngress";
 
 type IncomingRow = {
   id?: string | null;
@@ -28,6 +29,15 @@ export async function shouldSuppressStaleV3Reply(input: {
   const waId = String(input.waId || "").trim();
   const currentMessageId = String(input.currentMessageId || "").trim();
   if (!waId || !currentMessageId) return false;
+
+  // Phase 18: a newer customer bubble may already be durably queued before it is
+  // written to whatsapp_messages. Such a turn owns the conversation immediately.
+  try {
+    const durable = await durableIngressTurnFreshness({ waId, currentMessageId, lookbackSeconds: input.lookbackSeconds ?? 180 });
+    if (!durable.fresh && durable.latestMessageId) return true;
+  } catch (error) {
+    console.error("v3 durable stale-turn pre-send check failed:", error);
+  }
 
   const since = new Date(Date.now() - (input.lookbackSeconds ?? 120) * 1000).toISOString();
   try {
