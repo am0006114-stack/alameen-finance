@@ -1,0 +1,69 @@
+{
+  "version": "phase17-single-writer-cutover-2026-10-12",
+  "source": "production WhatsApp failures reviewed 2026-10-12",
+  "cases": [
+    {
+      "id": "self_employed_income_stays_income",
+      "turns": [
+        "بدي 17pro ماعندي راتب ثابت انا عندي مشغل حلويات وفي دخل شهريا يتجاوز 900"
+      ],
+      "mustCover": ["income eligibility", "acceptable proof for self-employed income"],
+      "mustNotHijackTo": ["monthly installment payment method", "file-opening payment template"]
+    },
+    {
+      "id": "identity_is_persona_not_operations_template",
+      "turns": ["عفوا الي برد علي بوت او شخص ؟"],
+      "mustCover": ["current employee persona name"],
+      "mustNotContain": ["ما رح أدّعي إنه صار تحويل أو اتصال", "احكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية", "المساعد الرقمي", "مساعد ذكاء اصطناعي"]
+    },
+    {
+      "id": "contact_request_is_not_location",
+      "turns": ["اعطيني رقم موظف"],
+      "mustCover": ["contact channel truth"],
+      "mustNotHijackTo": ["office location"]
+    },
+    {
+      "id": "location_followup_stays_location",
+      "turns": ["اعطيني عنوانكم", "وين بشارع المدينه"],
+      "mustCover": ["location policy and appointment boundary"],
+      "mustNotHijackTo": ["human request", "transfer/contact execution template"]
+    },
+    {
+      "id": "yes_answers_open_application_prompt",
+      "turns": ["بتحب أساعدك تبدأ التقديم؟", "اه"],
+      "mustCover": ["continue application-start context"],
+      "mustNotHijackTo": ["order tracking request"]
+    },
+    {
+      "id": "guarantor_question_answers_guarantor_requirements",
+      "turns": ["طيب هسا لو جبت كفيل شو المطلوب من الكفيل"],
+      "mustCover": ["guarantor requirements or explicit uncertainty"],
+      "mustNotHijackTo": ["generic application status"]
+    },
+    {
+      "id": "office_payment_does_not_invent_cancellation",
+      "turns": ["ما في مشكلة بقدر اجي ادفع بالمكتب"],
+      "mustCover": ["office payment policy"],
+      "mustNotContain": ["ما اعتبرت كلامك إلغاء", "ما رح أضغط عليك تدفع"]
+    },
+    {
+      "id": "new_text_beats_stale_voice",
+      "turns": ["تم استلام رسالة صوتية من العميل", "1"],
+      "mustCover": ["current text turn decision"],
+      "mustNotHijackTo": ["voice transcription fallback"]
+    },
+    {
+      "id": "payment_access_plus_identity_covers_both",
+      "turns": ["ما عندي كليك ولا محفظة كيف بدي ادفع؟ ليش مش راضي تفهم ومين معي بوت ولا ذكاء اصطناعي؟"],
+      "mustCover": ["payment access problem", "current employee persona name"],
+      "mustNotContain": ["المساعد الرقمي", "مساعد ذكاء اصطناعي"],
+      "mustNotHijackTo": ["full payment destination dump without solving access problem"]
+    },
+    {
+      "id": "abuse_does_not_trigger_stale_human_request_template",
+      "turns": ["كس اختك", "كس امك يا عمران"],
+      "mustCover": ["brief boundary or de-escalation"],
+      "mustNotContain": ["ما رح أدّعي إنه صار تحويل أو اتصال", "احكيلي المطلوب مباشرة وبعالجه معك حسب حالة الطلب الفعلية"]
+    }
+  ]
+}
