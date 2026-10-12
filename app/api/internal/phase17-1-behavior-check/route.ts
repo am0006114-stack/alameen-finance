@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getV3Policy } from "@/app/api/whatsapp/webhook/_lib/v3-os/policy";
 import { emptyState } from "@/app/api/whatsapp/webhook/_lib/v3-os/state";
 import { interpretTurn } from "@/app/api/whatsapp/webhook/_lib/v3-os/interpreter";
-import { createV3TextProviderFromEnv } from "@/app/api/whatsapp/webhook/_lib/v3-os/provider";
+import { v3WriterProviderFromEnv } from "@/app/api/whatsapp/webhook/_lib/v3-os/provider";
 import { runNativeConversationKernel, validateNativeConversationReply } from "@/app/api/whatsapp/webhook/_lib/v3-os/nativeConversationKernel";
 import { verifySemanticReply } from "@/app/api/whatsapp/webhook/_lib/v3-os/semanticReplyVerifier";
 import type { TruthBundle } from "@/app/api/whatsapp/webhook/_lib/v3-os/types";
@@ -17,7 +17,7 @@ export async function GET() {
     return NextResponse.json({ ok: false, error: "preview_only" }, { status: 404 });
   }
 
-  const provider = createV3TextProviderFromEnv();
+  const provider = v3WriterProviderFromEnv();
   if (!provider) {
     return NextResponse.json({ ok: false, error: "provider_unavailable" }, { status: 503 });
   }
