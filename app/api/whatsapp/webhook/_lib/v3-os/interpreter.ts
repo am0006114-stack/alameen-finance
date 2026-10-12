@@ -105,8 +105,9 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   const manager = hasAny(n,["بدي المدير","احكي مع المدير","بدي مسؤول","احكي مع مسؤول","بدي الاداره","بدي الإدارة","احكي مع الاداره","احكي مع الإدارة","عمران"]);
   const staff = hasAny(n,["بدي موظف","بدي موضف","احكي مع موظف","احكي مع موضف","موظف احكي معه","موضف احكي معه","حدا احكي معه","شخص احكي معه"]);
   const call = hasAny(n,["اتصلوا في","اتصل في","بدي مكالمه","رنوا علي","احكوا معي تلفون"]);
-  if (manager) add("request_role","manager_request",0.99,"switch_ai_role");
-  else if (staff) add("request_role","human_request",0.99,"switch_ai_role");
+  // Phase 17: staff/manager language is conversational persona context, not a
+  // deterministic business topic. Do not create human_request/manager_request
+  // acts that can hijack the current question through a canned operational reply.
   if (call) add("ask","call_request",0.98,"record_call_preference");
 
   const stopRefund = stopRefundKeepRequest(raw) || hasAny(n,["تراجعت عن الاسترداد","ما بدي الاسترداد","وقف الاسترداد","الغي الاسترداد","إلغاء الاسترداد","بدي اكمل بدل الاسترداد"]);
@@ -176,13 +177,16 @@ export function interpretTurn(input: { turnId: string; customerText: string }): 
   const frustrated = angry || hasAny(n,["زهقت","تعبت","ليش هيك","صارلي","تأخرتوا","تأخير","التاخير"]);
   const confused = hasAny(n,["ما فهمت","مش فاهم","كيف يعني","وضح"]);
   let explicitRoleRequest: InterpretedTurn["explicitRoleRequest"] = null;
-  if (manager) explicitRoleRequest = "manager";
-  else if (staff) explicitRoleRequest = "staff";
+  // A manager request can select Omran as the employee persona, but it is not a
+  // synthetic handoff action. A generic "بدي موظف" stays with the employee who
+  // already owns the conversation.
+  if (manager) explicitRoleRequest = "omran";
   else if (hasAny(n,["تالا"])) explicitRoleRequest = "tala";
   else if (hasAny(n,["فدوه","فدوة"])) explicitRoleRequest = "fadwa";
   else if (hasAny(n,["عبدالله"])) explicitRoleRequest = "abdullah";
   else if (hasAny(n,["عبدالرحمن"])) explicitRoleRequest = "abdulrahman";
   else if (hasAny(n,["عمران"])) explicitRoleRequest = "omran";
+  else if (staff) explicitRoleRequest = null;
 
   return {
     turnId: input.turnId,
