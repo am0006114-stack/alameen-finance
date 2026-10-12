@@ -13,7 +13,7 @@ on:
 jobs:
   conversation-cutover:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,5 +36,6 @@ jobs:
       - name: TypeScript
         run: npx tsc --noEmit
 
-      - name: Production build
-        run: npm run build
+      # Full Next production compilation is validated by the required Vercel Preview,
+      # which has the project environment. GitHub CI intentionally does not receive
+      # production Supabase secrets.
