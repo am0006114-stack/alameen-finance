@@ -1,0 +1,41 @@
+name: Phase 17 Conversation Cutover
+
+on:
+  pull_request:
+    paths:
+      - 'app/api/whatsapp/webhook/**'
+      - 'scripts/v3-phase17-*'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/phase17-conversation-cutover.yml'
+  workflow_dispatch:
+
+jobs:
+  conversation-cutover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Phase 17 single-writer architecture gate
+        run: node scripts/v3-phase17-single-writer-conversation-cutover-selftest.cjs
+
+      - name: Phase 17 native-kernel safety gate
+        run: node scripts/v3-phase17-native-kernel-safety-selftest.cjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      # Full Next production compilation is validated by the required Vercel Preview,
+      # which has the project environment. GitHub CI intentionally does not receive
+      # production Supabase secrets.
