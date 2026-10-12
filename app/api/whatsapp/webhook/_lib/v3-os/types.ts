@@ -95,7 +95,7 @@ export type SemanticTurnFrame = {
   customerGoal: string | null;
   currentQuestion: string | null;
   answerObligations: string[];
-  paymentIntent: "execute_now" | "access_problem" | "method_question" | "status_or_proof" | "none";
+  paymentIntent?: "execute_now" | "access_problem" | "method_question" | "status_or_proof" | "none";
   references: Array<{ surface: string; refersTo: string | null; confidence: number }>;
   entities: SemanticEntity[];
   decision: SemanticDecision;

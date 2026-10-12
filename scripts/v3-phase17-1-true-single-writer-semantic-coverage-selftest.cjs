@@ -15,7 +15,7 @@ const verifier = read(base + 'semanticReplyVerifier.ts');
 const types = read(base + 'types.ts');
 const corpus = JSON.parse(read('scripts/v3-phase17-golden-conversation-corpus.json'));
 
-ok(types.includes('paymentIntent: "execute_now" | "access_problem" | "method_question" | "status_or_proof" | "none"'), 'semantic frame has explicit payment intent');
+ok(types.includes('paymentIntent?: "execute_now" | "access_problem" | "method_question" | "status_or_proof" | "none"'), 'semantic frame exposes backward-compatible explicit payment intent');
 ok(kernel.includes('"paymentIntent":"execute_now|access_problem|method_question|status_or_proof|none"'), 'writer must classify payment intent');
 ok(kernel.includes('paymentIntent=access_problem'), 'writer distinguishes payment access problem from execution');
 ok(kernel.includes('answerObligations لازم تحتوي بندًا مستقلًا لكل سؤال/طلب/اعتراض'), 'writer enumerates every material obligation');
