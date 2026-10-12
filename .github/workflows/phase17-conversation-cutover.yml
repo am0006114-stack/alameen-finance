@@ -26,12 +26,16 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Apply Phase 17.1 true single-writer patch
+      - name: Apply Phase 17.1 root patch when needed
         if: "github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage'"
         run: node scripts/apply-phase17-1-true-single-writer-semantic-coverage.cjs
 
-      - name: Commit Phase 17.1 patch
-        if: "github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage'"
+      - name: Apply Phase 17.1 TypeScript compatibility
+        if: "github.event_name == 'push'"
+        run: node scripts/apply-phase17-1-typescript-compat.cjs
+
+      - name: Commit exact Phase 17.1 source scope
+        if: "github.event_name == 'push'"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -39,7 +43,8 @@ jobs:
             app/api/whatsapp/webhook/_lib/v3-os/runtimeLive.ts \
             app/api/whatsapp/webhook/_lib/v3-os/nativeConversationKernel.ts \
             app/api/whatsapp/webhook/_lib/v3-os/semanticReplyVerifier.ts \
-            app/api/whatsapp/webhook/_lib/v3-os/types.ts
+            app/api/whatsapp/webhook/_lib/v3-os/types.ts \
+            scripts/v3-phase17-1-true-single-writer-semantic-coverage-selftest.cjs
           if git diff --cached --quiet; then
             echo "No Phase 17.1 source changes to commit"
           else
