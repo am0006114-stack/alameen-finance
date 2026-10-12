@@ -12,6 +12,8 @@ const base = 'app/api/whatsapp/webhook/_lib/v3-os/';
 const runtime = read(base + 'runtimeLive.ts');
 const kernel = read(base + 'nativeConversationKernel.ts');
 const control = read(base + 'humanOsControl.ts');
+const interpreter = read(base + 'interpreter.ts');
+const semanticAuthority = read(base + 'semanticAuthority.ts');
 const actionPlane = read(base + 'actionPlane.ts');
 const continuation = read(base + 'continuationPersistence.ts');
 const mutationGate = read(base + 'mutationConfirmationGate.ts');
@@ -39,6 +41,14 @@ ok(kernel.includes('اقرأ فقاعات واتساب كسياق واحد'), 'n
 ok(kernel.includes('عرّف باسم الموظف الحالي فقط'), 'identity stays in employee persona');
 ok(kernel.includes('لا تقل صراحة إنك إنسان حقيقي'), 'persona does not make a false literal-human claim');
 
+// Persona/staff language must not become a deterministic handoff topic that can
+// invoke the canned criticalOperationalFallbackReply before the native composer.
+ok(!interpreter.includes('add("request_role","human_request"'), 'deterministic interpreter no longer creates human_request handoff acts');
+ok(!interpreter.includes('add("request_role","manager_request"'), 'deterministic interpreter no longer creates manager_request handoff acts');
+ok(interpreter.includes('if (manager) explicitRoleRequest = "omran"'), 'manager language selects Omran as persona instead of a synthetic handoff');
+ok(semanticAuthority.includes('phase17_conversation_role_routing_owned_by_native_composer'), 'model-emitted generic staff/manager routing is stripped before deterministic preservation');
+ok(semanticAuthority.includes('roleOnlyTopics = new Set(["human_request", "manager_request"])'), 'semantic authority isolates generic human/manager routing topics from action authority');
+
 // Truth/action safety remains deterministic even after the conversational cutover.
 ok(runtime.includes('enforceMutationConfirmationGate'), 'mutation confirmation gate remains in native runtime');
 ok(runtime.includes('executeActions'), 'transactional action execution remains in native runtime');
@@ -62,6 +72,8 @@ ok(kernel.includes('false_literal_human_handoff_claim'), 'native validator block
 
 for (const rel of [
   base + 'humanOsControl.ts',
+  base + 'interpreter.ts',
+  base + 'semanticAuthority.ts',
   base + 'nativeConversationKernel.ts',
   base + 'runtimeLive.ts',
 ]) ok(transpiles(rel), `${rel} transpiles clean`);
