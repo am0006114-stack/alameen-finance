@@ -1,5 +1,3 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
-
 export type HumanOsControl = {
   enabled: boolean;
   solEnabled: boolean;
@@ -8,7 +6,21 @@ export type HumanOsControl = {
   source: "db" | "safe_default";
 };
 
-const SAFE_DEFAULT: HumanOsControl = {
+// Phase 17 — Single Writer Conversation Cutover
+//
+// The newer HumanConversationOS accumulated multiple customer-facing writers
+// (authoritative reply chains, response repair writers, human-care egress, etc.)
+// above the model. Production evidence showed those layers could overwrite the
+// current customer question with stale payment/location/media/human-request
+// templates. The live runtime already contains the Native Conversation Kernel,
+// whose contract is one conversational writer plus deterministic truth/action
+// validation. Phase 17 makes that path authoritative again.
+//
+// This is intentionally code-owned rather than DB-toggle-owned. A stale settings
+// row must not be able to re-enable the multi-writer HumanConversationOS while
+// Phase 17 is under evaluation. Re-enabling it requires an explicit code change
+// and a new regression review.
+const PHASE17_NATIVE_SINGLE_WRITER: HumanOsControl = {
   enabled: false,
   solEnabled: false,
   maxRecentTurns: 6,
@@ -16,27 +28,6 @@ const SAFE_DEFAULT: HumanOsControl = {
   source: "safe_default",
 };
 
-function boundedInt(value: unknown, fallback: number, min: number, max: number) {
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.trunc(n))) : fallback;
-}
-
 export async function getHumanOsControl(): Promise<HumanOsControl> {
-  try {
-    const { data, error } = await supabaseAdmin
-      .from("whatsapp_human_os_settings")
-      .select("enabled,sol_enabled,max_recent_turns,max_prompt_chars")
-      .eq("id", "default")
-      .maybeSingle();
-    if (error || !data) return SAFE_DEFAULT;
-    return {
-      enabled: data.enabled === true,
-      solEnabled: data.sol_enabled === true,
-      maxRecentTurns: boundedInt(data.max_recent_turns, 6, 2, 10),
-      maxPromptChars: boundedInt(data.max_prompt_chars, 18000, 8000, 30000),
-      source: "db",
-    };
-  } catch {
-    return SAFE_DEFAULT;
-  }
+  return PHASE17_NATIVE_SINGLE_WRITER;
 }
