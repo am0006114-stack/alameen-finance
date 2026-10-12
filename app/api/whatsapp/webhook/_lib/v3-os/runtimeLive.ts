@@ -3,7 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { contactPhonesMatch, resolveV3ProductionTruth } from "./productionTruth";
 import { closeAnsweredLoops, emptyState, finalizeStateSemanticMemory, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
-import type { ActionKey, ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
+import type { ActionKey, ActionResult, ConversationState, InterpretedTurn, OsRunResult, SemanticTurnFrame, TruthBundle, VerificationReport } from "./types";
 import { interpretTurn } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transactionalActionAdapter";
@@ -28,7 +28,7 @@ import { contactExplanationFromText, markContactResolution, clearContactResoluti
 import { applyConversationConstraintsToReply, updateConversationConstraints } from "./conversationConstraints";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
 import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto } from "./semanticAuthority";
-import type { SemanticReplyCheck } from "./semanticReplyVerifier";
+import { verifySemanticReply, type SemanticReplyCheck } from "./semanticReplyVerifier";
 import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, numericContinuationShortcutText, resemblesFullCommercialDisclosure, shouldExplainCommercialStep } from "./informedCommercialContinuation";
 import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
@@ -67,8 +67,6 @@ const CRITICAL_DETERMINISTIC_TOPICS = new Set([
   "reopen",
   "device_change",
   "application_correction",
-  "human_request",
-  "manager_request",
 ]);
 
 function preserveCriticalDeterministicAuthority(modelTurn: InterpretedTurn, anchor: InterpretedTurn): InterpretedTurn {
@@ -196,11 +194,6 @@ function criticalOperationalFallbackReply(input: {
     });
   }
 
-  if (turn.explicitRoleRequest === "staff" || turn.explicitRoleRequest === "manager"
-      || turn.topics.includes("human_request") || turn.topics.includes("manager_request")) {
-    return `التواصل الرسمي مع الأمين على نفس واتساب. ما رح أدّعي إنه صار تحويل لموظف أو مسؤول إذا ما صار فعلًا. اكتب المشكلة نفسها أو الإجراء اللي بدك إياه، وبكمل معك على نفس الطلب${tracking ? ` ${tracking}` : ""} بدون ما أعيد عليك معلومات معروفة.`;
-  }
-
   return null;
 }
 
@@ -222,6 +215,18 @@ export type V3LiveResult = OsRunResult & {
   finalSafetyPass: boolean;
   fallbackUsed: boolean;
   realActionsEnabled: boolean;
+  replyProvenance?: {
+    writer: "native_kernel" | "critical_truth_action" | "transparent_failure_fallback";
+    bypass: null;
+    legacyPaymentPrioritySignal: boolean;
+    paymentIntent: SemanticTurnFrame["paymentIntent"];
+    obligations: string[];
+    covered: string[];
+    semanticChecked: boolean;
+    semanticPass: boolean;
+    nativeValidationPass: boolean;
+    attempts: number;
+  };
   humanOs?: {
     enabled: true;
     journalTurnId: string;
@@ -726,10 +731,8 @@ async function runLegacyV3ProductionLive(input: {
     }
   }
 
-  // PHASE 8.5 REVENUE PRIORITY: once the commercial disclosure has already been
-  // delivered, a direct "how/where do I pay?" turn is itself an informed
-  // continuation signal. Payment-ready customers bypass provider latency and get
-  // the deterministic, truth-bound 5-JOD payment step immediately.
+  // PHASE 17.1 TRUE SINGLE WRITER: legacy payment priority is telemetry/context only.
+  // It must never bypass the Native Conversation Kernel or write customer-facing prose.
   const recentCommercialDisclosureEvidence = [boundState.lastAssistantText || "", ...scopedRecentTurns.slice(-6)]
     .some((line) => resemblesFullCommercialDisclosure(String(line || "")));
   const directPaymentContinuationIntent = isPaymentPriorityCustomerText(effectiveCustomerText, turn.topics.join(","), boundState.lastAssistantText);
@@ -739,38 +742,26 @@ async function runLegacyV3ProductionLive(input: {
     && !semanticContinuationVeto(turn)
     && !explicitDoNotContinueText(effectiveCustomerText, boundState.lastAssistantText);
 
-  if (paymentPriorityAfterDisclosure && isContinuationRevenueReady(truthBeforeActions.application)) {
-    nativeKernelInitial = {
-      turn,
-      reply: buildMandatoryFiveJodContinuationReply(turn, truthBeforeActions),
-      modelUsed: false,
-      modelError: null,
-      raw: null,
-    };
-  } else {
-    // PHASE 8.0 NATIVE CONVERSATION KERNEL: one normal model call owns both deep
-    // semantic understanding and the customer-facing draft. Deterministic parsing
-    // above is only a safety/truth anchor for lookup and mutation protection.
-    nativeKernelInitial = await runNativeConversationKernel({
-      provider: kernelProvider,
-      customerText: effectiveCustomerText,
-      turnId: input.turnId,
-      state: boundState,
-      truth: truthBeforeActions,
-      recentTurns: scopedRecentTurns,
-      profileName: input.profileName,
-      deterministicAnchor: turn,
-      operationalContext: {
-        hybridIntelligence: {
-          route: hybridDecision.route,
-          score: hybridDecision.score,
-          reasons: hybridDecision.reasons,
-          fastPathProtected: hybridDecision.fastPathProtected,
-          pilotActive: Boolean(solHybridControl?.active),
-        },
+  nativeKernelInitial = await runNativeConversationKernel({
+    provider: kernelProvider,
+    customerText: effectiveCustomerText,
+    turnId: input.turnId,
+    state: boundState,
+    truth: truthBeforeActions,
+    recentTurns: scopedRecentTurns,
+    profileName: input.profileName,
+    deterministicAnchor: turn,
+    operationalContext: {
+      hybridIntelligence: {
+        route: hybridDecision.route,
+        score: hybridDecision.score,
+        reasons: hybridDecision.reasons,
+        fastPathProtected: hybridDecision.fastPathProtected,
+        pilotActive: Boolean(solHybridControl?.active),
       },
-    });
-  }
+      legacyPaymentPrioritySignal: paymentPriorityAfterDisclosure,
+    },
+  });
   if (nativeKernelInitial.modelUsed) {
     turn = enforceSemanticDecisionAuthority(enforceFreshTurnAuthority({
       turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
@@ -907,6 +898,9 @@ async function runLegacyV3ProductionLive(input: {
 
   turn = preserveCriticalDeterministicAuthority(turn, deterministicAnchor);
 
+  const paymentIntentThisTurn = turn.semantic?.paymentIntent || "none";
+  const paymentExecutionIntentThisTurn = paymentIntentThisTurn === "execute_now";
+  const paymentAccessProblemThisTurn = paymentIntentThisTurn === "access_problem";
   const numericContinuationShortcut = applicationJourneyStage(truthBeforeActions.application) === "preliminary_approved_waiting_decision"
     && numericContinuationShortcutText(effectiveCustomerText);
   const rawContinuationIntent = truthBeforeActions.contactAccess !== "safe_preview"
@@ -915,8 +909,7 @@ async function runLegacyV3ProductionLive(input: {
     && (semanticConfirmsContinuation(turn)
       || informedCommercialContinuationConfirmed({ state: boundState, truth: truthBeforeActions, turn, customerText: effectiveCustomerText })
       || explicitContinuationText(effectiveCustomerText)
-      || directPaymentContinuationIntent
-      || paymentPriorityAfterDisclosure
+      || paymentExecutionIntentThisTurn
       || numericContinuationShortcut
       || turn.requestedActions.includes("continue_application"));
   const disclosureRequiredThisTurn = shouldExplainCommercialStep({
@@ -1129,7 +1122,7 @@ async function runLegacyV3ProductionLive(input: {
       semanticConfirmsContinuation(turn)
       || informedCommercialContinuationConfirmed({ state: executionState, truth: truthAfterActions, turn, customerText: effectiveCustomerText })
       || explicitContinuationText(effectiveCustomerText)
-      || paymentPriorityAfterDisclosure
+      || paymentExecutionIntentThisTurn
       || numericContinuationShortcut
       || turn.requestedActions.includes("continue_application")
       || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
@@ -1213,16 +1206,16 @@ async function runLegacyV3ProductionLive(input: {
     conversationState = clearContactResolution(conversationState);
   }
 
-  // PHASE 9.1 POLICY-BOUNDED RUNTIME AUTHORITY EGRESS: the model draft is the sole normal
-  // customer-facing writer. Deterministic layers below may validate, veto, execute
-  // business actions, or trigger one bounded regeneration, but they do not replace
-  // a valid conversational answer with legacy canned text.
-  const protectedFiveJodStep = continuationRevenueReadyAtDecision;
-  const authoritativeCommercialJourneyReply = disclosureRequiredThisTurn
-    ? buildInformedCommercialDisclosureReply(truthAfterActions)
-    : protectedFiveJodStep
-      ? buildMandatoryFiveJodContinuationReply(turn, truthAfterActions)
-      : null;
+  // PHASE 17.1 TRUE SINGLE WRITER + SEMANTIC COVERAGE:
+  // Native Kernel owns normal prose. Deterministic code may execute hard actions,
+  // validate truth, or provide a transparent outage fallback; it cannot replace a
+  // normal mixed-turn answer with a payment/status template.
+  const protectedFiveJodStep = continuationRevenueReadyAtDecision
+    && !paymentAccessProblemThisTurn
+    && (paymentExecutionIntentThisTurn
+      || numericContinuationShortcut
+      || turn.requestedActions.includes("continue_application")
+      || turn.semantic?.decision.continuation === "confirmed");
   const criticalOperationalReply = criticalOperationalFallbackReply({
     truth: truthAfterActions,
     state: conversationState,
@@ -1230,11 +1223,12 @@ async function runLegacyV3ProductionLive(input: {
     turn,
     actions,
   });
-  let reply: string | null = plan.shouldRespond ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply) : null;
+  let reply: string | null = plan.shouldRespond ? (criticalOperationalReply || nativeKernelInitial.reply) : null;
   let verification: VerificationReport = PASS;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
   let replyAttempts = nativeKernelInitial.modelUsed ? 1 : 0;
   let fallbackUsed = false;
+  let failOpenReasons: string[] = [];
 
   const operationalContext = {
     hybridIntelligence: {
@@ -1244,6 +1238,10 @@ async function runLegacyV3ProductionLive(input: {
       fastPathProtected: hybridDecision.fastPathProtected,
       pilotActive: Boolean(solHybridControl?.active),
     },
+    legacyPaymentPrioritySignal: paymentPriorityAfterDisclosure,
+    paymentIntentThisTurn,
+    paymentAccessProblemThisTurn,
+    paymentExecutionIntentThisTurn,
     mutationConfirmationRequired: Boolean(mutationGate.confirmationPrompt),
     mutationConfirmationPromptMeaning: mutationGate.confirmationPrompt || null,
     mutationInformationalMeaning: mutationGate.informationalReply || null,
@@ -1268,7 +1266,7 @@ async function runLegacyV3ProductionLive(input: {
     || continuationPersistence.updated
   );
 
-  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !paymentPriorityAfterDisclosure && !criticalOperationalReply && !authoritativeCommercialJourneyReply) {
+  if (plan.shouldRespond && kernelProvider && actionOrTruthChangedAfterInitialDraft && !criticalOperationalReply) {
     const refreshed = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1302,9 +1300,8 @@ async function runLegacyV3ProductionLive(input: {
     protectedFiveJodStep,
   });
 
-  // One bounded repair call only. This is not a judge/shadow path: it runs only
-  // when deterministic truth/action validation blocks the one candidate reply.
-  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !criticalOperationalReply && !authoritativeCommercialJourneyReply) {
+  // First bounded repair: truth/action violations only. The writer remains Native Kernel.
+  if (plan.shouldRespond && !nativeValidation.pass && kernelProvider && replyAttempts < 2 && !criticalOperationalReply) {
     const repaired = await runNativeConversationKernel({
       provider: kernelProvider,
       customerText: effectiveCustomerText,
@@ -1333,54 +1330,41 @@ async function runLegacyV3ProductionLive(input: {
     });
   }
 
-  // Revenue-safe emergency only: the normal path is always Native Kernel. These
-  // deterministic replies exist solely to prevent a provider/validation failure
-  // from breaking the protected 5-JOD commercial journey.
-  if (plan.shouldRespond && !nativeValidation.pass && disclosureRequiredThisTurn) {
-    reply = buildInformedCommercialDisclosureReply(truthAfterActions);
-    fallbackUsed = true;
-    nativeValidation = validateNativeConversationReply({
-      reply,
+  // Semantic coverage is an independent judge. It reads CUSTOMER itself and may not
+  // trust the writer's own obligation list as complete.
+  if (plan.shouldRespond && nativeValidation.pass && reply && kernelProvider && !criticalOperationalReply) {
+    semanticCheck = await verifySemanticReply({
+      provider: kernelProvider,
       turn,
       state: conversationState,
       truth: truthAfterActions,
-      actions,
-      recentTurns: scopedRecentTurns,
-      customerText: effectiveCustomerText,
-      disclosureRequiredThisTurn,
-      protectedFiveJodStep: false,
-    });
-  } else if (plan.shouldRespond && !nativeValidation.pass && protectedFiveJodStep) {
-    reply = buildMandatoryFiveJodContinuationReply(turn, truthAfterActions);
-    fallbackUsed = true;
-    nativeValidation = validateNativeConversationReply({
       reply,
-      turn,
-      state: conversationState,
-      truth: truthAfterActions,
-      actions,
-      recentTurns: scopedRecentTurns,
-      customerText: effectiveCustomerText,
-      disclosureRequiredThisTurn: false,
-      protectedFiveJodStep: true,
     });
   }
 
-  // PHASE 8.5 NEVER-SILENT EGRESS: a provider outage or an over-strict native
-  // validation result may never turn into customer silence. Fall back to the
-  // deterministic truth/state reply builder. This preserves transaction truth
-  // while keeping WhatsApp conversationally alive.
-  let failOpenReasons: string[] = [];
-  if (plan.shouldRespond && (!reply || !nativeValidation.pass)) {
-    failOpenReasons = nativeValidation.reasons.slice();
-    reply = buildV3LastResortReply({
-      truth: truthAfterActions,
-      state: conversationState,
+  // Second bounded repair: only when semantic coverage says a current-turn
+  // obligation was missed/stale/inverted. No deterministic prose is substituted.
+  if (plan.shouldRespond && nativeValidation.pass && !semanticCheck.pass && kernelProvider && replyAttempts < 3 && !criticalOperationalReply) {
+    const semanticFailures = [
+      `SEMANTIC_MISSING_OBLIGATIONS=${JSON.stringify(semanticCheck.missingObligations)}`,
+      `SEMANTIC_REPAIR_INSTRUCTION=${semanticCheck.repairInstruction || "answer every material current-turn obligation"}`,
+      `SEMANTIC_CURRENT_QUESTION_REQUIRED=${semanticCheck.answersCurrentQuestion ? "covered" : "missing"}`,
+    ];
+    const repaired = await runNativeConversationKernel({
+      provider: kernelProvider,
       customerText: effectiveCustomerText,
-      turn,
-      actions,
+      turnId: input.turnId,
+      state: conversationState,
+      truth: truthAfterActions,
+      recentTurns: scopedRecentTurns,
+      profileName: input.profileName,
+      deterministicAnchor: turn,
+      actionResults: actions,
+      validationFailures: semanticFailures,
+      operationalContext,
     });
-    fallbackUsed = true;
+    replyAttempts++;
+    if (repaired.reply) reply = repaired.reply;
     nativeValidation = validateNativeConversationReply({
       reply,
       turn,
@@ -1392,24 +1376,63 @@ async function runLegacyV3ProductionLive(input: {
       disclosureRequiredThisTurn,
       protectedFiveJodStep,
     });
+    if (nativeValidation.pass && reply) {
+      semanticCheck = await verifySemanticReply({
+        provider: kernelProvider,
+        turn,
+        state: conversationState,
+        truth: truthAfterActions,
+        reply,
+      });
+    }
   }
 
-  // The deterministic fail-open reply is accepted for liveness even when the
-  // model-oriented validator still reports a semantic coverage complaint. Hard
-  // transaction/payment truth is produced from the same authoritative TruthBundle.
-  verification = nativeValidation.pass || fallbackUsed
+  const materialQuestionMarks = (effectiveCustomerText.match(/[؟?]/g) || []).length;
+  const mixedMaterialTurn = (turn.semantic?.answerObligations.length || 0) > 1 || materialQuestionMarks > 1;
+  const fullyAccepted = nativeValidation.pass && semanticCheck.pass;
+
+  // Emergency liveness only after the writer/repair path is exhausted. Never route
+  // a mixed turn into a deterministic payment template. The old generic last-resort
+  // writer is intentionally not used here.
+  if (plan.shouldRespond && (!reply || !fullyAccepted)) {
+    failOpenReasons = [
+      ...nativeValidation.reasons,
+      ...(!semanticCheck.pass ? [`semantic:${semanticCheck.missingObligations.join("|") || semanticCheck.repairInstruction || "coverage_failed"}`] : []),
+    ];
+    if (!mixedMaterialTurn && !reply && disclosureRequiredThisTurn) {
+      reply = buildInformedCommercialDisclosureReply(truthAfterActions);
+      fallbackUsed = true;
+    } else if (!mixedMaterialTurn && !reply && protectedFiveJodStep) {
+      reply = buildMandatoryFiveJodContinuationReply(turn, truthAfterActions);
+      fallbackUsed = true;
+    } else {
+      reply = "صار خلل مؤقت منعني أكمل جوابك بشكل صحيح هاللحظة. رسالتك محفوظة بنفس المحادثة، وما رح أجاوبك بجواب ناقص أو أرجعك لموضوع ثاني. جرّب ابعتها مرة ثانية بعد شوي.";
+      fallbackUsed = true;
+    }
+  }
+
+  verification = fallbackUsed
     ? PASS
-    : { ...PASS, pass: false, policyViolations: nativeValidation.reasons };
+    : fullyAccepted
+      ? PASS
+      : { ...PASS, pass: false, policyViolations: [...nativeValidation.reasons, ...semanticCheck.missingObligations] };
 
-  const finalSafetyPass = !plan.shouldRespond || Boolean(reply);
-  if (fallbackUsed && failOpenReasons.length) {
-    console.warn("V3 Phase 8.5 deterministic fail-open reply used", {
-      waId: input.waId,
-      turnId: input.turnId,
-      reasons: failOpenReasons,
-      paymentPriorityAfterDisclosure,
-    });
-  }
+  const finalSafetyPass = !plan.shouldRespond || Boolean(reply && verification.pass);
+  const obligations = turn.semantic?.answerObligations || [];
+  const missing = new Set(semanticCheck.missingObligations || []);
+  const replyProvenance = {
+    writer: criticalOperationalReply ? "critical_truth_action" : fallbackUsed ? "transparent_failure_fallback" : "native_kernel",
+    bypass: null,
+    legacyPaymentPrioritySignal: paymentPriorityAfterDisclosure,
+    paymentIntent: paymentIntentThisTurn,
+    obligations,
+    covered: semanticCheck.checked ? obligations.filter((item) => !missing.has(item)) : obligations,
+    semanticChecked: semanticCheck.checked,
+    semanticPass: semanticCheck.pass,
+    nativeValidationPass: nativeValidation.pass,
+    attempts: replyAttempts,
+  } as const;
+  console.info("V3_REPLY_PROVENANCE", JSON.stringify({ waId: input.waId, turnId: input.turnId, ...replyProvenance, failOpenReasons }));
 
   const answeredTopics = reply && verification.pass ? plan.answerItems.map((x) => x.topic) : [];
   const waitingConfirmationResult = actions.find((x) => x.outcome === "needs_confirmation") || null;
@@ -1461,6 +1484,7 @@ async function runLegacyV3ProductionLive(input: {
     replyAttempts,
     finalSafetyPass,
     fallbackUsed,
+    replyProvenance,
     realActionsEnabled: input.realActionsEnabled,
   };
 }

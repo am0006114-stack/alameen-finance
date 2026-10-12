@@ -30,13 +30,18 @@ function list(v: unknown, max = 10) { return Array.isArray(v) ? v.map(String).fi
 
 export function semanticVerificationWarranted(turn: InterpretedTurn) {
   const f = turn.semantic;
-  if (!f || f.confidence < 0.62 || f.socialClosure) return false;
+  if (!f || f.socialClosure) return false;
+  const raw = String(turn.rawText || "").trim();
+  const explicitQuestionSurface = /[؟?]/.test(raw);
+  const materiallySpecific = raw.length >= 8 && !/^(?:تمام|اوك|اوكي|شكرا|شكرًا|يسلمو|مرحبا|هلا)$/i.test(raw);
   return Boolean(
     f.currentQuestion ||
     f.answerObligations.length ||
     f.correctionOfPrevious ||
     f.decision.continuation !== "unknown" ||
-    f.entities.some((entity) => entity.knownFactStatus === "unknown")
+    f.entities.some((entity) => entity.knownFactStatus === "unknown") ||
+    explicitQuestionSurface ||
+    materiallySpecific
   );
 }
 
@@ -90,7 +95,10 @@ export async function verifySemanticReply(input: {
 - إذا journeyStage=preliminary_approved_waiting_decision وCOMMERCIAL_DISCLOSURE.status ليست delivered/acknowledged، حتى لو continuation=confirmed لا يجوز القفز مباشرة إلى بيانات الدفع. الرد الصحيح يشرح أولًا الرسوم وسببها والاسترداد وأنها ليست ضمان موافقة، ثم يترك للعميل تأكيد الاستمرار في رسالة لاحقة.
 - entity غير موثقة مثل اسم محفظة/تطبيق: يجوز فهم وظيفتها من الجملة، لكن ممنوع استبدالها بكيان آخر أو اختراع معلومات عنها. إذا سأل العميل هل يمكن التحويل "منها"، الجواب يجب أن يتعامل مع سؤال مصدر التحويل/التوافق، لا أن يقلبه إلى إثبات دخل أو بنك.
 - إذا الحقيقة لا تثبت توافق خدمة خارجية، الرد الجيد يشرح الشرط بشكل عام ولا يخترع نعم/لا مطلقة.
-- كل answerObligations التزامات مستقلة.
+- كل answerObligations التزامات مستقلة، لكن لا تثق أنها كاملة: اقرأ CUSTOMER بنفسك واستخرج كل سؤال/طلب/اعتراض مستقل. إذا CUSTOMER يحتوي نقطتين ماديتين والرد أجاب واحدة فقط، pass=false وضع الثانية في missingObligations.
+- إذا CUSTOMER يسأل عن هوية/اسم من يتحدث معه ضمن رسالة فيها سؤال خدمة آخر، يجب أن يغطي CANDIDATE الهوية باختصار ويغطي سؤال الخدمة أيضًا؛ تغطية واحد فقط فشل.
+- إذا CUSTOMER يقول إنه لا يملك/لا يستطيع استخدام وسيلة الدفع المطروحة ويسأل كيف يدفع، مجرد إعادة نفس بيانات CliQ/المحفظة لا يحل access problem ويجب أن يفشل.
+- إذا CUSTOMER واضح ومحدد، رد عام من نوع «اكتب المطلوب/حدد سؤالك/احكيلي شو بدك» يعتبر answersCurrentQuestion=false حتى لو صيغ بكلمات جديدة غير موجودة في blacklist.
 - BUSINESS_TRUTH_REGISTRY داخل TRUTH_SUMMARY حقيقة موثقة للشركة: استخدمها لتقييم القسط الأول، طرق سداد الأقساط الشهرية، وحقائق iPhone 18. لا تعتبرها معرفة خارجية.
 - لا تعاقب الرد لأنه مختصر إذا جاوب المطلوب وحافظ على الحقيقة.
 
