@@ -27,11 +27,11 @@ jobs:
           fetch-depth: 0
 
       - name: Apply Phase 17.1 true single-writer patch
-        if: ${{ github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage' }}
+        if: "github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage'"
         run: node scripts/apply-phase17-1-true-single-writer-semantic-coverage.cjs
 
       - name: Commit Phase 17.1 patch
-        if: ${{ github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage' }}
+        if: "github.event_name == 'push' && github.event.head_commit.message != 'Phase 17.1: true single-writer semantic coverage'"
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -67,6 +67,3 @@ jobs:
 
       - name: TypeScript
         run: npx tsc --noEmit
-
-      # Vercel Preview validates the full Next.js production build with the project's
-      # real environment. GitHub CI intentionally does not receive production secrets.
