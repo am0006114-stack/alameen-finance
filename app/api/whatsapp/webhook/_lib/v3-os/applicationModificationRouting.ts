@@ -5,6 +5,7 @@ export type ApplicationModificationRoutingInput = {
   requestedActions?: string[] | null;
   customerText?: string | null;
   lastAssistantText?: string | null;
+  deviceChangeRecoveryActive?: boolean;
   hasApplication: boolean;
   paymentConfirmed: boolean;
   paymentProtected?: boolean;
@@ -66,7 +67,7 @@ export function deviceChangeLinkFailureReported(input: { customerText?: string |
 export function resolveApplicationModificationRoute(input: ApplicationModificationRoutingInput): ApplicationModificationRoutingDecision {
   const topics = Array.isArray(input.topics) ? input.topics : [];
   const actions = Array.isArray(input.requestedActions) ? input.requestedActions : [];
-  const linkFailureReported = deviceChangeLinkFailureReported(input);
+  const linkFailureReported = Boolean(input.deviceChangeRecoveryActive) || deviceChangeLinkFailureReported(input);
   const deviceChange = linkFailureReported
     || topics.some((topic) => DEVICE_TOPICS.has(String(topic)))
     || actions.some((action) => String(action) === "change_device")
@@ -108,6 +109,11 @@ export function buildApplicationModificationRoutingReply(input: ApplicationModif
   if (!decision.relevant) return null;
 
   if (decision.route === "secure_device_link_failed") {
+    const current = normalizeLoose(String(input.customerText || ""));
+    const asksHowFollowupWorks = /(?:كيف|شو).{0,24}(?:المتابعه|المتابعة|الاجراء|الإجراء|الحل)|(?:المتابعه|المتابعة).{0,24}(?:كيف|شو|بتكون|تكون)|شو\s+اعمل|شو\s+اسوي|والحل/.test(current);
+    if (asksHowFollowupWorks) {
+      return "المتابعة الإدارية هون معناها إن مشكلة رابط تغيير الجهاز تنراجع على نفس طلبك، بدون ما نعتبر التغيير تم وبدون ما نطلع رابط جديد تلقائيًا كل مرة. ما عليك تقدم طلب جديد ولا تعيد دفع الرسوم؛ الطلب الحالي يظل هو المرجع، وأي تغيير لازم يثبت فعليًا على بياناته قبل ما نحكي إنه تم.";
+    }
     return "واضح إن رابط تغيير الجهاز السابق ما اشتغل. ما رح أطلع روابط جديدة بشكل متكرر لنفس المشكلة، والتغيير ما بنعتبره تم. الحالة الآن تحتاج متابعة إدارية على نفس الطلب بدل إعادة تدوير الرابط.";
   }
 

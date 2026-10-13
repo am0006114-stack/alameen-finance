@@ -34,6 +34,8 @@ import { buildSingleConversationAuthorityReply } from "./singleConversationAutho
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
 import { buildApplicationModificationRoutingReply, deviceChangeLinkFailureReported } from "./applicationModificationRouting";
+import { buildCurrentTurnSupremacyReply, resolveCurrentTurnSupremacy } from "./currentTurnSupremacy";
+import { applyDeviceChangeRecoveryState, deviceChangeRecoveryIsActive } from "./deviceChangeRecovery";
 import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
 import { routeSemanticComplexity, type SemanticComplexityDecision } from "./semanticComplexityRouter";
 import { createSolHybridProvider, getSolHybridControl, type SolHybridControl } from "./solHybridRuntime";
@@ -100,6 +102,46 @@ function preserveCriticalDeterministicAuthority(modelTurn: InterpretedTurn, anch
     explicitRoleRequest: modelTurn.explicitRoleRequest || anchor.explicitRoleRequest,
     warnings: Array.from(new Set([...(modelTurn.warnings || []), ...(missing.length ? ["critical_deterministic_authority_preserved"] : [])])),
   };
+}
+
+function actionSafetySupremacyKind(kind: string) {
+  return kind === "mutation_hypothetical" || kind === "mutation_decline" ? kind : null;
+}
+
+function applyActionSafetySupremacyToTurn(turn: InterpretedTurn, kind: "mutation_hypothetical" | "mutation_decline" | null): InterpretedTurn {
+  if (!kind) return turn;
+  const blocked = new Set<ActionKey>(kind === "mutation_decline"
+    ? ["cancel_application"]
+    : ["cancel_application", "request_refund"]);
+  const acts = turn.acts.filter((act) => !(act.type === "request_action" && act.action && blocked.has(act.action)));
+  const requestedActions = turn.requestedActions.filter((action) => !blocked.has(action));
+  const raw = String(turn.rawText || "");
+  const mentionsCancel = /(?:الغي|الغاء|إلغاء|تلغي)/.test(raw);
+  const mentionsRefund = /(?:استرد|استرداد|استرجع|استرجاع)/.test(raw);
+  const semantic = turn.semantic ? {
+    ...turn.semantic,
+    decision: {
+      ...turn.semantic.decision,
+      cancellation: kind === "mutation_decline" ? "declined" : (mentionsCancel ? "question" : turn.semantic.decision.cancellation),
+      refund: kind === "mutation_hypothetical" && mentionsRefund ? "question" : turn.semantic.decision.refund,
+    },
+  } : turn.semantic;
+  return {
+    ...turn,
+    acts,
+    requestedActions,
+    semantic,
+    warnings: Array.from(new Set([...(turn.warnings || []), "current_turn_supremacy_" + kind])),
+  };
+}
+
+function clearActionSafetyPending(state: ConversationState, kind: "mutation_hypothetical" | "mutation_decline" | null): ConversationState {
+  if (!kind || !state.pendingAction) return state;
+  const blocked = kind === "mutation_decline"
+    ? state.pendingAction === "cancel_application"
+    : ["cancel_application", "request_refund"].includes(String(state.pendingAction));
+  if (!blocked) return state;
+  return { ...state, pendingAction: null, pendingActionPayload: null };
 }
 
 function actionResultFor(actions: ActionResult[] | undefined, action: ActionKey) {
@@ -174,7 +216,7 @@ function criticalOperationalFallbackReply(input: {
     const isDeviceChange = requested.has("change_device") || turn.topics.some((topic) => ["device_change", "device_recalculation"].includes(String(topic)));
     const paymentConfirmed = hasAuthoritativePaymentConfirmation(app);
     const paymentProtected = hasPaymentProtection(input.truth);
-    const linkFailureReported = deviceChangeLinkFailureReported({ customerText: input.customerText, lastAssistantText: input.state.lastAssistantText });
+    const linkFailureReported = deviceChangeRecoveryIsActive({ state: input.state, truth: input.truth }) || deviceChangeLinkFailureReported({ customerText: input.customerText, lastAssistantText: input.state.lastAssistantText });
     if (isDeviceChange && paymentConfirmed && app && input.truth.contactAccess === "full" && !linkFailureReported) {
       try {
         const links = buildOfficialLinkContext(turn, input.truth);
@@ -188,6 +230,7 @@ function criticalOperationalFallbackReply(input: {
       requestedActions: turn.requestedActions,
       customerText: input.customerText,
       lastAssistantText: input.state.lastAssistantText,
+      deviceChangeRecoveryActive: linkFailureReported,
       hasApplication: Boolean(app),
       paymentConfirmed,
       paymentProtected,
@@ -601,7 +644,7 @@ async function runLegacyV3ProductionLive(input: {
   let kernelProvider = phase91KernelProvider;
   let solHybridControl: SolHybridControl | null = null;
   let hybridDecision: SemanticComplexityDecision = { route: "deepseek", score: 0, reasons: ["hybrid_not_evaluated"], fastPathProtected: false };
-  const deterministicAnchor = interpretTurn({ turnId: input.turnId, customerText: effectiveCustomerText });
+  let deterministicAnchor = interpretTurn({ turnId: input.turnId, customerText: effectiveCustomerText });
   let turn = enforceSemanticDecisionAuthority(enforceFreshTurnAuthority({
     turn: enforceCurrentTurnAuthority(enrichHumanFirstTurn(hardenTurnForConversationRecovery({
       turn: deterministicAnchor,
@@ -669,6 +712,13 @@ async function runLegacyV3ProductionLive(input: {
     contactAwareState = clearContactResolution(contactAwareState);
   }
 
+  const deviceChangeRecovery = applyDeviceChangeRecoveryState({
+    state: contactAwareState,
+    truth: truthBeforeActions,
+    customerText: effectiveCustomerText,
+  });
+  contactAwareState = deviceChangeRecovery.state;
+
   const scopeResult = scopeStateToCurrentApplication({
     state: contactAwareState,
     truth: truthBeforeActions,
@@ -689,6 +739,14 @@ async function runLegacyV3ProductionLive(input: {
       }
     : scopedState;
   let boundState = supersedeConversationStateForJourney({ state: boundStateBase, truth: truthBeforeActions, turn });
+
+  const literalCurrentTurnSupremacy = resolveCurrentTurnSupremacy({ turn, state: boundState, truth: truthBeforeActions });
+  const actionSafetyKind = actionSafetySupremacyKind(literalCurrentTurnSupremacy.kind);
+  if (actionSafetyKind) {
+    deterministicAnchor = applyActionSafetySupremacyToTurn(deterministicAnchor, actionSafetyKind);
+    turn = applyActionSafetySupremacyToTurn(turn, actionSafetyKind);
+    boundState = clearActionSafetyPending(boundState, actionSafetyKind);
+  }
 
   // PHASE 7.6.0 CONTACT IDENTITY: a different application phone and WhatsApp
   // number is a normal operating condition, not an admin dead-end. Tracking gives
@@ -813,8 +871,9 @@ async function runLegacyV3ProductionLive(input: {
       }))),
       state: stateBefore,
     }));
+    turn = applyActionSafetySupremacyToTurn(turn, actionSafetyKind);
     const nativeReduced = updateConversationConstraints({
-      state: reduceState({ state: stateBefore, turn }),
+      state: reduceState({ state: clearActionSafetyPending(stateBefore, actionSafetyKind), turn }),
       customerText: effectiveCustomerText,
       turnId: input.turnId,
     });
@@ -824,6 +883,7 @@ async function runLegacyV3ProductionLive(input: {
         activeApplicationId: boundState.activeApplicationId,
         activeTrackingId: boundState.activeTrackingId,
         lastVerifiedApplication: boundState.lastVerifiedApplication,
+        facts: boundState.facts,
         verifiedContactBinding: boundState.verifiedContactBinding,
         contactResolution: boundState.contactResolution,
       },
@@ -938,7 +998,7 @@ async function runLegacyV3ProductionLive(input: {
     }
   }
 
-  turn = preserveCriticalDeterministicAuthority(turn, deterministicAnchor);
+  turn = applyActionSafetySupremacyToTurn(preserveCriticalDeterministicAuthority(turn, deterministicAnchor), actionSafetyKind);
 
   const numericContinuationShortcut = applicationJourneyStage(truthBeforeActions.application) === "preliminary_approved_waiting_decision"
     && numericContinuationShortcutText(effectiveCustomerText);
@@ -961,11 +1021,14 @@ async function runLegacyV3ProductionLive(input: {
   });
 
   let plan = buildReplyPlan({ turn, state: boundState, truth: truthBeforeActions });
+  const currentTurnSafetyReply = actionSafetyKind
+    ? buildCurrentTurnSupremacyReply({ supremacy: literalCurrentTurnSupremacy, turn, state: boundState, truth: truthBeforeActions })
+    : null;
   // PHASE 8.1 ABSOLUTE RUNTIME AUTHORITY: legacy planner remains an action/truth
   // compatibility helper only. It no longer decides whether a valid Native Kernel
   // customer reply is allowed to exist. A model-produced native reply owns response
   // intent even when the semantic act is a bare confirm/acknowledgement.
-  plan = { ...plan, shouldRespond: Boolean(nativeKernelInitial.reply) || plan.shouldRespond };
+  plan = { ...plan, shouldRespond: Boolean(currentTurnSafetyReply) || Boolean(nativeKernelInitial.reply) || plan.shouldRespond };
   if (disclosureRequiredThisTurn) {
     plan = { ...plan, actions: plan.actions.filter((action) => action.action !== "continue_application") };
   }
@@ -1279,9 +1342,9 @@ async function runLegacyV3ProductionLive(input: {
   // For every other turn, the Native Kernel owns the normal wording and the deterministic
   // critical reply becomes safety fallback only.
   let reply: string | null = plan.shouldRespond
-    ? (authoritativeCommercialJourneyReply
+    ? (currentTurnSafetyReply || (authoritativeCommercialJourneyReply
         ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply)
-        : (nativeKernelInitial.reply || criticalOperationalReply))
+        : (nativeKernelInitial.reply || criticalOperationalReply)))
     : null;
   let verification: VerificationReport = PASS;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };

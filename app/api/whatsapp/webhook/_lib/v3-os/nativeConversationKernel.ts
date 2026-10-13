@@ -17,6 +17,7 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 import { replySimilarity } from "./humanVoice";
 import { applicationModificationRoutingViolation, buildApplicationModificationRoutingReply, resolveApplicationModificationRoute } from "./applicationModificationRouting";
 import { hasPaymentProtection } from "./manualActionPolicy";
+import { deviceChangeRecoveryIsActive } from "./deviceChangeRecovery";
 
 const TOPICS: TopicKey[] = [
   "greeting","thanks","acknowledgement","unknown","application_status","application_correction","requirements","guarantor",
@@ -245,6 +246,7 @@ function companyTruthSnapshot(input: { turn: InterpretedTurn; state: Conversatio
       topics: input.turn.topics,
       requestedActions: input.turn.requestedActions,
       customerText: input.turn.acts.map((act) => act.text).filter(Boolean).join("\n"),
+      deviceChangeRecoveryActive: deviceChangeRecoveryIsActive({ state: input.state, truth: input.truth }),
       hasApplication: Boolean(input.truth.application),
       paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
       paymentProtected: hasPaymentProtection(input.truth),
@@ -428,6 +430,8 @@ export async function runNativeConversationKernel(input: {
       topics: turn.topics,
       requestedActions: turn.requestedActions,
       customerText: input.customerText,
+      lastAssistantText: input.state.lastAssistantText,
+      deviceChangeRecoveryActive: deviceChangeRecoveryIsActive({ state: input.state, truth: input.truth }),
       hasApplication: Boolean(input.truth.application),
       paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
       paymentProtected: hasPaymentProtection(input.truth),
@@ -692,6 +696,8 @@ export function validateNativeConversationReply(input: {
     topics: input.turn.topics,
     requestedActions: input.turn.requestedActions,
     customerText: input.customerText,
+    lastAssistantText: input.state.lastAssistantText,
+    deviceChangeRecoveryActive: deviceChangeRecoveryIsActive({ state: input.state, truth: input.truth }),
     hasApplication: Boolean(input.truth.application),
     paymentConfirmed: hasAuthoritativePaymentConfirmation(input.truth.application),
     paymentProtected: hasPaymentProtection(input.truth),

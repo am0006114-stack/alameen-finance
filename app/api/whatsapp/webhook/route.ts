@@ -10808,6 +10808,31 @@ async function readCanonicalIncomingBurst(input: {
     }
   }
 
+  // Phase 18.2: a delivered outgoing reply is a hard semantic boundary for
+  // historical rows. Pending durable-ingress jobs are exempt so a queued customer
+  // bubble can never be lost merely because its timestamp predates the reply.
+  if (!outgoingError) {
+    const latestOutgoingBoundaryMs = Math.max(0, ...((outgoingData || []) as any[]).map((row) => {
+      const raw = row?.raw_payload || {};
+      const candidates = [row?.created_at, raw?.created_at, raw?.sent_at, raw?.delivered_at]
+        .map((value) => Date.parse(String(value || "")))
+        .filter((value) => Number.isFinite(value));
+      return candidates.length ? Math.max(...candidates) : 0;
+    }));
+    if (latestOutgoingBoundaryMs > 0) {
+      for (const [id, row] of rowsByMessageId.entries()) {
+        if (pendingIngressMessageIds.has(id)) continue;
+        const rowMs = Date.parse(String((row as any)?.authority_received_at || (row as any)?.created_at || ""));
+        if (Number.isFinite(rowMs) && rowMs <= latestOutgoingBoundaryMs) rowsByMessageId.delete(id);
+      }
+      for (let index = anonymousRows.length - 1; index >= 0; index -= 1) {
+        const row = anonymousRows[index] as any;
+        const rowMs = Date.parse(String(row?.authority_received_at || row?.created_at || ""));
+        if (Number.isFinite(rowMs) && rowMs <= latestOutgoingBoundaryMs) anonymousRows.splice(index, 1);
+      }
+    }
+  }
+
   const unansweredTurnGapMs = outgoingError ? maxGapMs : Math.max(maxGapMs, lookbackSeconds * 1000);
   const burst = selectCanonicalConversationBurst([
     ...anonymousRows,
