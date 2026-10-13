@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import JSZip from "jszip";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import {
+  fetchAdminDocument,
+  isIdentityDocument,
+} from "@/lib/adminDocumentVault";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,12 +74,24 @@ function getDocumentLabel(document: AnyRecord, index: number) {
   );
 }
 
-async function fetchFileAsArrayBuffer(url: string, timeoutMs = 8000) {
+async function fetchFileAsArrayBuffer(
+  document: AnyRecord,
+  url: string,
+  timeoutMs = 8000
+) {
+  if (isIdentityDocument(document)) {
+    const { response } = await fetchAdminDocument(document);
+    return await response.arrayBuffer();
+  }
+
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch(url, { signal: controller.signal });
+    const response = await fetch(url, {
+      signal: controller.signal,
+      cache: "no-store",
+    });
 
     if (!response.ok) {
       throw new Error(`Failed to download file: ${response.status}`);
@@ -206,7 +222,7 @@ Use ?format=zip&files=1 for ZIP with images.
       }
 
       try {
-        const arrayBuffer = await fetchFileAsArrayBuffer(url);
+        const arrayBuffer = await fetchFileAsArrayBuffer(doc, url);
         appFolder.file(`document-${index + 1}-${label}.${extension}`, arrayBuffer);
       } catch (error) {
         failures.push(`${tracking}: failed to download ${label} - ${String(error)}`);

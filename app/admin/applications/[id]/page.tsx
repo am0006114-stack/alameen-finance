@@ -759,7 +759,26 @@ function isApplicantBackDocument(document: DocumentRecord) {
   return type === "applicant_id_back" || type === "applicant_back";
 }
 
+function isIdentityDocument(document: DocumentRecord) {
+  const type = getDocumentTypeValue(document);
+
+  return [
+    "applicant_front",
+    "applicant_back",
+    "applicant_id_front",
+    "applicant_id_back",
+    "guarantor_front",
+    "guarantor_back",
+    "guarantor_id_front",
+    "guarantor_id_back",
+  ].includes(type);
+}
+
 function getDocumentUrl(document: DocumentRecord) {
+  if (document.id && isIdentityDocument(document)) {
+    return `/api/admin/document?id=${encodeURIComponent(document.id)}`;
+  }
+
   if (document.file_url) return document.file_url;
   if (document.public_url) return document.public_url;
   if (document.url) return document.url;
