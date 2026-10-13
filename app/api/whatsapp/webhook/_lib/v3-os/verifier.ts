@@ -181,6 +181,18 @@ function forbiddenBusinessIdentityClaim(reply: string) {
   return new RegExp(`${businessRefs}.{0,28}${forbiddenDescriptions}|${forbiddenDescriptions}.{0,28}${businessRefs}`, "i").test(n);
 }
 
+function unsupportedRegulatoryExclusionClaim(reply: string) {
+  const q = normalizeArabic(reply);
+  return /(?:ما|مش|مو|لسنا|غير).{0,24}(?:نتبع|تابعين|خاضعين|مرخصين|تحت\s+رقابه|تحت\s+رقابة).{0,36}(?:البنك\s+المركزي|جهه\s+رقابيه|جهة\s+رقابية|الحكومه|الحكومة)|(?:البنك\s+المركزي|جهه\s+رقابيه|جهة\s+رقابية).{0,36}(?:ما|مش|مو|غير).{0,20}(?:نتبع|تابعين|خاضعين|يراقبنا)/.test(q);
+}
+
+function iphone18PolicyOutOfScope(reply: string, turn: InterpretedTurn, truth: TruthBundle) {
+  if (!/(?:iphone|ايفون|آيفون)s*18/i.test(reply)) return false;
+  const currentMentions18 = /(?:iphone|ايفون|آيفون)s*18/i.test(String(turn.rawText || ""));
+  const applicationIs18 = /(?:iphone|ايفون|آيفون)s*18/i.test(String(truth.application?.deviceName || ""));
+  return !currentMentions18 && !applicationIs18;
+}
+
 function broadCompletionClaim(reply: string, action: string) {
   const patterns: Record<string, RegExp[]> = {
     change_device: [
@@ -515,6 +527,8 @@ export function verifyReply(input: { reply: string; turn: InterpretedTurn; state
     if (t.includes(normalizeArabic(forbidden))) policyViolations.push(`forbidden_claim:${forbidden}`);
   }
   if (forbiddenBusinessIdentityClaim(reply)) policyViolations.push("forbidden_business_identity_claim");
+  if (unsupportedRegulatoryExclusionClaim(reply)) unsupportedClaims.push("unsupported_regulatory_exclusion_claim");
+  if (iphone18PolicyOutOfScope(reply, input.turn, input.truth)) truthContradictions.push("iphone18_policy_out_of_scope");
   if (/\b3\s*(?:دنانير|دينار)\b/.test(reply) || /\b٣\s*(?:دنانير|دينار)\b/.test(reply)) policyViolations.push("forbidden_3_jod");
   if (reply.length > 3900) repetitionFlags.push(`reply_too_long_for_whatsapp:${reply.length}`);
 

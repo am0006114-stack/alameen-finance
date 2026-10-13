@@ -344,8 +344,10 @@ export function enforceMutationConfirmationGate(input: {
         || (pending === "link_whatsapp_alias" && aliasOpenLoopConfirmation)
         || (pending === "reopen_application" && reopenOpenLoopConfirmation))) {
     confirmedAction = pending;
+    clearPendingConfirmation = true;
   } else if (recoverableConfirmation) {
     confirmedAction = recoverableConfirmation;
+    clearPendingConfirmation = true;
   } else if (pending && !mutationDecline(pending, input.turn.rawText) && !clearPendingConfirmation) {
     const stillTalkingAboutPending = actionWords(pending, q);
     if (!stillTalkingAboutPending && q.length > 2) clearPendingConfirmation = true;

@@ -1,6 +1,8 @@
 import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import { buildOfficialLinkContext } from "./linkIntegrity";
 import { normalizeArabic } from "./text";
+import { countOperationalDaysElapsed, isIphone18Device } from "./operationalCalendar";
+import { IPHONE18_PICKUP_RULE } from "./businessTruthRegistry";
 import type { ConversationState, InterpretedTurn, TruthBundle } from "./types";
 
 export type CurrentTurnSupremacyKind =
@@ -10,6 +12,9 @@ export type CurrentTurnSupremacyKind =
   | "social_closure"
   | "website_url"
   | "down_payment"
+  | "delivery_timing"
+  | "payment_channel_access"
+  | "regulatory_status"
   | "trust_verification"
   | "income_requirement"
   | "external_credit"
@@ -45,13 +50,20 @@ export function resolveCurrentTurnSupremacy(input: { turn: InterpretedTurn; stat
 
   if (/(?:دفعه|دفعة).{0,10}(?:اوله|اولى|أولى)|(?:بدون|ما\s+في|مفيش).{0,18}(?:دفعه|دفعة).{0,10}(?:اوله|اولى|أولى)?/.test(q)) return { kind: "down_payment", reason: "explicit down-payment question" };
 
+  if (/(?:البنك\s+المركزي|جهه\s+رقابيه|جهة\s+رقابية|جهات\s+رقابيه|جهات\s+رقابية|مرخصين\s+من|خاضعين\s+لرقابه|خاضعين\s+لرقابة|تابعين\s+للبنك)/.test(q)) return { kind: "regulatory_status", reason: "regulatory status must come only from documented compliance truth" };
+
+  if (/(?:متى|امتى|ايمتى|قديش|كم).{0,30}(?:تسليم|استلام|استلم).{0,24}(?:الجهاز|التلفون|الموبايل|الطلب)?|(?:تسليم|استلام|استلم).{0,24}(?:الجهاز|التلفون|الموبايل).{0,22}(?:متى|امتى|قديش|كم)|(?:موعد|تاريخ).{0,18}(?:التسليم|الاستلام)/.test(q)) return { kind: "delivery_timing", reason: "explicit device-delivery timing question outranks installment and stale product policy" };
+
+  if (/(?:ما\s+عندي|ما\s+معي|بدون|مش\s+عندي).{0,22}(?:محفظه|محفظة)|(?:المحفظه|المحفظة).{0,22}(?:مش\s+عندي|ما\s+عندي|ما\s+معي)|(?:ما\s+عندي|ما\s+معي).{0,20}(?:orange\s*money|اورنج\s*موني)/i.test(q)) return { kind: "payment_channel_access", reason: "customer lacks a wallet and needs the stage-safe official payment alternative" };
+
   if (/(?:اثبات|إثبات).{0,35}(?:موثوق|موثوقه|موثوقة|جهه|جهة|شركه|شركة)|(?:انتو|انتم|إنتو).{0,22}(?:شركه|شركة)|(?:مش\s+المفروض).{0,28}(?:شركه|شركة)|(?:اسم).{0,30}(?:كليك|cliq).{0,30}(?:الشركه|الشركة)|(?:موثوق|موثوقه|موثوقة).{0,25}(?:الشركه|الشركة|الجهه|الجهة)/i.test(q)) return { kind: "trust_verification", reason: "customer asks for company/payment trust evidence" };
 
   if (/(?:عقد\s+شغل|عقد\s+عمل|شغل\s+حر|عمل\s+حر|شهاده\s+تعيين|شهادة\s+تعيين|اثبات\s+دخل|إثبات\s+دخل|كشف\s+راتب|شهاده\s+راتب|شهادة\s+راتب|عسكري).{0,55}(?:لازم|بكفي|ينفع|بنفع|بقدر|اقدر|أقدر|مطلوب|الشروط)?|(?:لازم|بكفي|ينفع|بنفع|بقدر|اقدر|أقدر).{0,35}(?:عقد\s+شغل|عقد\s+عمل|شهاده\s+تعيين|شهادة\s+تعيين|اثبات\s+دخل|إثبات\s+دخل|كشف\s+راتب)/.test(q)) return { kind: "income_requirement", reason: "current turn asks about income-document eligibility" };
 
   if (/(?:كريف|crif|شركة\s+كرف|تقارير\s+كرف|تقارير\s+كريف)/i.test(q)) return { kind: "external_credit", reason: "current turn asks about external credit-report system" };
 
-  if (stage !== "preliminary_approved_waiting_decision" && /^(?:(?:كم|قديش).{0,18}(?:تستغرق|بتستغرق|بتاخد|بتاخذ|تاخذ|تأخذ|المده|المدة)|(?:متى|امتى|ايمتى).{0,12}(?:الرد|الموافقه|الموافقة)|(?:المده|المدة).{0,12}(?:كم|قديش))$/.test(q)) return { kind: "review_duration", reason: "short explicit review-duration question" };
+  const explicitElapsedReview = /(?:صارلي|صارله|صارلها|من\s+تاريخ|من\s+يوم|قدمت).{0,38}(?:يوم|ايام|أيام|المراجعه|المراجعة|الطلب|الدراسه|الدراسة)|(?:كم|قديش).{0,24}(?:يوم\s+تشغيل|ايام\s+تشغيل|أيام\s+تشغيل).{0,24}(?:مر|مروا|صار)/.test(q);
+  if (stage !== "preliminary_approved_waiting_decision" && (explicitElapsedReview || /^(?:(?:كم|قديش).{0,18}(?:تستغرق|بتستغرق|بتاخد|بتاخذ|تاخذ|تأخذ|المده|المدة)|(?:متى|امتى|ايمتى).{0,12}(?:الرد|الموافقه|الموافقة)|(?:المده|المدة).{0,12}(?:كم|قديش))$/.test(q))) return { kind: "review_duration", reason: explicitElapsedReview ? "elapsed review time must be counted by the operational calendar" : "short explicit review-duration question" };
 
   if (/(?:ليش|لماذا).{0,24}(?:تحكوا|تحكي|تتكلم|بتحكوا|بتحكي).{0,24}(?:فصحى|فصحه)|(?:احكي|احكوا).{0,20}(?:عامي|عاميه|عامية|اردني|أردني)/.test(q)) return { kind: "dialect_preference", reason: "customer explicitly requested conversational dialect" };
 
@@ -88,6 +100,25 @@ export function buildCurrentTurnSupremacyReply(input: { supremacy: CurrentTurnSu
     return `صحيح، ما في دفعة أولى على الجهاز. القسط الأول يستحق بعد شهر من تاريخ توقيع العقد، وتاريخ توقيع العقد هو نفسه تاريخ استلام الجهاز. رسوم فتح الملف ${fee} دنانير خطوة منفصلة فقط بعد الموافقة المبدئية واختيار الاستمرار، ومش دفعة أولى ولا قسط أول.`;
   }
 
+  if (kind === "regulatory_status") {
+    return `بالنسبة للترخيص أو الرقابة من البنك المركزي أو أي جهة رقابية: ما عندي حقيقة موثقة ضمن بيانات المحادثة تسمح أأكد إن الأمين خاضع أو غير خاضع لجهة بعينها، لذلك ما رح أخمّن بالاتجاهين. اللي بقدر أؤكده هو: ${input.truth.policy.independenceStatement}`;
+  }
+
+  if (kind === "payment_channel_access") {
+    if (stage === "continuation_confirmed_fee_due") return `إذا ما عندك محفظة، ما في داعي تلغي الطلب بسبب هالنقطة. استخدم فقط قنوات الدفع الرسمية المعتمدة للمرحلة الحالية: ${input.truth.policy.paymentMethodRule}`;
+    if (stage === "payment_proof_pending_admin") return "وصل الدفع موجود أصلًا وبانتظار اعتماد الإدارة، فما في داعي تفتح محفظة أو تعمل تحويل جديد.";
+    if (stage === "payment_confirmed_under_review") return "الدفع مؤكد إداريًا على طلبك، فما في داعي لأي محفظة أو تحويل جديد.";
+    if (stage === "preliminary_approved_waiting_decision") return "الموافقة الحالية مبدئية ولسا ما في تحويل مطلوب قبل ما تختار الاستمرار رسميًا؛ عدم وجود محفظة ما يعني إنك تلغي الطلب.";
+    return "بحالتك الحالية ما بدي أعطيك بيانات تحويل قبل ما تكون خطوة الدفع مفتوحة فعليًا على الطلب. عدم وجود محفظة بحد ذاته مش سبب لإلغاء الطلب.";
+  }
+
+  if (kind === "delivery_timing") {
+    if (!app) return "ما عندي طلب موثوق ظاهر أقدر أحدد منه مرحلة التسليم. إذا عندك رقم التتبع ابعثه مرة واحدة وبجاوبك عن نفس الطلب.";
+    const asksIphone18 = /(?:iphone|ايفون|آيفون)\\s*18\\b/i.test(String(input.turn.rawText || ""));
+    if (asksIphone18 || isIphone18Device(app.deviceName)) return `${IPHONE18_PICKUP_RULE} حالة طلبك الحالية: ${customerFacingStatusLabel(app)}.`;
+    return `بالنسبة لتسليم جهاز طلبك${app.deviceName ? ` (${app.deviceName})` : ""}: ما عندي تاريخ تسليم مؤكد ظاهر على الطلب الآن. التسليم والاستلام ما بنربطهم بموعد إلا بعد اكتمال المرحلة المطلوبة وصدور موعد رسمي مؤكد من النظام/الإدارة؛ الاستلام من المكتب فقط وما في توصيل. حالة طلبك الحالية: ${customerFacingStatusLabel(app)}.`;
+  }
+
   if (kind === "trust_verification") {
     const links = buildOfficialLinkContext(input.turn, input.truth);
     const beneficiary = String(input.truth.policy.paymentBeneficiaryName || "").trim();
@@ -102,7 +133,11 @@ export function buildCurrentTurnSupremacyReply(input: { supremacy: CurrentTurnSu
   if (kind === "review_duration") {
     const window = input.truth.policy.normalReviewWindow || "المعدل الطبيعي من يومين إلى 3 أيام تشغيلية، والجمعة والسبت لا تحتسبان";
     const pressure = input.truth.policy.severePressureRule || "وحاليًا في ضغط مراجعات قد يطوّل بعض الملفات";
-    return `${appStatus || ""} ${window}، ${pressure}. ما عندي موعد نهائي مؤكد أقدر أوعدك فيه.`.trim();
+    const elapsed = app?.createdAt ? countOperationalDaysElapsed(app.createdAt, new Date()) : null;
+    const elapsedLine = elapsed !== null && /(?:صارلي|صارله|صارلها|من\s+تاريخ|من\s+يوم|قدمت|يوم\s+تشغيل|ايام\s+تشغيل|أيام\s+تشغيل)/.test(q)
+      ? ` ومن تاريخ تسجيل الطلب مرّ ${elapsed} يوم تشغيل كامل بعد يوم التقديم حسب تقويم الأحد إلى الخميس؛ الجمعة والسبت ما بنحسبهم.`
+      : "";
+    return `${appStatus || ""}${elapsedLine} ${window}، ${pressure}. ما عندي موعد نهائي مؤكد أقدر أوعدك فيه.`.trim();
   }
 
   if (kind === "dialect_preference") return "معك حق، بكمل معك باللهجة الأردنية وبشكل مباشر بدون فصحى ثقيلة. احكيلي شو بدك وأنا معك.";

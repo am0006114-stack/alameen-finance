@@ -14,8 +14,14 @@ function readableValue(value: unknown): string {
   return String(value);
 }
 
+function redactOperationalSecrets(value: string) {
+  return String(value || "")
+    .replace(/(\/change-device\?t=)[A-Za-z0-9_%.-]+/gi, "$1[REDACTED]")
+    .replace(/([?&]t=)[A-Za-z0-9_-]{24,}/g, "$1[REDACTED]");
+}
+
 function clipped(value: unknown, max = 900) {
-  const text = readableValue(value).replace(/\s+/g, " ").trim();
+  const text = redactOperationalSecrets(readableValue(value)).replace(/\s+/g, " ").trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 

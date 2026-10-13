@@ -33,7 +33,7 @@ import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, 
 import { buildSingleConversationAuthorityReply } from "./singleConversationAuthority";
 import { runNativeConversationKernel, validateNativeConversationReply, type NativeKernelResult } from "./nativeConversationKernel";
 import { isPaymentPriorityCustomerText } from "./operationsAutopilot";
-import { buildApplicationModificationRoutingReply } from "./applicationModificationRouting";
+import { buildApplicationModificationRoutingReply, deviceChangeLinkFailureReported } from "./applicationModificationRouting";
 import { buildSecureDeviceChangeUrl } from "./deviceChangeAuthority";
 import { routeSemanticComplexity, type SemanticComplexityDecision } from "./semanticComplexityRouter";
 import { createSolHybridProvider, getSolHybridControl, type SolHybridControl } from "./solHybridRuntime";
@@ -174,7 +174,8 @@ function criticalOperationalFallbackReply(input: {
     const isDeviceChange = requested.has("change_device") || turn.topics.some((topic) => ["device_change", "device_recalculation"].includes(String(topic)));
     const paymentConfirmed = hasAuthoritativePaymentConfirmation(app);
     const paymentProtected = hasPaymentProtection(input.truth);
-    if (isDeviceChange && paymentConfirmed && app && input.truth.contactAccess === "full") {
+    const linkFailureReported = deviceChangeLinkFailureReported({ customerText: input.customerText, lastAssistantText: input.state.lastAssistantText });
+    if (isDeviceChange && paymentConfirmed && app && input.truth.contactAccess === "full" && !linkFailureReported) {
       try {
         const links = buildOfficialLinkContext(turn, input.truth);
         secureDeviceLink = buildSecureDeviceChangeUrl({ baseUrl: links.baseUrl, application: app, waId: input.state.waId });
@@ -186,6 +187,7 @@ function criticalOperationalFallbackReply(input: {
       topics: turn.topics,
       requestedActions: turn.requestedActions,
       customerText: input.customerText,
+      lastAssistantText: input.state.lastAssistantText,
       hasApplication: Boolean(app),
       paymentConfirmed,
       paymentProtected,
@@ -378,6 +380,23 @@ function buildRepeatDeltaReply(input: { turn: InterpretedTurn; truth: TruthBundl
 const MANUAL_ACTIONS = new Set([
   "change_application_data",
 ]);
+
+async function notifyDeviceChangeLinkFailure(input: { waId: string; customerText: string; state: ConversationState; truth: TruthBundle }) {
+  const app = input.truth.application;
+  if (!app || input.truth.contactAccess === "safe_preview" || !hasAuthoritativePaymentConfirmation(app)) return;
+  if (!deviceChangeLinkFailureReported({ customerText: input.customerText, lastAssistantText: input.state.lastAssistantText })) return;
+  await notifyV3Discord({
+    event: "manual_action_required",
+    actionKey: "change_device",
+    applicationId: app.id,
+    trackingId: app.trackingId || null,
+    waId: input.waId,
+    paymentConfirmed: true,
+    title: "V3 — رابط تغيير الجهاز لا يعمل",
+    description: "العميل أكد أن رابط تغيير الجهاز الرسمي السابق لا يعمل. تم منع إصدار رابط جديد متكرر ويحتاج الطلب متابعة إدارية.",
+    details: { action: "change_device", blocker: "device_change_link_reported_broken" },
+  });
+}
 
 async function notifyContactNumberChangeRequest(input: { waId: string; customerText: string; truth: TruthBundle }) {
   if (!explicitContactNumberChangeRequest(input.customerText) || !input.truth.application || input.truth.contactAccess === "safe_preview") return;
@@ -1121,6 +1140,17 @@ async function runLegacyV3ProductionLive(input: {
     });
   } catch (error) {
     console.error("V3 contact-number-change Discord notification failed", error);
+  }
+
+  try {
+    await notifyDeviceChangeLinkFailure({
+      waId: input.waId,
+      customerText: effectiveCustomerText,
+      state: executionState,
+      truth: truthAfterActions,
+    });
+  } catch (error) {
+    console.error("V3 device-change-link failure Discord notification failed", error);
   }
 
   const manualDisposition = resolveManualActionDisposition({

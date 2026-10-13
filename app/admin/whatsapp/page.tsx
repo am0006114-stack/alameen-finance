@@ -121,9 +121,15 @@ function getCustomerDisplay(message: WhatsAppMessageRecord) {
 
   return { title: "—", subtitle: "غير مربوط برقم" };
 }
+function redactConversationCopySecrets(value: string) {
+  return String(value || "")
+    .replace(/(\/change-device\?t=)[A-Za-z0-9_%.-]+/gi, "$1[REDACTED]")
+    .replace(/([?&]t=)[A-Za-z0-9_-]{24,}/g, "$1[REDACTED]");
+}
+
 function getMessageCopyBody(message: WhatsAppMessageRecord) {
   const body = String(message.body || "").trim();
-  if (body) return body;
+  if (body) return redactConversationCopySecrets(body);
 
   switch (message.message_type) {
     case "image":

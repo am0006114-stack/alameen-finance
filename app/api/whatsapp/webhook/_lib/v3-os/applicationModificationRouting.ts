@@ -1,9 +1,10 @@
-export type ApplicationModificationRoute = "none" | "secure_device_link" | "payment_confirmation_pending" | "unpaid_cancel_reapply" | "facebook_manual";
+export type ApplicationModificationRoute = "none" | "secure_device_link" | "secure_device_link_failed" | "payment_confirmation_pending" | "unpaid_cancel_reapply" | "facebook_manual";
 
 export type ApplicationModificationRoutingInput = {
   topics?: string[] | null;
   requestedActions?: string[] | null;
   customerText?: string | null;
+  lastAssistantText?: string | null;
   hasApplication: boolean;
   paymentConfirmed: boolean;
   paymentProtected?: boolean;
@@ -52,10 +53,22 @@ function explicitDeviceModificationText(customerText: string) {
   return asksChange && target;
 }
 
+export function deviceChangeLinkFailureReported(input: { customerText?: string | null; lastAssistantText?: string | null }) {
+  const current = normalizeLoose(String(input.customerText || ""));
+  const previousRaw = String(input.lastAssistantText || "");
+  const previous = normalizeLoose(previousRaw);
+  const priorDeviceLink = /\/change-device\?t=/i.test(previousRaw)
+    || /(?:رابط).{0,28}(?:تغيير|تعديل).{0,20}(?:الجهاز|الموديل)/.test(previous);
+  const broken = /(?:مش|مو|ما).{0,12}(?:زابط|شغال|بشتغل|يشتغل|بفتح|يفتح)|(?:الرابط|اللينك).{0,20}(?:خربان|منتهي|انتهت|خطا|خطأ|error)|(?:بعطيني|طلعلي|بيطلعلي).{0,20}(?:خطا|خطأ|error)|(?:جربت|حاولت).{0,24}(?:ما\s+زبط|ما\s+فتح|مش\s+شغال)/i.test(current);
+  return priorDeviceLink && broken;
+}
+
 export function resolveApplicationModificationRoute(input: ApplicationModificationRoutingInput): ApplicationModificationRoutingDecision {
   const topics = Array.isArray(input.topics) ? input.topics : [];
   const actions = Array.isArray(input.requestedActions) ? input.requestedActions : [];
-  const deviceChange = topics.some((topic) => DEVICE_TOPICS.has(String(topic)))
+  const linkFailureReported = deviceChangeLinkFailureReported(input);
+  const deviceChange = linkFailureReported
+    || topics.some((topic) => DEVICE_TOPICS.has(String(topic)))
     || actions.some((action) => String(action) === "change_device")
     || explicitDeviceModificationText(String(input.customerText || ""));
   const relevant = Boolean(input.hasApplication) && (
@@ -71,7 +84,8 @@ export function resolveApplicationModificationRoute(input: ApplicationModificati
 
   let route: ApplicationModificationRoute = "facebook_manual";
   if (deviceChange) {
-    if (input.paymentConfirmed) route = "secure_device_link";
+    if (linkFailureReported && input.paymentConfirmed) route = "secure_device_link_failed";
+    else if (input.paymentConfirmed) route = "secure_device_link";
     else if (input.paymentProtected) route = "payment_confirmation_pending";
     else route = "unpaid_cancel_reapply";
   }
@@ -92,6 +106,10 @@ export function buildApplicationModificationRoutingReply(input: ApplicationModif
 }): string | null {
   const decision = resolveApplicationModificationRoute(input);
   if (!decision.relevant) return null;
+
+  if (decision.route === "secure_device_link_failed") {
+    return "واضح إن رابط تغيير الجهاز السابق ما اشتغل. ما رح أطلع روابط جديدة بشكل متكرر لنفس المشكلة، والتغيير ما بنعتبره تم. الحالة الآن تحتاج متابعة إدارية على نفس الطلب بدل إعادة تدوير الرابط.";
+  }
 
   if (decision.route === "secure_device_link") {
     if (input.secureDeviceLink) {
@@ -122,6 +140,10 @@ export function applicationModificationRoutingViolation(input: ApplicationModifi
   const decision = resolveApplicationModificationRoute(input);
   if (!decision.relevant) return null;
   const reply = normalizeLoose(input.reply);
+
+  if (decision.route === "secure_device_link_failed" && /\/change-device\?t=|رابط\s+التغيير\s+الرسمي/.test(reply)) {
+    return "broken_device_change_link_reissued";
+  }
 
   if (decision.route === "secure_device_link") {
     if (/فيسبوك|facebook/.test(reply)) return "paid_device_change_wrong_facebook_route";
