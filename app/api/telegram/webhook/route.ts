@@ -20,6 +20,11 @@ import {
   telegramMessageType,
 } from "../_lib/messages";
 import { buildTelegramOrderSummary } from "../_lib/orderSummary";
+import {
+  buildTelegramStatusReply,
+  polishTelegramReply,
+  telegramPresentationIntent,
+} from "../_lib/presentation";
 import { persistTelegramMedia, telegramMediaCustomerText } from "../_lib/media";
 import { getV3ProductionControl, isV3ProductionActive } from "../../whatsapp/webhook/_lib/v3-os/productionControl";
 import { buildV3LastResortReply, runV3ProductionLive } from "../../whatsapp/webhook/_lib/v3-os/runtimeLive";
@@ -250,6 +255,41 @@ export async function POST(request: Request) {
   }
 
   await sendBusinessTyping({ businessConnectionId, chatId: telegramChatId });
+
+  // Telegram has a small deterministic presentation layer for read-only display
+  // intents. It answers the current question first and never mutates application
+  // truth. The shared V3 runtime remains authoritative for normal conversation.
+  const presentationIntent = telegramPresentationIntent(effectiveBody);
+  if (presentationIntent && link.application_id) {
+    const presented = presentationIntent === "summary"
+      ? await buildTelegramOrderSummary(link.application_id)
+      : await buildTelegramStatusReply(link.application_id);
+
+    if (presented) {
+      const presentationTurnId = `tg-presentation:${businessConnectionId}:${message.message_id}`;
+      const sent = await sendBusinessText({
+        businessConnectionId,
+        chatId: telegramChatId,
+        text: presented,
+      });
+      await logTelegramOutgoing({
+        businessConnectionId,
+        telegramChatId,
+        telegramMessageId: sent.message_id,
+        canonicalWaId: link.canonical_wa_id,
+        applicationId: link.application_id,
+        body: presented,
+        handledByAi: false,
+        turnId: presentationTurnId,
+      });
+      return json({
+        ok: true,
+        handled: `telegram_presentation_${presentationIntent}`,
+        realActionsEnabled: false,
+      });
+    }
+  }
+
   const recentTurns = await loadCrossChannelRecentTurns(link.canonical_wa_id);
   const turnId = `tg:${businessConnectionId}:${message.message_id}`;
 
@@ -272,6 +312,7 @@ export async function POST(request: Request) {
   }
 
   if (!reply) reply = buildV3LastResortReply();
+  reply = polishTelegramReply(reply);
 
   const sent = await sendBusinessText({
     businessConnectionId,
