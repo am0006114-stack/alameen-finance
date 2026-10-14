@@ -38,7 +38,23 @@ export async function createTelegramHandoff(input: {
   if (!app?.id) throw new Error("telegram_handoff_application_not_found");
 
   const appWaId = cleanWaId(app.phone);
-  if (!appWaId || appWaId !== canonicalWaId) {
+  let contactMatches = Boolean(appWaId && appWaId === canonicalWaId);
+
+  if (!contactMatches) {
+    const { data: approvedAlias, error: aliasError } = await supabaseAdmin
+      .from("whatsapp_application_contacts")
+      .select("id")
+      .eq("application_id", app.id)
+      .eq("wa_id", canonicalWaId)
+      .eq("status", "approved")
+      .limit(1)
+      .maybeSingle();
+
+    if (aliasError) throw new Error(`telegram_handoff_alias_read:${aliasError.message}`);
+    contactMatches = Boolean(approvedAlias?.id);
+  }
+
+  if (!contactMatches) {
     throw new Error("telegram_handoff_application_contact_mismatch");
   }
 
@@ -111,6 +127,24 @@ export async function consumeTelegramHandoff(input: {
     .from("telegram_customer_links")
     .upsert(row, { onConflict: "business_connection_id,telegram_chat_id" });
   if (linkError) throw new Error(`telegram_customer_link:${linkError.message}`);
+
+  // Phase 18.5: once the secure handoff is consumed, mark the WhatsApp
+  // migration state as linked immediately. This is best-effort so a temporary
+  // telemetry/state-table issue can never invalidate a valid Telegram link.
+  try {
+    const { error: migrationStateError } = await supabaseAdmin
+      .from("whatsapp_telegram_migration_state")
+      .upsert({
+        application_id: data.application_id,
+        canonical_wa_id: String(data.canonical_wa_id || ""),
+        state: "linked",
+        linked_at: now,
+        updated_at: now,
+      }, { onConflict: "application_id" });
+    if (migrationStateError) console.error("telegram_migration_link_state_update_failed", migrationStateError.message);
+  } catch (migrationStateError) {
+    console.error("telegram_migration_link_state_update_failed", migrationStateError);
+  }
 
   return row as TelegramCustomerLink;
 }

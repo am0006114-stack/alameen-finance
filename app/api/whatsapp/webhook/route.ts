@@ -167,6 +167,7 @@ import { getV3ProductionControl, isV3ProductionActive } from "./_lib/v3-os/produ
 import { buildV3LastResortReply, runV3ProductionLive } from "./_lib/v3-os/runtimeLive";
 import { interpretTurn as interpretV3Turn } from "./_lib/v3-os/interpreter";
 import { resolveV3ProductionTruth } from "./_lib/v3-os/productionTruth";
+import { handlePostPaymentWhatsAppMigrationInbound } from "./_lib/v3-os/telegramMigration";
 import { completeHumanTurnDelivery } from "./_lib/v3-os/durableTurnJournal";
 import { saveCompactHumanMemory } from "./_lib/v3-os/compactHumanMemory";
 import { loadV3ConversationState, saveV3ConversationState } from "./_lib/v3-os/stateStore";
@@ -11273,6 +11274,21 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
         // turn. Legacy V1/V2 stacks are retained below only as historical code during
         // the consolidation window and are no longer eligible for customer traffic.
         if (v3ConversationOsActive) {
+          // Phase 18.5: once the 5 JOD file-opening payment is authoritatively
+          // confirmed, WhatsApp becomes the low-cost bridge to Telegram.
+          // Preliminary approval, continuation and the 5 JOD payment flow remain
+          // on WhatsApp. This gate owns post-payment inbound traffic, enforces the
+          // <=5 migration-message cap, suppresses repeated chat after linkage,
+          // and never enables Telegram Real Actions.
+          const telegramMigrationGate = await handlePostPaymentWhatsAppMigrationInbound({
+            waId: from,
+            sourceMessageId: message.id || null,
+          });
+          if (telegramMigrationGate.handled) {
+            await markIncomingWhatsAppMessageProcessed(message.id);
+            return;
+          }
+
           const v3TurnId = message.id || `fallback:${from}:${message.timestamp || Date.now()}`;
           const v3RecentTurns = String(preReplyMemory.conversationContext || "")
             .split(/\n+/)

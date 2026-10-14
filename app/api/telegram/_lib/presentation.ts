@@ -5,11 +5,13 @@ import {
   firstCustomerName,
 } from "../../whatsapp/webhook/_lib/v3-os/applicationJourney";
 import { hasAuthoritativePaymentConfirmation } from "../../whatsapp/webhook/_lib/v3-os/paymentTruth";
+import { fileOpeningPaymentWriterTruth } from "../../whatsapp/webhook/_lib/v3-os/paymentDestinationOverride";
 
 type TelegramApplicationSnapshot = {
   id: string;
   trackingId: string | null;
   fullName: string | null;
+  phone: string | null;
   status: string | null;
   paymentStatus: string | null;
   paymentConfirmedAt: string | null;
@@ -21,7 +23,7 @@ type TelegramApplicationSnapshot = {
   preliminaryQualifiedAt: string | null;
 };
 
-export type TelegramPresentationIntent = "status" | "summary" | null;
+export type TelegramPresentationIntent = "status" | "summary" | "payment" | null;
 
 function normalizeArabic(value: string | null | undefined) {
   return String(value || "")
@@ -46,6 +48,20 @@ export function telegramPresentationIntent(text: string | null | undefined): Tel
   ];
   if (summaryPatterns.some((pattern) => pattern.test(t))) return "summary";
 
+  const paymentPatterns = [
+    /كيف (?:ا)?دفع/,
+    /كيف (?:ا)?حول/,
+    /طريقه الدفع/,
+    /طرق الدفع/,
+    /وين (?:ا)?دفع/,
+    /وين (?:ا)?حول/,
+    /بيانات الدفع/,
+    /معلومات الدفع/,
+    /رقم (?:اورنج|orange)/,
+    /(?:cliq|كليك)/,
+  ];
+  if (paymentPatterns.some((pattern) => pattern.test(t))) return "payment";
+
   const statusPatterns = [
     /شو (?:صار|وضع) (?:ب)?(?:طلبي|الطلب)/,
     /شو (?:حاله|وضع) (?:طلبي|الطلب)/,
@@ -63,7 +79,7 @@ export async function loadTelegramApplicationSnapshot(applicationId: string | nu
 
   const { data, error } = await supabaseAdmin
     .from("applications")
-    .select("id,tracking_id,full_name,status,payment_status,payment_confirmed_at,device_id,device_name,device_price,installment_months,monthly_payment,preliminary_qualified_at")
+    .select("id,tracking_id,full_name,phone,status,payment_status,payment_confirmed_at,device_id,device_name,device_price,installment_months,monthly_payment,preliminary_qualified_at")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -73,6 +89,7 @@ export async function loadTelegramApplicationSnapshot(applicationId: string | nu
     id: String(data.id),
     trackingId: data.tracking_id || null,
     fullName: data.full_name || null,
+    phone: data.phone || null,
     status: data.status || null,
     paymentStatus: data.payment_status || null,
     paymentConfirmedAt: data.payment_confirmed_at || null,
@@ -155,6 +172,66 @@ export async function buildTelegramStatusReply(applicationId: string | null | un
   }
 
   lines.push("", "✅ الخطوة التالية:", telegramNextStep(app));
+  return lines.join("\n");
+}
+
+export async function buildTelegramPaymentReply(applicationId: string | null | undefined) {
+  const app = await loadTelegramApplicationSnapshot(applicationId);
+  if (!app) return null;
+
+  const stage = applicationJourneyStage(app as any);
+  const firstName = firstCustomerName(app as any) || "عميلنا";
+
+  if (stage === "preliminary_review") {
+    return `أهلين ${firstName} 🌟\n\nرسوم فتح الملف ما بتنطلب قبل الموافقة المبدئية. طلبك حاليًا قيد المراجعة، وما في دفع مطلوب منك هسا.`;
+  }
+
+  if (stage === "preliminary_approved_waiting_decision") {
+    return `أهلين ${firstName} 🌟\n\nعندك موافقة مبدئية ✅\nرسوم فتح الملف بتنطلب فقط بعد ما تأكد إنك حاب تستمر بالطلب. إذا حاب تكمل احكيلي «بدي أكمل».`;
+  }
+
+  if (stage === "payment_proof_pending_admin") {
+    return `أهلين ${firstName} 🌟\n\n✅ وصل الدفع مسجل على طلبك وبانتظار مراجعة الإدارة.\nما في داعي تدفع مرة ثانية أو تعيد إرسال الحوالة إلا إذا طلبنا منك.`;
+  }
+
+  if (hasAuthoritativePaymentConfirmation(app as any)) {
+    return `أهلين ${firstName} 🌟\n\n✅ رسوم فتح الملف مؤكدة إداريًا على طلبك.\nما في أي دفع إضافي مطلوب منك حاليًا، والقسط الأول مش مطلوب الآن.`;
+  }
+
+  if (stage !== "continuation_confirmed_fee_due") {
+    return `أهلين ${firstName} 🌟\n\n📌 وضع الدفع على طلبك: ${customerFacingStatusLabel(app as any)}.\nما رح أعطيك بيانات دفع إلا لما تكون خطوة رسوم فتح الملف مستحقة فعليًا على طلبك.`;
+  }
+
+  const payment = fileOpeningPaymentWriterTruth();
+  const lines = [
+    `أكيد ${firstName} 👍`,
+    "",
+    "💳 طرق الدفع المعتمدة لرسوم فتح الملف (5 دنانير فقط):",
+    "",
+    `🟠 ${payment.channels.orangeMoney.label}:`,
+    payment.channels.orangeMoney.phone,
+    "",
+    `💳 ${payment.channels.cliq.label}:`,
+    ...payment.channels.cliq.aliases.map((alias) => `- ${alias}`),
+    "",
+    `👤 اسم المستفيد: ${payment.beneficiaryName}`,
+    "",
+    "⚠️ قبل تأكيد الحوالة تأكد إن اسم المستفيد ظاهر بنفس الاسم.",
+  ];
+
+  if (app.trackingId && app.phone) {
+    lines.push(
+      "",
+      "📎 بعد التحويل ارفع الوصل من الرابط الرسمي المرتبط بطلبك:",
+      `https://www.ameenfinance.co/receipt?tracking=${encodeURIComponent(app.trackingId)}&phone=${encodeURIComponent(app.phone)}`,
+    );
+  }
+
+  lines.push(
+    "",
+    "✅ تأكيد الدفع النهائي يتم بعد مراجعة الوصل، والقسط الأول مش مطلوب الآن.",
+  );
+
   return lines.join("\n");
 }
 

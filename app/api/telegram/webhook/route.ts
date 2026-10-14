@@ -1,4 +1,3 @@
-import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getTelegramChannelConfig } from "../_lib/config";
 import type { TelegramMessage, TelegramUpdate } from "../_lib/types";
 import {
@@ -9,28 +8,18 @@ import {
   telegramLinkAiPaused,
   upsertTelegramBusinessConnection,
 } from "../_lib/handoff";
-import { readBusinessMessage, sendBusinessText, sendBusinessTyping } from "../_lib/telegramApi";
+import { readBusinessMessage, sendBusinessText } from "../_lib/telegramApi";
 import {
   attachTelegramIncomingIdentity,
   attachTelegramIncomingMedia,
-  loadCrossChannelRecentTurns,
   logTelegramIncoming,
   logTelegramOutgoing,
   telegramMessageBody,
   telegramMessageType,
 } from "../_lib/messages";
 import { buildTelegramOrderSummary } from "../_lib/orderSummary";
-import {
-  buildTelegramStatusReply,
-  polishTelegramReply,
-  telegramPresentationIntent,
-} from "../_lib/presentation";
 import { persistTelegramMedia, telegramMediaCustomerText } from "../_lib/media";
-import { getV3ProductionControl, isV3ProductionActive } from "../../whatsapp/webhook/_lib/v3-os/productionControl";
-import { buildV3LastResortReply, runV3ProductionLive } from "../../whatsapp/webhook/_lib/v3-os/runtimeLive";
-import { saveV3ConversationState } from "../../whatsapp/webhook/_lib/v3-os/stateStore";
-import { saveCompactHumanMemory } from "../../whatsapp/webhook/_lib/v3-os/compactHumanMemory";
-import { completeHumanTurnDelivery } from "../../whatsapp/webhook/_lib/v3-os/durableTurnJournal";
+import { enqueueTelegramIntelligenceHold } from "../_lib/intelligenceHold";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -38,10 +27,6 @@ export const maxDuration = 300;
 
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
-}
-
-function profileName(message: TelegramMessage) {
-  return [message.from?.first_name, message.from?.last_name].map((x) => String(x || "").trim()).filter(Boolean).join(" ") || null;
 }
 
 function isCustomerTextCapable(message: TelegramMessage) {
@@ -55,7 +40,7 @@ async function handleConnection(update: TelegramUpdate) {
 }
 
 export async function GET() {
-  return json({ ok: true, channel: "telegram_business", phase: "18.3" });
+  return json({ ok: true, channel: "telegram_business", phase: "18.5.1" });
 }
 
 export async function POST(request: Request) {
@@ -238,116 +223,29 @@ export async function POST(request: Request) {
     return json({ ok: true, handled: "non_text_without_trusted_text" });
   }
 
-  const control = await getV3ProductionControl();
-  if (!isV3ProductionActive(control)) {
-    const text = "وصلتني رسالتك وهي محفوظة على نفس طلبك. نظام المحادثة تحت صيانة قصيرة حاليًا، وما رح أعطيك معلومة غير مؤكدة.";
-    const sent = await sendBusinessText({ businessConnectionId, chatId: telegramChatId, text });
-    await logTelegramOutgoing({
+  try {
+    const hold = await enqueueTelegramIntelligenceHold({
       businessConnectionId,
       telegramChatId,
-      telegramMessageId: sent.message_id,
       canonicalWaId: link.canonical_wa_id,
       applicationId: link.application_id,
-      body: text,
-      handledByAi: false,
+      latestMessageId: message.message_id,
+      latestUpdateId: update.update_id,
     });
-    return json({ ok: true, handled: "v3_not_active" });
-  }
 
-  await sendBusinessTyping({ businessConnectionId, chatId: telegramChatId });
-
-  // Telegram has a small deterministic presentation layer for read-only display
-  // intents. It answers the current question first and never mutates application
-  // truth. The shared V3 runtime remains authoritative for normal conversation.
-  const presentationIntent = telegramPresentationIntent(effectiveBody);
-  if (presentationIntent && link.application_id) {
-    const presented = presentationIntent === "summary"
-      ? await buildTelegramOrderSummary(link.application_id)
-      : await buildTelegramStatusReply(link.application_id);
-
-    if (presented) {
-      const presentationTurnId = `tg-presentation:${businessConnectionId}:${message.message_id}`;
-      const sent = await sendBusinessText({
-        businessConnectionId,
-        chatId: telegramChatId,
-        text: presented,
-      });
-      await logTelegramOutgoing({
-        businessConnectionId,
-        telegramChatId,
-        telegramMessageId: sent.message_id,
-        canonicalWaId: link.canonical_wa_id,
-        applicationId: link.application_id,
-        body: presented,
-        handledByAi: false,
-        turnId: presentationTurnId,
-      });
-      return json({
-        ok: true,
-        handled: `telegram_presentation_${presentationIntent}`,
-        realActionsEnabled: false,
-      });
-    }
-  }
-
-  const recentTurns = await loadCrossChannelRecentTurns(link.canonical_wa_id);
-  const turnId = `tg:${businessConnectionId}:${message.message_id}`;
-
-  let run: Awaited<ReturnType<typeof runV3ProductionLive>> | null = null;
-  let reply = "";
-  try {
-    run = await runV3ProductionLive({
-      waId: link.canonical_wa_id,
-      turnId,
-      customerText: effectiveBody,
-      recentTurns,
-      profileName: profileName(message),
-      // Separate cutover safety guard: Telegram mutations remain off until
-      // TELEGRAM_REAL_ACTIONS_ENABLED=true AND the existing V3 control allows them.
-      realActionsEnabled: config.realActionsEnabled && control.realActionsEnabled,
+    return json({
+      ok: true,
+      handled: "held_for_humanized_intelligence",
+      holdSeconds: 20,
+      dueAt: hold.dueAt,
+      realActionsEnabled: false,
     });
-    reply = String(run.reply || "").trim();
   } catch (error) {
-    console.error("telegram_v3_runtime_failed", { turnId, error });
+    console.error("telegram_intelligence_hold_enqueue_failed", error);
+    // Do not fall back to immediate model execution. That would defeat the
+    // 20-second comprehension window and can multiply AI/Vercel spend. The
+    // message is already durably stored in telegram_messages and can be retried
+    // after the queue/schema is repaired.
+    return json({ ok: true, deferred: "intelligence_hold_unavailable" });
   }
-
-  if (!reply) reply = buildV3LastResortReply();
-  reply = polishTelegramReply(reply);
-
-  const sent = await sendBusinessText({
-    businessConnectionId,
-    chatId: telegramChatId,
-    text: reply,
-  });
-
-  await logTelegramOutgoing({
-    businessConnectionId,
-    telegramChatId,
-    telegramMessageId: sent.message_id,
-    canonicalWaId: link.canonical_wa_id,
-    applicationId: link.application_id,
-    body: reply,
-    handledByAi: Boolean(run),
-    turnId,
-  });
-
-  if (run?.stateAfter) {
-    await saveV3ConversationState(run.stateAfter);
-  }
-  if (run?.humanOs?.memoryAfter) {
-    await saveCompactHumanMemory(link.canonical_wa_id, run.humanOs.memoryAfter);
-  }
-  if (run?.humanOs) {
-    await completeHumanTurnDelivery({
-      turnId: run.humanOs.journalTurnId,
-      providerMessageId: `telegram:${sent.message_id}`,
-      memoryAfter: run.humanOs.memoryAfter,
-    });
-  }
-
-  return json({
-    ok: true,
-    handled: "v3_reply",
-    realActionsEnabled: config.realActionsEnabled && control.realActionsEnabled,
-  });
 }

@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { isAdminLoggedIn } from "@/lib/adminAuth";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { currentFileOpeningPaymentRule } from "@/app/api/whatsapp/webhook/_lib/v3-os/paymentDestinationOverride";
+import { sendPostPaymentTelegramMigrationAfterConfirmation } from "@/app/api/whatsapp/webhook/_lib/v3-os/telegramMigration";
 import { addOneCalendarMonthOperational, isIphone18Device, isOperationalDate, jordanDateKey } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar";
 
 type PageProps = {
@@ -1129,6 +1130,20 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
     if (updateError) {
       console.error("Failed to update application status:", updateError);
       redirect(`/admin/applications/${applicationId}?status=error`);
+    }
+
+    if (nextPaymentStatus === "confirmed") {
+      try {
+        await sendPostPaymentTelegramMigrationAfterConfirmation({
+          applicationId,
+          sourceKey: `admin-payment-confirmed:${applicationId}:${updatePayload.payment_confirmed_at || "confirmed"}`,
+        });
+      } catch (migrationError) {
+        // Payment confirmation itself is authoritative and must never be rolled
+        // back because a transport handoff failed. The next customer WhatsApp
+        // inbound will retry the guarded Telegram migration path.
+        console.error("post_payment_telegram_migration_trigger_failed", migrationError);
+      }
     }
 
     if (nextStatus === "approved" && String(app.status || "").toLowerCase() !== "approved") {

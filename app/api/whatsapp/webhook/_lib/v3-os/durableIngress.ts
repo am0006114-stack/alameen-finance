@@ -3,6 +3,8 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { WhatsAppMessage, WhatsAppWebhookBody } from "../types";
 import { compareConversationBurstRows, conversationBurstAuthorityEligible, type ConversationBurstAuthorityRow } from "./conversationBurstAuthority";
 
+const HUMANIZED_INTELLIGENCE_HOLD_MS = 20_000;
+
 type DurableIngressJobInsert = {
   event_key: string;
   event_kind: "message";
@@ -58,7 +60,9 @@ function oneEventPayload(input: {
 
 export function buildDurableIngressJobs(body: WhatsAppWebhookBody): DurableIngressJobInsert[] {
   const rows: DurableIngressJobInsert[] = [];
-  const nowIso = new Date().toISOString();
+  const now = new Date();
+  const nowIso = now.toISOString();
+  const holdUntilIso = new Date(now.getTime() + HUMANIZED_INTELLIGENCE_HOLD_MS).toISOString();
 
   for (const entry of body.entry || []) {
     for (const change of entry.changes || []) {
@@ -78,7 +82,7 @@ export function buildDurableIngressJobs(body: WhatsAppWebhookBody): DurableIngre
           incoming_message_id: messageId || null,
           payload: oneEventPayload({ root: body, entry, change, message }),
           status: "queued",
-          next_attempt_at: nowIso,
+          next_attempt_at: holdUntilIso,
         });
       }
 
@@ -121,6 +125,24 @@ export async function enqueueDurableIngressWebhook(body: WhatsAppWebhookBody): P
     const { error } = await supabaseAdmin
       .from("whatsapp_live_ingress_jobs")
       .upsert(rows, { onConflict: "event_key", ignoreDuplicates: true });
+
+    // Phase 18.5.1: every new customer bubble extends the quiet window for
+    // that WhatsApp identity to 20 seconds from the newest message. No Vercel
+    // function sleeps during this period; the durable queue simply remains not due.
+    const dueByWaId = new Map();
+    for (const row of rows) {
+      if (row.wa_id) dueByWaId.set(row.wa_id, row.next_attempt_at);
+    }
+    for (const [waId, dueAt] of dueByWaId.entries()) {
+      const { error: postponeError } = await supabaseAdmin
+        .from("whatsapp_live_ingress_jobs")
+        .update({ next_attempt_at: dueAt, updated_at: new Date().toISOString() })
+        .eq("wa_id", waId)
+        .in("status", ["queued", "retry_wait"]);
+      if (postponeError) {
+        console.error("humanized intelligence hold postpone failed", { waId, error: postponeError.message });
+      }
+    }
 
     if (error) {
       const code = String((error as any)?.code || "");
