@@ -33,6 +33,16 @@ type Reservation = {
   state: string;
 };
 
+type MigrationSourceMessage = {
+  body?: string | null;
+  message_type?: string | null;
+};
+
+type PostPaymentWhatsAppOwnership = {
+  owner: "whatsapp" | "telegram_migration";
+  reason: string;
+};
+
 function canonicalWaId(value: string | null | undefined) {
   return normalizeWhatsAppToSend(String(value || "").trim());
 }
@@ -139,6 +149,188 @@ async function loadPaidApplicationForWhatsApp(waId: string): Promise<MigrationAp
   }
 
   return ((apps || []).find((app: any) => paymentAuthoritativelyConfirmed(app)) || null) as MigrationApplication | null;
+}
+
+function normalizeOwnershipText(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[ؤ]/g, "و")
+    .replace(/[ئ]/g, "ي")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function includesAny(value: string, needles: string[]) {
+  return needles.some((needle) => value.includes(needle));
+}
+
+export function resolvePostPaymentWhatsAppOwnership(input: MigrationSourceMessage): PostPaymentWhatsAppOwnership {
+  const messageType = String(input.message_type || "").trim().toLowerCase();
+  const text = normalizeOwnershipText(input.body);
+
+  if (messageType && !["text", "interactive", "button"].includes(messageType)) {
+    return { owner: "whatsapp", reason: "critical_fallback_non_text" };
+  }
+
+  if (!text) {
+    return { owner: "whatsapp", reason: "critical_fallback_empty_text" };
+  }
+
+  const telegramRefusal = [
+    "ما بدي تلجرام",
+    "ما بدي تليجرام",
+    "ما بدي تيليجرام",
+    "ما بدي تيليغرام",
+    "ما بدي تليغرام",
+    "ما بدخل روابط",
+    "ما بفتح روابط",
+    "مش داخل روابط",
+    "مش بفتح روابط",
+    "بكمل هون",
+    "اكمل هون",
+    "بدي اكمل هون",
+    "بدي اكمل واتساب",
+    "بدي اكمل عالواتساب",
+    "بدي اكمل على الواتساب",
+  ];
+  if (includesAny(text, telegramRefusal)) {
+    return { owner: "whatsapp", reason: "critical_fallback_telegram_refused" };
+  }
+
+  const explicitTelegramRequest = [
+    "رابط تلجرام",
+    "رابط تليجرام",
+    "رابط تيليجرام",
+    "رابط تيليغرام",
+    "رابط تليغرام",
+    "ابعث رابط تلجرام",
+    "ابعث رابط تليجرام",
+    "ابعث رابط تيليجرام",
+    "ابعث رابط تيليغرام",
+    "ابعث رابط تليغرام",
+    "شو رابط تلجرام",
+    "شو رابط تليجرام",
+    "شو رابط تيليجرام",
+    "شو رابط تيليغرام",
+    "شو رابط تليغرام",
+  ];
+  if (includesAny(text, explicitTelegramRequest)) {
+    return { owner: "telegram_migration", reason: "explicit_telegram_request" };
+  }
+
+  const cancellationOrRefund = [
+    "استرداد",
+    "مسترد",
+    "رجعلي",
+    "رجعولي",
+    "رجعوا",
+    "ارجعلي",
+    "ارجعولي",
+    "الغاء",
+    "الغي",
+    "الغي الطلب",
+    "الغ الطلب",
+    "وقف الطلب",
+    "اوقف الطلب",
+    "ما بدي اكمل",
+  ];
+  if (includesAny(text, cancellationOrRefund)) {
+    return { owner: "whatsapp", reason: "critical_fallback_cancel_or_refund" };
+  }
+
+  const complaintOrEscalation = [
+    "شكوي",
+    "محامي",
+    "نصاب",
+    "احتيال",
+    "حرامي",
+    "سرق",
+    "ما بترد",
+    "ليش ما بترد",
+    "ما في مهنيه",
+    "مش مهنيه",
+    "جرائم الكترونيه",
+    "حمايه المستهلك",
+    "بفضح",
+    "بنشر عليكم",
+  ];
+  if (includesAny(text, complaintOrEscalation)) {
+    return { owner: "whatsapp", reason: "critical_fallback_complaint" };
+  }
+
+  const statusOrContact = [
+    "شو صار",
+    "حاله طلبي",
+    "حاله الطلب",
+    "وين وصل",
+    "وين طلبي",
+    "معاملتي",
+    "متابعه الطلب",
+    "متابعه معامله",
+    "متابعه الحاله",
+    "رقم هاتف",
+    "رقمكم",
+    "اتواصل",
+    "تواصل معكم",
+    "اتصال",
+    "موظف",
+    "خدمه العملاء",
+  ];
+  if (includesAny(text, statusOrContact)) {
+    return { owner: "whatsapp", reason: "critical_fallback_status_or_contact" };
+  }
+
+  const transactionalOrAction = [
+    "دفعت",
+    "دفع",
+    "حولت",
+    "تحويل",
+    "وصل الدفع",
+    "ايصال",
+    "رسوم",
+    "5 دنانير",
+    "٥ دنانير",
+    "الخمس دنانير",
+    "غير الجهاز",
+    "تغيير الجهاز",
+    "عدل",
+    "تعديل",
+  ];
+  if (includesAny(text, transactionalOrAction)) {
+    return { owner: "whatsapp", reason: "critical_fallback_transaction_or_action" };
+  }
+
+  return { owner: "telegram_migration", reason: "routine_post_payment_migration" };
+}
+
+async function loadMigrationSourceMessage(
+  waId: string,
+  sourceMessageId: string | null | undefined,
+): Promise<MigrationSourceMessage | null> {
+  const canonical = canonicalWaId(waId);
+  const messageId = String(sourceMessageId || "").trim();
+  if (!canonical || !messageId) return null;
+
+  const { data, error } = await supabaseAdmin
+    .from("whatsapp_messages")
+    .select("body,message_type")
+    .eq("wa_id", canonical)
+    .eq("message_id", messageId)
+    .eq("direction", "incoming")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("telegram_migration_source_message_lookup_failed", error.message);
+    return null;
+  }
+
+  return (data || null) as MigrationSourceMessage | null;
 }
 
 async function loadTelegramLink(applicationId: string, waId: string) {
@@ -468,6 +660,16 @@ export async function handlePostPaymentWhatsAppMigrationInbound(input: {
 
   const app = await loadPaidApplicationForWhatsApp(canonical);
   if (!app) return { handled: false, sent: false, suppressed: false, reason: "no_authoritatively_paid_application" };
+
+  const sourceMessage = await loadMigrationSourceMessage(canonical, input.sourceMessageId);
+  if (!sourceMessage) {
+    return { handled: false, sent: false, suppressed: true, reason: "critical_fallback_source_message_unavailable" };
+  }
+
+  const ownership = resolvePostPaymentWhatsAppOwnership(sourceMessage);
+  if (ownership.owner === "whatsapp") {
+    return { handled: false, sent: false, suppressed: true, reason: ownership.reason };
+  }
 
   return prepareMigrationSend({
     app,
