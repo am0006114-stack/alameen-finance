@@ -212,6 +212,13 @@ export function shouldExplainCommercialStep(input: { state: ConversationState; t
   if (stage !== "preliminary_approved_waiting_decision") return false;
   if (asksFeeReason(input.turn)) return false;
 
+  // A strong, explicit continuation decision after authoritative preliminary
+  // approval is the customer's decision itself, not a request to see the same
+  // disclosure screen again. Let runtime persist continuation and return the
+  // existing protected 5-JOD payment step in this same turn. Bare acknowledgments
+  // such as نعم/تمام still require scoped disclosure context.
+  if (input.explicitContinuationIntent && strongCommercialContinuationDecisionText(input.turn.rawText)) return false;
+
   // Status / next-step questions after preliminary approval are the decision screen.
   // They must never decay into a stale status answer + tracking link.
   if (!input.explicitContinuationIntent && asksStatusOrNextStep(input.turn)) return true;
