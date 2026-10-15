@@ -48,6 +48,24 @@ export function telegramPresentationIntent(text: string | null | undefined): Tel
   ];
   if (summaryPatterns.some((pattern) => pattern.test(t))) return "summary";
 
+  const statusPatterns = [
+    /شو (?:صار|وضع) (?:ب)?(?:طلبي|الطلب|طلب)/,
+    /شو (?:حاله|وضع) (?:طلبي|الطلب|طلب)/,
+    /(?:وين|لوين) (?:وصل|صار) (?:طلبي|الطلب|طلب)/,
+    /(?:حاله|وضع) (?:طلبي|الطلب|طلب)/,
+    /(?:طلبي|الطلب|طلب) شو (?:صار|وضعه|حالته)/,
+    /(?:متي|امتي).*?(?:موافقه|نتيجه|حاله).*?(?:طلبي|الطلب|طلب)?/,
+    /قديش .*?(?:وقت|بدو وقت)/,
+    /(?:صارلي|صرلي) .*?(?:مقدم|منتظر|مستني)/,
+    /هل .*?(?:الغيت|انلغى|انلغي|ملغي).*?(?:طلبي|الطلب|طلب)/,
+    /(?:طلبي|الطلب|طلب).*?(?:ملغي|انلغى|انلغي)/,
+    /شو الحل .*?(?:النتيجه|الموافقه|الطلب|طلب)/,
+    /شو صار .*?(?:استرداد|استرجاع|المبلغ)/,
+    /(?:حاله|وضع) .*?(?:الاسترداد|الاسترجاع|استرداد|استرجاع)/,
+    /وين وصل .*?(?:الاسترداد|الاسترجاع|استرداد|استرجاع)/,
+  ];
+  if (statusPatterns.some((pattern) => pattern.test(t))) return "status";
+
   const paymentPatterns = [
     /كيف (?:ا)?دفع/,
     /كيف (?:ا)?حول/,
@@ -61,15 +79,6 @@ export function telegramPresentationIntent(text: string | null | undefined): Tel
     /(?:cliq|كليك)/,
   ];
   if (paymentPatterns.some((pattern) => pattern.test(t))) return "payment";
-
-  const statusPatterns = [
-    /شو (?:صار|وضع) (?:ب)?(?:طلبي|الطلب)/,
-    /شو (?:حاله|وضع) (?:طلبي|الطلب)/,
-    /(?:وين|لوين) (?:وصل|صار) (?:طلبي|الطلب)/,
-    /(?:حاله|وضع) (?:طلبي|الطلب)/,
-    /(?:طلبي|الطلب) شو (?:صار|وضعه|حالته)/,
-  ];
-  if (statusPatterns.some((pattern) => pattern.test(t))) return "status";
 
   return null;
 }
@@ -245,6 +254,24 @@ export function polishTelegramReply(value: string | null | undefined) {
     .trim();
 
   if (!text) return text;
+
+  const channelContradiction = [
+    /واتساب هو القناة الرسمية الوحيدة/i,
+    /(?:telegram|تيليغرام|تليغرام|تلغرام|تلجرام)\s+(?:مش|ليس)\s+قناة\s+معتمدة/i,
+    /خلي(?:كي|ك)?\s+على\s+واتساب/i,
+    /ما\s+ترجع(?:ي)?\s+تبع(?:ت|تي).*?(?:telegram|تيليغرام|تليغرام|تلغرام|تلجرام)/i,
+  ].some((pattern) => pattern.test(text));
+
+  if (channelContradiction) {
+    return [
+      "أنت الآن على Telegram المرتبط بنفس طلبك ✅",
+      "",
+      "واتساب بيظل للتنبيهات والمتابعة الأساسية، والمتابعة التفصيلية بتكمل هون على Telegram.",
+      "ما تحتاج ترجع لواتساب حتى نكمل نفس الطلب.",
+    ].join("\n");
+  }
+
+  text = text.replace(/من رسالة واتساب/gi, "من رسالة المحادثة");
 
   const replacements: Array<[RegExp, string]> = [
     [/^Orange Money:\s*$/gim, "💳 Orange Money:"],

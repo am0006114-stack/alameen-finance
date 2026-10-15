@@ -9,6 +9,7 @@ import {
   buildTelegramStatusReply,
   polishTelegramReply,
   telegramPresentationIntent,
+  loadTelegramApplicationSnapshot,
 } from "./presentation";
 import { sendBusinessText, sendBusinessTyping } from "./telegramApi";
 import { getV3ProductionControl, isV3ProductionActive } from "../../whatsapp/webhook/_lib/v3-os/productionControl";
@@ -197,8 +198,9 @@ async function processOne(job: ClaimedHoldJob) {
     });
 
     // Known read-only facts bypass model reasoning entirely. This keeps payment,
-    // order summary and current status grounded in authoritative application truth.
-    const presentationIntent = rows.length === 1 ? telegramPresentationIntent(customerText) : null;
+    // order summary and current status grounded in the application_id already
+    // authenticated by the Telegram handoff instead of rediscovering the order.
+    const presentationIntent = telegramPresentationIntent(customerText);
     if (presentationIntent && link.application_id) {
       const presented = presentationIntent === "summary"
         ? await buildTelegramOrderSummary(link.application_id)
@@ -229,6 +231,12 @@ async function processOne(job: ClaimedHoldJob) {
     }
 
     const recentTurns = await loadCrossChannelRecentTurns(link.canonical_wa_id);
+    const linkedSnapshot = link.application_id
+      ? await loadTelegramApplicationSnapshot(link.application_id)
+      : null;
+    const groundedCustomerText = linkedSnapshot?.trackingId
+      ? `${customerText}\n\nمرجع الطلب الحالي المرتبط بهذه المحادثة: ${linkedSnapshot.trackingId}`
+      : customerText;
     const turnId = `tg-hold:${job.business_connection_id}:${job.latest_message_id || job.id}`;
     const profileName = rows.map((row) => normalizeHeldText(row.customer_name)).find(Boolean) || null;
 
@@ -238,7 +246,7 @@ async function processOne(job: ClaimedHoldJob) {
       run = await runV3ProductionLive({
         waId: link.canonical_wa_id,
         turnId,
-        customerText,
+        customerText: groundedCustomerText,
         recentTurns,
         profileName,
         realActionsEnabled: config.realActionsEnabled && control.realActionsEnabled,
