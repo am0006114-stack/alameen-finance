@@ -14,7 +14,7 @@ function cleanWaId(value: string | null | undefined) {
 }
 
 function tokenFromText(value: string | null | undefined) {
-  const match = String(value || "").match(/\b(tg1_[A-Za-z0-9_-]{20,})\b/);
+  const match = String(value || "").match(/(?:^|[^A-Za-z0-9_-])(tg1_[A-Za-z0-9_-]{20,})(?![A-Za-z0-9_-])/);
   return match?.[1] || null;
 }
 
@@ -109,7 +109,21 @@ export async function consumeTelegramHandoff(input: {
     .maybeSingle();
 
   if (error) throw new Error(`telegram_handoff_consume:${error.message}`);
-  if (!data) return null;
+  if (!data) {
+    const { data: tokenState, error: tokenStateError } = await supabaseAdmin
+      .from("telegram_handoff_tokens")
+      .select("used_at,expires_at")
+      .eq("token_hash", tokenHash)
+      .maybeSingle();
+
+    if (tokenStateError) throw new Error(`telegram_handoff_state_read:${tokenStateError.message}`);
+    if (!tokenState) throw new Error("telegram_handoff_invalid");
+    if (tokenState.used_at) throw new Error("telegram_handoff_already_used");
+
+    const expiry = Date.parse(String(tokenState.expires_at || ""));
+    if (Number.isFinite(expiry) && expiry <= Date.now()) throw new Error("telegram_handoff_expired");
+    throw new Error("telegram_handoff_unavailable");
+  }
 
   const row = {
     business_connection_id: input.businessConnectionId,
