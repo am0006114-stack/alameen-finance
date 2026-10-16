@@ -51,7 +51,9 @@ export function resolvePaymentClosingKind(input: {
   const mismatch = /(?:مختلف|مش\s+نفس|مو\s+نفس|غير\s+الاسم|اسم\s+غير|طلع\s+غير|طلع\s+اسم\s+ثاني|ما\s+طلع\s+نفس)/.test(q);
   if (beneficiaryContext && mismatch) return "beneficiary_mismatch";
 
-  const claimedPaid = /(?:^|\s)(?:حولت|دفعت|تم\s+التحويل|عملت\s+تحويل|بعثت\s+المبلغ|ارسلت\s+المبلغ)(?:\s|$)/.test(q);
+  const paymentClaimNegated = /(?:^|\s)(?:ما|مش|لسا\s+ما|لسه\s+ما|لم)\s+(?:حولت|دفعت|عملت\s+تحويل|بعثت\s+المبلغ|ارسلت\s+المبلغ)(?:\s|$)/.test(q);
+  const claimedPaid = !paymentClaimNegated
+    && /(?:^|\s)(?:حولت|دفعت|تم\s+التحويل|عملت\s+تحويل|بعثت\s+المبلغ|ارسلت\s+المبلغ)(?:\s|$)/.test(q);
   if (claimedPaid) return "claimed_paid";
 
   const beneficiaryWhy = beneficiaryContext
