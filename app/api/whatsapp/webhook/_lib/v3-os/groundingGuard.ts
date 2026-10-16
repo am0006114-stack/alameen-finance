@@ -4,6 +4,7 @@ import {
   IPHONE18_PRODUCTS,
   isIphone18Question,
 } from "./businessTruthRegistry";
+import { buildPaymentClosingReply, paymentClosingReplyCovers, resolvePaymentClosingKind } from "./paymentClosingGuard";
 import { normalizeArabic } from "./text";
 import type { InterpretedTurn, TruthBundle } from "./types";
 
@@ -71,6 +72,15 @@ function iphone18GroundingViolation(question: string, reply: string) {
 export function enforceGroundedBusinessEgress(input: { reply: string; turn: InterpretedTurn; truth: TruthBundle }): GroundingGuardResult {
   const reply = String(input.reply || "").trim();
   if (!reply) return { pass: true, reply };
+
+  const paymentClosingKind = resolvePaymentClosingKind({ customerText: input.turn.rawText, truth: input.truth });
+  if (paymentClosingKind !== "none" && !paymentClosingReplyCovers({ kind: paymentClosingKind, reply, truth: input.truth })) {
+    return {
+      pass: false,
+      reason: `payment_closing_${paymentClosingKind}_misaligned`,
+      replacement: buildPaymentClosingReply({ kind: paymentClosingKind, truth: input.truth }) || reply,
+    };
+  }
 
   if (/(?:وصلني|وصلتني|وصلت)\s+(?:الصوره|الصورة|المرفق|الملف|الفيديو|الرسالة الصوتية)/i.test(reply) && !actualMediaEvent(input.turn)) {
     return {
