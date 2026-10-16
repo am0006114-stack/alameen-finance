@@ -86,6 +86,79 @@ function buildCombinedCustomerText(rows: HeldMessageRow[]) {
   ].join("\n");
 }
 
+function latestHeldCustomerText(rows: HeldMessageRow[]) {
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const text = normalizeHeldText(rows[i]?.transcript || rows[i]?.body);
+    if (text) return text;
+  }
+  return "";
+}
+
+function normalizeConversationSignal(value: string | null | undefined) {
+  return normalizeHeldText(value)
+    .toLowerCase()
+    .replace(/[أإآ]/g, "ا")
+    .replace(/ى/g, "ي")
+    .replace(/ة/g, "ه")
+    .replace(/[ًٌٍَُِّْـ]/g, "")
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function telegramSocialClosureText(value: string | null | undefined) {
+  const raw = normalizeHeldText(value);
+  const q = normalizeConversationSignal(value);
+  if (!q || /[؟?]/.test(raw)) return false;
+  if (/(?:متى|امتى|ليش|كيف|شو|وين|اين|قديش|كم|هل|بدي|اريد|حاب|الغاء|استرداد|استرجاع|دفع|حول|حواله|طلب|مشكلتي|بس\s)/.test(q)) return false;
+  return /^(?:تمام(?:\s+شكرا)?|شكرا|يسلمو|يعطيك\s+العافيه|الله\s+يعطيكم\s+العافيه|مو\s+مشكله(?:\s+بستن[اي].*)?|مش\s+مشكله(?:\s+بستن[اي].*)?|بستن[اي](?:\s+خير\s+منكم)?|ان\s+شاء\s+الله(?:\s+خير)?|خلص\s+بستن[اي]|خير\s+ان\s+شاء\s+الله)$/.test(q);
+}
+
+function lowInformationTelegramTurn(value: string | null | undefined) {
+  const q = normalizeConversationSignal(value);
+  if (!q) return true;
+  if (q.length > 30) return false;
+  return /^(?:تمام|طيب|اه|نعم|شكرا|اوك|اوكي|هه|هههه|رجاء|؟؟؟?|\?+|شو\s+صار|متى|امتى)$/.test(q);
+}
+
+function replyTokens(value: string | null | undefined) {
+  return normalizeConversationSignal(value).split(/\s+/).filter(Boolean);
+}
+
+function telegramNearDuplicate(a: string | null | undefined, b: string | null | undefined) {
+  const aa = replyTokens(a);
+  const bb = replyTokens(b);
+  if (!aa.length || !bb.length) return false;
+  const na = aa.join(" ");
+  const nb = bb.join(" ");
+  if (na === nb) return true;
+  if (aa.length < 7 || bb.length < 7) return false;
+  const sa = new Set(aa);
+  const sb = new Set(bb);
+  let common = 0;
+  for (const token of sa) if (sb.has(token)) common++;
+  const union = new Set([...sa, ...sb]).size || 1;
+  const lengthRatio = Math.min(aa.length, bb.length) / Math.max(aa.length, bb.length);
+  return common / union >= 0.72 && lengthRatio >= 0.68;
+}
+
+async function loadLastTelegramOutgoing(job: ClaimedHoldJob) {
+  const { data, error } = await supabaseAdmin
+    .from("telegram_messages")
+    .select("body,created_at")
+    .eq("business_connection_id", job.business_connection_id)
+    .eq("telegram_chat_id", job.telegram_chat_id)
+    .eq("direction", "outgoing")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) {
+    console.error("telegram_last_outgoing_read_failed", error.message);
+    return null;
+  }
+  return data || null;
+}
+
 async function loadHeldMessages(job: ClaimedHoldJob) {
   const from = job.window_started_at || new Date(Date.now() - 60_000).toISOString();
   const { data, error } = await supabaseAdmin
@@ -160,6 +233,7 @@ async function processOne(job: ClaimedHoldJob) {
 
     const rows = await loadHeldMessages(job);
     const customerText = buildCombinedCustomerText(rows);
+    const latestCustomerText = latestHeldCustomerText(rows);
     if (!customerText) {
       await completeHold(job.id);
       return { id: job.id, status: "skipped_empty" };
@@ -167,6 +241,31 @@ async function processOne(job: ClaimedHoldJob) {
 
     if (!(await holdStillCurrent(job))) {
       return { id: job.id, status: "superseded_before_reasoning" };
+    }
+
+    // The latest customer bubble owns social closure. Never let an older status
+    // question inside the same 20-second comprehension window resurrect itself
+    // after the customer has already closed the exchange naturally.
+    if (telegramSocialClosureText(latestCustomerText)) {
+      const text = "تمام، إن شاء الله خير 🌟 ما رح أعيد عليك نفس التفاصيل؛ إذا صار في تحديث جديد على طلبك بوضحلك الجديد فقط من نفس المحادثة.";
+      if (!(await holdStillCurrent(job))) return { id: job.id, status: "superseded_before_social_closure" };
+      const sent = await sendBusinessText({
+        businessConnectionId: job.business_connection_id,
+        chatId: job.telegram_chat_id,
+        text,
+      });
+      await logTelegramOutgoing({
+        businessConnectionId: job.business_connection_id,
+        telegramChatId: job.telegram_chat_id,
+        telegramMessageId: sent.message_id,
+        canonicalWaId: link.canonical_wa_id,
+        applicationId: link.application_id,
+        body: text,
+        handledByAi: false,
+        turnId: `tg-hold-social:${job.id}`,
+      });
+      await completeHold(job.id);
+      return { id: job.id, status: "social_closure" };
     }
 
     const control = await getV3ProductionControl();
@@ -197,18 +296,23 @@ async function processOne(job: ClaimedHoldJob) {
       chatId: job.telegram_chat_id,
     });
 
-    // Known read-only facts bypass model reasoning entirely. This keeps payment,
-    // order summary and current status grounded in the application_id already
-    // authenticated by the Telegram handoff instead of rediscovering the order.
-    const presentationIntent = telegramPresentationIntent(customerText);
+    // Direct presentation intent belongs to the latest bubble only. Older
+    // questions remain context for V3, but cannot force a new status/summary
+    // response after the customer has moved on.
+    const presentationIntent = telegramPresentationIntent(latestCustomerText || customerText);
     if (presentationIntent && link.application_id) {
-      const presented = presentationIntent === "summary"
+      let presented = presentationIntent === "summary"
         ? await buildTelegramOrderSummary(link.application_id)
         : presentationIntent === "payment"
           ? await buildTelegramPaymentReply(link.application_id)
           : await buildTelegramStatusReply(link.application_id);
 
       if (presented) {
+        const previous = await loadLastTelegramOutgoing(job);
+        if (presentationIntent === "status" && telegramNearDuplicate(presented, previous?.body)) {
+          presented = "ما ظهر تحديث جديد على طلبك لحد الآن، ولسا على نفس الحالة السابقة. إذا تغيرت الحالة بعطيك الجديد فقط بدون ما أعيد ملخص الطلب كامل.";
+        }
+
         if (!(await holdStillCurrent(job))) return { id: job.id, status: "superseded_before_presentation" };
         const sent = await sendBusinessText({
           businessConnectionId: job.business_connection_id,
@@ -258,6 +362,11 @@ async function processOne(job: ClaimedHoldJob) {
 
     if (!reply) reply = buildV3LastResortReply();
     reply = polishTelegramReply(reply);
+
+    const previous = await loadLastTelegramOutgoing(job);
+    if (telegramNearDuplicate(reply, previous?.body) && lowInformationTelegramTurn(latestCustomerText)) {
+      reply = "وصلتني. ما عندي تحديث جديد أضيفه على آخر جواب حاليًا، فما رح أعيد نفس الكلام عليك.";
+    }
 
     // A new customer bubble arriving while the model was reasoning invalidates
     // this reply. The newer 20-second window owns the next response.
