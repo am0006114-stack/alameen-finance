@@ -115,6 +115,86 @@ function telegramSocialClosureText(value: string | null | undefined) {
   return /^(?:تمام(?:\s+شكرا)?|شكرا|يسلمو|يعطيك\s+العافيه|الله\s+يعطيكم\s+العافيه|مو\s+مشكله(?:\s+بستن[اي].*)?|مش\s+مشكله(?:\s+بستن[اي].*)?|بستن[اي](?:\s+خير\s+منكم)?|ان\s+شاء\s+الله(?:\s+خير)?|خلص\s+بستن[اي]|خير\s+ان\s+شاء\s+الله)$/.test(q);
 }
 
+function telegramTrustConcernText(value: string | null | undefined) {
+  const q = normalizeConversationSignal(value);
+  if (!q) return false;
+  if (/(?:^|\s)(?:نصب|نصاب|نصابين|احتيال|محتال|محتالين)(?:\s|$)/.test(q)) return true;
+  return /(?:ما\s+بطمن|مش\s+بطمن|مش\s+مطمن|مش\s+واثق|ما\s+بثق|مش\s+بثق|شو\s+بضمن|كيف\s+اضمن|بدي\s+اطمن|بدي\s+اتأكد|بدي\s+اتاكد)/.test(q);
+}
+
+function telegramDelayComplaintText(value: string | null | undefined) {
+  const q = normalizeConversationSignal(value);
+  if (!q) return false;
+  return /(?:(?:20|٢٠|عشرين)\s*يوم|(?:صارلي|صرلي)\s+.*?يوم|تاخير|تأخير|تاخر|تأخر|المعامله\s+ما\s+بتضل|طولت|مطوله)/.test(q);
+}
+
+function daysSince(value: string | null | undefined) {
+  const ts = Date.parse(String(value || ""));
+  if (!Number.isFinite(ts)) return null;
+  return Math.max(0, Math.floor((Date.now() - ts) / 86_400_000));
+}
+
+async function buildTelegramTrustReply(input: {
+  applicationId: string;
+  profileName?: string | null;
+  customerText?: string | null;
+}) {
+  const app = await loadTelegramApplicationSnapshot(input.applicationId);
+  if (!app) return null;
+
+  const applicationName = normalizeHeldText(app.fullName).split(/\s+/).filter(Boolean)[0] || "عميلنا";
+  const statusReply = await buildTelegramStatusReply(input.applicationId);
+  const statusBody = statusReply
+    ? statusReply.replace(/^أهلين[^\n]*\n\n?/, "").trim()
+    : null;
+  const paymentConfirmed = Boolean(app.paymentConfirmedAt)
+    || ["confirmed", "paid", "payment_confirmed"].includes(String(app.paymentStatus || "").trim().toLowerCase());
+  const paymentDays = daysSince(app.paymentConfirmedAt);
+  const statusValue = String(app.status || "").toLowerCase();
+  const refundOrCancelled = /(?:refund|cancel)/.test(statusValue) || /(?:refund|cancel)/.test(String(app.paymentStatus || "").toLowerCase());
+  const asksAboutPlace = /(?:مكان|محل|معرض|عنوان|استلام|تسليم|اجيب\s+منو\s+جهاز|اجيب\s+منه\s+جهاز)/.test(normalizeConversationSignal(input.customerText));
+
+  const lines = [
+    `${applicationName}، فاهم ليش صار عندك شك، وخصوصًا مع طول الانتظار.`,
+    "ما رح أجاوبك بشرح عام عن الرسوم بدل سؤالك، وما بقدر أطلب منك تثق بكلامي وحده.",
+  ];
+
+  if (app.trackingId) lines.push("", `🔖 رقم طلبك: ${app.trackingId}`);
+  if (paymentConfirmed) lines.push("💳 رسوم فتح الملف مؤكدة إداريًا على طلبك، وما في دفعة إضافية مطلوبة منك حاليًا.");
+  if (paymentDays != null && paymentDays >= 10) {
+    lines.push(`⏱️ صار تقريبًا ${paymentDays} يوم من تأكيد الدفع، وهاي مدة انتظار طويلة ومن حقك تستفسر عنها.`);
+  }
+
+  if (statusBody) lines.push("", statusBody);
+
+  lines.push(
+    "",
+    "ما بقدر أعطيك سبب غير موثق للتأخير أو أوعدك بموعد مش مثبت بالنظام. أي تحديث أو قرار لازم يكون مسجل فعليًا على طلبك.",
+  );
+
+  if (asksAboutPlace) {
+    lines.push("إذا قصدك عنوان معرض أو مكان استلام/تسليم، ما رح أعطيك عنوان أو معلومة غير مثبتة عندي. بعطيك فقط أي مكان أو خطوة تكون مسجلة رسميًا على الطلب.");
+  }
+
+  lines.push("المتابعة التفصيلية بتكمل هون على Telegram المرتبط بنفس طلبك، وواتساب بيظل للتنبيهات والمتابعة الأساسية.");
+
+  if (paymentConfirmed && !refundOrCancelled) {
+    lines.push("وإذا قررت توقف، فيك تطلب إلغاء الطلب واسترداد رسوم فتح الملف عبر المسار الرسمي.");
+  }
+
+  return lines.join("\n");
+}
+
+function enforceTelegramChannelTruth(value: string | null | undefined) {
+  let text = String(value || "");
+  text = text
+    .replace(/المتابع(?:ة|ه)\s+بتصير\s+من\s+خلالي\s+هون\s+على\s+واتساب/gi, "المتابعة التفصيلية بتكمل من خلالي هون على Telegram")
+    .replace(/من\s+خلالي\s+هون\s+على\s+واتساب/gi, "من خلالي هون على Telegram")
+    .replace(/هون\s+على\s+واتساب/gi, "هون على Telegram")
+    .replace(/(?:تابع|كمل|تواصل)\s+(?:معي\s+)?(?:هون\s+)?(?:على|عبر)\s+واتساب/gi, "كمل معي هون على Telegram");
+  return text;
+}
+
 function lowInformationTelegramTurn(value: string | null | undefined) {
   const q = normalizeConversationSignal(value);
   if (!q) return true;
@@ -269,6 +349,41 @@ async function processOne(job: ClaimedHoldJob) {
       return { id: job.id, status: "social_closure" };
     }
 
+    // Trust accusations and explicit lack of confidence own the turn before any
+    // generic fee/status reasoning. If the customer split the concern across
+    // several bubbles, a current delay complaint can still inherit that trust
+    // context from the same comprehension window.
+    const trustOwnsTurn = telegramTrustConcernText(latestCustomerText)
+      || (telegramTrustConcernText(customerText) && telegramDelayComplaintText(latestCustomerText));
+    if (trustOwnsTurn && link.application_id) {
+      const profileName = rows.map((row) => normalizeHeldText(row.customer_name)).find(Boolean) || null;
+      const text = await buildTelegramTrustReply({
+        applicationId: link.application_id,
+        profileName,
+        customerText,
+      });
+      if (text) {
+        if (!(await holdStillCurrent(job))) return { id: job.id, status: "superseded_before_trust_reply" };
+        const sent = await sendBusinessText({
+          businessConnectionId: job.business_connection_id,
+          chatId: job.telegram_chat_id,
+          text,
+        });
+        await logTelegramOutgoing({
+          businessConnectionId: job.business_connection_id,
+          telegramChatId: job.telegram_chat_id,
+          telegramMessageId: sent.message_id,
+          canonicalWaId: link.canonical_wa_id,
+          applicationId: link.application_id,
+          body: text,
+          handledByAi: false,
+          turnId: `tg-hold-trust:${job.id}`,
+        });
+        await completeHold(job.id);
+        return { id: job.id, status: "trust_grounded_reply" };
+      }
+    }
+
     const control = await getV3ProductionControl();
     if (!isV3ProductionActive(control)) {
       const text = "وصلتني رسائلك وهي محفوظة على نفس طلبك. نظام المحادثة تحت صيانة قصيرة حاليًا، وما رح أعطيك معلومة غير مؤكدة.";
@@ -340,8 +455,8 @@ async function processOne(job: ClaimedHoldJob) {
       ? await loadTelegramApplicationSnapshot(link.application_id)
       : null;
     const groundedCustomerText = linkedSnapshot?.trackingId
-      ? `${customerText}\n\nمرجع الطلب الحالي المرتبط بهذه المحادثة: ${linkedSnapshot.trackingId}`
-      : customerText;
+      ? `${customerText}\n\nمرجع الطلب الحالي المرتبط بهذه المحادثة: ${linkedSnapshot.trackingId}\nسياق القناة الموثق: هذه المحادثة على Telegram المرتبط بنفس الطلب. لا تقل للعميل إنه موجود على واتساب، ولا تطلب منه الرجوع لواتساب لإكمال المتابعة التفصيلية.`
+      : `${customerText}\n\nسياق القناة الموثق: هذه المحادثة على Telegram. لا تقل للعميل إنه موجود على واتساب، ولا تطلب منه الرجوع لواتساب لإكمال المتابعة التفصيلية.`;
     const turnId = `tg-hold:${job.business_connection_id}:${job.latest_message_id || job.id}`;
     const profileName = rows.map((row) => normalizeHeldText(row.customer_name)).find(Boolean) || null;
 
@@ -362,7 +477,7 @@ async function processOne(job: ClaimedHoldJob) {
     }
 
     if (!reply) reply = buildV3LastResortReply();
-    reply = polishTelegramReply(reply);
+    reply = enforceTelegramChannelTruth(polishTelegramReply(reply));
 
     const previous = await loadLastTelegramOutgoing(job);
     if (telegramNearDuplicate(reply, previous?.body) && lowInformationTelegramTurn(latestCustomerText)) {
