@@ -8,6 +8,7 @@ import {
   isIphone18Question,
 } from "./businessTruthRegistry";
 import { currentCommercialDisclosure } from "./informedCommercialContinuation";
+import { buildPaymentClosingReply, resolvePaymentClosingKind } from "./paymentClosingGuard";
 import { normalizeArabic } from "./text";
 import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "./types";
 
@@ -305,6 +306,9 @@ export function buildSingleConversationAuthorityReply(input: {
   state: ConversationState;
   truth: TruthBundle;
 }): string | null {
+  const paymentClosingKind = resolvePaymentClosingKind({ customerText: input.turn.rawText, truth: input.truth });
+  const paymentClosingReply = buildPaymentClosingReply({ kind: paymentClosingKind, truth: input.truth });
+  if (paymentClosingReply) return paymentClosingReply;
   return renderSingleConversationAnswerPlan(buildSingleConversationAnswerPlan(input));
 }
 
