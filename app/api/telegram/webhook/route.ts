@@ -1,3 +1,4 @@
+import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { getTelegramChannelConfig } from "../_lib/config";
 import type { TelegramMessage, TelegramUpdate } from "../_lib/types";
 import {
@@ -25,12 +26,64 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
+type TelegramHandoffFailure = "expired" | "already_used" | "invalid" | "unavailable";
+
 function json(body: unknown, status = 200) {
   return Response.json(body, { status });
 }
 
 function isCustomerTextCapable(message: TelegramMessage) {
   return telegramMessageType(message) === "text" || Boolean(message.caption);
+}
+
+function handoffFailureFromError(error: unknown): TelegramHandoffFailure | null {
+  const message = error instanceof Error ? error.message : String(error || "");
+  if (message === "telegram_handoff_expired") return "expired";
+  if (message === "telegram_handoff_already_used") return "already_used";
+  if (message === "telegram_handoff_invalid") return "invalid";
+  if (message === "telegram_handoff_unavailable") return "unavailable";
+  return null;
+}
+
+function customerAskedNotToRepeatUnlinkedPrompt(value: string) {
+  return /(?:لا\s*تعيد|لا\s*تكرر|بلاش\s+تعيد|وقف\s*(?:الرساله|الرسالة)|لا\s*ترجع\s+تعيد)/i.test(String(value || ""));
+}
+
+function unlinkedPromptText(failure: TelegramHandoffFailure | null) {
+  if (failure === "expired") {
+    return "رابط المتابعة اللي استخدمته انتهت صلاحيته. افتح أحدث رابط متابعة وصلك من الأمين على واتساب واضغط إرسال على الرسالة الجاهزة. ما في داعي تعيد بياناتك.";
+  }
+  if (failure === "already_used") {
+    return "رابط المتابعة هذا سبق استخدامه وما بقدر أعيد استخدامه. افتح أحدث رابط متابعة وصلك من الأمين على واتساب واضغط إرسال على الرسالة الجاهزة.";
+  }
+  if (failure === "invalid") {
+    return "رابط المتابعة اللي وصلني غير صالح أو غير مكتمل. افتح أحدث رابط متابعة وصلك من الأمين على واتساب واضغط إرسال على الرسالة الجاهزة.";
+  }
+  if (failure === "unavailable") {
+    return "تعذر اعتماد رابط المتابعة بهاللحظة بدون ما أعتبر الربط ناجح. افتح أحدث رابط متابعة وصلك من الأمين على واتساب وحاول إرساله مرة واحدة.";
+  }
+  return "أهلين، حتى أربط محادثتك بنفس طلبك الحالي بأمان افتح رابط المتابعة الخاص فيك من الأمين على واتساب. الرابط بيربط المحادثتين بدون ما تعيد بياناتك.";
+}
+
+async function loadRecentUnlinkedPrompt(input: { businessConnectionId: string; telegramChatId: string }) {
+  const cutoff = new Date(Date.now() - 10 * 60_000).toISOString();
+  const { data, error } = await supabaseAdmin
+    .from("telegram_messages")
+    .select("created_at,body")
+    .eq("business_connection_id", input.businessConnectionId)
+    .eq("telegram_chat_id", input.telegramChatId)
+    .eq("direction", "outgoing")
+    .eq("canonical_wa_id", `tg-unlinked:${input.telegramChatId}`)
+    .gte("created_at", cutoff)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error("telegram_unlinked_prompt_recent_read_failed", error.message);
+    return null;
+  }
+  return data || null;
 }
 
 async function handleConnection(update: TelegramUpdate) {
@@ -99,6 +152,7 @@ export async function POST(request: Request) {
   });
 
   const body = telegramMessageBody(message);
+  let handoffFailure: TelegramHandoffFailure | null = null;
 
   // Handoff messages are transport/authentication messages, not customer dialogue.
   if (!link && isCustomerTextCapable(message)) {
@@ -110,6 +164,7 @@ export async function POST(request: Request) {
         telegramUserId,
       });
     } catch (error) {
+      handoffFailure = handoffFailureFromError(error);
       console.error("telegram_handoff_consume_failed", error);
     }
 
@@ -142,7 +197,17 @@ export async function POST(request: Request) {
   }
 
   if (!link) {
-    const text = "أهلين، حتى أربط محادثتك بنفس طلبك الحالي بأمان افتح رابط المتابعة الخاص فيك من الأمين على واتساب. الرابط بيربط المحادثتين بدون ما تعيد بياناتك.";
+    if (customerAskedNotToRepeatUnlinkedPrompt(body)) {
+      return json({ ok: true, handled: "unlinked_prompt_suppressed_by_customer" });
+    }
+
+    const text = unlinkedPromptText(handoffFailure);
+    const recentPrompt = await loadRecentUnlinkedPrompt({ businessConnectionId, telegramChatId });
+    const isFreshHandoffFailure = Boolean(handoffFailure);
+    if (recentPrompt && (!isFreshHandoffFailure || String(recentPrompt.body || "") === text)) {
+      return json({ ok: true, handled: "unlinked_prompt_rate_limited" });
+    }
+
     const sent = await sendBusinessText({ businessConnectionId, chatId: telegramChatId, text });
     await logTelegramOutgoing({
       businessConnectionId,
@@ -153,7 +218,7 @@ export async function POST(request: Request) {
       body: text,
       handledByAi: false,
     });
-    return json({ ok: true, handled: "unlinked_customer" });
+    return json({ ok: true, handled: handoffFailure ? `handoff_${handoffFailure}` : "unlinked_customer" });
   }
 
   await attachTelegramIncomingIdentity({
