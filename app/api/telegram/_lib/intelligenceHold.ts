@@ -110,7 +110,8 @@ function telegramSocialClosureText(value: string | null | undefined) {
   const raw = normalizeHeldText(value);
   const q = normalizeConversationSignal(value);
   if (!q || /[؟?]/.test(raw)) return false;
-  if (/(?:متى|امتى|ليش|كيف|شو|وين|اين|قديش|كم|هل|بدي|اريد|حاب|الغاء|استرداد|استرجاع|دفع|حول|حواله|طلب|مشكلتي|بس\s)/.test(q)) return false;
+  if (/(?:^|\s)(?:متي|امتي|ليش|كيف|شو|وين|اين|قديش|كم|هل|بدي|اريد|حاب|بس)(?:\s|$)/.test(q)) return false;
+  if (/(?:الغاء|استرداد|استرجاع|دفع|حول|حواله|طلب|مشكلتي)/.test(q)) return false;
   return /^(?:تمام(?:\s+شكرا)?|شكرا|يسلمو|يعطيك\s+العافيه|الله\s+يعطيكم\s+العافيه|مو\s+مشكله(?:\s+بستن[اي].*)?|مش\s+مشكله(?:\s+بستن[اي].*)?|بستن[اي](?:\s+خير\s+منكم)?|ان\s+شاء\s+الله(?:\s+خير)?|خلص\s+بستن[اي]|خير\s+ان\s+شاء\s+الله)$/.test(q);
 }
 
@@ -118,7 +119,7 @@ function lowInformationTelegramTurn(value: string | null | undefined) {
   const q = normalizeConversationSignal(value);
   if (!q) return true;
   if (q.length > 30) return false;
-  return /^(?:تمام|طيب|اه|نعم|شكرا|اوك|اوكي|هه|هههه|رجاء|؟؟؟?|\?+|شو\s+صار|متى|امتى)$/.test(q);
+  return /^(?:تمام|طيب|اه|نعم|شكرا|اوك|اوكي|هه|هههه|رجاء|شو\s+صار|متي|امتي)$/.test(q);
 }
 
 function replyTokens(value: string | null | undefined) {
