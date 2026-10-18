@@ -1,0 +1,39 @@
+name: Telegram Production Safety
+
+on:
+  pull_request:
+    paths:
+      - 'app/api/telegram/**'
+      - 'app/api/whatsapp/webhook/_lib/v3-os/telegramMigration.ts'
+      - 'scripts/v3-phase18-6-1-telegram-handoff-ux-selftest.cjs'
+      - '.github/workflows/telegram-production-safety.yml'
+      - 'package.json'
+      - 'package-lock.json'
+  workflow_dispatch:
+
+jobs:
+  telegram-production-safety:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Phase 18.6.1 Telegram handoff and UX safety gate
+        run: node scripts/v3-phase18-6-1-telegram-handoff-ux-selftest.cjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      # The required Vercel Preview validates the full Next.js production build
+      # with project-bound environment configuration. GitHub CI receives no
+      # production secrets and stays purely static/local.
