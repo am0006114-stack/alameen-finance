@@ -96,7 +96,13 @@ export function resolveAiRole(state: ConversationState, turn: InterpretedTurn): 
   }
 
   if (turn.explicitRoleRequest === "staff") {
-    return { ...state.role, reason: "customer_requested_staff_ai_continues_same_conversation" };
+    return {
+      currentRole: "omran",
+      tier: AI_TEAM.omran.tier,
+      reason: "customer_requested_staff_routes_to_omran_supervisor",
+      sinceTurnId: turn.turnId,
+      introduced: state.role.currentRole === "omran" ? state.role.introduced : false,
+    };
   }
 
   // Once Omran owns an operational/escalated case, keep senior continuity for the active thread.

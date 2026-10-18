@@ -30,6 +30,12 @@ export const V3_OS_VERSION = "v3.0.0-phase18.0-durable-native-turn-authority-sin
 export type AiRoleKey = "tala" | "fadwa" | "abdullah" | "abdulrahman" | "omran";
 export type AiTier = "frontline" | "case_specialist" | "supervisor";
 
+export type TrustedTransportContext = {
+  channel: "whatsapp" | "telegram";
+  applicationId?: string | null;
+  trackingId?: string | null;
+};
+
 export type TopicKey =
   | "greeting" | "thanks" | "acknowledgement" | "unknown"
   | "application_status" | "application_correction" | "requirements" | "guarantor"

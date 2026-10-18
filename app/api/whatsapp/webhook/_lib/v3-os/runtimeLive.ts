@@ -3,7 +3,7 @@ import { buildReplyPlan } from "./planner";
 import { contactPhonesMatch, resolveV3ProductionTruth } from "./productionTruth";
 import { closeAnsweredLoops, emptyState, finalizeStateSemanticMemory, inferRoleIntroducedFromRecentTurns, markRoleIntroducedFromReply, reduceState } from "./state";
 import { loadV3ConversationState } from "./stateStore";
-import type { ActionKey, ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport } from "./types";
+import type { ActionKey, ActionResult, ConversationState, InterpretedTurn, OsRunResult, TruthBundle, VerificationReport, TrustedTransportContext } from "./types";
 import { interpretTurn } from "./interpreter";
 import { v3WriterProviderFromEnv, type V3TextProvider } from "./provider";
 import { LIVE_SCOPED_MUTATIONS, v3TransactionalActionAdapter } from "./transactionalActionAdapter";
@@ -610,6 +610,8 @@ function buildScopedMutationSuccessReply(input: { truth: TruthBundle; actions: A
   return null;
 }
 
+// R2_1_1_RUNTIME_CONTEXT_DONE
+// R2_1_1_LEGACY_SIG_DONE
 async function runLegacyV3ProductionLive(input: {
   waId: string;
   turnId: string;
@@ -619,6 +621,7 @@ async function runLegacyV3ProductionLive(input: {
   writer?: V3TextProvider | null;
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
+  transportContext?: TrustedTransportContext | null;
 }): Promise<V3LiveResult> {
   // Phase 18 durable native-turn journal. This is transport/conversation continuity only;
   // it does not alter commercial continuation, fee eligibility, payment destinations, or receipt policy.
@@ -663,6 +666,7 @@ async function runLegacyV3ProductionLive(input: {
 
   let rawTruthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
+    transportContext: input.transportContext,
     customerText: effectiveCustomerText,
     state: preliminaryState,
     recentTurns: truthRecentTurns,
@@ -678,6 +682,7 @@ async function runLegacyV3ProductionLive(input: {
     try {
       const retryTruth = await resolveV3ProductionTruth({
         waId: input.waId,
+        transportContext: input.transportContext,
         customerText: `${retryTracking}\n${effectiveCustomerText}`,
         state: { ...preliminaryState, activeTrackingId: retryTracking },
         recentTurns: truthRecentTurns,
@@ -1135,12 +1140,16 @@ async function runLegacyV3ProductionLive(input: {
     truth: truthBeforeActions,
     adapter: input.realActionsEnabled ? v3TransactionalActionAdapter : null,
     allowMutation: input.realActionsEnabled,
+    // Final action authority belongs to this exact transport turn only.
+    currentTurnId: input.turnId,
+    currentCustomerText: input.customerText,
   });
 
   let truthAfterActions = truthBeforeActions;
   if (input.realActionsEnabled && actionsToExecute.length && actionNeedsTruthRefresh(actions)) {
     const refreshedTruth = await resolveV3ProductionTruth({
       waId: input.waId,
+      transportContext: input.transportContext,
       customerText: effectiveCustomerText,
       state: executionState,
       recentTurns: scopedRecentTurns,
@@ -1252,6 +1261,7 @@ async function runLegacyV3ProductionLive(input: {
   if (continuationPersistence.updated || continuationPersistence.alreadyRecorded) {
     truthAfterActions = await resolveV3ProductionTruth({
       waId: input.waId,
+      transportContext: input.transportContext,
       customerText: effectiveCustomerText,
       state: executionState,
       recentTurns: scopedRecentTurns,
@@ -1616,6 +1626,7 @@ async function runLegacyV3ProductionLive(input: {
   };
 }
 
+// R2_1_1_PUBLIC_SIG_DONE
 export async function runV3ProductionLive(input: {
   waId: string;
   turnId: string;
@@ -1625,6 +1636,7 @@ export async function runV3ProductionLive(input: {
   writer?: V3TextProvider | null;
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
+  transportContext?: TrustedTransportContext | null;
 }): Promise<V3LiveResult> {
   const humanOs = await getHumanOsControl();
   if (humanOs.enabled) {

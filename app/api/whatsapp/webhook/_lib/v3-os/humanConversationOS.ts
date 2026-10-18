@@ -31,7 +31,7 @@ import { notifyV3Discord } from "./discordNotifier";
 import { applyHumanCareEgress } from "./humanCarePolicy";
 import { resolveSafePublicKnowledgeReply } from "./freshPublicFacts";
 import { arbitrateProductionReply } from "./responseArbiter";
-import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport } from "./types";
+import type { ActionKey, ActionResult, ConversationState, DialogueAct, InterpretedTurn, PlannedAction, ReplyPlan, TopicKey, TruthBundle, VerificationReport, TrustedTransportContext } from "./types";
 import { V3_OS_VERSION } from "./types";
 import { resolveAiRole, roleDisplayName } from "./hierarchy";
 
@@ -775,6 +775,7 @@ function makeDeterministicContinuationTurn(turn: InterpretedTurn): InterpretedTu
   };
 }
 
+// R2_1_1_HUMAN_CONTEXT_DONE
 export async function runHumanConversationOS(input: {
   waId: string;
   turnId: string;
@@ -784,6 +785,7 @@ export async function runHumanConversationOS(input: {
   writer?: V3TextProvider | null;
   interpreter?: V3TextProvider | null;
   realActionsEnabled: boolean;
+  transportContext?: TrustedTransportContext | null;
   solEnabled: boolean;
   maxRecentTurns: number;
   maxPromptChars: number;
@@ -834,6 +836,7 @@ export async function runHumanConversationOS(input: {
   const memory = await loadCompactHumanMemory(input.waId, stateBefore);
   let truthBeforeActions = await resolveV3ProductionTruth({
     waId: input.waId,
+    transportContext: input.transportContext,
     customerText: input.customerText,
     state: stateBefore,
     recentTurns: input.recentTurns || [],
@@ -1065,6 +1068,9 @@ export async function runHumanConversationOS(input: {
     truth: truthBeforeActions,
     adapter: v3TransactionalActionAdapter,
     allowMutation: input.realActionsEnabled,
+    // Final action authority belongs to this exact transport turn only.
+    currentTurnId: input.turnId,
+    currentCustomerText: input.customerText,
   });
   let actionResults = actions;
 
@@ -1174,6 +1180,7 @@ export async function runHumanConversationOS(input: {
   if (actionResults.some((result) => ["executed","already_done","failed"].includes(result.outcome))) {
     truthAfterActions = await resolveV3ProductionTruth({
       waId: input.waId,
+      transportContext: input.transportContext,
       customerText: input.customerText,
       state: reduced,
       recentTurns: input.recentTurns || [],

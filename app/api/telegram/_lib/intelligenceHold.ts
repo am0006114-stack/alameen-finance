@@ -80,10 +80,9 @@ function buildCombinedCustomerText(rows: HeldMessageRow[]) {
   if (!parts.length) return "";
   if (parts.length === 1) return parts[0];
 
-  return [
-    "العميل أرسل عدة رسائل متتابعة خلال مهلة الاستيعاب. افهمها كوحدة واحدة كاملة قبل الرد، ولا تجاوب على كل فقاعة بشكل منفصل:",
-    ...parts.map((part, index) => `${index + 1}) ${part}`),
-  ].join("\n");
+  // Keep the transport burst semantically pure. Bubble boundaries are represented
+  // only by newlines; no system narration or numbering is injected into customerText.
+  return parts.join("\n");
 }
 
 function latestHeldCustomerText(rows: HeldMessageRow[]) {
@@ -451,12 +450,11 @@ async function processOne(job: ClaimedHoldJob) {
     }
 
     const recentTurns = await loadCrossChannelRecentTurns(link.canonical_wa_id);
-    const linkedSnapshot = link.application_id
-      ? await loadTelegramApplicationSnapshot(link.application_id)
-      : null;
-    const groundedCustomerText = linkedSnapshot?.trackingId
-      ? `${customerText}\n\nمرجع الطلب الحالي المرتبط بهذه المحادثة: ${linkedSnapshot.trackingId}\nسياق القناة الموثق: هذه المحادثة على Telegram المرتبط بنفس الطلب. لا تقل للعميل إنه موجود على واتساب، ولا تطلب منه الرجوع لواتساب لإكمال المتابعة التفصيلية.`
-      : `${customerText}\n\nسياق القناة الموثق: هذه المحادثة على Telegram. لا تقل للعميل إنه موجود على واتساب، ولا تطلب منه الرجوع لواتساب لإكمال المتابعة التفصيلية.`;
+    // Server-owned transport/application binding stays separate from customer words.
+    const transportContext = {
+      channel: "telegram" as const,
+      applicationId: link.application_id || null,
+    };
     const turnId = `tg-hold:${job.business_connection_id}:${job.latest_message_id || job.id}`;
     const profileName = rows.map((row) => normalizeHeldText(row.customer_name)).find(Boolean) || null;
 
@@ -466,7 +464,8 @@ async function processOne(job: ClaimedHoldJob) {
       run = await runV3ProductionLive({
         waId: link.canonical_wa_id,
         turnId,
-        customerText: groundedCustomerText,
+        customerText,
+        transportContext,
         recentTurns,
         profileName,
         realActionsEnabled: config.realActionsEnabled && control.realActionsEnabled,

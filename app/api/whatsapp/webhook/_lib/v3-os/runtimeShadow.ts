@@ -88,8 +88,10 @@ export async function runV3ProductionShadow(input: {
         truth: truthBeforeActions,
         adapter: v3SimulationActionAdapter,
         allowMutation: true,
+        currentTurnId: input.turnId,
+        currentCustomerText: input.customerText,
       })
-    : await executeActions({ actions: plan.actions, state: boundState, truth: truthBeforeActions, allowMutation: false });
+    : await executeActions({ actions: plan.actions, state: boundState, truth: truthBeforeActions, allowMutation: false, currentTurnId: input.turnId, currentCustomerText: input.customerText });
 
   const truthAfterActions = actionMode === "simulate"
     ? applySimulatedActionTruth(truthBeforeActions, actions)

@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeJordanPhone, normalizeWhatsAppToSend } from "../text";
-import type { ApplicationTruth, ConversationState, DocumentTruth, TopicKey, TruthBundle } from "./types";
+import type { ApplicationTruth, ConversationState, DocumentTruth, TopicKey, TruthBundle, TrustedTransportContext } from "./types";
 import { resolveTruth } from "./truth";
 
 import { approvedApplicationIdsForWhatsApp, approvedWhatsAppAliasForApplication } from "./applicationContactIdentity";
@@ -403,9 +403,42 @@ export async function resolveV3ProductionTruth(input: {
   state: ConversationState;
   recentTurns?: string[];
   topics?: TopicKey[];
+  transportContext?: TrustedTransportContext | null;
 }): Promise<TruthBundle> {
   const warnings: string[] = [];
   const suppliedPhone = jordanPhoneFromText(input.customerText) || phoneFromRecentCustomerTurns(input.recentTurns);
+
+  // Server-owned transport binding may select Truth, but can never authorize intent.
+  const trustedChannel = input.transportContext?.channel || null;
+  const trustedApplicationId = String(input.transportContext?.applicationId || "").trim();
+  const trustedTrackingId = String(input.transportContext?.trackingId || "").trim();
+
+  if (trustedChannel === "telegram" && !trustedApplicationId) {
+    const empty = resolveTruth({ state: input.state });
+    return { ...empty, contactAccess: "none", degraded: true, readWarnings: ["trusted_transport_application_required"] };
+  }
+
+  if (trustedApplicationId) {
+    const app = await attemptLookup("trusted_transport_application_id", warnings, () => byId(trustedApplicationId));
+    if (!app) {
+      const empty = resolveTruth({ state: input.state });
+      return { ...empty, contactAccess: "none", degraded: true, readWarnings: Array.from(new Set([...warnings, "trusted_transport_application_unavailable"])) };
+    }
+    if (String(app.id || "") !== trustedApplicationId) {
+      const empty = resolveTruth({ state: input.state });
+      return { ...empty, contactAccess: "none", degraded: true, readWarnings: Array.from(new Set([...warnings, "trusted_transport_application_mismatch"])) };
+    }
+    if (trustedTrackingId && String(app.tracking_id || "") !== trustedTrackingId) {
+      const empty = resolveTruth({ state: input.state });
+      return { ...empty, contactAccess: "none", degraded: true, readWarnings: Array.from(new Set([...warnings, "trusted_transport_tracking_mismatch"])) };
+    }
+    const access = await fullContactAccess(app, input.waId, input.state);
+    if (access.allowed) {
+      return authoritativeBundle(access.source === "approved_contact_alias" ? "approved_contact_alias" : "conversation_binding", app, input.state, "full");
+    }
+    return safePreviewBundle(app, input.state, Array.from(new Set([...warnings, "trusted_transport_contact_mismatch"])));
+  }
+
   const currentTracking = trackingFromText(input.customerText);
   const suppliedPhoneConflict = suppliedPhoneConflictsWithSender(input.waId, suppliedPhone);
 

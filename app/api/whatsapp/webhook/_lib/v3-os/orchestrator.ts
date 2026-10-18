@@ -11,7 +11,7 @@ export async function runV3OsShadow(input: { waId: string; turnId: string; custo
   const preliminaryState = reduceState({ state: stateBefore, turn });
   const truth = resolveTruth({ state: preliminaryState, ...(input.truth || {}) });
   const plan = buildReplyPlan({ turn, state: preliminaryState, truth });
-  const actions = await executeActions({ actions: plan.actions, state: preliminaryState, truth, allowMutation: false });
+  const actions = await executeActions({ actions: plan.actions, state: preliminaryState, truth, allowMutation: false, currentTurnId: input.turnId, currentCustomerText: input.customerText });
   const answeredTopics = input.syntheticReplyForVerification ? plan.answerItems.map((x) => x.topic) : [];
   const stateAfter = answeredTopics.length ? closeAnsweredLoops(preliminaryState, answeredTopics) : preliminaryState;
   const verification = input.syntheticReplyForVerification

@@ -51,20 +51,24 @@ export function guardAction(action: PlannedAction, state: ConversationState, tru
   return { action: action.action, outcome: "dry_run", executed: false, authoritativeSummary: null, mutationId: null, blocker: "shadow_core_no_business_mutation", ownerRole: state.role.currentRole };
 }
 
-function realMutationOwnershipBlocker(action: PlannedAction, state: ConversationState, truth: TruthBundle) {
+function realMutationOwnershipBlocker(action: PlannedAction, state: ConversationState, truth: TruthBundle, currentTurnId: string) {
   if (!["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(action.action)) return null;
   const payload = action.payload || {};
+  const normalizedTurnId = String(currentTurnId || "").trim();
+  if (!normalizedTurnId) return "current_turn_authority_required";
   if (!truth.application) return "application_truth_required";
   if (String(payload._scopeApplicationId || "") !== truth.application.id) return "mutation_application_scope_required";
   if (String(payload._scopeTrackingId || "") !== String(truth.application.trackingId || "")) return "mutation_tracking_scope_required";
   if (String(payload._scopeWaId || "") !== String(state.waId || "")) return "mutation_sender_scope_required";
   if (action.action === "link_whatsapp_alias" && String(payload._aliasWaId || payload._scopeWaId || "") !== String(state.waId || "")) return "alias_sender_scope_required";
-  if (!String(payload._mutationConfirmedOnTurn || "").trim()) return "explicit_action_named_confirmation_required";
+  const confirmedOnTurn = String(payload._mutationConfirmedOnTurn || "").trim();
+  if (!confirmedOnTurn) return "explicit_action_named_confirmation_required";
+  if (confirmedOnTurn !== normalizedTurnId) return "mutation_confirmation_turn_mismatch";
   return null;
 }
 
-function normalizedCurrentTurn(state: ConversationState) {
-  return normalizeArabic(String(state.lastCustomerText || ""))
+function normalizedCurrentTurn(currentCustomerText: string) {
+  return normalizeArabic(String(currentCustomerText || ""))
     .replace(/[؟?!.,،؛:]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -89,10 +93,11 @@ function namedCurrentTurnMutation(action: ActionKey, q: string) {
   return true;
 }
 
-function currentTurnMutationAuthorityBlocker(action: PlannedAction, state: ConversationState) {
-  if (!["cancel_application", "request_refund", "stop_refund", "reopen_application"].includes(action.action)) return null;
-  const q = normalizedCurrentTurn(state);
-  if (!q) return "current_turn_explicit_action_name_required";
+function currentTurnMutationAuthorityBlocker(action: PlannedAction, currentCustomerText: string) {
+  if (!["cancel_application", "request_refund", "stop_refund", "reopen_application", "link_whatsapp_alias"].includes(action.action)) return null;
+  if (!String(currentCustomerText || "").trim()) return "current_turn_authority_required";
+  if (action.action === "link_whatsapp_alias") return null;
+  const q = normalizedCurrentTurn(currentCustomerText);
   const cancel = namedCurrentTurnMutation("cancel_application", q);
   const refund = namedCurrentTurnMutation("request_refund", q);
   const stopRefund = namedCurrentTurnMutation("stop_refund", q);
@@ -102,18 +107,17 @@ function currentTurnMutationAuthorityBlocker(action: PlannedAction, state: Conve
   return null;
 }
 
-function deterministicCommercialContinuationAction(state: ConversationState, truth: TruthBundle): PlannedAction | null {
+function deterministicCommercialContinuationAction(state: ConversationState, truth: TruthBundle, currentCustomerText: string): PlannedAction | null {
   const app = truth.application;
   if (!app || String(truth.contactAccess || "") !== "full") return null;
   if (applicationJourneyStage(app) !== "preliminary_approved_waiting_decision") return null;
-  if (!commercialContinuationAffirmativeText(state.lastCustomerText)) return null;
+  const currentAuthorityText = String(currentCustomerText || "").trim();
+  if (!currentAuthorityText) return null;
+  if (!commercialContinuationAffirmativeText(currentAuthorityText)) return null;
 
-  // The canonical preliminary-approval template can be delivered by the template
-  // pipeline outside Human OS state persistence. A strong standalone command such
-  // as "اود الاستمرار" or menu choice 1 therefore carries its own deterministic
-  // decision authority. Bare نعم/اه/تمام still require the scoped disclosure state.
+  // Ambiguous acknowledgements still require the scoped disclosure state.
   const disclosureSatisfied = commercialDisclosureDelivered(state, truth);
-  const strongDecision = strongCommercialContinuationDecisionText(state.lastCustomerText);
+  const strongDecision = strongCommercialContinuationDecisionText(currentAuthorityText);
   if (!disclosureSatisfied && !strongDecision) return null;
 
   return {
@@ -165,9 +169,9 @@ async function notifyCommercialContinuationPersisted(input: {
   }
 }
 
-export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean }): Promise<ActionResult[]> {
+export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean; currentTurnId: string; currentCustomerText: string }): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
-  const commercialContinuation = deterministicCommercialContinuationAction(input.state, input.truth);
+  const commercialContinuation = deterministicCommercialContinuationAction(input.state, input.truth, input.currentCustomerText);
   const actions = commercialContinuation
     ? [commercialContinuation, ...input.actions.filter((action) => action.action !== "continue_application")]
     : input.actions;
@@ -237,12 +241,12 @@ export async function executeActions(input: { actions: PlannedAction[]; state: C
       results.push(guarded);
       continue;
     }
-    const ownershipBlocker = realMutationOwnershipBlocker(action, input.state, input.truth);
+    const ownershipBlocker = realMutationOwnershipBlocker(action, input.state, input.truth, input.currentTurnId);
     if (ownershipBlocker) {
       results.push({ action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: ownershipBlocker, ownerRole: input.state.role.currentRole });
       continue;
     }
-    const currentTurnBlocker = currentTurnMutationAuthorityBlocker(action, input.state);
+    const currentTurnBlocker = currentTurnMutationAuthorityBlocker(action, input.currentCustomerText);
     if (currentTurnBlocker) {
       results.push({ action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: currentTurnBlocker, ownerRole: input.state.role.currentRole });
       continue;
