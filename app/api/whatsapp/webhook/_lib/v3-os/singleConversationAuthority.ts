@@ -1,4 +1,4 @@
-import { applicationJourneyStage } from "./applicationJourney";
+import { applicationJourneyStage, customerFacingStatusLabel } from "./applicationJourney";
 import {
   ALAMEEN_FIRST_INSTALLMENT_RULE,
   ALAMEEN_MONTHLY_INSTALLMENT_PAYMENT_RULE,
@@ -14,8 +14,12 @@ import type { ConversationState, InterpretedTurn, TopicKey, TruthBundle } from "
 
 export type ConversationAnswerKey =
   | "iphone18_product_truth"
+  | "application_status"
+  | "review_timing"
+  | "monthly_installment_amount"
   | "monthly_installment_payment"
   | "first_installment_timing"
+  | "application_change_status"
   | "office_location"
   | "delivery_pickup"
   | "fee_rationale"
@@ -69,6 +73,66 @@ function add(items: ConversationAnswerItem[], item: ConversationAnswerItem) {
   if (!items.some((existing) => existing.key === item.key)) items.push(item);
 }
 
+function asksApplicationStatus(turn: InterpretedTurn) {
+  if (hasTopic(turn, "application_status", "tracking")) return true;
+  const q = n(combinedQuestion(turn));
+  return /(?:ايش|إيش|شو|وش).{0,18}(?:صار|وضع|حاله|حالة|تحديث)|(?:صار|في).{0,18}(?:اشي|شي).{0,18}(?:طلبي|الطلب)|(?:حاله|حالة|تحديث|وضع).{0,18}(?:طلبي|الطلب)|(?:وين|لوين).{0,18}(?:وصل|صار).{0,18}(?:طلبي|الطلب)/.test(q);
+}
+
+function applicationStatusFact(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app) return "ما لقيت طلب موثوق مربوط بهالمحادثة هسا. إذا عندك رقم التتبع ابعثه مرة واحدة وبراجع نفس الطلب.";
+  const tracking = app.trackingId ? ` ${app.trackingId}` : "";
+  const stage = applicationJourneyStage(app);
+  if (stage === "refund_completed") return `طلبك${tracking} ملغي، والاسترداد مكتمل حسب الحالة الحالية.`;
+  if (stage === "refund_requested") return `طلبك${tracking} ملغي، وطلب الاسترداد مسجل وقيد المعالجة. ما في عليك إعادة طلبه مرة ثانية.`;
+  if (stage === "cancelled") return `طلبك${tracking} ملغي حسب الحالة الحالية.`;
+  if (["payment_confirmed_under_review", "final_review", "under_review"].includes(stage)) {
+    return `طلبك${tracking} لسا قيد الدراسة النهائية، والدفع مؤكد على الملف. ما صدر قرار نهائي حسب الحالة الحالية.`;
+  }
+  if (stage === "payment_proof_pending_admin") return `وصل الدفع موجود على طلبك${tracking} وبانتظار الاعتماد الإداري. ما في داعي تعيد الدفع أو ترفع الوصل مرة ثانية.`;
+  if (stage === "continuation_confirmed_fee_due") return `اختيار الاستمرار مسجل على طلبك${tracking}، والخطوة الحالية رسوم فتح الملف ثم رفع الوصل من المسار الرسمي.`;
+  if (stage === "preliminary_approved_waiting_decision") return `طلبك${tracking} أخذ موافقة مبدئية، ولسا ما صدر قرار نهائي.`;
+  if (stage === "preliminary_review") return `طلبك${tracking} لسا بالمراجعة المبدئية.`;
+  return `حالة طلبك${tracking} حاليًا: ${customerFacingStatusLabel(app)}.`;
+}
+
+function asksReviewTiming(turn: InterpretedTurn) {
+  if (hasTopic(turn, "review_timing")) return true;
+  const q = n(combinedQuestion(turn));
+  const timing = /(?:متى|امتى|ايمتى|قديش|كم\s+وقت|كم\s+يوم|موعد|متى\s+بطلع)/.test(q);
+  const decision = /(?:موافقه|موافقة|قرار|نتيجه|نتيجة|دراسه|دراسة|مراجعه|مراجعة|نهائي|نهائية)/.test(q);
+  return timing && decision;
+}
+
+function reviewTimingFact(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app) return "ما بقدر أحدد مدة لطلب غير مربوط بشكل موثوق بهالمحادثة.";
+  const stage = applicationJourneyStage(app);
+  if (stage === "refund_requested") return "الطلب حاليًا بمسار الاسترداد، مش بمسار انتظار موافقة نهائية.";
+  if (stage === "refund_completed") return "الطلب ملغي والاسترداد مكتمل، لذلك ما في موافقة نهائية منتظرة على هذا الطلب.";
+  if (stage === "cancelled") return "الطلب ملغي حاليًا، لذلك ما في موعد موافقة نهائية منتظر على هذا المسار.";
+  return "المعدل الطبيعي للمراجعة من يومين إلى 3 أيام تشغيلية (الأحد للخميس)، لكن مع ضغط المراجعات الحالي بعض الملفات ممكن تتجاوز هالمدة. ما في موعد نهائي دقيق أقدر أوعدك فيه قبل ما يصدر القرار فعليًا.";
+}
+
+function asksMonthlyInstallmentAmount(turn: InterpretedTurn) {
+  const q = n(combinedQuestion(turn));
+  const amountQuestion = /(?:كم|قديش|شو).{0,20}(?:القسط|قسط)|(?:القسط|قسطه|قسطو).{0,20}(?:كم|قديش|[0-9٠-٩]{1,4})/.test(q);
+  const methodQuestion = /(?:كيف|طريقه|طريقة|اسدد|أسدد|ادفع|أدفع|تحويل|اقتطاع|كليك|cliq|بنك|كاش|نقد)/i.test(q);
+  const durationQuestion = /(?:مده|مدة|شهر|سنه|سنة|سنتين).{0,20}(?:تقسيط|قسط)|(?:تقسيط|قسط).{0,20}(?:مده|مدة|شهر|سنه|سنة|سنتين)/.test(q);
+  return (hasTopic(turn, "installment_amount") || amountQuestion) && !methodQuestion && !durationQuestion;
+}
+
+function monthlyInstallmentAmountFact(truth: TruthBundle) {
+  const amount = Number(truth.application?.monthlyPayment);
+  if (!Number.isFinite(amount) || amount <= 0) return "قيمة القسط الشهرية الدقيقة مش ظاهرة عندي بشكل موثوق على الطلب هسا، وما بدي أعطيك رقم تقريبي.";
+  const months = Number(truth.application?.installmentMonths);
+  const formatted = amount.toFixed(2).replace(/\.00$/, "");
+  return Number.isFinite(months) && months > 0
+    ? `القسط الشهري المسجل حاليًا على طلبك هو ${formatted} دينار لمدة ${months} شهر.`
+    : `القسط الشهري المسجل حاليًا على طلبك هو ${formatted} دينار.`;
+}
+
 function asksMonthlyPaymentMethod(turn: InterpretedTurn) {
   const q = n(combinedQuestion(turn));
   const semantic = n(semanticText(turn));
@@ -88,7 +152,6 @@ function asksFirstInstallmentTiming(turn: InterpretedTurn) {
     && /(?:متى|بعد|وقت|يستحق|استحقاق|ادفع|أدفع|استلام|توقيع)/.test(q);
 }
 
-
 function asksInstallmentDurationChange(turn: InterpretedTurn) {
   if (hasTopic(turn, "installment_duration")) return true;
   const q = n(combinedQuestion(turn));
@@ -99,6 +162,20 @@ function installmentDurationFact(truth: TruthBundle) {
   const months = truth.application?.installmentMonths;
   const current = months && Number.isFinite(Number(months)) ? `مدة التقسيط المسجلة حاليًا على طلبك هي ${Number(months)} شهر. ` : "";
   return `${current}إذا بدك مدة مختلفة مثل سنة أو سنتين، ما بنعتبرها تغيّرت من رسالة واتساب وحدها؛ لازم تنعمل الحسبة/الخيار الرسمي على الطلب حسب المدة المتاحة فعليًا. ما رح أخلط طلب تغيير المدة برسوم فتح الملف.`;
+}
+
+function asksApplicationChangeStatus(turn: InterpretedTurn) {
+  const q = n(combinedQuestion(turn));
+  if (hasTopic(turn, "device_change", "application_correction")) return true;
+  return /(?:تعديل|تعدل|عدلت|غير|تغيير).{0,30}(?:الطلب|الجهاز|الموديل)|(?:الرابط|الروابط).{0,30}(?:ما\s+زبط|ما\s+اشتغل|تعديل|تغيير)/.test(q);
+}
+
+function applicationChangeStatusFact(truth: TruthBundle) {
+  const app = truth.application;
+  if (!app) return "ما عندي طلب موثوق مربوط بهالمحادثة حتى أتحقق من التعديل.";
+  const currentDevice = String(app.deviceName || "").trim();
+  const current = currentDevice ? `الجهاز المسجل حاليًا على الطلب هو: ${currentDevice}. ` : "";
+  return `${current}إذا رابط التغيير السابق ما اشتغل، ما بنعتبر التعديل تم من مجرد المحاولة؛ المعتمد هو القيمة الموجودة فعليًا على الطلب إلى أن تتغير رسميًا.`;
 }
 
 function asksOfficeLocation(turn: InterpretedTurn) {
@@ -205,6 +282,33 @@ export function buildSingleConversationAnswerPlan(input: {
     });
   }
 
+  if (asksApplicationStatus(turn)) {
+    add(items, {
+      key: "application_status",
+      question: turn.semantic?.currentQuestion || "حالة الطلب",
+      fact: applicationStatusFact(truth),
+      source: "authoritative_application_truth",
+    });
+  }
+
+  if (asksReviewTiming(turn)) {
+    add(items, {
+      key: "review_timing",
+      question: turn.semantic?.currentQuestion || "مدة المراجعة والقرار النهائي",
+      fact: reviewTimingFact(truth),
+      source: "authoritative_application_truth",
+    });
+  }
+
+  if (asksMonthlyInstallmentAmount(turn)) {
+    add(items, {
+      key: "monthly_installment_amount",
+      question: turn.semantic?.currentQuestion || "قيمة القسط الشهري",
+      fact: monthlyInstallmentAmountFact(truth),
+      source: "authoritative_application_truth",
+    });
+  }
+
   if (asksMonthlyPaymentMethod(turn)) {
     add(items, {
       key: "monthly_installment_payment",
@@ -228,6 +332,15 @@ export function buildSingleConversationAnswerPlan(input: {
       key: "installment_duration_change",
       question: turn.semantic?.currentQuestion || "تغيير مدة التقسيط",
       fact: installmentDurationFact(truth),
+      source: "authoritative_application_truth",
+    });
+  }
+
+  if (asksApplicationChangeStatus(turn)) {
+    add(items, {
+      key: "application_change_status",
+      question: turn.semantic?.currentQuestion || "حالة تعديل الطلب",
+      fact: applicationChangeStatusFact(truth),
       source: "authoritative_application_truth",
     });
   }
@@ -272,7 +385,7 @@ export function buildSingleConversationAnswerPlan(input: {
     add(items, {
       key: "grounded_unknown",
       question: turn.semantic.currentQuestion,
-      fact: `سؤالك واضح: «${turn.semantic.currentQuestion}». المعلومة المحددة اللازمة للجواب مش موجودة عندي ضمن الحقيقة الموثقة الحالية، لذلك ما رح أخمّن أو أبدل سؤالك بموضوع ثاني.`,
+      fact: "ما عندي تحديث مؤكد كافي عن هالنقطة حاليًا، وما بدي أعطيك نتيجة أو موعد من عندي. بعتمد فقط الحالة الفعلية الموجودة على طلبك.",
       source: "scope_policy",
     });
   }
@@ -317,12 +430,21 @@ export function genericFallbackDetected(reply: string | null | undefined) {
   if (!q) return false;
   return (q.includes("احكيلي شو بدك تعرف") && q.includes("بدون ما افترض"))
     || (q.includes("فهمت سوالك الحالي") && q.includes("ما عندي حقيقه موثقه كفايه"))
-    || (q.includes("احكيلي المعلومه اللي بدك اياها") && q.includes("بدون ما الف"));
+    || (q.includes("احكيلي المعلومه اللي بدك اياها") && q.includes("بدون ما الف"))
+    || q.includes("الحقيقه الموثقه الحاليه");
 }
 
 function coverageForItem(reply: string, item: ConversationAnswerItem) {
   const q = n(reply);
   switch (item.key) {
+    case "application_status":
+      return /طلب|حاله|حالة|مراجعه|مراجعة|دراسه|دراسة|استرداد|ملغي|موافقة/.test(q) && !genericFallbackDetected(reply);
+    case "review_timing":
+      return /(?:يومين|2).{0,12}(?:3|ثلاث)|(?:2|يومين).{0,20}(?:ايام|أيام|تشغيل)/.test(q) && /(?:ما\s+في|ما\s+بقدر|بدون).{0,30}(?:موعد|تاريخ|وعد)|ضغط/.test(q);
+    case "monthly_installment_amount":
+      return /قسط/.test(q) && /دينار/.test(q) && !/رسوم\s+فتح\s+الملف/.test(q);
+    case "application_change_status":
+      return /(?:المسجل|الطلب|التعديل|التغيير)/.test(q) && /(?:ما\s+بنعتبر|فعلي|رسمي|الموجود)/.test(q);
     case "monthly_installment_payment":
       return /cliq|كليك/i.test(reply) && /تحويل\s+بنكي|البنك/.test(q) && /الموقع|الحضور/.test(q);
     case "first_installment_timing":
@@ -351,7 +473,7 @@ function coverageForItem(reply: string, item: ConversationAnswerItem) {
     case "installment_duration_change":
       return /(?:مده|مدة|شهر|سنه|سنة|سنتين)/.test(q) && /(?:الحسبه|الحسبة|الطلب|رسمي)/.test(q) && !/رسوم\s+فتح\s+الملف.{0,20}(?:ادفع|مطلوب)/.test(q);
     case "grounded_unknown":
-      return q.includes(n(item.question)) || (q.includes("المعلومه") && /مش\s+موجود|غير\s+موجود|ما\s+عندي/.test(q));
+      return !genericFallbackDetected(reply) && /(?:ما\s+عندي|ما\s+بدي|مؤكد|فعلي)/.test(q);
     case "current_next_step":
       return !genericFallbackDetected(reply) && q.length >= 20;
     case "business_scope":

@@ -4,6 +4,7 @@ import { applicationJourneyStage } from "./applicationJourney";
 import { commercialContinuationAffirmativeText, commercialDisclosureDelivered, strongCommercialContinuationDecisionText } from "./informedCommercialContinuation";
 import { persistExplicitContinuation } from "./continuationPersistence";
 import { notifyV3Discord } from "./discordNotifier";
+import { normalizeArabic } from "./text";
 import type { ActionKey, ActionResult, ConversationState, PlannedAction, TruthBundle } from "./types";
 
 export type ActionExecutorAdapter = {
@@ -59,6 +60,45 @@ function realMutationOwnershipBlocker(action: PlannedAction, state: Conversation
   if (String(payload._scopeWaId || "") !== String(state.waId || "")) return "mutation_sender_scope_required";
   if (action.action === "link_whatsapp_alias" && String(payload._aliasWaId || payload._scopeWaId || "") !== String(state.waId || "")) return "alias_sender_scope_required";
   if (!String(payload._mutationConfirmedOnTurn || "").trim()) return "explicit_action_named_confirmation_required";
+  return null;
+}
+
+function normalizedCurrentTurn(state: ConversationState) {
+  return normalizeArabic(String(state.lastCustomerText || ""))
+    .replace(/[؟?!.,،؛:]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function namedCurrentTurnMutation(action: ActionKey, q: string) {
+  if (action === "cancel_application") {
+    return /(?:الغي|الغاء|الغوا|ألغ|إلغ).{0,26}(?:الطلب|طلبي|المعامله|المعاملة)?/.test(q)
+      && !/(?:لا|ما)\s*(?:تلغي|الغي|الغاء)|(?:تراجعت|بطلت).{0,18}(?:الالغاء|الإلغاء)/.test(q);
+  }
+  if (action === "request_refund") {
+    return /(?:استرداد|استرجاع|استرد|استرجع|رجعلي|رجعولي)/.test(q)
+      && !/(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+أريد).{0,24}(?:استرد|استرجع|الاسترداد|الاسترجاع)/.test(q);
+  }
+  if (action === "stop_refund") {
+    return /(?:وقف|اوقف|أوقف|ايقاف|إيقاف|الغي|ألغي|الغاء|إلغاء).{0,34}(?:طلب\s+)?(?:الاسترداد|الاسترجاع)|(?:بديش|ما\s+بدي|لا\s+اريد|لا\s+أريد).{0,26}(?:الاسترداد|الاسترجاع)|(?:ارجع|بدي).{0,26}(?:اكمل|استمر).{0,28}(?:بدل|بعد).{0,20}(?:الاسترداد|الاسترجاع)/.test(q);
+  }
+  if (action === "reopen_application") {
+    return /(?:اعيد|أعيد|اعاده|إعادة|ارجع|أرجع|رجع).{0,28}(?:افتح|فتح|الطلب|الملف)|(?:افتح|أفتح|تفعيل).{0,24}(?:الطلب|الملف)|(?:تراجعت|بطلت).{0,24}(?:الالغاء|الإلغاء)/.test(q)
+      && !/(?:لا|ما)\s*(?:ترجع|تعيد|تفتح)|(?:ما\s+بدي|بديش|لا\s+اريد).{0,24}(?:اكمل|استمر)/.test(q);
+  }
+  return true;
+}
+
+function currentTurnMutationAuthorityBlocker(action: PlannedAction, state: ConversationState) {
+  if (!["cancel_application", "request_refund", "stop_refund", "reopen_application"].includes(action.action)) return null;
+  const q = normalizedCurrentTurn(state);
+  if (!q) return "current_turn_explicit_action_name_required";
+  const cancel = namedCurrentTurnMutation("cancel_application", q);
+  const refund = namedCurrentTurnMutation("request_refund", q);
+  const stopRefund = namedCurrentTurnMutation("stop_refund", q);
+  const reopen = namedCurrentTurnMutation("reopen_application", q);
+  if ((cancel && reopen) || (refund && stopRefund)) return "conflicting_current_turn_mutation_directions";
+  if (!namedCurrentTurnMutation(action.action, q)) return "current_turn_explicit_action_name_required";
   return null;
 }
 
@@ -200,6 +240,11 @@ export async function executeActions(input: { actions: PlannedAction[]; state: C
     const ownershipBlocker = realMutationOwnershipBlocker(action, input.state, input.truth);
     if (ownershipBlocker) {
       results.push({ action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: ownershipBlocker, ownerRole: input.state.role.currentRole });
+      continue;
+    }
+    const currentTurnBlocker = currentTurnMutationAuthorityBlocker(action, input.state);
+    if (currentTurnBlocker) {
+      results.push({ action: action.action, outcome: "blocked", executed: false, authoritativeSummary: null, mutationId: null, blocker: currentTurnBlocker, ownerRole: input.state.role.currentRole });
       continue;
     }
     try {
