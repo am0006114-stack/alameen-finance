@@ -77,15 +77,6 @@ export function mutationDecline(action: ActionKey, value: string | null | undefi
   return false;
 }
 
-function semanticMutationRequest(action: ActionKey, turn: InterpretedTurn) {
-  const semantic = turn.semantic;
-  if (!semantic || semantic.confidence < 0.82) return false;
-  if (action === "cancel_application") return semantic.decision.cancellation === "requested";
-  if (action === "request_refund") return semantic.decision.refund === "requested";
-  if (action === "stop_refund" || action === "reopen_application") return turn.requestedActions.includes(action);
-  return false;
-}
-
 export function explicitMutationRequest(action: ActionKey, value: string | null | undefined) {
   const q = normalized(value);
   if (!q || mutationQuestion(action, q) || mutationDecline(action, q)) return false;
@@ -115,7 +106,9 @@ function bareAffirmative(value: string | null | undefined) {
 }
 
 function contextualReopenOpenLoopConfirmation(input: { value: string | null | undefined; state: ConversationState; truth: TruthBundle }) {
-  if (!bareAffirmative(input.value)) return false;
+  // Reopening reverses a prior cancellation/refund journey. A bare "نعم" is not
+  // sufficient authority for this reversal; the current turn must name reopening.
+  if (!explicitMutationConfirmation({ action: "reopen_application", value: input.value, state: input.state })) return false;
   if (!input.truth.application) return false;
   if (input.state.pendingAction !== "reopen_application") return false;
   if (!lastAssistantAskedForConfirmation(input.state, "reopen_application")) return false;
@@ -222,6 +215,15 @@ function mutationAlreadySatisfied(action: ActionKey, stage: ReturnType<typeof ap
   return false;
 }
 
+function mutationActionCorroboratedByCurrentTurn(action: PlannedAction, turn: InterpretedTurn, state: ConversationState) {
+  if (!REAL_MUTATIONS.has(action.action)) return true;
+  if (action.action === "link_whatsapp_alias" && action.payload?._autoContactAliasPrompt === true) return true;
+  return mutationQuestion(action.action, turn.rawText)
+    || mutationDecline(action.action, turn.rawText)
+    || explicitMutationRequest(action.action, turn.rawText)
+    || explicitMutationConfirmation({ action: action.action, value: turn.rawText, state });
+}
+
 export type MutationConfirmationGateResult = {
   actions: PlannedAction[];
   confirmationPrompt: string | null;
@@ -253,10 +255,14 @@ export function enforceMutationConfirmationGate(input: {
     };
   }
 
+  // Mutation authority is deterministic. Model/planner mutation acts are accepted
+  // only when the current customer turn itself corroborates that exact action.
+  // This prevents cancel↔reopen and refund↔stop-refund inversions from stale/model acts.
+  const corroboratedInputActions = input.actions.filter((action) => mutationActionCorroboratedByCurrentTurn(action, input.turn, input.state));
   const stopRefundContinuationRequest = stopRefundKeepRequest(input.turn.rawText);
   const candidateActions: PlannedAction[] = stopRefundContinuationRequest
     ? [
-        ...input.actions.filter((action) => !["cancel_application", "request_refund"].includes(action.action) && action.action !== "stop_refund"),
+        ...corroboratedInputActions.filter((action) => !["cancel_application", "request_refund"].includes(action.action) && action.action !== "stop_refund"),
         {
           action: "stop_refund",
           sourceActId: input.turn.acts[0]?.id || input.turn.turnId,
@@ -266,7 +272,7 @@ export function enforceMutationConfirmationGate(input: {
           payload: null,
         },
       ]
-    : input.actions;
+    : corroboratedInputActions;
 
   const hasCancellation = candidateActions.some((action) => action.action === "cancel_application");
   const normalizedCandidateActions = hasCancellation
@@ -334,6 +340,13 @@ export function enforceMutationConfirmationGate(input: {
     clearPendingConfirmation = true;
   }
 
+  if (pending === "reopen_application" && (explicitMutationRequest("cancel_application", input.turn.rawText) || explicitMutationRequest("request_refund", input.turn.rawText))) {
+    clearPendingConfirmation = true;
+  }
+  if (pending === "stop_refund" && explicitMutationRequest("request_refund", input.turn.rawText)) {
+    clearPendingConfirmation = true;
+  }
+
   if (pending && !lastAssistantAskedForConfirmation(input.state, pending)) {
     const namesPending = actionWords(pending, q);
     if (!namesPending) clearPendingConfirmation = true;
@@ -383,7 +396,7 @@ export function enforceMutationConfirmationGate(input: {
       info = informationalReply(action.action, input.truth);
       continue;
     }
-    if (!input.truth.application && (explicitMutationRequest(action.action, input.turn.rawText) || semanticMutationRequest(action.action, input.turn) || explicitMutationConfirmation({ action: action.action, value: input.turn.rawText, state: input.state }))) {
+    if (!input.truth.application && (explicitMutationRequest(action.action, input.turn.rawText) || explicitMutationConfirmation({ action: action.action, value: input.turn.rawText, state: input.state }))) {
       clearPendingConfirmation = true;
       info = missingApplicationMutationReply(action.action, input.state);
       continue;
@@ -403,7 +416,7 @@ export function enforceMutationConfirmationGate(input: {
       });
       continue;
     }
-    if (explicitMutationRequest(action.action, input.turn.rawText) || semanticMutationRequest(action.action, input.turn)) {
+    if (explicitMutationRequest(action.action, input.turn.rawText)) {
       const staged = { ...action, requiresConfirmation: true, authority: "deterministic" as const, payload: payloadWithConfirmationScope(action, input.truth, input.turn.turnId, input.state.waId) };
       output.push(staged);
       prompt = confirmationPrompt(action.action, input.truth);
@@ -437,12 +450,12 @@ export function enforceMutationConfirmationGate(input: {
   for (const action of REAL_MUTATIONS) {
     if (prompt || confirmedAction || blockedQuestionAction || info) break;
     if (mutationAlreadySatisfied(action, authoritativeStage)) continue;
-    if (!input.truth.application && (explicitMutationRequest(action, input.turn.rawText) || semanticMutationRequest(action, input.turn) || explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state }))) {
+    if (!input.truth.application && (explicitMutationRequest(action, input.turn.rawText) || explicitMutationConfirmation({ action, value: input.turn.rawText, state: input.state }))) {
       clearPendingConfirmation = true;
       info = missingApplicationMutationReply(action, input.state);
       break;
     }
-    if (explicitMutationRequest(action, input.turn.rawText) || semanticMutationRequest(action, input.turn)) {
+    if (explicitMutationRequest(action, input.turn.rawText)) {
       const staged: PlannedAction = {
         action,
         sourceActId: input.turn.acts[0]?.id || input.turn.turnId,
