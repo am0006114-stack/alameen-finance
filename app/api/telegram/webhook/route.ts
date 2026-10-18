@@ -51,16 +51,16 @@ function customerAskedNotToRepeatUnlinkedPrompt(value: string) {
 
 function unlinkedPromptText(failure: TelegramHandoffFailure | null) {
   if (failure === "expired") {
-    return "رابط المتابعة اللي استخدمته انتهت صلاحيته. افتح أحدث رابط متابعة وصلك من الأمين على واتساب واضغط إرسال على الرسالة الجاهزة. ما في داعي تعيد بياناتك.";
+    return "الرابط اللي فتحته انتهت صلاحيته. ارجع لواتساب واكتب: رابط تيليجرام جديد. إذا طلبك مؤهل للمتابعة على تيليجرام بنبعثلك رابط جديد آمن، وما في داعي تعيد بياناتك هون.";
   }
   if (failure === "already_used") {
-    return "رابط المتابعة هذا سبق استخدامه وما بقدر أعيد استخدامه. افتح أحدث رابط متابعة وصلك من الأمين على واتساب واضغط إرسال على الرسالة الجاهزة.";
+    return "الرابط هذا استُخدم قبل وما بنقدر نستخدمه مرة ثانية. إذا المحادثة ما ارتبطت عندك، ارجع لواتساب واكتب: رابط تيليجرام جديد. ما في داعي تعيد بياناتك هون.";
   }
   if (failure === "invalid") {
-    return "رابط المتابعة اللي وصلني غير صالح أو غير مكتمل. افتح أحدث رابط متابعة وصلك من الأمين على واتساب واضغط إرسال على الرسالة الجاهزة.";
+    return "الرابط اللي وصلني غير صالح أو ناقص. ارجع لواتساب واكتب: رابط تيليجرام جديد، وبنرسل رابط جديد إذا طلبك مؤهل للمتابعة هون.";
   }
   if (failure === "unavailable") {
-    return "تعذر اعتماد رابط المتابعة بهاللحظة بدون ما أعتبر الربط ناجح. افتح أحدث رابط متابعة وصلك من الأمين على واتساب وحاول إرساله مرة واحدة.";
+    return "تعذر اعتماد الرابط بهاللحظة، وما اعتبرت الربط ناجح. ارجع لواتساب واكتب: رابط تيليجرام جديد، وحاول بالرابط الجديد مرة واحدة.";
   }
   return "أهلين، حتى أربط محادثتك بنفس طلبك الحالي بأمان افتح رابط المتابعة الخاص فيك من الأمين على واتساب. الرابط بيربط المحادثتين بدون ما تعيد بياناتك.";
 }
@@ -93,7 +93,7 @@ async function handleConnection(update: TelegramUpdate) {
 }
 
 export async function GET() {
-  return json({ ok: true, channel: "telegram_business", phase: "18.5.1" });
+  return json({ ok: true, channel: "telegram_business", phase: "18.6.1" });
 }
 
 export async function POST(request: Request) {
@@ -253,7 +253,7 @@ export async function POST(request: Request) {
           : media.kind === "video" ? "الفيديو"
           : "الفويس";
         const storageLine = media.storagePath ? "وانحفظ بأمان مع محادثتك" : "ووصلتني بياناته، لكن حفظه التلقائي تعذر";
-        const text = `وصلني ${mediaName} ${storageLine}. ما رح أدّعي إني فهمت محتوى المرفق إذا ما كان عندي تحليل موثوق إله. إذا بدك جواب فوري اكتب المطلوب عنه بنص، أو خليه للمتابعة البشرية من نفس المحادثة.`;
+        const text = `وصلني ${mediaName} ${storageLine}. إذا بدك جواب عنه، اكتبلي باختصار شو بدك أعرف أو أراجع فيه وبكمل معك من نفس الطلب.`;
         const sent = await sendBusinessText({ businessConnectionId, chatId: telegramChatId, text });
         await logTelegramOutgoing({
           businessConnectionId,
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
   if (!config.aiEnabled) return json({ ok: true, handled: "telegram_ai_disabled" });
 
   if (!String(effectiveBody || "").trim()) {
-    const text = "وصلتني الرسالة، لكن ما قدرت أستخرج منها نص موثوق. اكتب المطلوب بنص وبكمل معك من نفس الطلب.";
+    const text = "وصلتني الرسالة، بس ما طلع منها نص أقدر أعتمد عليه. اكتبلي المطلوب بنص قصير وبكمل معك من نفس الطلب.";
     const sent = await sendBusinessText({ businessConnectionId, chatId: telegramChatId, text });
     await logTelegramOutgoing({
       businessConnectionId,
@@ -303,7 +303,7 @@ export async function POST(request: Request) {
       handled: "held_for_humanized_intelligence",
       holdSeconds: 20,
       dueAt: hold.dueAt,
-      realActionsEnabled: false,
+      telegramRealActionsConfigured: config.realActionsEnabled,
     });
   } catch (error) {
     console.error("telegram_intelligence_hold_enqueue_failed", error);
