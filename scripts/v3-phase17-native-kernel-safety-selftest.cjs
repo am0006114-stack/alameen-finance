@@ -17,6 +17,7 @@ const semanticAuthority = read(base + 'semanticAuthority.ts');
 const actionPlane = read(base + 'actionPlane.ts');
 const continuation = read(base + 'continuationPersistence.ts');
 const mutationGate = read(base + 'mutationConfirmationGate.ts');
+const singleAuthority = read(base + 'singleConversationAuthority.ts');
 
 function transpiles(rel) {
   const result = ts.transpileModule(read(rel), {
@@ -66,6 +67,26 @@ ok(actionPlane.includes('executeActions'), 'action plane still exposes determini
 ok(continuation.includes('persistExplicitContinuation'), 'continuation persistence implementation remains present');
 ok(mutationGate.includes('enforceMutationConfirmationGate'), 'mutation confirmation implementation remains present');
 
+// Phase 18.6: a generative/model act is never sufficient mutation authority.
+ok(mutationGate.includes('mutationActionCorroboratedByCurrentTurn'), 'mutation gate corroborates every planned real mutation against the current customer turn');
+ok(mutationGate.includes('const corroboratedInputActions = input.actions.filter'), 'uncorroborated model/planner mutations are removed before confirmation planning');
+ok(!mutationGate.includes('semanticMutationRequest(action.action, input.turn)'), 'semantic/model mutation requests cannot directly authorize a real mutation');
+ok(!mutationGate.includes('semanticMutationRequest(action, input.turn)'), 'fallback mutation scan is deterministic-current-turn only');
+ok(mutationGate.includes('A bare "نعم" is not'), 'reopen reversal no longer accepts a bare affirmative');
+ok(mutationGate.includes('pending === "reopen_application"') && mutationGate.includes('explicitMutationRequest("cancel_application"'), 'explicit cancel/refund clears stale pending reopen authority');
+ok(actionPlane.includes('currentTurnMutationAuthorityBlocker'), 'action plane has a final current-turn mutation authority boundary');
+ok(actionPlane.includes('current_turn_explicit_action_name_required'), 'real reversal execution requires the current turn to name the action');
+ok(actionPlane.includes('conflicting_current_turn_mutation_directions'), 'opposite mutation directions are blocked at the execution boundary');
+
+// Phase 18.6: common live questions use grounded business/application truth instead of internal fallback prose.
+ok(singleAuthority.includes('| "application_status"'), 'single authority has application status truth coverage');
+ok(singleAuthority.includes('| "review_timing"'), 'single authority has review timing truth coverage');
+ok(singleAuthority.includes('| "monthly_installment_amount"'), 'single authority has monthly installment amount truth coverage');
+ok(singleAuthority.includes('| "application_change_status"'), 'single authority can cover status + modification questions in one plan');
+ok(singleAuthority.includes('المعدل الطبيعي للمراجعة من يومين إلى 3 أيام تشغيلية'), 'review timing uses the approved 2-3 operating day baseline with caveat');
+ok(singleAuthority.includes('monthlyPayment'), 'installment amount comes from authoritative application truth');
+ok(!singleAuthority.includes('المعلومة المحددة اللازمة للجواب مش موجودة عندي ضمن الحقيقة الموثقة الحالية'), 'internal grounded-unknown wording is retired from customer output');
+
 // No internal technical identity should be customer-facing from the model path.
 ok(kernel.includes('/\\bAI\\b/i') && kernel.includes('/ذكاء\\s*اصطناعي/i'), 'native validator blocks AI/internal identity leakage');
 ok(kernel.includes('false_literal_human_handoff_claim'), 'native validator blocks fake human/handoff claims');
@@ -75,8 +96,11 @@ for (const rel of [
   base + 'interpreter.ts',
   base + 'semanticAuthority.ts',
   base + 'nativeConversationKernel.ts',
+  base + 'mutationConfirmationGate.ts',
+  base + 'actionPlane.ts',
+  base + 'singleConversationAuthority.ts',
   base + 'runtimeLive.ts',
 ]) ok(transpiles(rel), `${rel} transpiles clean`);
 
-console.log(`\nPhase 17 native safety assertions: ${passed + failed}; passed=${passed}; failed=${failed}`);
+console.log(`\nPhase 17/18.6 native safety assertions: ${passed + failed}; passed=${passed}; failed=${failed}`);
 if (failed) process.exit(1);
