@@ -108,21 +108,6 @@ export default function GuarantorClient() {
     setSubmissionProgress(Math.max(0, Math.min(100, percent)));
   }
 
-  async function uploadFile(file: File, path: string) {
-    const { error } = await supabase.storage
-      .from("documents")
-      .upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from("documents").getPublicUrl(path);
-
-    return data.publicUrl;
-  }
-
   function handleFileChange(key: UploadKey, file: File | null) {
     if (!file) return;
 
@@ -271,45 +256,34 @@ export default function GuarantorClient() {
     updateSubmissionStatus("جاري تجهيز بيانات الكفيل...", 10);
 
     try {
-      updateSubmissionStatus("جاري تحديث طلب العميل...", 30);
+      updateSubmissionStatus("جاري التحقق من البيانات...", 25);
 
-      const { error: updateError } = await supabase
-        .from("applications")
-        .update({
-          guarantor_name: guarantorName.trim(),
-          guarantor_phone: cleanGuarantorPhone,
-          guarantor_national_id: cleanGuarantorNationalId,
-          guarantor_relationship: translateRelationship(guarantorRelationship),
-          guarantor_social_security: guarantorSocialSecurity,
-          status: "guarantor_submitted",
-        })
-        .eq("id", application.id);
+      const payload = new FormData();
+      payload.set("applicationId", application.id);
+      payload.set("tracking", application.tracking_id || tracking);
+      payload.set("phone", application.phone || phoneFromUrl);
+      payload.set("guarantorName", guarantorName.trim());
+      payload.set("guarantorNationalId", cleanGuarantorNationalId);
+      payload.set("guarantorPhone", cleanGuarantorPhone);
+      payload.set("guarantorRelationship", guarantorRelationship);
+      payload.set(
+        "guarantorSocialSecurity",
+        guarantorSocialSecurity ? "1" : "0"
+      );
+      payload.set("termsAccepted", termsAccepted ? "1" : "0");
+      payload.set("guarantorIdFront", files.guarantorIdFront!);
+      payload.set("guarantorIdBack", files.guarantorIdBack!);
 
-      if (updateError) throw updateError;
+      updateSubmissionStatus("جاري حفظ هوية الكفيل في الخزنة الخاصة...", 55);
 
-      updateSubmissionStatus("جاري رفع صور هوية الكفيل...", 50);
+      const response = await fetch("/api/guarantor", {
+        method: "POST",
+        body: payload,
+      });
 
-      for (const [index, item] of uploadTypes.entries()) {
-        const file = files[item.key];
-
-        if (!file) continue;
-
-        updateSubmissionStatus(
-          `جاري رفع الوثائق (${index + 1} من ${uploadTypes.length})...`,
-          50 + Math.round(((index + 1) / uploadTypes.length) * 35)
-        );
-
-        const extension = file.type === "image/png" ? "png" : "jpg";
-        const path = `${application.tracking_id || application.id}/${item.type}-${Date.now()}.${extension}`;
-        const publicUrl = await uploadFile(file, path);
-
-        const { error: docError } = await supabase.from("documents").insert({
-          application_id: application.id,
-          type: item.type,
-          file_url: publicUrl,
-        });
-
-        if (docError) throw docError;
+      if (!response.ok) {
+        const result = await response.json().catch(() => null);
+        throw new Error(result?.error || "upload_failed");
       }
 
       updateSubmissionStatus("تم إرسال بيانات الكفيل بنجاح.", 100);

@@ -43,20 +43,30 @@ export function isIdentityDocument(document: DocumentLike) {
   return IDENTITY_TYPES.has(getDocumentType(document));
 }
 
+export function isVaultBackedDocument(document: DocumentLike) {
+  const directUrl = asString(
+    document.file_url || document.public_url || document.url
+  );
+
+  return directUrl.toLowerCase().startsWith("vault://");
+}
+
 export function getDocumentStoragePath(document: DocumentLike) {
   const directPath = asString(
     document.file_path || document.path || document.storage_path
   );
 
-  if (directPath) {
-    return directPath.replace(/^\/+/, "");
-  }
+  if (directPath) return directPath.replace(/^\/+/, "");
 
   const directUrl = asString(
     document.file_url || document.public_url || document.url
   );
 
   if (!directUrl) return "";
+
+  if (directUrl.toLowerCase().startsWith("vault://")) {
+    return directUrl.slice("vault://".length).replace(/^\/+/, "");
+  }
 
   const markers = [
     "/storage/v1/object/public/documents/",
@@ -65,13 +75,9 @@ export function getDocumentStoragePath(document: DocumentLike) {
 
   for (const marker of markers) {
     const markerIndex = directUrl.indexOf(marker);
-
     if (markerIndex === -1) continue;
 
-    const encodedPath = directUrl
-      .slice(markerIndex + marker.length)
-      .split("?")[0];
-
+    const encodedPath = directUrl.slice(markerIndex + marker.length).split("?")[0];
     try {
       return decodeURIComponent(encodedPath).replace(/^\/+/, "");
     } catch {
@@ -87,35 +93,35 @@ export function getDocumentDirectUrl(document: DocumentLike) {
     document.file_url || document.public_url || document.url
   );
 
+  if (directUrl.toLowerCase().startsWith("vault://")) return "";
   if (directUrl) return directUrl;
 
   const storagePath = getDocumentStoragePath(document);
   if (!storagePath) return "";
 
-  const { data } = supabaseAdmin.storage
-    .from("documents")
-    .getPublicUrl(storagePath);
-
+  const { data } = supabaseAdmin.storage.from("documents").getPublicUrl(storagePath);
   return data.publicUrl || "";
 }
 
 export async function fetchAdminDocument(document: DocumentLike) {
   const storagePath = getDocumentStoragePath(document);
+  const vaultBacked = isVaultBackedDocument(document);
 
   if (isIdentityDocument(document) && storagePath) {
     const vaultKey = asString(process.env.ALAMEEN_VAULT_KEY);
 
+    if (!vaultKey && vaultBacked) {
+      throw new Error("Vault key is unavailable for a Vault-backed document");
+    }
+
     if (vaultKey) {
       const vaultBaseUrl = (
-        asString(process.env.ALAMEEN_VAULT_BASE_URL) ||
-        DEFAULT_VAULT_BASE_URL
+        asString(process.env.ALAMEEN_VAULT_BASE_URL) || DEFAULT_VAULT_BASE_URL
       ).replace(/\/+$/, "");
 
       const vaultUrl = `${vaultBaseUrl}/?p=${encodeURIComponent(storagePath)}`;
       const vaultResponse = await fetchWithTimeout(vaultUrl, {
-        headers: {
-          "X-Alameen-Vault-Key": vaultKey,
-        },
+        headers: { "X-Alameen-Vault-Key": vaultKey },
       });
 
       if (vaultResponse.ok) {
@@ -126,29 +132,20 @@ export async function fetchAdminDocument(document: DocumentLike) {
         };
       }
 
-      // 404 means this is most likely a newer identity that was never archived.
-      // Any other Vault failure is treated as an infrastructure/security failure
-      // instead of silently bypassing the Vault.
-      if (vaultResponse.status !== 404) {
-        throw new Error(
-          `Vault fetch failed with status ${vaultResponse.status}`
-        );
+      // Vault-native identities have no public Supabase fallback by design.
+      // Historical Supabase URLs may fall back only on a genuine Vault 404.
+      if (vaultBacked || vaultResponse.status !== 404) {
+        throw new Error(`Vault fetch failed with status ${vaultResponse.status}`);
       }
     }
   }
 
   const directUrl = getDocumentDirectUrl(document);
-
-  if (!directUrl) {
-    throw new Error("Document has no resolvable source URL");
-  }
+  if (!directUrl) throw new Error("Document has no resolvable source URL");
 
   const sourceResponse = await fetchWithTimeout(directUrl);
-
   if (!sourceResponse.ok) {
-    throw new Error(
-      `Supabase document fetch failed with status ${sourceResponse.status}`
-    );
+    throw new Error(`Supabase document fetch failed with status ${sourceResponse.status}`);
   }
 
   return {
