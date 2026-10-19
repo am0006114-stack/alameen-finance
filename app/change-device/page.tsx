@@ -32,6 +32,8 @@ function errorMessage(error: string) {
       return "حالة الطلب تغيّرت بعد إصدار الرابط، لذلك تم إيقاف الرابط القديم لحماية الطلب. اطلب رابطًا جديدًا من نفس محادثة واتساب.";
     case "not_eligible":
       return "حالة الطلب الحالية لا تسمح بتغيير الجهاز من هذا الرابط.";
+    case "payment_not_confirmed":
+      return "الدفع لم يعد مؤكدًا إداريًا على الطلب، لذلك تم إيقاف التغيير لحماية الطلب.";
     case "missing_fields":
       return "اختر الجهاز واللون ثم أعد المحاولة.";
     case "terms_missing":
@@ -116,7 +118,7 @@ export default async function ChangeDevicePage({ searchParams }: PageProps) {
             <p className="mx-auto mb-4 inline-flex rounded-full border border-[#d8bd7a] bg-[#fff8e8] px-5 py-2 text-xs font-black text-[#876420]">الأمين للأقساط</p>
             <h1 className="text-3xl font-black leading-[1.7] text-[#123725] sm:text-4xl">تغيير الجهاز على نفس الطلب</h1>
             <p className="mx-auto mt-3 max-w-2xl text-base font-bold leading-8 text-[#5e6b62]">
-              أهلًا {customerName}، هذا الرابط مؤقت ومخصص للطلب {claims.trackingId}. التغيير يتم على نفس الطلب ويحافظ على حقيقة الدفع الحالية.
+              أهلًا {customerName}، هذا الرابط صالح لمدة 24 ساعة ومخصص للطلب {claims.trackingId}. التغيير يتم على نفس الطلب ويحافظ على حقيقة الدفع الحالية.
             </p>
           </div>
         </div>

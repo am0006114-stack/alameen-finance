@@ -3,6 +3,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { calculateInstallment } from "@/lib/installments";
 import { IPHONE18_COLORS, IPHONE18_PRODUCTS } from "@/app/api/whatsapp/webhook/_lib/v3-os/businessTruthRegistry";
 import {
+  deviceChangeClaimsMatchSnapshot,
   deviceChangeIdempotencyKey,
   deviceChangeRowHasAuthoritativePaymentConfirmation,
   deviceChangeSnapshotFromRow,
@@ -84,7 +85,10 @@ export async function POST(request: Request) {
   if (!deviceChangeRowHasAuthoritativePaymentConfirmation(application as Record<string, unknown>)) return redirectToPage(request, token, "payment_not_confirmed");
 
   const currentSnapshot = deviceChangeSnapshotFromRow(application as Record<string, unknown>);
-  if (!sameDeviceChangeSnapshot(currentSnapshot, claims.before)) {
+  const linkSnapshotMatches = claims.beforeHash
+    ? deviceChangeClaimsMatchSnapshot(claims, currentSnapshot)
+    : Boolean(claims.before && sameDeviceChangeSnapshot(currentSnapshot, claims.before));
+  if (!linkSnapshotMatches) {
     return redirectToPage(request, token, "request_changed");
   }
 
@@ -118,7 +122,7 @@ export async function POST(request: Request) {
     p_source_turn_id: `device-change-link:${claims.nonce}`,
     p_action_type: "change_device",
     p_owner_role: "omran",
-    p_expected_before: claims.before,
+    p_expected_before: currentSnapshot,
     p_payload: payload,
     p_runtime_version: `${V3_OS_VERSION}-phase11.2-device-link`,
   });

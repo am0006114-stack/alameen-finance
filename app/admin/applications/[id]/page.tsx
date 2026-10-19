@@ -7,6 +7,7 @@ import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { currentFileOpeningPaymentRule } from "@/app/api/whatsapp/webhook/_lib/v3-os/paymentDestinationOverride";
 import { sendPostPaymentTelegramMigrationAfterConfirmation } from "@/app/api/whatsapp/webhook/_lib/v3-os/telegramMigration";
 import { addOneCalendarMonthOperational, isIphone18Device, isOperationalDate, jordanDateKey } from "@/app/api/whatsapp/webhook/_lib/v3-os/operationalCalendar";
+import { deviceChangeRowHasAuthoritativePaymentConfirmation } from "@/app/api/whatsapp/webhook/_lib/v3-os/deviceChangeAuthority";
 
 type PageProps = {
   params: Promise<{
@@ -909,6 +910,29 @@ function ApprovedPickupDateWhatsAppAction({
 
 
 
+function DeviceChangeLinkAction({
+  applicationId,
+  enabled,
+}: {
+  applicationId: string;
+  enabled: boolean;
+}) {
+  return (
+    <form action="/api/admin/device-change-link" method="POST" target="_blank">
+      <input type="hidden" name="applicationId" value={applicationId} />
+      <button
+        type="submit"
+        disabled={!enabled}
+        className={`flex w-full items-center justify-center rounded-2xl border px-4 py-3 text-sm font-black transition ${enabled
+          ? "cursor-pointer border-cyan-300/30 bg-cyan-950/30 text-cyan-100 hover:bg-cyan-950/45"
+          : "cursor-not-allowed border-white/10 bg-white/5 text-white/35"}`}
+      >
+        {enabled ? "إرسال رابط تغيير الجهاز" : "تغيير الجهاز — بعد تأكيد الدفع"}
+      </button>
+    </form>
+  );
+}
+
 function ReceiptLinkAction({
   applicationId,
 }: {
@@ -1080,6 +1104,11 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
   const whatsappContacts = (whatsappContactsData || []) as WhatsAppContactRecord[];
   const approvedWhatsAppContact = whatsappContacts.find((row) => row.status === "approved") || null;
   const preferredWhatsAppPhone = approvedWhatsAppContact?.wa_id || app.phone || "";
+  const deviceChangeLinkEligible =
+    Boolean(normalizeJordanPhoneForWhatsApp(preferredWhatsAppPhone))
+    && deviceChangeRowHasAuthoritativePaymentConfirmation(app as unknown as Record<string, unknown>)
+    && !["cancelled", "refund_requested", "refund_completed"].includes(String(app.status || "").toLowerCase())
+    && !["refund_requested", "refund_completed"].includes(String(app.payment_status || "").toLowerCase());
   const hasApplicantFrontDocument = safeDocuments.some(isApplicantFrontDocument);
   const hasApplicantBackDocument = safeDocuments.some(isApplicantBackDocument);
   const missingApplicantIdentityDocuments =
@@ -1780,6 +1809,8 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               />
 
               <ReceiptLinkAction applicationId={app.id} />
+
+              <DeviceChangeLinkAction applicationId={app.id} enabled={deviceChangeLinkEligible} />
 
               <DeliveryDelayLinkAction applicationId={app.id} currentDelayUntil={app.delivery_delay_until} />
 

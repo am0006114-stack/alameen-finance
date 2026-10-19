@@ -4,7 +4,8 @@ import { hasAuthoritativePaymentConfirmation } from "./paymentTruth";
 
 const TOKEN_VERSION = 1 as const;
 const TOKEN_PURPOSE = "change_device" as const;
-const TOKEN_TTL_MS = 60 * 60 * 1000;
+const TOKEN_TTL_MS = 24 * 60 * 60 * 1000;
+const TOKEN_MAX_TTL_MS = 48 * 60 * 60 * 1000;
 const TOKEN_KEY_DOMAIN = "alameen:v3:phase11.2:device-change:v1";
 
 export type DeviceChangeBeforeSnapshot = {
@@ -30,7 +31,9 @@ export type DeviceChangeTokenClaims = {
   issuedAt: number;
   expiresAt: number;
   nonce: string;
-  before: DeviceChangeBeforeSnapshot;
+  // New links use beforeHash to stay compact. before remains for legacy links.
+  before: DeviceChangeBeforeSnapshot | null;
+  beforeHash?: string;
 };
 
 function compactNumber(value: unknown) {
@@ -45,8 +48,8 @@ function cleanText(value: unknown) {
 }
 
 
-export function deviceChangeRowHasAuthoritativePaymentConfirmation(row: Record<string, unknown>) {
-  const app: ApplicationTruth = {
+export function deviceChangeTruthFromRow(row: Record<string, unknown>): ApplicationTruth {
+  return {
     id: String(row.id || ""),
     trackingId: cleanText(row.tracking_id),
     fullName: cleanText(row.full_name),
@@ -67,6 +70,10 @@ export function deviceChangeRowHasAuthoritativePaymentConfirmation(row: Record<s
     salary: compactNumber(row.salary),
     deliveryDelayUntil: cleanText(row.delivery_delay_until),
   };
+}
+
+export function deviceChangeRowHasAuthoritativePaymentConfirmation(row: Record<string, unknown>) {
+  const app = deviceChangeTruthFromRow(row);
   return hasAuthoritativePaymentConfirmation(app);
 }
 
@@ -102,8 +109,41 @@ export function deviceChangeSnapshotFromRow(row: Record<string, unknown>): Devic
   };
 }
 
+function stableDeviceChangeLinkSnapshot(value: DeviceChangeBeforeSnapshot) {
+  return {
+    payment_confirmed_at: cleanText(value.payment_confirmed_at),
+    device_id: cleanText(value.device_id),
+    device_name: cleanText(value.device_name),
+    device_price: compactNumber(value.device_price),
+    installment_months: compactNumber(value.installment_months),
+    down_payment: compactNumber(value.down_payment),
+    interest_rate: compactNumber(value.interest_rate),
+    monthly_payment: compactNumber(value.monthly_payment),
+    total_with_interest: compactNumber(value.total_with_interest),
+  };
+}
+
+// Link validity ignores harmless workflow-stage movement, but still locks payment
+// confirmation plus the device and every financing term.
 export function sameDeviceChangeSnapshot(a: DeviceChangeBeforeSnapshot, b: DeviceChangeBeforeSnapshot) {
-  return JSON.stringify(a) === JSON.stringify(b);
+  return JSON.stringify(stableDeviceChangeLinkSnapshot(a)) === JSON.stringify(stableDeviceChangeLinkSnapshot(b));
+}
+
+export function deviceChangeSnapshotHash(snapshot: DeviceChangeBeforeSnapshot) {
+  return crypto
+    .createHash("sha256")
+    .update(JSON.stringify(stableDeviceChangeLinkSnapshot(snapshot)), "utf8")
+    .digest("base64url");
+}
+
+export function deviceChangeClaimsMatchSnapshot(claims: DeviceChangeTokenClaims, current: DeviceChangeBeforeSnapshot) {
+  if (claims.beforeHash) {
+    const expected = Buffer.from(String(claims.beforeHash));
+    const actual = Buffer.from(deviceChangeSnapshotHash(current));
+    return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
+  }
+
+  return Boolean(claims.before && sameDeviceChangeSnapshot(current, claims.before));
 }
 
 function tokenKey() {
@@ -131,9 +171,10 @@ export function issueDeviceChangeToken(input: {
     trackingId,
     waId,
     issuedAt: now,
-    expiresAt: now + Math.max(5 * 60 * 1000, Math.min(input.ttlMs || TOKEN_TTL_MS, 4 * 60 * 60 * 1000)),
+    expiresAt: now + Math.max(5 * 60 * 1000, Math.min(input.ttlMs || TOKEN_TTL_MS, TOKEN_MAX_TTL_MS)),
     nonce: crypto.randomBytes(18).toString("base64url"),
-    before: deviceChangeSnapshotFromTruth(input.application),
+    before: null,
+    beforeHash: deviceChangeSnapshotHash(deviceChangeSnapshotFromTruth(input.application)),
   };
 
   const iv = crypto.randomBytes(12);
@@ -157,7 +198,8 @@ export function readDeviceChangeToken(token: string): DeviceChangeTokenClaims | 
     const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
     const claims = JSON.parse(plain) as DeviceChangeTokenClaims;
     if (claims?.v !== TOKEN_VERSION || claims?.purpose !== TOKEN_PURPOSE) return null;
-    if (!claims.applicationId || !claims.trackingId || !claims.waId || !claims.nonce || !claims.before) return null;
+    if (!claims.applicationId || !claims.trackingId || !claims.waId || !claims.nonce || (!claims.beforeHash && !claims.before)) return null;
+    if (claims.beforeHash && !/^[A-Za-z0-9_-]{43}$/.test(String(claims.beforeHash))) return null;
     if (!Number.isFinite(claims.issuedAt) || !Number.isFinite(claims.expiresAt)) return null;
     if (claims.expiresAt <= Date.now()) return null;
     if (claims.issuedAt > Date.now() + 60_000) return null;
