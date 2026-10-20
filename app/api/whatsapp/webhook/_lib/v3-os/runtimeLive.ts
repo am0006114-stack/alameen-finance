@@ -1249,15 +1249,13 @@ async function runLegacyV3ProductionLive(input: {
     truthAfterActions.contactAccess !== "safe_preview"
     && applicationJourneyStage(truthAfterActions.application) === "preliminary_approved_waiting_decision"
     && String(effectiveCustomerText || "").trim()
-    && !semanticContinueVeto
     && !explicitNonContinuationThisTurn
   );
   const continuationDecisionThisTurn = truthAfterActions.contactAccess !== "safe_preview"
-    && !semanticContinueVeto
     && !explicitNonContinuationThisTurn
     && (
       postApprovalAnyInboundTrigger
-      || (!disclosureRequiredThisTurn && (
+      || (!semanticContinueVeto && !disclosureRequiredThisTurn && (
         semanticConfirmsContinuation(turn)
         || informedCommercialContinuationConfirmed({ state: executionState, truth: truthAfterActions, turn, customerText: effectiveCustomerText })
         || explicitContinuationText(effectiveCustomerText)
@@ -1379,10 +1377,13 @@ async function runLegacyV3ProductionLive(input: {
     && continuationPersistenceConfirmed
     && applicationJourneyStage(truthAfterActions.application) === "continuation_confirmed_fee_due"
   );
-  const authoritativeCommercialJourneyReply = disclosureRequiredThisTurn
-    ? buildInformedCommercialDisclosureReply(truthAfterActions)
-    : protectedFiveJodStep
-      ? buildMandatoryFiveJodContinuationReply(turn, truthAfterActions)
+  // P0 conversion invariant: once continuation persistence succeeds, the protected
+  // 5-JOD execution block must win over an older disclosure requirement. Otherwise
+  // DB/Discord advance while the customer still sees another disclosure/confirmation turn.
+  const authoritativeCommercialJourneyReply = protectedFiveJodStep
+    ? buildMandatoryFiveJodContinuationReply(turn, truthAfterActions)
+    : disclosureRequiredThisTurn
+      ? buildInformedCommercialDisclosureReply(truthAfterActions)
       : null;
   const criticalOperationalReply = criticalOperationalFallbackReply({
     truth: truthAfterActions,
@@ -1406,7 +1407,7 @@ async function runLegacyV3ProductionLive(input: {
           .split(/(?<=[.!؟])\s+|\n+/)
           .map((segment) => segment.trim())
           .filter(Boolean)
-          .filter((segment) => !/(?:رسوم\s+فتح\s+الملف|(?:5|٥|خمس)\s*(?:دنانير|دينار)|orange\s*money|اورنج\s+موني|أورنج\s+موني|\bcliq\b|كليك|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|رفع\s+الوصل|ارفع\s+الوصل|بيانات\s+الدفع|هل\s+ترغب\s+بالاستمرار|اريد\s+الاستمرار|أريد\s+الاستمرار|لا[،,]?\s+مش\s+هسا)/i.test(segment))
+          .filter((segment) => !/(?:رسوم\s+فتح\s+الملف|(?:5|٥|خمس)\s*(?:دنانير|دينار)|orange\s*money|اورنج\s+موني|أورنج\s+موني|\bcliq\b|كليك|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|اسم\s+المستفيد|تأكيد\s+الحوالة|تأكيد\s+الدفع\s+النهائي|receipt\?|\/receipt\b|القسط\s+الأول\s+مش\s+مطلوب|رفع\s+الوصل|ارفع\s+الوصل|بيانات\s+الدفع|هل\s+ترغب\s+بالاستمرار|اريد\s+الاستمرار|أريد\s+الاستمرار|لا[،,]?\s+مش\s+هسا)/i.test(segment))
           .join(" ")
           .trim()
       : "";
