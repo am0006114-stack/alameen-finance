@@ -527,6 +527,13 @@ function isApplicantBackDocument(document: DocumentRecord) {
 function getDocumentUrl(document: DocumentRecord | undefined) {
   if (!document) return "";
 
+  if (
+    document.id &&
+    (isApplicantFrontDocument(document) || isApplicantBackDocument(document))
+  ) {
+    return `/api/admin/document?id=${encodeURIComponent(document.id)}`;
+  }
+
   if (document.file_url) return document.file_url;
   if (document.public_url) return document.public_url;
   if (document.url) return document.url;
