@@ -1,0 +1,63 @@
+name: P0 Five JOD Autopatch
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/apply-p0-five-jod-any-inbound.py'
+      - '.github/workflows/p0-five-jod-autopatch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-test-commit:
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout PR branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Apply bounded P0 patch
+        run: python3 scripts/apply-p0-five-jod-any-inbound.py
+
+      - name: Install
+        run: npm ci
+
+      - name: P0 regression gate
+        run: node scripts/v3-p0-five-jod-any-inbound-selftest.cjs
+
+      - name: Current continuation Discord authority gate
+        run: node scripts/v3-continuation-admin-discord-authority-selftest.cjs
+
+      - name: Phase 17 single-writer gate
+        run: node scripts/v3-phase17-single-writer-conversation-cutover-selftest.cjs
+
+      - name: Phase 17 native-kernel safety gate
+        run: node scripts/v3-phase17-native-kernel-safety-selftest.cjs
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Diff safety
+        run: git diff --check
+
+      - name: Commit tested source only
+        run: |
+          rm -f scripts/apply-p0-five-jod-any-inbound.py .github/workflows/p0-five-jod-autopatch.yml
+          git add app/api/whatsapp/webhook/_lib/v3-os/runtimeLive.ts scripts/v3-p0-five-jod-any-inbound-selftest.cjs scripts/apply-p0-five-jod-any-inbound.py .github/workflows/p0-five-jod-autopatch.yml
+          git diff --cached --check
+          git config user.name "alameen-release-bot"
+          git config user.email "alameen-release-bot@users.noreply.github.com"
+          git commit -m "Fix post-approval five JOD continuation handoff"
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
