@@ -1238,21 +1238,36 @@ async function runLegacyV3ProductionLive(input: {
   // same decision. Never depend only on a model/planner action for this commercial
   // event.
   const semanticContinueVeto = semanticContinuationVeto(turn);
-  const continuationDecisionThisTurn = !disclosureRequiredThisTurn
-    && truthAfterActions.contactAccess !== "safe_preview"
+  const explicitNonContinuationThisTurn = Boolean(
+    explicitDoNotContinueText(effectiveCustomerText, executionState.lastAssistantText)
+    || turn.requestedActions.includes("cancel_application")
+    || turn.requestedActions.includes("request_refund")
+    || turn.semantic?.decision.cancellation === "requested"
+    || turn.semantic?.decision.continuation === "declined"
+  );
+  const postApprovalAnyInboundTrigger = Boolean(
+    truthAfterActions.contactAccess !== "safe_preview"
+    && applicationJourneyStage(truthAfterActions.application) === "preliminary_approved_waiting_decision"
+    && String(effectiveCustomerText || "").trim()
     && !semanticContinueVeto
-    && !explicitDoNotContinueText(effectiveCustomerText, executionState.lastAssistantText) && (
-      semanticConfirmsContinuation(turn)
-      || informedCommercialContinuationConfirmed({ state: executionState, truth: truthAfterActions, turn, customerText: effectiveCustomerText })
-      || explicitContinuationText(effectiveCustomerText)
-      || paymentPriorityAfterDisclosure
-      || numericContinuationShortcut
-      || turn.requestedActions.includes("continue_application")
-      || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
+    && !explicitNonContinuationThisTurn
+  );
+  const continuationDecisionThisTurn = truthAfterActions.contactAccess !== "safe_preview"
+    && !semanticContinueVeto
+    && !explicitNonContinuationThisTurn
+    && (
+      postApprovalAnyInboundTrigger
+      || (!disclosureRequiredThisTurn && (
+        semanticConfirmsContinuation(turn)
+        || informedCommercialContinuationConfirmed({ state: executionState, truth: truthAfterActions, turn, customerText: effectiveCustomerText })
+        || explicitContinuationText(effectiveCustomerText)
+        || paymentPriorityAfterDisclosure
+        || numericContinuationShortcut
+        || turn.requestedActions.includes("continue_application")
+        || plan.actions.some((x) => x.action === "continue_application" && !x.requiresConfirmation)
+      ))
     );
   const truthAtContinuationDecision = truthAfterActions;
-  const continuationRevenueReadyAtDecision = continuationDecisionThisTurn
-    && isContinuationRevenueReady(truthAtContinuationDecision.application);
 
   const continuationPersistence = await persistExplicitContinuation({
     application: truthAtContinuationDecision.application,
@@ -1268,6 +1283,26 @@ async function runLegacyV3ProductionLive(input: {
       topics: turn.topics,
     });
     truthAfterActions = stabilizeTruthSnapshot({ truth: truthAfterActions, state: executionState, previousTruth: truthAtContinuationDecision });
+    if (
+      continuationPersistence.updated
+      && truthAtContinuationDecision.application
+      && truthAfterActions.application
+      && truthAfterActions.application.id === truthAtContinuationDecision.application.id
+      && applicationJourneyStage(truthAfterActions.application) === "preliminary_approved_waiting_decision"
+    ) {
+      truthAfterActions = {
+        ...truthAfterActions,
+        application: {
+          ...truthAfterActions.application,
+          status: "customer_confirmed_continue",
+          paymentStatus: "pending_payment",
+        },
+      };
+      console.warn("V3 continuation read-after-write bridged from authoritative mutation result", {
+        applicationId: truthAfterActions.application?.id || truthAtContinuationDecision.application.id,
+        turnId: input.turnId,
+      });
+    }
     const discordApp = truthAfterActions.application || truthAtContinuationDecision.application;
     if (discordApp) {
       try {
@@ -1284,7 +1319,11 @@ async function runLegacyV3ProductionLive(input: {
             "حالة الطلب": discordApp.status || "—",
             "حالة الدفع": discordApp.paymentStatus || "—",
             الرسوم: `${truthAfterActions.policy.fileOpeningFeeJod} دنانير`,
-            "مصدر القرار": numericContinuationShortcut ? "واتساب — الرقم 1" : "واتساب — تأكيد صريح",
+            "مصدر القرار": postApprovalAnyInboundTrigger
+              ? "واتساب — أول رسالة بعد الموافقة المبدئية"
+              : numericContinuationShortcut
+                ? "واتساب — الرقم 1"
+                : "واتساب — تأكيد صريح",
             turnId: input.turnId,
           },
         });
@@ -1303,7 +1342,7 @@ async function runLegacyV3ProductionLive(input: {
         trackingId: truthAfterActions.application?.trackingId || null,
         waId: input.waId,
         title: "⛔ العميل اختار الاستمرار لكن تحديث الأدمن فشل",
-        description: "تم الحفاظ على خطوة 5 دنانير للعميل، لكن تعذر تثبيت قرار الاستمرار على حالة الطلب في قاعدة البيانات. راجع الطلب يدويًا.",
+        description: "تعذر تثبيت قرار الاستمرار على حالة الطلب في قاعدة البيانات، لذلك لم يتم فتح بيانات دفع الـ5 دنانير للعميل. راجع الطلب يدويًا.",
         details: { blocker: continuationPersistence.blocker, action: "continue_application" },
       });
     } catch (error) {
@@ -1334,7 +1373,12 @@ async function runLegacyV3ProductionLive(input: {
   // customer-facing writer. Deterministic layers below may validate, veto, execute
   // business actions, or trigger one bounded regeneration, but they do not replace
   // a valid conversational answer with legacy canned text.
-  const protectedFiveJodStep = continuationRevenueReadyAtDecision;
+  const continuationPersistenceConfirmed = continuationPersistence.updated || continuationPersistence.alreadyRecorded;
+  const protectedFiveJodStep = Boolean(
+    continuationDecisionThisTurn
+    && continuationPersistenceConfirmed
+    && applicationJourneyStage(truthAfterActions.application) === "continuation_confirmed_fee_due"
+  );
   const authoritativeCommercialJourneyReply = disclosureRequiredThisTurn
     ? buildInformedCommercialDisclosureReply(truthAfterActions)
     : protectedFiveJodStep
@@ -1347,14 +1391,43 @@ async function runLegacyV3ProductionLive(input: {
     turn,
     actions,
   });
+
+  const hasCurrentCustomerQuestion = Boolean(
+    turn.semantic?.currentQuestion
+    || turn.semantic?.answerObligations?.length
+    || turn.acts.some((act) => act.type === "ask")
+  );
+  const nativeQuestionCandidate = String(nativeKernelInitial.reply || "").trim();
+  const nativeQuestionFollowup = protectedFiveJodStep
+    && hasCurrentCustomerQuestion
+    && nativeQuestionCandidate
+    && !resemblesFullCommercialDisclosure(nativeQuestionCandidate)
+      ? nativeQuestionCandidate
+          .split(/(?<=[.!؟])\s+|\n+/)
+          .map((segment) => segment.trim())
+          .filter(Boolean)
+          .filter((segment) => !/(?:رسوم\s+فتح\s+الملف|(?:5|٥|خمس)\s*(?:دنانير|دينار)|orange\s*money|اورنج\s+موني|أورنج\s+موني|\bcliq\b|كليك|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|رفع\s+الوصل|ارفع\s+الوصل|بيانات\s+الدفع|هل\s+ترغب\s+بالاستمرار|اريد\s+الاستمرار|أريد\s+الاستمرار|لا[،,]?\s+مش\s+هسا)/i.test(segment))
+          .join(" ")
+          .trim()
+      : "";
+  const postPaymentFollowup = protectedFiveJodStep
+    ? (criticalOperationalReply || nativeQuestionFollowup || null)
+    : null;
+  const protectedFiveJodReply = protectedFiveJodStep && authoritativeCommercialJourneyReply
+    ? (postPaymentFollowup
+      ? `${authoritativeCommercialJourneyReply}\n\n${postPaymentFollowup}`
+      : authoritativeCommercialJourneyReply)
+    : null;
+
   // Phase 18 TRUE SINGLE WRITER for non-commercial operational turns.
-  // The protected commercial journey keeps its previous precedence byte-for-byte.
-  // For every other turn, the Native Kernel owns the normal wording and the deterministic
-  // critical reply becomes safety fallback only.
+  // Phase P0 continuation exception: the mandatory 5-JOD handoff is first, then
+  // the same turn's non-payment question/operational answer may continue below it.
   let reply: string | null = plan.shouldRespond
-    ? (currentTurnSafetyReply || (authoritativeCommercialJourneyReply
-        ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply)
-        : (nativeKernelInitial.reply || criticalOperationalReply)))
+    ? (currentTurnSafetyReply || (protectedFiveJodReply
+        ? protectedFiveJodReply
+        : (authoritativeCommercialJourneyReply
+          ? (criticalOperationalReply || authoritativeCommercialJourneyReply || nativeKernelInitial.reply)
+          : (nativeKernelInitial.reply || criticalOperationalReply))))
     : null;
   let verification: VerificationReport = PASS;
   let semanticCheck: SemanticReplyCheck = { pass: true, checked: false, answersCurrentQuestion: true, staleTopic: false, invertedDecision: false, unknownEntityMisread: false, missingObligations: [], repairInstruction: null, confidence: 1, modelError: null };
