@@ -34,11 +34,8 @@ jobs:
       - name: Install
         run: npm ci
 
-      - name: P0 regression gate
+      - name: P0 five-JOD + Discord regression gate
         run: node scripts/v3-p0-five-jod-any-inbound-selftest.cjs
-
-      - name: Current continuation Discord authority gate
-        run: node scripts/v3-continuation-admin-discord-authority-selftest.cjs
 
       - name: Phase 17 single-writer gate
         run: node scripts/v3-phase17-single-writer-conversation-cutover-selftest.cjs
