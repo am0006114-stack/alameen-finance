@@ -29,7 +29,18 @@ jobs:
           cache: npm
 
       - name: Apply bounded P0 patch
-        run: python3 scripts/apply-p0-five-jod-any-inbound.py
+        run: |
+          python3 scripts/apply-p0-five-jod-any-inbound.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('app/api/whatsapp/webhook/_lib/v3-os/runtimeLive.ts')
+          s = p.read_text(encoding='utf-8')
+          old = '        applicationId: truthAfterActions.application.id,\n'
+          new = '        applicationId: truthAfterActions.application?.id || truthAtContinuationDecision.application.id,\n'
+          if s.count(old) != 1:
+              raise SystemExit(f'null-safe bridge patch expected 1 match, found {s.count(old)}')
+          p.write_text(s.replace(old, new, 1), encoding='utf-8')
+          PY
 
       - name: Install
         run: npm ci
