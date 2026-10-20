@@ -538,20 +538,6 @@ export default function ApplyPage() {
     setTimeout(() => window.scrollTo({ top: currentScroll }), 0);
   }
 
-  async function uploadFile(file: File, path: string) {
-    const { error } = await supabase.storage
-      .from("documents")
-      .upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (error) throw error;
-
-    const { data } = supabase.storage.from("documents").getPublicUrl(path);
-
-    return data.publicUrl;
-  }
 
   async function sendApplicationCreatedDiscordNotification(params: {
     trackingId: string;
@@ -881,17 +867,22 @@ export default function ApplyPage() {
 
         if (!file) continue;
 
-        const extension = file.type === "image/png" ? "png" : "jpg";
-        const path = `${trackingId}/${item.type}-${Date.now()}.${extension}`;
-        const publicUrl = await uploadFile(file, path);
+        const payload = new FormData();
+        payload.set("applicationId", application.id);
+        payload.set("tracking", trackingId);
+        payload.set("phone", cleanPhone);
+        payload.set("documentType", item.type);
+        payload.set("file", file);
 
-        const { error: docError } = await supabase.from("documents").insert({
-          application_id: application.id,
-          type: item.type,
-          file_url: publicUrl,
+        const uploadResponse = await fetch("/api/apply/identity", {
+          method: "POST",
+          body: payload,
         });
 
-        if (docError) throw docError;
+        if (!uploadResponse.ok) {
+          const uploadResult = await uploadResponse.json().catch(() => null);
+          throw new Error(uploadResult?.error || "upload_failed");
+        }
       }
 
       updateSubmissionStatus("جاري إرسال تنبيه الطلب للإدارة...", 84);
