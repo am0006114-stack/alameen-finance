@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/v3-p0-conversation-integrity-hotfix.cjs && node scripts/v3-p0-conversation-integrity-cleanup.cjs && node scripts/v3-p0-conversation-integrity-finalize.cjs && node scripts/v3-p0-conversation-integrity-selftest.cjs && node scripts/v3-p0-conversation-integrity-final-selftest.cjs && node scripts/v3-p0-five-jod-any-inbound-selftest.cjs && node scripts/v3-p0-five-jod-conversion-egress-selftest.cjs && npx tsc --noEmit && next build",
     "start": "next start",
     "lint": "eslint"
   },
