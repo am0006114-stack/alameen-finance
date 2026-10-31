@@ -588,18 +588,11 @@ function IdentityThumbnail({
       href={documentUrl}
       target="_blank"
       rel="noreferrer"
-      title={label}
-      className="group relative block h-16 w-16 overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(3,18,14,0.58)]"
+      title={`فتح ${label}`}
+      className="group flex h-16 w-16 flex-col items-center justify-center overflow-hidden rounded-2xl border border-[rgba(214,181,107,0.24)] bg-[rgba(3,18,14,0.58)] text-center text-[#f1d79a] transition hover:border-[rgba(214,181,107,0.55)] hover:bg-[rgba(214,181,107,0.10)]"
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={documentUrl}
-        alt={label}
-        className="h-full w-full object-cover transition group-hover:scale-110"
-      />
-      <span className="absolute bottom-0 left-0 right-0 bg-black/55 px-1 py-0.5 text-center text-[9px] font-black text-white">
-        {label}
-      </span>
+      <span className="text-lg leading-none" aria-hidden="true">↗</span>
+      <span className="mt-1 px-1 text-[9px] font-black text-white">{label}</span>
     </a>
   );
 }
