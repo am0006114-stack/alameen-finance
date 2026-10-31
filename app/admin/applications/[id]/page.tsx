@@ -1624,13 +1624,14 @@ export default async function AdminApplicationDetailsPage({ params }: PageProps)
               action={updateApplicationAction}
             />
 
-            <StatusActionButton
-              applicationId={app.id}
-              status="cancelled"
-              label="إلغاء الطلب"
-              className="soft-button"
-              action={updateApplicationAction}
-            />
+            <form action={`/api/admin/applications/${app.id}/cancel`} method="POST">
+              <button
+                type="submit"
+                className="w-full rounded-2xl border border-red-400/35 bg-red-950/30 px-4 py-3 text-sm font-black text-red-100 transition hover:bg-red-950/45"
+              >
+                إلغاء الطلب
+              </button>
+            </form>
           </div>
 
           <div className="mt-5 rounded-2xl border border-[rgba(214,181,107,0.18)] bg-[rgba(214,181,107,0.07)] p-4 text-sm font-bold leading-7 text-[#d7ddd5]">
