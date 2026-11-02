@@ -1,4 +1,5 @@
 import ChatClient from "./ChatClient";
+import styles from "./ChatPolish.module.css";
 
 export const metadata = {
   title: "متابعة الطلب | الأمين للأقساط",
@@ -6,5 +7,9 @@ export const metadata = {
 };
 
 export default function ChatPage() {
-  return <ChatClient />;
+  return (
+    <div className={styles.chatPolish}>
+      <ChatClient />
+    </div>
+  );
 }

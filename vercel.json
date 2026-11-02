@@ -5,7 +5,8 @@
       "feature/web-chat-postpayment-cutover-20261102": false,
       "feature/web-chat-premium-ui-20261102": false,
       "feature/web-chat-order-header-typing-20261102": false,
-      "feature/web-chat-superhuman-final-polish-20261102": false
+      "feature/web-chat-superhuman-final-polish-20261102": false,
+      "feature/web-chat-colorful-order-card-20261102": false
     }
   }
 }
