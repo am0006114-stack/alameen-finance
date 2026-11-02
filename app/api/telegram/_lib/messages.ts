@@ -134,7 +134,7 @@ export async function logTelegramOutgoing(input: {
 }
 
 export async function loadCrossChannelRecentTurns(canonicalWaId: string) {
-  const [wa, tg] = await Promise.all([
+  const [wa, tg, web] = await Promise.all([
     supabaseAdmin
       .from("whatsapp_messages")
       .select("created_at,direction,body")
@@ -149,11 +149,19 @@ export async function loadCrossChannelRecentTurns(canonicalWaId: string) {
       .in("direction", ["incoming", "outgoing"])
       .order("created_at", { ascending: false })
       .limit(18),
+    supabaseAdmin
+      .from("web_chat_messages")
+      .select("created_at,direction,body")
+      .eq("canonical_wa_id", canonicalWaId)
+      .in("direction", ["incoming", "outgoing"])
+      .order("created_at", { ascending: false })
+      .limit(18),
   ]);
 
   const rows: Array<{ created_at?: string | null; direction?: string | null; body?: string | null; transcript?: string | null }> = [];
   if (!wa.error) rows.push(...(wa.data || []));
   if (!tg.error) rows.push(...(tg.data || []));
+  if (!web.error) rows.push(...(web.data || []));
 
   return rows
     .map((row) => ({ ...row, effectiveBody: String(row.transcript || row.body || "").trim() }))

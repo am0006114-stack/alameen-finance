@@ -1,1 +1,8 @@
-{}
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": {
+      "feature/web-chat-postpayment-cutover-20261102": false
+    }
+  }
+}

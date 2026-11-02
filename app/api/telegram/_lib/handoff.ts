@@ -1,6 +1,13 @@
 import { createHash, randomBytes } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeWhatsAppToSend } from "../../whatsapp/webhook/_lib/text";
+import {
+  createWebChatBootstrap,
+  getPostPaymentChannelFlags,
+  loadPostPaymentChannelState,
+  markTelegramPostPaymentChannelActive,
+  shouldSuppressRoutineWhatsAppMigration,
+} from "../../postpayment/_lib/channelState";
 import { getTelegramChannelConfig } from "./config";
 import type { TelegramBusinessConnection, TelegramCustomerLink } from "./types";
 import { getBusinessConnection } from "./telegramApi";
@@ -21,12 +28,17 @@ function tokenFromText(value: string | null | undefined) {
 export async function createTelegramHandoff(input: {
   waId: string;
   applicationId: string;
+  allowActiveChannelSwitch?: boolean;
 }) {
   const config = getTelegramChannelConfig();
   if (!config.businessUsername) throw new Error("TELEGRAM_BUSINESS_USERNAME is not configured");
 
   const canonicalWaId = cleanWaId(input.waId);
   if (!canonicalWaId) throw new Error("telegram_handoff_invalid_wa_id");
+
+  if (!input.allowActiveChannelSwitch && await shouldSuppressRoutineWhatsAppMigration(input.applicationId)) {
+    throw new Error("postpayment_routine_whatsapp_blocked");
+  }
 
   const { data: app, error: appError } = await supabaseAdmin
     .from("applications")
@@ -54,9 +66,7 @@ export async function createTelegramHandoff(input: {
     contactMatches = Boolean(approvedAlias?.id);
   }
 
-  if (!contactMatches) {
-    throw new Error("telegram_handoff_application_contact_mismatch");
-  }
+  if (!contactMatches) throw new Error("telegram_handoff_application_contact_mismatch");
 
   const token = `tg1_${randomBytes(24).toString("base64url")}`;
   const tokenHash = hashToken(token);
@@ -72,9 +82,36 @@ export async function createTelegramHandoff(input: {
   if (error) throw new Error(`telegram_handoff_create:${error.message}`);
 
   const draft = `متابعة طلب الأمين ${token}`;
-  const link = `https://t.me/${encodeURIComponent(config.businessUsername)}?text=${encodeURIComponent(draft)}`;
+  const telegramLink = `https://t.me/${encodeURIComponent(config.businessUsername)}?text=${encodeURIComponent(draft)}`;
+
+  let link = telegramLink;
+  try {
+    const flags = await getPostPaymentChannelFlags();
+    const state = await loadPostPaymentChannelState(String(app.id));
+    const mayOfferChoice = flags.channelChoiceEnabled
+      && flags.webChatEnabled
+      && !state?.activated_at;
+
+    if (mayOfferChoice) {
+      const web = await createWebChatBootstrap({ applicationId: String(app.id), canonicalWaId });
+      link = [
+        "اختَر طريقة المتابعة الأنسب إلك:",
+        "🌐 متابعة على الموقع:",
+        web.link,
+        "",
+        "📱 متابعة عبر Telegram:",
+        telegramLink,
+      ].join("\n");
+    }
+  } catch (choiceError) {
+    // Web Chat is optional during rollout. Telegram handoff must remain a safe
+    // fallback and must never be able to roll back confirmed payment.
+    console.error("postpayment_channel_choice_prepare_failed", choiceError);
+  }
+
   return {
     link,
+    telegramLink,
     expiresAt,
     token,
     canonicalWaId,
@@ -142,9 +179,6 @@ export async function consumeTelegramHandoff(input: {
     .upsert(row, { onConflict: "business_connection_id,telegram_chat_id" });
   if (linkError) throw new Error(`telegram_customer_link:${linkError.message}`);
 
-  // Phase 18.5: once the secure handoff is consumed, mark the WhatsApp
-  // migration state as linked immediately. This is best-effort so a temporary
-  // telemetry/state-table issue can never invalidate a valid Telegram link.
   try {
     const { error: migrationStateError } = await supabaseAdmin
       .from("whatsapp_telegram_migration_state")
@@ -158,6 +192,15 @@ export async function consumeTelegramHandoff(input: {
     if (migrationStateError) console.error("telegram_migration_link_state_update_failed", migrationStateError.message);
   } catch (migrationStateError) {
     console.error("telegram_migration_link_state_update_failed", migrationStateError);
+  }
+
+  try {
+    await markTelegramPostPaymentChannelActive({
+      applicationId: data.application_id,
+      canonicalWaId: String(data.canonical_wa_id || ""),
+    });
+  } catch (channelStateError) {
+    console.error("telegram_postpayment_channel_state_update_failed", channelStateError);
   }
 
   return row as TelegramCustomerLink;
