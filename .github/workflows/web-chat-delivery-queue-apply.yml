@@ -17,15 +17,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout feature branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        uses: actions/checkout@v4
         with:
           ref: feature/web-chat-delivery-queue-20261102
           fetch-depth: 0
 
       - name: Setup Node
-        uses: actions/setup-node@1e60f620b9541d33c8fc889a238e0ebd1c9b9d12
+        uses: actions/setup-node@v4
         with:
-          node-version: 24
+          node-version: '24'
 
       - name: Apply exact source patch
         run: node scripts/web-chat-delivery-queue-patch.cjs
@@ -33,7 +33,6 @@ jobs:
       - name: Validate patch shape
         run: |
           git diff --check
-          git diff --exit-code -- app/api/whatsapp/webhook/_lib/v3-os || true
           if ! git diff --quiet -- app/api/whatsapp/webhook/_lib/v3-os; then
             echo "ERROR: delivery queue patch touched V3/guard files"
             exit 1
