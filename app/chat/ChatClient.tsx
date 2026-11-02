@@ -50,8 +50,6 @@ type PendingMessage = {
 
 type ConnectionState = "online" | "connecting" | "offline";
 
-const channelName = { web: "الموقع", telegram: "Telegram", whatsapp: "WhatsApp" } as const;
-
 const statusNames: Record<string, string> = {
   under_review: "قيد الدراسة النهائية",
   approved: "موافق عليه",
@@ -180,10 +178,23 @@ function renderMessageBody(text: string) {
 
 function TypingDots() {
   return (
-    <div className="flex items-center gap-1.5" aria-label="الأمين يكتب الآن">
+    <div className="flex items-center gap-1.5" aria-label="جاري الكتابة">
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-200 [animation-delay:-0.28s]" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-200 [animation-delay:-0.14s]" />
       <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-emerald-200" />
+    </div>
+  );
+}
+
+function ServiceAvatar() {
+  return (
+    <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full border border-emerald-300/15 bg-emerald-400/[0.1] text-emerald-100 shadow-inner shadow-black/10" aria-hidden="true">
+      <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 13a8 8 0 0 1 16 0" />
+        <path d="M4 13v3a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 1Z" />
+        <path d="M20 13v3a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 1Z" />
+        <path d="M17 18c0 1.1-1.8 2-4 2" />
+      </svg>
     </div>
   );
 }
@@ -209,11 +220,15 @@ export default function ChatClient() {
   const [pending, setPending] = useState<PendingMessage[]>([]);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [typingVisible, setTypingVisible] = useState(false);
+  const [handoffVisible, setHandoffVisible] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const firstLoadRef = useRef(true);
+  const firstSendRef = useRef(true);
+  const typingDelayRef = useRef(900);
+  const handoffTimerRef = useRef<number | null>(null);
 
   const busy = sending || channelBusy;
   const order = session?.order || null;
@@ -272,9 +287,13 @@ export default function ChatClient() {
       setTypingVisible(false);
       return;
     }
-    const timer = window.setTimeout(() => setTypingVisible(true), 900);
+    const timer = window.setTimeout(() => setTypingVisible(true), typingDelayRef.current);
     return () => window.clearTimeout(timer);
   }, [sending]);
+
+  useEffect(() => () => {
+    if (handoffTimerRef.current !== null) window.clearTimeout(handoffTimerRef.current);
+  }, []);
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -323,6 +342,25 @@ export default function ChatClient() {
       status: "sending",
     };
 
+    const firstSend = firstSendRef.current;
+    firstSendRef.current = false;
+    typingDelayRef.current = firstSend ? 1800 : 900;
+
+    if (handoffTimerRef.current !== null) {
+      window.clearTimeout(handoffTimerRef.current);
+      handoffTimerRef.current = null;
+    }
+
+    if (firstSend) {
+      setHandoffVisible(true);
+      handoffTimerRef.current = window.setTimeout(() => {
+        setHandoffVisible(false);
+        handoffTimerRef.current = null;
+      }, 1200);
+    } else {
+      setHandoffVisible(false);
+    }
+
     setSending(true);
     setNotice(null);
     setMessage("");
@@ -355,6 +393,11 @@ export default function ChatClient() {
       setConnection(typeof navigator !== "undefined" && !navigator.onLine ? "offline" : connection);
       setNotice((current) => current || "تعذر إرسال الرسالة. اضغط على الرسالة لإعادتها إلى خانة الكتابة ثم جرّب مرة ثانية.");
     } finally {
+      if (handoffTimerRef.current !== null) {
+        window.clearTimeout(handoffTimerRef.current);
+        handoffTimerRef.current = null;
+      }
+      setHandoffVisible(false);
       setSending(false);
     }
   }
@@ -433,7 +476,6 @@ export default function ChatClient() {
   const createdLabel = fullDateLabel(order?.createdAt);
   const updatedLabel = fullDateLabel(order?.updatedAt);
   const locationLabel = [order?.governorate, order?.cityArea].filter(Boolean).join(" / ") || null;
-  const channelLabel = session.primaryChannel === "telegram" ? "Telegram" : session.primaryChannel === "web" ? "الموقع" : null;
 
   return (
     <main className="h-[100dvh] overflow-hidden bg-[#050d0a] text-white" dir="rtl">
@@ -505,7 +547,6 @@ export default function ChatClient() {
               <div className="flex flex-wrap items-center gap-2">
                 <span className="rounded-full border border-emerald-300/15 bg-emerald-400/[0.08] px-3 py-1.5 text-[10px] font-semibold text-emerald-100">{currentStatus}</span>
                 {order?.paymentStatus ? <span className="rounded-full border border-white/[0.07] bg-white/[0.035] px-3 py-1.5 text-[10px] text-white/60">{paymentLabel(order.paymentStatus)}</span> : null}
-                {channelLabel ? <span className="rounded-full border border-sky-300/10 bg-sky-300/[0.045] px-3 py-1.5 text-[10px] text-sky-100/70">المتابعة عبر {channelLabel}</span> : null}
               </div>
 
               <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -577,8 +618,6 @@ export default function ChatClient() {
                             {renderMessageBody(item.body)}
                           </p>
                           <div className="mt-1.5 flex items-center justify-end gap-1.5 text-[9.5px] text-white/35">
-                            <span>{channelName[item.channel]}</span>
-                            <span>•</span>
                             <span>{timeLabel(item.createdAt)}</span>
                             {!customer ? <span className="mr-0.5 text-emerald-300/70">✓✓</span> : null}
                           </div>
@@ -607,12 +646,25 @@ export default function ChatClient() {
                   </div>
                 ))}
 
+                {handoffVisible ? (
+                  <div className="flex justify-end" aria-live="polite">
+                    <div className="flex max-w-[88%] items-center gap-3 rounded-2xl rounded-tl-md border border-white/[0.075] bg-[#102019] px-4 py-3 shadow-sm sm:max-w-[78%]">
+                      <ServiceAvatar />
+                      <div>
+                        <p className="text-[11px] font-medium text-white/80 sm:text-xs">يرجى الانتظار، سيتم توصيلك بالموظف…</p>
+                        <p className="mt-0.5 text-[9.5px] text-white/32">لحظات ويتم استكمال المتابعة على طلبك</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
                 {typingVisible ? (
                   <div className="flex justify-end" aria-live="polite">
-                    <div className="rounded-2xl rounded-tl-md border border-emerald-300/[0.1] bg-[#063126] px-4 py-3 shadow-sm">
-                      <div className="flex items-center gap-3">
+                    <div className="flex items-center gap-3 rounded-2xl rounded-tl-md border border-emerald-300/[0.1] bg-[#063126] px-4 py-2.5 shadow-sm">
+                      <ServiceAvatar />
+                      <div className="flex items-center gap-2.5">
+                        <span className="text-[11px] font-medium text-emerald-100/70">جاري الكتابة…</span>
                         <TypingDots />
-                        <span className="text-[11px] font-medium text-emerald-100/65">الأمين يكتب…</span>
                       </div>
                     </div>
                   </div>
