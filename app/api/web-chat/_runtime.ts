@@ -7,6 +7,7 @@ import { saveV3ConversationState } from "@/app/api/whatsapp/webhook/_lib/v3-os/s
 import { saveCompactHumanMemory } from "@/app/api/whatsapp/webhook/_lib/v3-os/compactHumanMemory";
 import { completeHumanTurnDelivery } from "@/app/api/whatsapp/webhook/_lib/v3-os/durableTurnJournal";
 import { loadPostPaymentChannelState, type WebChatSession } from "@/app/api/postpayment/_lib/channelState";
+import { isWebChatDeliveryVisible, scheduleWebChatDelivery, type WebChatDeliveryState } from "./_deliveryQueue";
 
 function normalizeInput(value: unknown) {
   return String(value || "").replace(/\s+/g, " ").trim();
@@ -69,7 +70,7 @@ export async function loadWebChatTimeline(session: WebChatSession) {
   const [web, telegram, whatsapp] = await Promise.all([
     supabaseAdmin
       .from("web_chat_messages")
-      .select("id,created_at,direction,body,handled_by_ai")
+      .select("id,created_at,direction,body,handled_by_ai,raw_payload")
       .eq("canonical_wa_id", session.canonical_wa_id)
       .in("direction", ["incoming", "outgoing", "system"])
       .order("created_at", { ascending: false })
@@ -100,6 +101,7 @@ export async function loadWebChatTimeline(session: WebChatSession) {
   }> = [];
 
   if (!web.error) for (const row of web.data || []) {
+    if (String(row.direction || "") === "outgoing" && !isWebChatDeliveryVisible(row.raw_payload)) continue;
     const body = normalizeReply(row.body);
     if (body) rows.push({
       id: `web:${row.id}`,
@@ -140,7 +142,7 @@ export async function loadWebChatTimeline(session: WebChatSession) {
     .slice(-50);
 }
 
-async function logOutgoing(session: WebChatSession, body: string, handledByAi: boolean, turnId: string | null, replyTo: string) {
+async function logOutgoing(session: WebChatSession, body: string, handledByAi: boolean, turnId: string | null, replyTo: string, delivery: WebChatDeliveryState | null = null) {
   const { error } = await supabaseAdmin.from("web_chat_messages").insert({
     application_id: session.application_id,
     canonical_wa_id: session.canonical_wa_id,
@@ -149,11 +151,12 @@ async function logOutgoing(session: WebChatSession, body: string, handledByAi: b
     message_type: "text",
     body,
     handled_by_ai: handledByAi,
-    status: "sent",
+    status: delivery ? "queued" : "sent",
     raw_payload: {
       source: "web_chat",
       v3_turn_id: turnId,
       reply_to_client_message_id: replyTo,
+      ...(delivery ? { delivery } : {}),
     },
   });
   if (error) throw new Error(`web_chat_outgoing_log:${error.message}`);
@@ -182,7 +185,7 @@ export async function processWebChatMessage(input: { session: WebChatSession; te
   });
 
   if (insertError) {
-    if ((insertError as any).code === "23505") return { duplicate: true as const, reply: null, turnId: null };
+    if ((insertError as any).code === "23505") return { duplicate: true as const, reply: null, turnId: null, delivery: null };
     throw new Error(`web_chat_incoming_log:${insertError.message}`);
   }
 
@@ -190,7 +193,7 @@ export async function processWebChatMessage(input: { session: WebChatSession; te
   if (!isV3ProductionActive(control)) {
     const reply = "وصلتني رسالتك وهي محفوظة على نفس طلبك. نظام المحادثة تحت صيانة قصيرة حاليًا، وما رح أعطيك معلومة غير مؤكدة.";
     await logOutgoing(input.session, reply, false, null, input.clientMessageId);
-    return { duplicate: false as const, reply, turnId: null };
+    return { duplicate: false as const, reply, turnId: null, delivery: null };
   }
 
   const recentTurns = await loadCrossChannelRecentTurns(input.session.canonical_wa_id);
@@ -221,7 +224,11 @@ export async function processWebChatMessage(input: { session: WebChatSession; te
 
   if (!reply) reply = buildV3LastResortReply();
   reply = enforceWebChannelTruth(reply);
-  await logOutgoing(input.session, reply, Boolean(run), turnId, input.clientMessageId);
+  const delivery = await scheduleWebChatDelivery({
+    sessionId: input.session.id,
+    clientMessageId: input.clientMessageId,
+  });
+  await logOutgoing(input.session, reply, Boolean(run), turnId, input.clientMessageId, delivery);
 
   if (run?.stateAfter) await saveV3ConversationState(run.stateAfter);
   if (run?.humanOs?.memoryAfter) await saveCompactHumanMemory(input.session.canonical_wa_id, run.humanOs.memoryAfter);
@@ -233,5 +240,5 @@ export async function processWebChatMessage(input: { session: WebChatSession; te
     });
   }
 
-  return { duplicate: false as const, reply, turnId };
+  return { duplicate: false as const, reply, turnId, delivery };
 }

@@ -31,6 +31,17 @@ type OrderSummary = {
   eligibilityPath?: string | null;
 };
 
+type WebChatDeliveryState = {
+  version: 1;
+  queuedAt: string;
+  visibleAfter: string;
+  queuePosition: number;
+  queueAhead: number;
+  estimatedWaitSeconds: number;
+  firstReply: boolean;
+  typingLeadSeconds: number;
+};
+
 type SessionPayload = {
   ok: boolean;
   trackingId?: string | null;
@@ -39,6 +50,8 @@ type SessionPayload = {
   webAvailable?: boolean;
   order?: OrderSummary | null;
   timeline?: TimelineItem[];
+  deliveryQueueEnabled?: boolean;
+  delivery?: WebChatDeliveryState | null;
 };
 
 type PendingMessage = {
@@ -107,6 +120,14 @@ function fullDateLabel(value: string | null | undefined) {
   } catch {
     return value;
   }
+}
+
+function waitTimeLabel(seconds: number) {
+  const safe = Math.max(0, Math.ceil(seconds));
+  if (safe < 45) return "أقل من دقيقة";
+  if (safe < 90) return "حوالي دقيقة";
+  const minutes = Math.max(2, Math.ceil(safe / 60));
+  return `حوالي ${new Intl.NumberFormat("ar-JO").format(minutes)} دقائق`;
 }
 
 function timeLabel(value: string) {
@@ -223,6 +244,7 @@ export default function ChatClient() {
   const [handoffVisible, setHandoffVisible] = useState(false);
   const [showJump, setShowJump] = useState(false);
   const [orderOpen, setOrderOpen] = useState(false);
+  const [queueClock, setQueueClock] = useState(() => Date.now());
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const firstLoadRef = useRef(true);
@@ -233,6 +255,16 @@ export default function ChatClient() {
   const busy = sending || channelBusy;
   const order = session?.order || null;
   const currentStatus = statusLabel(order?.status);
+  const delivery = session?.delivery || null;
+  const deliveryVisibleAtMs = delivery ? Date.parse(delivery.visibleAfter) : Number.NaN;
+  const deliveryQueuedAtMs = delivery ? Date.parse(delivery.queuedAt) : Number.NaN;
+  const deliveryPending = Boolean(delivery && Number.isFinite(deliveryVisibleAtMs) && deliveryVisibleAtMs > queueClock);
+  const deliveryRemainingSeconds = deliveryPending ? Math.max(0, Math.ceil((deliveryVisibleAtMs - queueClock) / 1000)) : 0;
+  const deliveryTyping = Boolean(deliveryPending && delivery && deliveryRemainingSeconds <= delivery.typingLeadSeconds);
+  const deliveryWaiting = Boolean(deliveryPending && !deliveryTyping);
+  const queueProgress = deliveryPending && Number.isFinite(deliveryQueuedAtMs) && deliveryVisibleAtMs > deliveryQueuedAtMs
+    ? Math.max(4, Math.min(96, ((queueClock - deliveryQueuedAtMs) / (deliveryVisibleAtMs - deliveryQueuedAtMs)) * 100))
+    : 0;
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const node = scrollRef.current;
@@ -283,13 +315,30 @@ export default function ChatClient() {
   }, [load]);
 
   useEffect(() => {
+    if (session?.deliveryQueueEnabled) {
+      setTypingVisible(false);
+      return;
+    }
     if (!sending) {
       setTypingVisible(false);
       return;
     }
     const timer = window.setTimeout(() => setTypingVisible(true), typingDelayRef.current);
     return () => window.clearTimeout(timer);
-  }, [sending]);
+  }, [sending, session?.deliveryQueueEnabled]);
+
+  useEffect(() => {
+    if (!deliveryPending || !Number.isFinite(deliveryVisibleAtMs)) return;
+    const tick = window.setInterval(() => setQueueClock(Date.now()), 1000);
+    const reveal = window.setTimeout(() => {
+      setQueueClock(Date.now());
+      document.dispatchEvent(new Event("visibilitychange"));
+    }, Math.max(250, deliveryVisibleAtMs - Date.now() + 250));
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(reveal);
+    };
+  }, [deliveryPending, deliveryVisibleAtMs]);
 
   useEffect(() => () => {
     if (handoffTimerRef.current !== null) window.clearTimeout(handoffTimerRef.current);
@@ -329,7 +378,7 @@ export default function ChatClient() {
 
   async function sendText(text: string, pendingId?: string) {
     const clean = text.trim();
-    if (!clean || sending || !session?.ok) return;
+    if (!clean || sending || deliveryPending || !session?.ok) return;
 
     const clientMessageId = pendingId || (typeof crypto?.randomUUID === "function"
       ? crypto.randomUUID()
@@ -353,10 +402,12 @@ export default function ChatClient() {
 
     if (firstSend) {
       setHandoffVisible(true);
-      handoffTimerRef.current = window.setTimeout(() => {
-        setHandoffVisible(false);
-        handoffTimerRef.current = null;
-      }, 1200);
+      if (!session.deliveryQueueEnabled) {
+        handoffTimerRef.current = window.setTimeout(() => {
+          setHandoffVisible(false);
+          handoffTimerRef.current = null;
+        }, 1200);
+      }
     } else {
       setHandoffVisible(false);
     }
@@ -385,7 +436,8 @@ export default function ChatClient() {
       }
 
       setPending((items) => items.filter((item) => item.id !== clientMessageId));
-      setSession((current) => current ? { ...current, timeline: data.timeline || current.timeline } : current);
+      setSession((current) => current ? { ...current, timeline: data.timeline || current.timeline, delivery: data.delivery || null } : current);
+      setQueueClock(Date.now());
       setConnection("online");
       window.requestAnimationFrame(() => scrollToBottom("smooth"));
     } catch {
@@ -658,7 +710,28 @@ export default function ChatClient() {
                   </div>
                 ) : null}
 
-                {typingVisible ? (
+                {deliveryWaiting && delivery ? (
+                  <div className="flex justify-end" aria-live="polite">
+                    <div className="w-full max-w-[88%] rounded-2xl rounded-tl-md border border-amber-300/[0.12] bg-gradient-to-l from-[#17231d] to-[#102019] px-4 py-3 shadow-sm sm:max-w-[78%]">
+                      <div className="flex items-start gap-3">
+                        <ServiceAvatar />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[11px] font-medium text-white/85 sm:text-xs">{delivery.firstReply ? "يرجى الانتظار، سيتم توصيلك بالموظف…" : "جاري متابعة رسالتك…"}</p>
+                          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-[9.5px] text-white/42">
+                            <span>{delivery.queueAhead > 0 ? `أمامك ${new Intl.NumberFormat("ar-JO").format(delivery.queueAhead)} محادثات` : "أنت التالي"}</span>
+                            <span className="text-white/18">•</span>
+                            <span>الوقت المتوقع: {waitTimeLabel(deliveryRemainingSeconds)}</span>
+                          </div>
+                          <div className="mt-2.5 h-1 overflow-hidden rounded-full bg-white/[0.055]">
+                            <div className="h-full rounded-full bg-gradient-to-l from-emerald-400 to-amber-300 transition-[width] duration-1000 ease-linear" style={{ width: `${queueProgress}%` }} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {(typingVisible || deliveryTyping) ? (
                   <div className="flex justify-end" aria-live="polite">
                     <div className="flex items-center gap-3 rounded-2xl rounded-tl-md border border-emerald-300/[0.1] bg-[#063126] px-4 py-2.5 shadow-sm">
                       <ServiceAvatar />
@@ -703,14 +776,14 @@ export default function ChatClient() {
                 disabled={sending}
                 rows={1}
                 maxLength={4000}
-                placeholder={connection === "offline" ? "الاتصال غير متوفر…" : "اكتب رسالتك…"}
+                placeholder={connection === "offline" ? "الاتصال غير متوفر…" : deliveryPending ? "اكتب رسالتك التالية… وسيُتاح إرسالها بعد وصول الرد" : "اكتب رسالتك…"}
                 className="max-h-[150px] min-h-[54px] flex-1 resize-none bg-transparent px-3 py-3.5 text-sm leading-6 text-white outline-none placeholder:text-white/28 disabled:opacity-45"
               />
 
               <button
                 type="button"
                 onClick={() => void send()}
-                disabled={sending || !message.trim() || connection === "offline"}
+                disabled={sending || deliveryPending || !message.trim() || connection === "offline"}
                 className="grid h-[46px] w-[46px] shrink-0 place-items-center rounded-2xl bg-emerald-400 text-[#052117] shadow-lg shadow-emerald-950/25 transition hover:scale-[1.02] hover:bg-emerald-300 active:scale-95 disabled:cursor-not-allowed disabled:opacity-30"
                 aria-label="إرسال"
               >

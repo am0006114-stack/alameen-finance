@@ -1,5 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import type { TelegramMediaRecord, TelegramMessage } from "./types";
+import { isWebChatDeliveryVisible } from "@/app/api/web-chat/_deliveryQueue";
 
 function profileName(message: TelegramMessage) {
   return [message.from?.first_name, message.from?.last_name].map((x) => String(x || "").trim()).filter(Boolean).join(" ") || null;
@@ -151,7 +152,7 @@ export async function loadCrossChannelRecentTurns(canonicalWaId: string) {
       .limit(18),
     supabaseAdmin
       .from("web_chat_messages")
-      .select("created_at,direction,body")
+      .select("created_at,direction,body,raw_payload")
       .eq("canonical_wa_id", canonicalWaId)
       .in("direction", ["incoming", "outgoing"])
       .order("created_at", { ascending: false })
@@ -161,7 +162,7 @@ export async function loadCrossChannelRecentTurns(canonicalWaId: string) {
   const rows: Array<{ created_at?: string | null; direction?: string | null; body?: string | null; transcript?: string | null }> = [];
   if (!wa.error) rows.push(...(wa.data || []));
   if (!tg.error) rows.push(...(tg.data || []));
-  if (!web.error) rows.push(...(web.data || []));
+  if (!web.error) rows.push(...(web.data || []).filter((row) => String(row.direction || "") !== "outgoing" || isWebChatDeliveryVisible(row.raw_payload)));
 
   return rows
     .map((row) => ({ ...row, effectiveBody: String(row.transcript || row.body || "").trim() }))
