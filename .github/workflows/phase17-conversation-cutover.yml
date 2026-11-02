@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'app/api/whatsapp/webhook/**'
+      - 'app/api/web-chat/**'
       - 'app/chat/**'
       - 'scripts/v3-phase17-*'
       - 'package.json'
@@ -37,6 +38,5 @@ jobs:
       - name: TypeScript
         run: npx tsc --noEmit
 
-      # Full Next production compilation is validated by the required Vercel Preview,
-      # which has the project environment. GitHub CI intentionally does not receive
-      # production Supabase secrets.
+      # Full Next production compilation is validated by the required Vercel Production build.
+      # Feature branches stay deployment-disabled to protect the project's Vercel quota.
