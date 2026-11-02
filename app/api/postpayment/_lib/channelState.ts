@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
 import { normalizeWhatsAppToSend } from "@/app/api/whatsapp/webhook/_lib/text";
-import { isPaymentConfirmedForConversation } from "@/app/api/whatsapp/webhook/_lib/v3-os/paymentTruth";
+import { hasAuthoritativePaymentConfirmation } from "@/app/api/whatsapp/webhook/_lib/v3-os/paymentTruth";
+import type { ApplicationTruth } from "@/app/api/whatsapp/webhook/_lib/v3-os/types";
 
 export const WEB_CHAT_COOKIE_NAME = "alameen_web_chat";
 const BOOTSTRAP_TTL_MINUTES = 45;
@@ -91,10 +92,12 @@ async function loadPaymentApplication(applicationId: string): Promise<PaymentApp
 
 export async function assertPostPaymentConfirmed(applicationId: string) {
   const app = await loadPaymentApplication(applicationId);
-  if (!app || !isPaymentConfirmedForConversation({
-    paymentStatus: app.payment_status,
-    paymentConfirmedAt: app.payment_confirmed_at,
-  })) {
+  const paymentTruth = app ? ({
+    paymentStatus: app.payment_status || null,
+    paymentConfirmedAt: app.payment_confirmed_at || null,
+  } as ApplicationTruth) : null;
+
+  if (!app || !hasAuthoritativePaymentConfirmation(paymentTruth)) {
     throw new Error("web_chat_payment_not_confirmed");
   }
   return app;
