@@ -10,12 +10,34 @@ type TimelineItem = {
   channel: "web" | "telegram" | "whatsapp";
 };
 
+type OrderSummary = {
+  trackingId?: string | null;
+  fullName?: string | null;
+  phoneMasked?: string | null;
+  employer?: string | null;
+  salary?: number | string | null;
+  status?: string | null;
+  paymentStatus?: string | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+  governorate?: string | null;
+  cityArea?: string | null;
+  deviceName?: string | null;
+  devicePrice?: number | string | null;
+  installmentMonths?: number | null;
+  downPayment?: number | string | null;
+  monthlyPayment?: number | string | null;
+  totalWithInterest?: number | string | null;
+  eligibilityPath?: string | null;
+};
+
 type SessionPayload = {
   ok: boolean;
   trackingId?: string | null;
   primaryChannel?: "web" | "telegram" | null;
   channelActivated?: boolean;
   webAvailable?: boolean;
+  order?: OrderSummary | null;
   timeline?: TimelineItem[];
 };
 
@@ -29,6 +51,65 @@ type PendingMessage = {
 type ConnectionState = "online" | "connecting" | "offline";
 
 const channelName = { web: "الموقع", telegram: "Telegram", whatsapp: "WhatsApp" } as const;
+
+const statusNames: Record<string, string> = {
+  under_review: "قيد الدراسة النهائية",
+  approved: "موافق عليه",
+  rejected: "غير موافق عليه",
+  cancelled: "ملغي",
+  refund_requested: "طلب استرداد",
+  preliminary_qualified: "موافقة مبدئية",
+  customer_confirmed_continue: "تم تأكيد الاستمرار",
+  needs_guarantor: "بحاجة إلى كفيل",
+  guarantor_submitted: "تم تقديم الكفيل",
+  needs_salary_slip: "بحاجة إلى كشف راتب",
+  salary_slip_uploaded: "تم رفع كشف الراتب",
+  identity_uploaded: "تم رفع الهوية",
+  customer_accepts_delivery_delay: "تم قبول انتظار التوريد",
+};
+
+const paymentNames: Record<string, string> = {
+  confirmed: "الدفع مؤكد",
+  pending: "بانتظار تأكيد الدفع",
+  awaiting_payment: "بانتظار الدفع",
+  refund_requested: "الاسترداد مطلوب",
+  refunded: "تم الاسترداد",
+};
+
+function statusLabel(value: string | null | undefined) {
+  const key = String(value || "").trim();
+  if (!key) return "حالة الطلب متاحة عند التحديث";
+  return statusNames[key] || key.replaceAll("_", " ");
+}
+
+function paymentLabel(value: string | null | undefined) {
+  const key = String(value || "").trim();
+  if (!key) return "غير محدد";
+  return paymentNames[key] || key.replaceAll("_", " ");
+}
+
+function moneyLabel(value: number | string | null | undefined) {
+  if (value === null || value === undefined || value === "") return null;
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return String(value);
+  return `${new Intl.NumberFormat("ar-JO", { maximumFractionDigits: 2 }).format(amount)} د.أ`;
+}
+
+function fullDateLabel(value: string | null | undefined) {
+  if (!value) return null;
+  try {
+    return new Intl.DateTimeFormat("ar-JO", {
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Amman",
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
 
 function timeLabel(value: string) {
   try {
@@ -107,6 +188,16 @@ function TypingDots() {
   );
 }
 
+function DetailItem({ label, value, strong = false }: { label: string; value: string | number | null | undefined; strong?: boolean }) {
+  if (value === null || value === undefined || value === "") return null;
+  return (
+    <div className="rounded-2xl border border-white/[0.055] bg-white/[0.025] px-3.5 py-3">
+      <p className="text-[10px] text-white/35">{label}</p>
+      <p className={`mt-1 break-words text-xs leading-5 ${strong ? "font-semibold text-emerald-100" : "text-white/75"}`}>{value}</p>
+    </div>
+  );
+}
+
 export default function ChatClient() {
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [loading, setLoading] = useState(true);
@@ -119,11 +210,14 @@ export default function ChatClient() {
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const [typingVisible, setTypingVisible] = useState(false);
   const [showJump, setShowJump] = useState(false);
+  const [orderOpen, setOrderOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const firstLoadRef = useRef(true);
 
   const busy = sending || channelBusy;
+  const order = session?.order || null;
+  const currentStatus = statusLabel(order?.status);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "smooth") => {
     const node = scrollRef.current;
@@ -178,7 +272,7 @@ export default function ChatClient() {
       setTypingVisible(false);
       return;
     }
-    const timer = window.setTimeout(() => setTypingVisible(true), 420);
+    const timer = window.setTimeout(() => setTypingVisible(true), 900);
     return () => window.clearTimeout(timer);
   }, [sending]);
 
@@ -311,7 +405,7 @@ export default function ChatClient() {
           </div>
           <div>
             <p className="font-semibold">جاري فتح محادثتك الآمنة</p>
-            <p className="mt-1 text-xs text-white/45">الأمين يجهز نفس سياق طلبك…</p>
+            <p className="mt-1 text-xs text-white/45">جاري تحميل تفاصيل طلبك ومحادثتك…</p>
           </div>
         </div>
       </main>
@@ -331,10 +425,15 @@ export default function ChatClient() {
   }
 
   const connectionCopy = connection === "online"
-    ? "الذكاء الاصطناعي جاهز"
+    ? "متصل"
     : connection === "connecting"
-      ? "جاري مزامنة المحادثة"
-      : "الاتصال غير متوفر";
+      ? "جاري المزامنة"
+      : "غير متصل";
+
+  const createdLabel = fullDateLabel(order?.createdAt);
+  const updatedLabel = fullDateLabel(order?.updatedAt);
+  const locationLabel = [order?.governorate, order?.cityArea].filter(Boolean).join(" / ") || null;
+  const channelLabel = session.primaryChannel === "telegram" ? "Telegram" : session.primaryChannel === "web" ? "الموقع" : null;
 
   return (
     <main className="h-[100dvh] overflow-hidden bg-[#050d0a] text-white" dir="rtl">
@@ -353,16 +452,27 @@ export default function ChatClient() {
               <span className={`absolute -bottom-0.5 -left-0.5 h-3.5 w-3.5 rounded-full border-[3px] border-[#0a1913] ${connection === "offline" ? "bg-amber-400" : "bg-emerald-400"}`} />
             </div>
 
-            <div className="min-w-0 flex-1">
+            <button
+              type="button"
+              onClick={() => setOrderOpen((value) => !value)}
+              className="min-w-0 flex-1 rounded-xl px-1 py-1 text-right transition hover:bg-white/[0.025]"
+              aria-expanded={orderOpen}
+            >
               <div className="flex items-center gap-2">
                 <h1 className="truncate text-base font-bold sm:text-lg">الأمين للأقساط</h1>
-                <span className="hidden rounded-full border border-emerald-300/15 bg-emerald-300/[0.08] px-2 py-0.5 text-[10px] font-semibold text-emerald-200 sm:inline-flex">AI</span>
+                <span className="relative flex h-2 w-2 shrink-0">
+                  <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-emerald-400 opacity-35" />
+                  <span className="relative inline-flex h-2 w-2 rounded-full bg-emerald-400" />
+                </span>
               </div>
-              <div className="mt-0.5 flex items-center gap-2 text-[11px] text-white/50 sm:text-xs">
+              <div className="mt-0.5 flex min-w-0 items-center gap-2 text-[11px] sm:text-xs">
                 <span className={connection === "offline" ? "text-amber-300" : "text-emerald-300/80"}>{connectionCopy}</span>
-                {session.trackingId ? <><span>•</span><span className="truncate">{session.trackingId}</span></> : null}
+                <span className="text-white/20">•</span>
+                <span className="truncate font-medium text-white/65">{currentStatus}</span>
+                {session.trackingId ? <><span className="text-white/20">•</span><span className="truncate text-white/38">{session.trackingId}</span></> : null}
+                <span className={`mr-auto text-white/35 transition-transform duration-300 ${orderOpen ? "rotate-180" : ""}`}>⌄</span>
               </div>
-            </div>
+            </button>
 
             <div className="flex items-center gap-2">
               <button
@@ -387,6 +497,35 @@ export default function ChatClient() {
                 <span className="text-sm">↗</span>
                 Telegram
               </button>
+            </div>
+          </div>
+
+          <div className={`overflow-hidden transition-all duration-300 ease-out ${orderOpen ? "mt-3 max-h-[650px] opacity-100" : "max-h-0 opacity-0"}`}>
+            <div className="rounded-[22px] border border-emerald-300/[0.09] bg-gradient-to-b from-emerald-400/[0.055] to-white/[0.018] p-3.5 shadow-inner shadow-black/10 sm:p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded-full border border-emerald-300/15 bg-emerald-400/[0.08] px-3 py-1.5 text-[10px] font-semibold text-emerald-100">{currentStatus}</span>
+                {order?.paymentStatus ? <span className="rounded-full border border-white/[0.07] bg-white/[0.035] px-3 py-1.5 text-[10px] text-white/60">{paymentLabel(order.paymentStatus)}</span> : null}
+                {channelLabel ? <span className="rounded-full border border-sky-300/10 bg-sky-300/[0.045] px-3 py-1.5 text-[10px] text-sky-100/70">المتابعة عبر {channelLabel}</span> : null}
+              </div>
+
+              <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                <DetailItem label="صاحب الطلب" value={order?.fullName} strong />
+                <DetailItem label="رقم الطلب" value={order?.trackingId || session.trackingId} />
+                <DetailItem label="رقم التواصل" value={order?.phoneMasked} />
+                <DetailItem label="الجهاز" value={order?.deviceName} strong />
+                <DetailItem label="سعر الجهاز" value={moneyLabel(order?.devicePrice)} />
+                <DetailItem label="الدفعة الأولى" value={moneyLabel(order?.downPayment)} />
+                <DetailItem label="القسط الشهري" value={moneyLabel(order?.monthlyPayment)} strong />
+                <DetailItem label="مدة التقسيط" value={order?.installmentMonths ? `${order.installmentMonths} شهر` : null} />
+                <DetailItem label="الإجمالي" value={moneyLabel(order?.totalWithInterest)} />
+                <DetailItem label="جهة العمل" value={order?.employer} />
+                <DetailItem label="الراتب" value={moneyLabel(order?.salary)} />
+                <DetailItem label="المنطقة" value={locationLabel} />
+                <DetailItem label="تاريخ الطلب" value={createdLabel} />
+                <DetailItem label="آخر تحديث" value={updatedLabel} />
+              </div>
+
+              <p className="mt-3 text-[10px] leading-5 text-white/30">تظهر هنا معلومات المتابعة المرتبطة بطلبك فقط. البيانات الحساسة مثل الرقم الوطني والعنوان التفصيلي لا يتم عرضها داخل الدردشة.</p>
             </div>
           </div>
         </header>
