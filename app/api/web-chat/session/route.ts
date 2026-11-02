@@ -3,6 +3,7 @@ import { authenticatedWebChatSession } from "../_http";
 import { loadWebChatTimeline } from "../_runtime";
 import { getPostPaymentChannelFlags, loadPostPaymentChannelState } from "@/app/api/postpayment/_lib/channelState";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { isWebChatDeliveryQueueEnabled, loadPendingWebChatDelivery } from "../_deliveryQueue";
 
 export const runtime = "nodejs";
 
@@ -52,12 +53,14 @@ export async function GET() {
   const session = await authenticatedWebChatSession();
   if (!session) return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
 
-  const [flags, channelState, timeline, order] = await Promise.all([
+  const [flags, channelState, timeline, order, deliveryQueueEnabled] = await Promise.all([
     getPostPaymentChannelFlags(),
     loadPostPaymentChannelState(session.application_id),
     loadWebChatTimeline(session),
     loadOrderSummary(session.application_id),
+    isWebChatDeliveryQueueEnabled(),
   ]);
+  const delivery = deliveryQueueEnabled ? await loadPendingWebChatDelivery(session.id) : null;
 
   if (!flags.webChatEnabled) return NextResponse.json({ ok: false, error: "web_chat_disabled" }, { status: 503 });
 
@@ -69,5 +72,7 @@ export async function GET() {
     webAvailable: Boolean(channelState?.web_available),
     order,
     timeline,
+    deliveryQueueEnabled,
+    delivery,
   }, { headers: { "Cache-Control": "no-store" } });
 }
