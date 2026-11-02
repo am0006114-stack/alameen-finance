@@ -1,0 +1,187 @@
+.chatPolish {
+  min-height: 100dvh;
+}
+
+/* Order summary only — visual polish, no behavior or data changes. */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div) {
+  --card-accent: #6ee7b7;
+  --card-border: rgba(110, 231, 183, 0.22);
+  --card-bg: rgba(16, 185, 129, 0.08);
+  position: relative;
+  overflow: hidden;
+  border-color: var(--card-border) !important;
+  background:
+    radial-gradient(circle at 0% 0%, color-mix(in srgb, var(--card-accent) 14%, transparent), transparent 48%),
+    linear-gradient(135deg, var(--card-bg), rgba(255, 255, 255, 0.018)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.035),
+    0 10px 26px rgba(0, 0, 0, 0.13);
+  transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease;
+}
+
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div::before) {
+  content: "";
+  position: absolute;
+  inset-inline-start: 14px;
+  top: 0;
+  width: 38px;
+  height: 3px;
+  border-radius: 0 0 999px 999px;
+  background: var(--card-accent);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--card-accent) 42%, transparent);
+  opacity: 0.9;
+}
+
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div::after) {
+  content: "";
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  inset-inline-end: -24px;
+  bottom: -30px;
+  border-radius: 999px;
+  background: var(--card-accent);
+  filter: blur(24px);
+  opacity: 0.12;
+  pointer-events: none;
+}
+
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div > p:first-child) {
+  color: color-mix(in srgb, var(--card-accent) 72%, white 28%) !important;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div > p:last-child) {
+  color: rgba(255, 255, 255, 0.91) !important;
+  font-weight: 650;
+}
+
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:hover) {
+  transform: translateY(-2px);
+  border-color: color-mix(in srgb, var(--card-accent) 42%, transparent) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.05),
+    0 14px 30px rgba(0, 0, 0, 0.18),
+    0 0 22px color-mix(in srgb, var(--card-accent) 8%, transparent);
+}
+
+/* Identity */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(1)) {
+  --card-accent: #818cf8;
+  --card-border: rgba(129, 140, 248, 0.24);
+  --card-bg: rgba(99, 102, 241, 0.105);
+}
+
+/* Tracking */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(2)) {
+  --card-accent: #34d399;
+  --card-border: rgba(52, 211, 153, 0.24);
+  --card-bg: rgba(16, 185, 129, 0.09);
+}
+
+/* Contact */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(3)) {
+  --card-accent: #38bdf8;
+  --card-border: rgba(56, 189, 248, 0.24);
+  --card-bg: rgba(14, 165, 233, 0.09);
+}
+
+/* Device */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(4)) {
+  --card-accent: #c084fc;
+  --card-border: rgba(192, 132, 252, 0.26);
+  --card-bg: rgba(168, 85, 247, 0.105);
+}
+
+/* Device price */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(5)) {
+  --card-accent: #fbbf24;
+  --card-border: rgba(251, 191, 36, 0.25);
+  --card-bg: rgba(245, 158, 11, 0.095);
+}
+
+/* Down payment */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(6)) {
+  --card-accent: #fb923c;
+  --card-border: rgba(251, 146, 60, 0.25);
+  --card-bg: rgba(249, 115, 22, 0.09);
+}
+
+/* Monthly installment */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(7)) {
+  --card-accent: #4ade80;
+  --card-border: rgba(74, 222, 128, 0.26);
+  --card-bg: rgba(34, 197, 94, 0.095);
+}
+
+/* Term */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(8)) {
+  --card-accent: #60a5fa;
+  --card-border: rgba(96, 165, 250, 0.24);
+  --card-bg: rgba(59, 130, 246, 0.09);
+}
+
+/* Total */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(9)) {
+  --card-accent: #facc15;
+  --card-border: rgba(250, 204, 21, 0.27);
+  --card-bg: rgba(234, 179, 8, 0.1);
+}
+
+/* Employer */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(10)) {
+  --card-accent: #a78bfa;
+  --card-border: rgba(167, 139, 250, 0.24);
+  --card-bg: rgba(139, 92, 246, 0.09);
+}
+
+/* Salary */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(11)) {
+  --card-accent: #2dd4bf;
+  --card-border: rgba(45, 212, 191, 0.24);
+  --card-bg: rgba(20, 184, 166, 0.09);
+}
+
+/* Area */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(12)) {
+  --card-accent: #22d3ee;
+  --card-border: rgba(34, 211, 238, 0.24);
+  --card-bg: rgba(6, 182, 212, 0.085);
+}
+
+/* Created */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(13)) {
+  --card-accent: #94a3b8;
+  --card-border: rgba(148, 163, 184, 0.21);
+  --card-bg: rgba(100, 116, 139, 0.075);
+}
+
+/* Updated */
+.chatPolish :global(header .grid.grid-cols-2.gap-2 > div:nth-child(14)) {
+  --card-accent: #f472b6;
+  --card-border: rgba(244, 114, 182, 0.23);
+  --card-bg: rgba(236, 72, 153, 0.08);
+}
+
+@media (max-width: 640px) {
+  .chatPolish :global(header .grid.grid-cols-2.gap-2 > div) {
+    min-height: 76px;
+    padding: 12px !important;
+  }
+
+  .chatPolish :global(header .grid.grid-cols-2.gap-2 > div > p:last-child) {
+    font-size: 11px !important;
+    line-height: 1.55 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .chatPolish :global(header .grid.grid-cols-2.gap-2 > div) {
+    transition: none;
+  }
+
+  .chatPolish :global(header .grid.grid-cols-2.gap-2 > div:hover) {
+    transform: none;
+  }
+}
