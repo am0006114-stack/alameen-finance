@@ -127,7 +127,7 @@ export async function scheduleWebChatDelivery(input: { sessionId: string; client
   // The first Web Chat reply gets a realistic service-desk wait. Follow-ups stay human-paced
   // without making an active conversation feel deliberately sluggish.
   const baseWait = firstReply
-    ? stableRange(`${input.clientMessageId}:first`, 42, 62)
+    ? stableRange(`${input.clientMessageId}:first`, 55, 85)
     : stableRange(`${input.clientMessageId}:followup`, 9, 17);
   const queuePenalty = batchesAhead * (firstReply ? 28 : 11);
   const estimatedWaitSeconds = Math.min(firstReply ? 180 : 50, baseWait + queuePenalty);
