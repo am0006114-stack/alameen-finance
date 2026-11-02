@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'app/api/whatsapp/webhook/**'
+      - 'app/chat/**'
       - 'scripts/v3-phase17-*'
       - 'package.json'
       - 'package-lock.json'
