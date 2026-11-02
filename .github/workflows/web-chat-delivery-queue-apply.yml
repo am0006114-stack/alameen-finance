@@ -1,0 +1,52 @@
+name: Web Chat Delivery Queue Apply
+
+on:
+  push:
+    branches:
+      - feature/web-chat-delivery-queue-20261102
+    paths:
+      - scripts/web-chat-delivery-queue-patch.cjs
+      - .github/workflows/web-chat-delivery-queue-apply.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply-patch:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout feature branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: feature/web-chat-delivery-queue-20261102
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@1e60f620b9541d33c8fc889a238e0ebd1c9b9d12
+        with:
+          node-version: 24
+
+      - name: Apply exact source patch
+        run: node scripts/web-chat-delivery-queue-patch.cjs
+
+      - name: Validate patch shape
+        run: |
+          git diff --check
+          git diff --exit-code -- app/api/whatsapp/webhook/_lib/v3-os || true
+          if ! git diff --quiet -- app/api/whatsapp/webhook/_lib/v3-os; then
+            echo "ERROR: delivery queue patch touched V3/guard files"
+            exit 1
+          fi
+
+      - name: Commit patched source
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/api/web-chat/_runtime.ts app/api/web-chat/session/route.ts app/api/telegram/_lib/messages.ts app/chat/ChatClient.tsx
+          if git diff --cached --quiet; then
+            echo "No source changes to commit"
+            exit 0
+          fi
+          git commit -m "Apply Web Chat delivery queue source changes"
+          git push origin HEAD:feature/web-chat-delivery-queue-20261102
