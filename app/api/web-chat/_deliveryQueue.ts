@@ -167,7 +167,7 @@ export async function loadPendingWebChatDelivery(sessionId: string) {
 
   const pending = (data || [])
     .map((row) => readWebChatDeliveryState(row.raw_payload))
-    .filter((delivery): delivery is WebChatDeliveryState => Boolean(delivery) && Date.parse(delivery.visibleAfter) > nowMs)
+    .filter((delivery): delivery is WebChatDeliveryState => delivery !== null && Date.parse(delivery.visibleAfter) > nowMs)
     .sort((a, b) => Date.parse(a.visibleAfter) - Date.parse(b.visibleAfter));
 
   return pending[0] || null;
