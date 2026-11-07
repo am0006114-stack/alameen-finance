@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { supabaseAdmin } from "@/lib/supabaseAdmin";
+import { reconcilePreliminaryTemplateFailure } from "./_lib/preliminaryTemplateDelivery";
 import type {
   AiReplyInput,
   ApplicationRecord,
@@ -11067,6 +11068,22 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
             }
 
             matchedExistingMessage = Array.isArray(updatedRows) && updatedRows.length > 0;
+            if (matchedExistingMessage && statusValue === "failed") {
+              const providerError = Array.isArray(statusEvent?.errors) ? statusEvent.errors[0] : null;
+              try {
+                await reconcilePreliminaryTemplateFailure({
+                  messageId: statusMessageId,
+                  failure: providerError ? {
+                    code: providerError.code,
+                    title: providerError.title,
+                    message: providerError.message,
+                  } : null,
+                });
+              } catch (reconcileError) {
+                // Never block Meta status acknowledgement because of observability.
+                console.error("preliminary_template_failure_reconcile_unexpected", reconcileError);
+              }
+            }
           }
 
           // Meta sends sent/delivered/read webhooks for messages we already logged when sending.
