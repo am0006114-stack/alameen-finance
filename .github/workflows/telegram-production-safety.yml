@@ -41,6 +41,9 @@ jobs:
       - name: Phase 18.6.1 Telegram handoff and UX safety gate
         run: node scripts/v3-phase18-6-1-telegram-handoff-ux-selftest.cjs
 
+      - name: WhatsApp integrity without payment-guard changes
+        run: node scripts/v3-p0-whatsapp-integrity-repair-selftest.cjs
+
       - name: TypeScript
         run: npx tsc --noEmit
 
