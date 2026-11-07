@@ -35,6 +35,9 @@ jobs:
       - name: Phase 17 native-kernel safety gate
         run: node scripts/v3-phase17-native-kernel-safety-selftest.cjs
 
+      - name: WhatsApp integrity without payment-guard changes
+        run: node scripts/v3-p0-whatsapp-integrity-repair-selftest.cjs
+
       - name: TypeScript
         run: npx tsc --noEmit
 
