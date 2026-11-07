@@ -17,6 +17,17 @@ const MUTATIONS = new Set([
   "reopen_application",
 ]);
 
+// Sensitive customer financial/contract actions must be executed by the
+// administration, not through the autonomous WhatsApp transaction RPC.
+// The commercial continue_application persistence is a separate deterministic
+// path in actionPlane.ts and is intentionally NOT part of this restriction.
+const ADMIN_EXECUTION_ONLY_MUTATIONS = new Set([
+  "cancel_application",
+  "request_refund",
+  "stop_refund",
+  "reopen_application",
+]);
+
 // Phase 9.1 autonomous core action plane. These are the only customer-confirmed
 // mutations WhatsApp may execute automatically. Device/model/storage/color/data
 // changes and recalculation remain manual and are routed to the official Facebook
@@ -99,6 +110,10 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
     const productionControl = await getV3ProductionControl();
     if (!canV3ExecuteRealActions(productionControl)) {
       return { success: false, blocker: "v3_real_actions_production_gate_disabled" };
+    }
+
+    if (ADMIN_EXECUTION_ONLY_MUTATIONS.has(planned.action)) {
+      return { success: false, blocker: "sensitive_mutation_requires_manual_admin" };
     }
 
     // Hard second gate: even when Real Actions are enabled globally, only the
