@@ -24,14 +24,17 @@ assert(!delivery.includes("preliminary_whatsapp_sent_at:"), "Do not re-enable au
 assert(!delivery.includes('payment_status:') && !delivery.includes('payment_confirmed_at:'), "Never change payment facts");
 assert(delivery.includes('sendDiscordNotification'), "Alert administration on an undeliverable preliminary approval");
 
-const sensitive = adapter.match(/const ADMIN_EXECUTION_ONLY_MUTATIONS = new Set\(\[([\s\S]*?)\]\);/);
-assert(sensitive, "Manual-only action allowlist must be present");
+const sensitive = adapter.match(/const SECURE_POSTPAYMENT_ONLY_MUTATIONS = new Set\(\[([\s\S]*?)\]\);/);
+assert(sensitive, "Secure-channel-only action allowlist must be present");
 for (const action of ["cancel_application", "request_refund", "stop_refund", "reopen_application"]) {
-  assert(sensitive[1].includes('"' + action + '"'), action + " must require administration");
+  assert(sensitive[1].includes('"' + action + '"'), action + " must require a verified postpayment channel");
 }
 assert(!sensitive[1].includes("continue_application"), "Five-JOD continuation must stay outside sensitive action restriction");
 assert(!sensitive[1].includes("link_whatsapp_alias"), "Safe WhatsApp alias linking stays enabled");
-assert(adapter.includes('blocker: "sensitive_mutation_requires_manual_admin"'), "Manual action must fail closed");
+assert(adapter.includes('blocker: "sensitive_mutation_requires_secure_postpayment_channel"'), "WhatsApp actions must fail closed");
+assert(adapter.includes('transport.applicationId) === String(context.truth.application?.id'), "Secure action cannot target another application");
+assert(adapter.includes("truthHasAuthoritativePaymentConfirmation(context.truth)"), "Secure action needs authoritative payment");
+assert(!adapter.includes('blocker: "sensitive_mutation_requires_manual_admin"'), "No human action route");
 assert(actionPlane.includes("persistExplicitContinuation"), "Authoritative commercial continuation remains operational");
 assert(migration.includes('link.includes("🌐 متابعة على الموقع:")'), "Handoff copy must distinguish web choice");
 assert(migration.includes("الخيَاران مرتبطان بنفس الطلب"), "Both channels must be presented equally");

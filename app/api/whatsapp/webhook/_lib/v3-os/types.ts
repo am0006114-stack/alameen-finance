@@ -32,6 +32,7 @@ export type AiTier = "frontline" | "case_specialist" | "supervisor";
 
 export type TrustedTransportContext = {
   channel: "whatsapp" | "telegram";
+  origin?: "telegram" | "web_chat";
   applicationId?: string | null;
   trackingId?: string | null;
 };

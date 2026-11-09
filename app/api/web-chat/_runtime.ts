@@ -210,12 +210,13 @@ export async function processWebChatMessage(input: { session: WebChatSession; te
       // as Telegram while canonical wa_id remains the shared conversation key.
       transportContext: {
         channel: "telegram",
+        origin: "web_chat",
         applicationId: input.session.application_id,
         trackingId: input.session.tracking_id || null,
       },
       recentTurns,
       profileName: await profileName(input.session.application_id),
-      realActionsEnabled: false,
+      realActionsEnabled: control.realActionsEnabled,
     });
     reply = normalizeReply(run.reply);
   } catch (error) {

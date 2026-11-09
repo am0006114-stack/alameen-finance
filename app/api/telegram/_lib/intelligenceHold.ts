@@ -453,6 +453,7 @@ async function processOne(job: ClaimedHoldJob) {
     // Server-owned transport/application binding stays separate from customer words.
     const transportContext = {
       channel: "telegram" as const,
+      origin: "telegram" as const,
       applicationId: link.application_id || null,
     };
     const turnId = `tg-hold:${job.business_connection_id}:${job.latest_message_id || job.id}`;

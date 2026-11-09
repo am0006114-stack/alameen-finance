@@ -11227,6 +11227,21 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
           processingMessageType = burst.messageCount > 1 ? "text" : type;
         }
 
+        // Paid-channel hard cutover happens BEFORE typing, memory loading, or AI.
+        // Confirmed-paid customers must not incur WhatsApp V3 model calls,
+        // regardless of complaint, refund, cancellation, or migration-link status.
+        // The early handler is deterministic and the unpaid 5-JOD path is untouched.
+        if (v3ConversationOsActive) {
+          const paidChannelGate = await handlePostPaymentWhatsAppMigrationInbound({
+            waId: from,
+            sourceMessageId: message.id || null,
+          });
+          if (paidChannelGate.handled) {
+            await markIncomingWhatsAppMessageProcessed(message.id);
+            return;
+          }
+        }
+
         const preReplyMemory = await getConversationMemory(from, 18);
         // V2.1 CUSTOMER-ONLY PREPROCESSING: legacy assistant history never rewrites the
         // customer's current text or intent before the Conversation OS sees it.
@@ -11291,21 +11306,8 @@ async function processWhatsAppWebhookBody(request: Request, body: WhatsAppWebhoo
         // turn. Legacy V1/V2 stacks are retained below only as historical code during
         // the consolidation window and are no longer eligible for customer traffic.
         if (v3ConversationOsActive) {
-          // Phase 18.5: once the 5 JOD file-opening payment is authoritatively
-          // confirmed, WhatsApp becomes the low-cost bridge to Telegram.
-          // Preliminary approval, continuation and the 5 JOD payment flow remain
-          // on WhatsApp. This gate owns post-payment inbound traffic, enforces the
-          // <=5 migration-message cap, suppresses repeated chat after linkage,
-          // and never enables Telegram Real Actions.
-          const telegramMigrationGate = await handlePostPaymentWhatsAppMigrationInbound({
-            waId: from,
-            sourceMessageId: message.id || null,
-          });
-          if (telegramMigrationGate.handled) {
-            await markIncomingWhatsAppMessageProcessed(message.id);
-            return;
-          }
-
+          // Paid messages were routed above, before typing and memory loading.
+          // Only pre-payment customer messages reach V3 here.
           const v3TurnId = message.id || `fallback:${from}:${message.timestamp || Date.now()}`;
           const v3RecentTurns = String(preReplyMemory.conversationContext || "")
             .split(/\n+/)
