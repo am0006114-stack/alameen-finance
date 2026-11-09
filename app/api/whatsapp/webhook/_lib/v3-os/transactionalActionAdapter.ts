@@ -21,7 +21,7 @@ const MUTATIONS = new Set([
 // administration, not through the autonomous WhatsApp transaction RPC.
 // The commercial continue_application persistence is a separate deterministic
 // path in actionPlane.ts and is intentionally NOT part of this restriction.
-const ADMIN_EXECUTION_ONLY_MUTATIONS = new Set([
+const SECURE_POSTPAYMENT_ONLY_MUTATIONS = new Set([
   "cancel_application",
   "request_refund",
   "stop_refund",
@@ -112,7 +112,7 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
       return { success: false, blocker: "v3_real_actions_production_gate_disabled" };
     }
 
-    if (ADMIN_EXECUTION_ONLY_MUTATIONS.has(planned.action)) {
+    if (SECURE_POSTPAYMENT_ONLY_MUTATIONS.has(planned.action)) {
       // No autonomous destructive mutation over WhatsApp. The call is allowed
       // only from the server-bound paid Telegram or signed Web Chat session.
       const transport = context.transportContext;
