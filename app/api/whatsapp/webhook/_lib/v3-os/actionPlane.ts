@@ -5,10 +5,10 @@ import { commercialContinuationAffirmativeText, commercialDisclosureDelivered, s
 import { persistExplicitContinuation } from "./continuationPersistence";
 import { notifyV3Discord } from "./discordNotifier";
 import { normalizeArabic } from "./text";
-import type { ActionKey, ActionResult, ConversationState, PlannedAction, TruthBundle } from "./types";
+import type { ActionKey, ActionResult, ConversationState, PlannedAction, TruthBundle, TrustedTransportContext } from "./types";
 
 export type ActionExecutorAdapter = {
-  execute(action: PlannedAction, context: { state: ConversationState; truth: TruthBundle }): Promise<{ success: boolean; alreadyDone?: boolean; mutationId?: string | null; summary?: string | null; blocker?: string | null; details?: Record<string, unknown> | null }>;
+  execute(action: PlannedAction, context: { state: ConversationState; truth: TruthBundle; transportContext?: TrustedTransportContext | null }): Promise<{ success: boolean; alreadyDone?: boolean; mutationId?: string | null; summary?: string | null; blocker?: string | null; details?: Record<string, unknown> | null }>;
 };
 
 export function guardAction(action: PlannedAction, state: ConversationState, truth: TruthBundle): ActionResult {
@@ -169,7 +169,7 @@ async function notifyCommercialContinuationPersisted(input: {
   }
 }
 
-export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean; currentTurnId: string; currentCustomerText: string }): Promise<ActionResult[]> {
+export async function executeActions(input: { actions: PlannedAction[]; state: ConversationState; truth: TruthBundle; adapter?: ActionExecutorAdapter | null; allowMutation?: boolean; currentTurnId: string; currentCustomerText: string; transportContext?: TrustedTransportContext | null }): Promise<ActionResult[]> {
   const results: ActionResult[] = [];
   const commercialContinuation = deterministicCommercialContinuationAction(input.state, input.truth, input.currentCustomerText);
   const actions = commercialContinuation
@@ -252,7 +252,7 @@ export async function executeActions(input: { actions: PlannedAction[]; state: C
       continue;
     }
     try {
-      const r = await input.adapter.execute(action,{ state: input.state, truth: input.truth });
+      const r = await input.adapter.execute(action,{ state: input.state, truth: input.truth, transportContext: input.transportContext });
       results.push({
         action: action.action,
         outcome: r.success ? (r.alreadyDone ? "already_done" : "executed") : "failed",
