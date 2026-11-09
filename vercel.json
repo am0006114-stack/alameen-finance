@@ -8,7 +8,8 @@
       "feature/web-chat-superhuman-final-polish-20261102": false,
       "feature/web-chat-colorful-order-card-20261102": false,
       "feature/web-chat-delivery-queue-20261102": false,
-      "fix/whatsapp-production-integrity-20261107": false
+      "fix/whatsapp-production-integrity-20261107": false,
+      "fix/paid-whatsapp-zero-ai-cutover-20261109": false
     }
   }
 }
