@@ -109,6 +109,23 @@ async function loadPaidApplicationForWhatsApp(waId: string): Promise<MigrationAp
   if (!canonical) return null;
   const variants = jordanPhoneVariants(canonical);
 
+  // A phone can have a historical paid order AND a newer unpaid application.
+  // The NEWEST directly registered application owns WhatsApp's prepayment
+  // funnel. Never reroute its 5-JOD continuation to a historical paid order.
+  const { data: directApps, error: directError } = await supabaseAdmin
+    .from("applications")
+    .select("id,tracking_id,full_name,phone,status,payment_status,payment_confirmed_at,created_at")
+    .in("phone", variants)
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (directError) throw new Error(`telegram_migration_current_application_read:${directError.message}`);
+  if (directApps?.length) {
+    const latest = directApps[0] as MigrationApplication;
+    return paymentAuthoritativelyConfirmed(latest) ? latest : null;
+  }
+
+  // Approved WhatsApp aliases may refer to a paid application on a different
+  // primary phone. Only use them when no directly-owned application exists.
   try {
     const { data: contacts, error: contactError } = await supabaseAdmin
       .from("whatsapp_application_contacts")
@@ -136,19 +153,7 @@ async function loadPaidApplicationForWhatsApp(waId: string): Promise<MigrationAp
     console.error("telegram_migration_alias_lookup_failed", error);
   }
 
-  const { data: apps, error } = await supabaseAdmin
-    .from("applications")
-    .select("id,tracking_id,full_name,phone,status,payment_status,payment_confirmed_at,created_at")
-    .in("phone", variants)
-    .order("created_at", { ascending: false })
-    .limit(10);
-
-  if (error) {
-    console.error("telegram_migration_application_lookup_failed", error.message);
-    return null;
-  }
-
-  return ((apps || []).find((app: any) => paymentAuthoritativelyConfirmed(app)) || null) as MigrationApplication | null;
+  return null;
 }
 
 function normalizeOwnershipText(value: string | null | undefined) {
