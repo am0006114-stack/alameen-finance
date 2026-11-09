@@ -36,6 +36,10 @@ assert(migration.includes('state: "recovery_exhausted"'), "Recovery can run only
 assert(migration.includes('24 * 60 * 60_000'), "Do not issue new links if earlier link remains valid");
 assert(migration.includes("MIGRATION_MAX_OUTBOUND = 5"), "Preserve normal five-message migration cap");
 
+assert(migration.includes("const { data: directApps, error: directError }"), "Resolve newest directly-owned application before historical aliases");
+assert(migration.includes("return paymentAuthoritativelyConfirmed(latest) ? latest : null;"), "Newer unpaid applications must retain their five-JOD WhatsApp route");
+assert(migration.includes('.order("created_at", { ascending: false })'), "Prefer latest application if a number has multiple applications");
+
 assert(types.includes('origin?: "telegram" | "web_chat"'), "Paid action authority needs trusted transport origin");
 assert(actionPlane.includes("transportContext: input.transportContext"), "Never lose trusted transport when dispatching actions");
 assert(human.includes("transportContext: input.transportContext"), "Human OS passes the server-owned origin into action plane");
