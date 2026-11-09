@@ -554,6 +554,66 @@ async function sendWhatsAppMigrationText(input: {
   return providerMessageId;
 }
 
+/**
+ * A paid customer must never be stranded just because the original five
+ * migration notices expired. Allow ONE recovery handoff after 24 hours.
+ * An atomic state compare-and-set prevents concurrent WhatsApp bursts from
+ * generating repeated replies or model calls. This is a deterministic channel
+ * link message, not an AI answer or a payment operation.
+ */
+async function recoverExhaustedMigrationOnce(input: {
+  app: MigrationApplication;
+  waId: string;
+  sourceKey: string;
+  state: MigrationState;
+}) {
+  const last = Date.parse(String(input.state.last_handoff_sent_at || ""));
+  if (!Number.isFinite(last) || Date.now() - last < 24 * 60 * 60_000) {
+    return { handled: true as const, sent: false, suppressed: true, reason: "recent_existing_handoff" };
+  }
+  const { data: claimed, error: claimError } = await supabaseAdmin
+    .from("whatsapp_telegram_migration_state")
+    .update({ state: "recovery_reserved", updated_at: new Date().toISOString() })
+    .eq("application_id", input.app.id)
+    .eq("state", "exhausted")
+    .eq("outbound_count", MIGRATION_MAX_OUTBOUND)
+    .select("application_id")
+    .maybeSingle();
+  if (claimError) throw new Error(`telegram_recovery_claim:${claimError.message}`);
+  if (!claimed) return { handled: true as const, sent: false, suppressed: true, reason: "recovery_already_reserved" };
+
+  try {
+    const handoff = await createTelegramHandoff({ waId: input.waId, applicationId: input.app.id });
+    const body = [
+      "رسوم فتح الملف مؤكدة على طلبك، والمتابعة والإجراءات أصبحت عبر Telegram أو الدردشة الآمنة فقط.",
+      "هذا رابط استعادة واحد جديد لأن رابطك السابق انتهت صلاحيته:",
+      handoff.link,
+      "لإلغاء الطلب أو الاسترداد أو تعديله، افتح إحدى القناتين المرتبطتين بالطلب.",
+      "واتساب لا يعالج الطلبات المدفوعة بالمحادثة.",
+    ].join("\n\n");
+    const providerMessageId = await sendWhatsAppMigrationText({
+      app: input.app,
+      waId: input.waId,
+      body,
+      sourceKey: input.sourceKey,
+      migrationCount: MIGRATION_MAX_OUTBOUND + 1,
+      kind: "handoff",
+    });
+    return { handled: true as const, sent: true, suppressed: false, reason: "one_time_expired_link_recovery", providerMessageId };
+  } catch (error) {
+    console.error("telegram_migration_one_time_recovery_failed", error);
+    return { handled: true as const, sent: false, suppressed: true, reason: "one_time_recovery_send_failed" };
+  } finally {
+    // Deliberately no automatic retry: one controlled recovery attempt, no loop.
+    const { error } = await supabaseAdmin
+      .from("whatsapp_telegram_migration_state")
+      .update({ state: "recovery_exhausted", updated_at: new Date().toISOString() })
+      .eq("application_id", input.app.id)
+      .eq("state", "recovery_reserved");
+    if (error) console.error("telegram_migration_recovery_finalize_failed", error.message);
+  }
+}
+
 async function prepareMigrationSend(input: {
   app: MigrationApplication;
   waId: string;
@@ -598,7 +658,10 @@ async function prepareMigrationSend(input: {
   }
 
   const state = await loadMigrationState(input.app.id);
-  if ((state?.outbound_count ?? 0) >= MIGRATION_MAX_OUTBOUND || state?.state === "exhausted") {
+  if (state?.state === "exhausted" && (state.outbound_count ?? 0) >= MIGRATION_MAX_OUTBOUND) {
+    return recoverExhaustedMigrationOnce({ app: input.app, waId: canonical, sourceKey: input.sourceKey, state });
+  }
+  if ((state?.outbound_count ?? 0) >= MIGRATION_MAX_OUTBOUND || state?.state === "recovery_exhausted" || state?.state === "recovery_reserved") {
     return { handled: true as const, sent: false, suppressed: true, reason: "migration_cap_reached" };
   }
 
@@ -666,16 +729,10 @@ export async function handlePostPaymentWhatsAppMigrationInbound(input: {
   const app = await loadPaidApplicationForWhatsApp(canonical);
   if (!app) return { handled: false, sent: false, suppressed: false, reason: "no_authoritatively_paid_application" };
 
-  const sourceMessage = await loadMigrationSourceMessage(canonical, input.sourceMessageId);
-  if (!sourceMessage) {
-    return { handled: false, sent: false, suppressed: true, reason: "critical_fallback_source_message_unavailable" };
-  }
-
-  const ownership = resolvePostPaymentWhatsAppOwnership(sourceMessage);
-  if (ownership.owner === "whatsapp") {
-    return { handled: false, sent: false, suppressed: true, reason: ownership.reason };
-  }
-
+  // Hard rule: once payment is authoritatively confirmed, there is NO V3
+  // WhatsApp conversation fallback — not for status, complaints, cancellation,
+  // refunds, missing source messages, or exhausted migration counters.
+  // Keep the ownership classifier for historical diagnostics only.
   return prepareMigrationSend({
     app,
     waId: canonical,
