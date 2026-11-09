@@ -113,7 +113,17 @@ export const v3TransactionalActionAdapter: ActionExecutorAdapter = {
     }
 
     if (ADMIN_EXECUTION_ONLY_MUTATIONS.has(planned.action)) {
-      return { success: false, blocker: "sensitive_mutation_requires_manual_admin" };
+      // No autonomous destructive mutation over WhatsApp. The call is allowed
+      // only from the server-bound paid Telegram or signed Web Chat session.
+      const transport = context.transportContext;
+      const boundToPaidOrder = transport?.channel === "telegram"
+        && (transport.origin === "telegram" || transport.origin === "web_chat")
+        && Boolean(transport.applicationId)
+        && String(transport.applicationId) === String(context.truth.application?.id || "")
+        && truthHasAuthoritativePaymentConfirmation(context.truth);
+      if (!boundToPaidOrder) {
+        return { success: false, blocker: "sensitive_mutation_requires_secure_postpayment_channel" };
+      }
     }
 
     // Hard second gate: even when Real Actions are enabled globally, only the
