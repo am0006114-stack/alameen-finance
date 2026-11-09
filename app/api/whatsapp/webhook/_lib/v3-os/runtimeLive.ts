@@ -1143,6 +1143,7 @@ async function runLegacyV3ProductionLive(input: {
     // Final action authority belongs to this exact transport turn only.
     currentTurnId: input.turnId,
     currentCustomerText: input.customerText,
+    transportContext: input.transportContext,
   });
 
   let truthAfterActions = truthBeforeActions;
