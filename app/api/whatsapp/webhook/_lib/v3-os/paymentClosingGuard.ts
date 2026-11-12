@@ -3,7 +3,7 @@ import { applicationReceiptUrl } from "./linkIntegrity";
 import {
   containsAllCurrentFileOpeningPaymentDestinations,
   currentFileOpeningPaymentRule,
-  fileOpeningPaymentWriterTruth,
+  fileOpeningPaymentBeneficiaryGuidance,
 } from "./paymentDestinationOverride";
 import { normalizeArabic } from "./text";
 import type { TruthBundle } from "./types";
@@ -47,7 +47,7 @@ export function resolvePaymentClosingKind(input: {
   const q = n(input.customerText);
   if (!q || mutationOrRefundOwnsTurn(q) || installmentQuestionOwnsTurn(q)) return "none";
 
-  const beneficiaryContext = /(?:اسم\s+المستفيد|المستفيد|اسم\s+(?:الكليك|cliq)|عبد\s*الرحم(?:ا)?ن|abdul\s*rahman)/i.test(q);
+  const beneficiaryContext = /(?:اسم\s+المستفيد|المستفيد|اسم\s+(?:الكليك|cliq)|عبد\s*الرحم(?:ا)?ن|abdul\s*rahman|مصطفى|مخلد|ameen2nd)/i.test(q);
   const mismatch = /(?:مختلف|مش\s+نفس|مو\s+نفس|غير\s+الاسم|اسم\s+غير|طلع\s+غير|طلع\s+اسم\s+ثاني|ما\s+طلع\s+نفس)/.test(q);
   if (beneficiaryContext && mismatch) return "beneficiary_mismatch";
 
@@ -66,7 +66,7 @@ export function resolvePaymentClosingKind(input: {
 
   const paymentMethod = /^(?:cliq|كليك|orange\s*money|اورنج\s*موني|اورنج\s*ماني)$/i.test(q)
     || /(?:كيف|وين|على\s+وين|طريقه|طريقة|بيانات).{0,28}(?:احول|ادفع|تحويل|الدفع)|(?:احول|ادفع|التحويل).{0,24}(?:كيف|وين|كليك|cliq|اورنج\s*موني|orange\s*money)/i.test(q);
-  if (paymentMethod) return "method_details";
+  if (paymentMethod || /^ameen2nd$/i.test(q)) return "method_details";
 
   const trustConcern = /(?:شو\s+عرفني|شو\s+بضمنلي|شو\s+بدو\s+يضمنلي|شو\s+يضمنلي|مين\s+بضمنلي|موثوق|موثوقه|مضمون|مضمونه|نصب|نصاب|احتيال|خايف|متخوف|اطمن|اطمئن|ثقه|ثقة|مصداقيه|مصداقية)/.test(q);
   if (trustConcern) return "trust";
@@ -81,8 +81,8 @@ function receiptInstruction(truth: TruthBundle) {
     : "رابط رفع الوصل المرتبط بطلبك مش متاح عندي الآن. إذا كنت حولت بالفعل لا تعيد الدفع؛ بنكمل التحقق على نفس الطلب بدون ما أخليك تعمل تحويل ثاني.";
 }
 
-function expectedBeneficiary(truth: TruthBundle) {
-  return String(truth.policy.paymentBeneficiaryName || fileOpeningPaymentWriterTruth().beneficiaryName || "").trim();
+function expectedBeneficiary(_truth: TruthBundle) {
+  return fileOpeningPaymentBeneficiaryGuidance();
 }
 
 export function buildPaymentClosingReply(input: {
@@ -97,7 +97,7 @@ export function buildPaymentClosingReply(input: {
   const destinations = currentFileOpeningPaymentRule({ includeApology: false });
 
   if (input.kind === "beneficiary_mismatch") {
-    return `لا تكمل التحويل إذا الاسم الظاهر عندك مختلف. اسم المستفيد المعتمد في بيانات الدفع الحالية هو ${beneficiary}. إذا ظهر اسم غيره وقف العملية ولا تعمل تحويل جديد. وإذا كنت حولت بالفعل، لا تدفع مرة ثانية؛ ارفع الوصل من الرابط المرتبط بطلبك حتى ينراجع التحويل:\n${applicationReceiptUrl(input.truth) || "رابط الوصل غير متاح حاليًا، فلا تعيد الدفع."}`;
+    return `لا تكمل التحويل إذا الاسم الظاهر عندك مختلف. اسم المستفيد المعتمد في بيانات الدفع الحالية هو ${beneficiary}. إذا ظهر اسم مختلف عن المستفيد المخصص لمعرف CliQ أو المحفظة اللي استخدمتها، وقف العملية ولا تعمل تحويل جديد. وإذا كنت حولت بالفعل، لا تدفع مرة ثانية؛ ارفع الوصل من الرابط المرتبط بطلبك حتى ينراجع التحويل:\n${applicationReceiptUrl(input.truth) || "رابط الوصل غير متاح حاليًا، فلا تعيد الدفع."}`;
   }
 
   if (input.kind === "claimed_paid") {
@@ -105,7 +105,7 @@ export function buildPaymentClosingReply(input: {
   }
 
   if (input.kind === "beneficiary_explanation") {
-    return `سؤالك بمحله. اسم المستفيد المعتمد اللي لازم يظهر حسب بيانات التحويل الحالية هو ${beneficiary}. ظهور هذا الاسم يطابق بيانات الدفع اللي أعطيناك إياها، حتى لو الاسم الظاهر اسم شخص وليس اسم «الأمين». ما رح أعتبر هالاسم لحاله إثبات قانوني للشركة. إذا ظهر عندك اسم مختلف عن ${beneficiary} لا تكمل التحويل. المطلوب الآن ${fee} دنانير فقط رسوم فتح الملف.\n${receipt}`;
+    return `سؤالك بمحله. اسم المستفيد المعتمد اللي لازم يظهر حسب بيانات التحويل الحالية هو ${beneficiary}. ظهور هذا الاسم يطابق بيانات الدفع اللي أعطيناك إياها، حتى لو الاسم الظاهر اسم شخص وليس اسم «الأمين». ما رح أعتبر هالاسم لحاله إثبات قانوني للشركة. إذا ظهر اسم مختلف عن المستفيد المخصص للمعرف اللي اخترته لا تكمل التحويل. المطلوب الآن ${fee} دنانير فقط رسوم فتح الملف.\n${receipt}`;
   }
 
   if (input.kind === "amount_confirmation") {
@@ -116,7 +116,7 @@ export function buildPaymentClosingReply(input: {
     return `أكيد. المطلوب بهالمرحلة ${fee} دنانير فقط رسوم فتح الملف.\n${destinations}\n${receipt}\nبعد رفع الوصل بنراجع العملية، وما في داعي لأي تحويل إضافي.`;
   }
 
-  return `حقك تطمّن قبل ما تحول. المطلوب بهالمرحلة ${fee} دنانير فقط رسوم فتح الملف، مش دفعة أولى ولا قسط أول. اسم المستفيد المعتمد في بيانات التحويل الحالية هو ${beneficiary}؛ إذا ظهر اسم مختلف لا تكمل التحويل. بعد التحويل بترفع الوصل من الرابط الرسمي المرتبط بنفس طلبك حتى ينراجع الدفع، وما بنعتبر الدفع مؤكد من رسالة واتساب وحدها. الرسوم مستردة بالكامل عبر المسار الرسمي إذا ما صدرت الموافقة النهائية، أو إذا قررت تلغي بعد دفع مؤكد.\n${receipt}`;
+  return `حقك تطمّن قبل ما تحول. المطلوب بهالمرحلة ${fee} دنانير فقط رسوم فتح الملف، مش دفعة أولى ولا قسط أول. اسم المستفيد المعتمد في بيانات التحويل الحالية هو ${beneficiary}؛ إذا ظهر اسم مختلف عن المستفيد المخصص للمعرف اللي اخترته لا تكمل التحويل. بعد التحويل بترفع الوصل من الرابط الرسمي المرتبط بنفس طلبك حتى ينراجع الدفع، وما بنعتبر الدفع مؤكد من رسالة واتساب وحدها. الرسوم مستردة بالكامل عبر المسار الرسمي إذا ما صدرت الموافقة النهائية، أو إذا قررت تلغي بعد دفع مؤكد.\n${receipt}`;
 }
 
 export function paymentClosingReplyCovers(input: {

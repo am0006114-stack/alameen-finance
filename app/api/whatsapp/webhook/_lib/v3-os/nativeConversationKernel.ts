@@ -722,7 +722,7 @@ export function validateNativeConversationReply(input: {
   const feeAllowed = feeRelevantByContext({ turn: input.turn, truth: input.truth, customerText: input.customerText }) || input.disclosureRequiredThisTurn || input.protectedFiveJodStep;
   if (feeMentioned && !feeAllowed) reasons.push("unsolicited_fee_topic_drift");
 
-  const hasPaymentExecution = /0788500337|PAYAMEEEN|AMEEN1ST|AM500337/i.test(reply);
+  const hasPaymentExecution = /0788500337|PAYAMEEEN|AMEEN1ST|AM500337|AMEEN2ND/i.test(reply);
   if (hasPaymentExecution && !feeAllowed) reasons.push("unsolicited_fee_payment_destination");
   if (/\/receipt\?tracking=/i.test(reply) && !feeAllowed) reasons.push("unsolicited_receipt_link");
   if (input.disclosureRequiredThisTurn && hasPaymentExecution) reasons.push("payment_details_before_informed_confirmation");
