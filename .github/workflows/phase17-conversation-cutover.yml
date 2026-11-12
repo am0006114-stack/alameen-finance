@@ -41,6 +41,9 @@ jobs:
       - name: Paid WhatsApp zero-AI and secure-channel actions
         run: node scripts/v3-p0-paid-whatsapp-hard-cutover-selftest.cjs
 
+      - name: AMEEN2ND beneficiary isolation
+        run: node scripts/v3-ameen2nd-beneficiary-isolation-selftest.cjs
+
       - name: TypeScript
         run: npx tsc --noEmit
 

@@ -113,7 +113,7 @@ function hasContinuationDecisionQuestion(reply: string) {
 
 function hasPaymentDetail(reply: string) {
   const n = normalizeArabic(reply);
-  return /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,40}(?:كليك|cliq|محفظه|محفظة)/i.test(reply) ||
+  return /(?:5|٥)\s*(?:دنانير|دينار)|رسوم\s*فتح\s*الملف|AMEEN2ND|مصطفى\s+مخلد\s+مطلق|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,40}(?:كليك|cliq|محفظه|محفظة)/i.test(reply) ||
     n.includes(normalizeArabic("رسوم فتح الملف"));
 }
 
@@ -251,7 +251,7 @@ function explicitFeeQuestion(turn: InterpretedTurn) {
 }
 
 function restrictedPaymentDestinationDetail(reply: string) {
-  return /PAYAMEEEN|AMEEN1ST|AM500337|0788500337|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,45}(?:كليك|cliq|محفظه|محفظة)|(?:رقم|معرف)[^\n]{0,25}(?:الدفع|المحفظه|المحفظة)/i.test(reply);
+  return /AMEEN2ND|مصطفى\s+مخلد\s+مطلق|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|AMEEENPAY|AMENPAY|ABDUL\s+RAHMAN|\/receipt(?:\?|\b)|اسم\s*المستفيد|(?:حول|حوّل|تحويل)[^\n]{0,45}(?:كليك|cliq|محفظه|محفظة)|(?:رقم|معرف)[^\n]{0,25}(?:الدفع|المحفظه|المحفظة)/i.test(reply);
 }
 
 function excessiveLaughter(reply: string) {

@@ -27,6 +27,7 @@ import { applyAuthoritativeActionConversationMemory } from "./actionConversation
 import { contactExplanationFromText, markContactResolution, clearContactResolution, canonicalWaId } from "./contactIdentity";
 import { applyConversationConstraintsToReply, updateConversationConstraints } from "./conversationConstraints";
 import { buildPaymentIncidentReply, detectPaymentIncident } from "./paymentIncident";
+import { fileOpeningPaymentBeneficiaryGuidance } from "./paymentDestinationOverride";
 import { enforceSemanticDecisionAuthority, semanticConfirmsContinuation, semanticContinuationVeto } from "./semanticAuthority";
 import type { SemanticReplyCheck } from "./semanticReplyVerifier";
 import { buildInformedCommercialDisclosureReply, commercialDisclosureDelivered, informedCommercialContinuationConfirmed, markCommercialDisclosureAcknowledged, markCommercialDisclosureDelivered, numericContinuationShortcutText, resemblesFullCommercialDisclosure, shouldExplainCommercialStep } from "./informedCommercialContinuation";
@@ -900,7 +901,7 @@ async function runLegacyV3ProductionLive(input: {
   const paymentIncident = detectPaymentIncident(effectiveCustomerText);
   let paymentIncidentReply: string | null = null;
   if (paymentIncident !== "none" && truthBeforeActions.application) {
-    paymentIncidentReply = buildPaymentIncidentReply({ kind: paymentIncident, expectedBeneficiary: truthBeforeActions.policy.paymentBeneficiaryName });
+    paymentIncidentReply = buildPaymentIncidentReply({ kind: paymentIncident, expectedBeneficiary: fileOpeningPaymentBeneficiaryGuidance() });
     try {
       await notifyV3Discord({
         event: "manual_action_required",
@@ -913,7 +914,7 @@ async function runLegacyV3ProductionLive(input: {
         details: {
           action: "payment_incident_review",
           "المشكلة": paymentIncident,
-          "اسم المستفيد الرسمي": truthBeforeActions.policy.paymentBeneficiaryName,
+          "أسماء المستفيدين بحسب جهة الدفع": fileOpeningPaymentBeneficiaryGuidance(),
           "رسالة العميل": effectiveCustomerText,
         },
       });
@@ -1408,7 +1409,7 @@ async function runLegacyV3ProductionLive(input: {
           .split(/(?<=[.!؟])\s+|\n+/)
           .map((segment) => segment.trim())
           .filter(Boolean)
-          .filter((segment) => !/(?:رسوم\s+فتح\s+الملف|(?:5|٥|خمس)\s*(?:دنانير|دينار)|orange\s*money|اورنج\s+موني|أورنج\s+موني|\bcliq\b|كليك|PAYAMEEEN|AMEEN1ST|AM500337|0788500337|اسم\s+المستفيد|تأكيد\s+الحوالة|تأكيد\s+الدفع\s+النهائي|receipt\?|\/receipt\b|القسط\s+الأول\s+مش\s+مطلوب|رفع\s+الوصل|ارفع\s+الوصل|بيانات\s+الدفع|هل\s+ترغب\s+بالاستمرار|اريد\s+الاستمرار|أريد\s+الاستمرار|لا[،,]?\s+مش\s+هسا)/i.test(segment))
+          .filter((segment) => !/(?:رسوم\s+فتح\s+الملف|(?:5|٥|خمس)\s*(?:دنانير|دينار)|orange\s*money|اورنج\s+موني|أورنج\s+موني|\bcliq\b|كليك|PAYAMEEEN|AMEEN1ST|AM500337|AMEEN2ND|0788500337|اسم\s+المستفيد|تأكيد\s+الحوالة|تأكيد\s+الدفع\s+النهائي|receipt\?|\/receipt\b|القسط\s+الأول\s+مش\s+مطلوب|رفع\s+الوصل|ارفع\s+الوصل|بيانات\s+الدفع|هل\s+ترغب\s+بالاستمرار|اريد\s+الاستمرار|أريد\s+الاستمرار|لا[،,]?\s+مش\s+هسا)/i.test(segment))
           .join(" ")
           .trim()
       : "";
